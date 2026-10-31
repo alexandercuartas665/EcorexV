@@ -2,6 +2,594 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-30 - Campos configurables en la zona principal del tercero + Sector como lista (ADR-0141)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev preview 5234, AGRO). Codigo en tronco, pendiente OK de deploy.
+- PEDIDO: la ficha del cliente tiene campos PRINCIPALES fijos; el usuario quiere insertar campos NUEVOS configurados
+  ENTRE esos principales, y que "Sector / Industria" se llene desde una LISTA configurable en el editor de campos.
+  Se penso antes de codear (AskUserQuestion): solo motor Clasico; Enfoque A (principales fijos, campos nuevos
+  intercalados por "ancla", Sector como lista); valor de Sector preexistente se conserva como opcion extra.
+- SOLUCION (sin migracion, ADR-0141): ficha reservada `general` ("Datos principales") sembrada por
+  TerceroFichaService (+ backfill tenants existentes), renderizada INLINE en la zona principal y excluida de las
+  fichas colapsables; sus valores viven en Tercero.FichasJson["general"]. El ANCLA de cada campo (despues de cual
+  principal aparece) y el modo de Sector (texto/lista + opciones) viven en UNA fila de TenantConfiguration
+  (clave `directorio.general.layout`, JSON) -> servicio nuevo IDirectorioLayoutConfigService
+  (Ecorex.Application/Directorio/). El ancla NO se guarda en SortOrder porque ReorderFieldsAsync lo renumera.
+- UI: modal "Configurar campos" (ficha Datos principales) gana bloque "CAMPO SECTOR / INDUSTRIA"
+  (checkbox lista + textarea opciones + Guardar Sector) y selector "Posicion" (= ancla) en el form de campo,
+  solo para la ficha general. Modal del tercero: GeneralFieldsAfter(anchor) intercala cada campo general tras su
+  principal; Sector se pinta como <select> (SectorOptionList antepone el valor actual si no esta en la lista) cuando
+  el layout lo marca como lista, si no, como el <input> de texto de siempre.
+- ARCHIVOS: nuevos Directorio/DirectorioLayoutConfigService.cs (+interface) y registro en DependencyInjection.cs;
+  TerceroFichaService.cs (ficha general + backfill); TerceroModal.razor (+.cs) (render inline + Sector lista);
+  DirectorioSharedBase.cs + DirectorioGeneral.razor (UI config: Sector + Posicion/ancla).
+- VALIDADO E2E (preview 5234, BD local ecorex 5442, login calidad@agrometalicas.com): campo "Pais" (Texto) anclado
+  "Despues de Ciudad" + Sector lista (Agropecuario/Industrial/Servicios/Comercio). En "360 Investments S.A.S": Pais
+  aparecio intercalado tras Ciudad y Sector como desplegable; Pais=Colombia y Sector=Industrial persistieron al
+  reabrir (lectura fresca de BD); registro revertido limpio al terminar. FIX de paso: el placeholder del textarea de
+  opciones mostraba literal `&#10;` -> cambiado a texto plano. Build SuperAdmin verde (0 errores).
+- SIGUIENTE: OK de deploy del usuario para esta feature (junto a 47cd9336 sync-contacto y 89459412 aviso-tarea-asignada,
+  ambos SIN deploy). Reflejar en vault (INVENTARIO GENERAL) al cerrar Directorio.
+- BLOQUEOS: ninguno. El modal del tercero NO cierra al Guardar (comportamiento preexistente, no de esta feature);
+  el guardado persiste igual.
+
+## 2026-10-30 - Asistente de reglas: campos y nodos como DESPLEGABLE (A + B)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev 5263). Solo UI (SuperAdmin) + descriptores de 3 verbos.
+- PEDIDO: en el asistente POR-VINCULO del FormDesigner, el usuario vio params que parecian vacios y ningun selector
+  de flujo, y pregunto si "el flujo esta hardcodeado". Diagnostico: el flujo NO esta hardcodeado -> los verbos de
+  flujo resuelven la instancia ACTIVA de la TAREA en ejecucion (resp.Reference -> TaskItem -> WorkflowInstance
+  Running), por eso no hay "seleccionar flujo". Lo que SE sentia hardcodeado eran las referencias por texto crudo:
+  codigos de campo (ej. fecha_compra) y BpmnElementId de nodos (ej. Event_0kh7q6v). Mejora pedida: A) campos como
+  desplegable; B) nodos como desplegable eligiendo un flujo de ayuda.
+- A (campos desplegable): nuevo RuleParamType.FieldCodeList (multi-campo, se guarda arreglo JSON de codigos).
+  Descriptores: REINICIAR_FLUJO_TAREA.assigneeFieldCode Text->FieldCode; DEVOLVER_CONCILIADOR.emptyFieldCode
+  Text->FieldCode; COMPLETAR_PASO_FLUJO.requireFields Json->FieldCodeList. El modal ya resolvia FieldCode con
+  FormFieldOptions(); se agrego la UI de lista (agregar/quitar) para FieldCodeList.
+- B (nodos desplegable): nuevo RuleParamType.FlowNode. Descriptores: COMPLETAR_PASO_FLUJO.targetNodeBpmnId y
+  REINICIAR_FLUJO_TAREA.restartNodeBpmnId Text->FlowNode. El modal (FieldRuleParamsModal) inyecta
+  IWorkflowDesignService: muestra un selector de FLUJO (ayuda de diseno; NO amarra la regla, el runtime sigue
+  resolviendo de la tarea) via ListForIndexAsync, y cada FlowNode es un desplegable de nodos (GetCanvasAsync ->
+  BpmnElementId + nombre + tipo). Si ya hay un nodo guardado, AUTO-DETECTA a que flujo pertenece y lo preselecciona.
+  Se guarda el BpmnElementId (string).
+- Compat: RuleParamXml.cs y Reglas.razor (editor de catalogo) tratan FieldCodeList como JSON y FlowNode como
+  string (default). Enums nuevos AL FINAL (no corren valores). Build Release verde (0 errores).
+- VALIDADO E2E dev 5263 (Owner gerenciacomercial), AUT-COMPRA-001: assigneeFieldCode salio como desplegable con
+  "Redireccionamiento (fecha_compra)"; requireFields como fila "Aprobador del gasto (text_ca893)"; al elegir
+  COMPRAS (v5) el nodo listo Inicio/Validacion Factura/Autorizar Compra (Compuerta)/Contabilizar Factura (Fin)/
+  No se aprueba; "Aprobar Compra" (targetNodeBpmnId=Event_0kh7q6v) AUTO-selecciono COMPRAS y mostro "Contabilizar
+  Factura - Fin". Guardado persiste {"targetNodeBpmnId":"Event_0kh7q6v"} (verificado en BD, luego revertido a NULL).
+- FIX (mismo dia): el selector de flujo salia en blanco en reglas SIN nodo guardado (ej. "Rechazar y reiniciar",
+  restartNodeBpmnId vacio = inicio del flujo), y parecia "mal configurado". El auto-detect solo deducia el flujo de
+  un nodo YA guardado. Causa real: el form NO esta vinculado a un nodo (workflow_node_forms vacio); el nexo form->flujo
+  es la SUBCATEGORIA de actividad (actividad_subcategorias.form_definition_id -> workflow_definition_id). Agregado
+  IWorkflowDesignService.GetFlowDefinitionForFormAsync(formDefId); el modal recibe FormDefinitionId (desde FormDesigner)
+  y, sin nodo guardado, PRESELECCIONA el flujo del formulario. Validado: "Rechazar y reiniciar" abre con flujo
+  COMPRAS (v5) y "Nodo donde reiniciar" como desplegable con "(sin valor / inicio del flujo)".
+- DESPLIEGUE dev: build Release de SuperAdmin -> copia de Ecorex.SuperAdmin.dll + Ecorex.Application.dll a appout5263;
+  server relanzado como Owner. Sin cambios de esquema de BD. GOTCHA: otra sesion esta tocando Ecorex.Application
+  (tipos nuevos, ej. DirectorioLayoutDto); al reconstruir SuperAdmin hay que copiar TAMBIEN el Application.dll recien
+  compilado o da TypeLoadException al arrancar.
+- PENDIENTE: commit + (con OK) deploy a prod. No toca prod ni requiere migracion.
+
+## 2026-10-30 - Asistente de parametros POR-VINCULO en el FormDesigner (reglas del formulario)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev 5263). Solo cambios de UI (SuperAdmin).
+- PEDIDO (imagen 98): en el tab Reglas del FormDesigner, "Editar" saltaba al catalogo global (/reglas), donde
+  los parametros son COMPARTIDOS (REINICIAR y DEVOLVER apuntaban al mismo doc). El usuario quiere que cada
+  regla vinculada tenga SUS parametros independientes, configurables con un MODAL ASISTENTE aqui mismo, y que
+  esa config VIVA en el formulario (no en el catalogo).
+- SOLUCION: componente nuevo `Components/Shared/Forms/FieldRuleParamsModal.razor` (+ .razor.css). Modal
+  GENERICO guiado por el `RuleVerbDescriptor` del verbo (mismo contrato que /reglas, sin conocer la clase):
+  * Carga EFECTIVA = params del catalogo (RulesSvc.GetRuleAsync) + override del vinculo
+    (GetFieldRuleOverrideAsync); el override gana por clave (MergeParams).
+  * Renderiza un input por parametro segun RuleParamType (Text/Number/Boolean/Json/FieldCode/Select/Mapping);
+    FieldCode = desplegable con los campos del formulario; help por parametro; obligatorios validados.
+  * Guarda el set COMPLETO en form_field_rules.params_override_json (SetFieldRuleOverrideAsync) -> cada
+    vinculo queda AUTONOMO del catalogo. Boton "Restablecer al catalogo" (override = NULL).
+- FormDesigner: el "Editar" de la lista de reglas ahora abre este modal (OpenParamsAssistant) en vez del
+  enlace externo; se deja un link secundario "catalogo ↗" (avanzado). Nuevo helper FormFieldOptions() para los
+  parametros FieldCode. GENERAR_REQUERIMIENTOS conserva su asistente de mapeo propio.
+- GOTCHA corregido en vuelo: pasar `VerbName="pl.VerbName"` (string) lo tomaba LITERAL; debe ser
+  `VerbName="@pl.VerbName"`. Los params Guid (no-string) si se evaluan sin @.
+- VALIDADO E2E dev 5263 (como Owner gerenciacomercial; el FormDesigner exige policy Formularios.Disenar y
+  WILSON=Advisor NO la tiene): en AUT-COMPRA-001, boton "Rechazar" -> tab Reglas -> "Editar" en
+  DEVOLVER_CONCILIADOR abre el modal con emptyFieldCode/confirmMessage/logMessage precargados; edite logMessage
+  y Guardar escribio el set completo en params_override_json del vinculo (verificado en BD); modal cierra y la
+  lista refresca. Artefacto de prueba luego limpiado (override -> NULL).
+- DESPLIEGUE dev: publish Release -> appout5263 (robocopy /MIR, restaurado appsettings.Development.local.json,
+  CSS scoped 200 OK); un re-swap de solo Ecorex.SuperAdmin.dll tras el fix del @. Sin cambios de BD de esquema.
+- PENDIENTE: commit + (con OK) deploy a prod. No toca prod ni requiere migracion.
+
+## 2026-10-30 - RELEASE v0.16.248 (deploy prod) - Fase F DIAN (Redireccionar APROBADOR = delegar)
+
+- AGENTE: Claude Opus 4.8. Deploy a prod por VIA RAPIDA GHCR (OK explicito del usuario, alcance confirmado
+  por AskUserQuestion: "empaquetar Fase F y desplegar").
+- QUE SHIPEA: la Fase F del boton "Redireccionar" del formulario (ver entrada "Boton Rechazar/Redireccionar"
+  mas abajo y la memoria [[flujo-asignado-desde-campo-formulario]]). Cuando el aprobador YA esta EN la
+  compuerta "Autorizar Compra" y cambia "Aprobador del gasto" (text_ca893) y pulsa "Redireccionar",
+  DELEGA reasignando SOLO el paso vigente (engine.ReassignCurrentStepFromFormAsync) SIN avanzar el flujo ni
+  cambiar el dueno de la tarea; antes reventaba por "compuerta sin targetNodeBpmnId". Archivos: Ecorex.Application
+  WorkflowEngine.cs (+67), IWorkflowEngine.cs (+13), Rules/Verbs/CompletarPasoFlujoVerb.cs (+21, param
+  onGatewayNoTarget=reassign). Sin migracion, sin secretos, ASCII. Trabajo de la sesion SOLDARCO; esta sesion
+  lo empaqueto y desplego con OK del usuario.
+- GATE: build Release 0 errores; Ecorex.Application.Tests 1145/1145.
+- DEPLOY: bump AppVersion 0.16.247 -> 0.16.248, doble push tronco+espejo, deploy-prod-fast.ps1 -WaitCI.
+- PENDIENTE DATA (prod, self-serve o SQL): recrear la config del boton "Redireccionar" (text_50959):
+  params_override_json '{"onGatewayNoTarget":"reassign"}' en el form_field_rule por tenant. El codigo NO lleva
+  esa config; sin ella el boton se comporta como antes.
+
+## 2026-10-30 - RELEASE v0.16.247 (deploy prod) - fix de voz (sondeo Retell)
+
+- AGENTE: Claude Opus 4.8. Integracion + deploy a prod por VIA RAPIDA GHCR (OK explicito del usuario por version).
+- INTEGRACION: cherry-pick del commit 5bfbecdb (rama worktree-voz-retell-fallback, dev sesion VOZ) -> c9b66d15
+  en el tronco. Toca solo 4 archivos: Voice/{IRetellApiClient,RetellDtos,RetellVoiceService}.cs +
+  Infrastructure/Retell/RetellApiClient.cs. Sin migracion, sin secretos, ASCII.
+- QUE ARREGLA: en /config-voz la "Llamada de prueba" giraba infinito porque el resultado solo llega por
+  webhook de Retell y en dev/tunel no alcanza la instancia. FIX: fallback de sondeo GET /v2/get-call/{id}
+  (lectura idempotente) que vuelca estado/transcript/grabacion/costo a la VoiceCall cuando el webhook no llega.
+- GATE: build Release 0 errores; Ecorex.Application.Tests 1145/1145.
+- DEPLOY: bump AppVersion 0.16.246 -> 0.16.247 (commit c3a26a9e, solo AppVersion.cs), doble push tronco+espejo.
+  deploy-prod-fast.ps1 -WaitCI corrido por el agente. VERIFICADO EN VIVO contra 10.0.0.3: /login HTTP 200
+  = v0.16.247, "Now listening" + "Application started" sin fatal, sin migraciones que aplicar.
+- PENDIENTE (lo dejo anotado del dev de VOZ): los flujos reales de prod (paso de agente esperando la llamada
+  + volcado a formulario) SIGUEN dependiendo del webhook; el sondeo cubre SOLO el modal de prueba. Endurecer:
+  registrar webhook_url por llamada en /v2/create-phone-call y/o sondear en el barrido de agentes.
+- NOTA: esta entrada quedo en el arbol de trabajo pendiente de commit git porque PROGRESO.md tenia cambios
+  sin commitear de otra sesion (fix "Redireccionar APROBADOR"); se commiteara junto o cuando esa sesion cierre.
+
+## 2026-10-29 - Fix: "Redireccionar" del APROBADOR en la compuerta (delegar) - DIAN SOLDARCO
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5263 WILSON). Codigo compila; config cableada solo en BD dev.
+- SINTOMA (caso T00043): el aprobador, parado en la compuerta "Autorizar Compra", cambia el "Aprobador
+  del gasto" (text_ca893) y pulsa "Redireccionar" para delegar a otra persona -> error rojo
+  "El paso actual es una compuerta: configura la ruta destino (targetNodeBpmnId) para resolverla."
+- CAUSA: el boton "Redireccionar" (text_50959) corre COMPLETAR_PASO_FLUJO sin targetNodeBpmnId. En el paso
+  Task "Validacion Factura" eso completa y avanza (la compuerta siguiente toma su encargado de text_ca893,
+  por eso "cambiaba la persona de aprobacion"). Pero en T00043 el flujo YA esta EN la compuerta; sin ruta
+  destino, la rama de compuerta que agregue en Fase D cortaba con ese error. El usuario confirmo que
+  "redireccionar" aqui = cambiar el aprobador (delegar), reasignando SOLO el paso (la tarea queda igual).
+- FIX (codigo, solo Ecorex.Application):
+  * Nuevo IWorkflowEngine.ReassignCurrentStepFromFormAsync(instanceId, stepId, actorUserId): re-resuelve el
+    encargado del paso VIGENTE con el MISMO resolver de activacion (ResolveAssigneeFromFormAsync, lee el
+    campo del nodo YA guardado) y reasigna SOLO ese paso; NO avanza el flujo ni toca el dueno de la tarea;
+    registra la bitacora "redirecciono el paso X a <correo>". Solo aplica si el nodo es AssigneeSource.FormField.
+  * CompletarPasoFlujoVerb: en compuerta sin targetNodeBpmnId, si el param nuevo onGatewayNoTarget=="reassign",
+    llama al metodo anterior (delega) en vez de fallar; devuelve StepCompleted para refrescar el flujo.
+- CONFIG (DATA, dev BD, self-serve): form_field_rules del boton text_50959 -> params_override_json
+  '{"onGatewayNoTarget":"reassign"}'. El requireFields:[text_ca893] existente sigue exigiendo el aprobador.
+- VALIDADO E2E en dev 5263 (WILSON, BD ecorex 5442): en T00043 el paso "Autorizar Compra" paso de
+  gerenciacomercial@soldarco.com a administracion@soldarco.com (= text_ca893), compuerta sigue Pending+current
+  (no avanza), tarea sigue de WILSON/Active, sin error. Build Release 0 errores; sin fakes de IWorkflowEngine.
+- PENDIENTE (requiere OK del usuario): llevar a prod -> deploy del Ecorex.Application nuevo + recrear el
+  override '{"onGatewayNoTarget":"reassign"}' en el FFR del boton Redireccionar en la BD de prod.
+
+## 2026-10-29 - RELEASE v0.16.246 (deploy prod via GHCR) - 4 features + fix flujo
+
+- AGENTES: Claude Opus 4.8 (esta sesion) + trabajo acumulado de sesiones de dev previas en el mismo arbol.
+- ALCANCE confirmado con el usuario (2 rondas de AskUserQuestion, re-confirmado tras inventario completo):
+  empaquetar TODO el WIP del arbol como v0.16.246 porque las features comparten archivos
+  (DynamicFormRenderer, RulesEngine, DependencyInjection, TaskDetailModal) y no se separan limpio.
+- CONTENIDO (4 grupos + 1 commit arrastrado):
+  1. Editar contacto de la tarea con el modal del Directorio (TerceroModal) en vez del mini-editor.
+     Enlaza/crea Tercero y sincroniza los 4 campos de contacto de la tarea (TerceroId + Requester*).
+     Nuevo SetContactTerceroAsync en TaskItemService/ITaskItemService + TerceroId en el detail DTO.
+     VALIDADO E2E en dev 5234 (rutas CREATE y EDIT). Fakes de test actualizados.
+  2. FormPrint / ActionButton (Fase 4): enum FormControlType.ActionButton + ActionButtonConfig.cs +
+     FormPrint/FormPrintLienzo/FormDesigner/FormPublic/DynamicFormRenderer/FormFieldValidator. (Cierra el
+     skew que hacia crashear builds del tronco al leer filas 'ActionButton' en la BD.)
+  3. Conciliacion "devolver al conciliador" + historial de asignaciones + filtro rechazados (ver la
+     entrada siguiente): verbo DEVOLVER_CONCILIADOR + mecanismo RuleAction.Confirm/RuleContext.Confirmed,
+     param onEmptyField en REINICIAR_FLUJO_TAREA, entidad ConciliacionDianAsignacion + enum
+     ConciliacionAsignacionAccion + flag Rechazado, ConciliacionAsignacionHistorialService, columna de
+     conteo + modal historial en la grilla, campo de filtro 'rechazado'.
+  4. Bundle v0.16.246: ajustes de BitacoraAgente, NotificationChannelSender/INotificationChannelSender,
+     AiAgentLineService, NodeNotifyService, TaskWizard.
+  (+) commit previo sin pushear 98552438 "fix(workflows): export/import JSON del flujo conserva el asignado del nodo".
+- MIGRACIONES (DUALES, ADITIVAS, auto-migran al arrancar): AddConciliacionAsignacionHistorial
+  (PG 20261029223052 / SQL 20261029223259): AddColumn rechazado (bool default false) en
+  conciliacion_dian_renglones + CreateTable conciliacion_dian_asignaciones + indices. Down limpio
+  (DropTable + DropColumn). Rollback seguro, no toca datos existentes.
+- GATE local: build Release 0 errores (producto + tests, redirigido a scratch por locks de otras
+  sesiones); unit tests Domain 35/35 + Application 1145/1145 (incluye RuleVerbTests). Secret-scan limpio.
+  Matriz dual de integracion (Testcontainers PG+SQLServer) + gitleaks: los corre el CI.
+- DEPLOY: VIA RAPIDA GHCR. bump AppVersion 0.16.245 -> 0.16.246, doble push al tronco fase-0/clon-backbone
+  y al espejo origin/main (dispara publish-image.yml). BACKUP de prod y corrida de deploy-prod-fast.ps1
+  -WaitCI -Version 0.16.246 los ejecuta el usuario (el backup necesita la connection string de prod que
+  no esta en el repo).
+
+## 2026-10-29 - Boton "Rechazar": devolver al conciliador + historial de asignaciones + filtro (DIAN, SOLDARCO)
+
+- PEDIDO: el boton "Rechazar" (AUT-COMPRA-001) hoy EXIGE elegir usuario en "Redireccionamiento" (campo fecha_compra);
+  si el asignado no sabe a quien redirigir, debe poder DEVOLVER el documento al conciliador: modal de confirmacion ->
+  cancela la tarea+flujo, desasigna el renglon (vuelve al pool) y lo marca RECHAZADO. Ademas: columna que cuenta las
+  veces direccionado (popup con usuario+fecha, marcando devoluciones) y campo "rechazado" en el filtro.
+- HECHO (4 fases, SIN push/deploy; validado en dev 5263 WILSON/SOLDARCO, BD ecorex 5442):
+  1. DATOS: entidad ConciliacionDianAsignacion (historial append-only) + enum ConciliacionAsignacionAccion
+     {Asignado,Rechazado} + columna bool Rechazado en ConciliacionDianRenglon + IConciliacionAsignacionHistorialService
+     (RegistrarAsync/GetHistorialAsync/GetConteosAsync). Log "Asignado" enganchado en SetAssigneeAsync (columna) y
+     SetAsignadoAsync (mapa JSON), solo si usuario != anterior (sin doble conteo) y limpia Rechazado al direccionar.
+     Migraciones DUALES AddConciliacionAsignacionHistorial (PG 20261029223052 / SQL 20261029...); PG aplicada a dev.
+  2. DEVOLVER: mecanismo generico de confirmacion de reglas -> RuleContext.Confirmed + RuleActionKind.Confirm +
+     RuleAction.Confirm(msg); param confirmed en IRulesEngine.ExecuteForFormFieldAsync + IFormRuleDispatcher. Verbo
+     nuevo DEVOLVER_CONCILIADOR (si el campo esta vacio y !Confirmed -> Confirm; si Confirmed -> desasigna ambos
+     almacenes + ClearSolicitadaAsync + Rechazado=true + historial + CancelInstanceAsync + ArchiveAsync la tarea).
+     REINICIAR_FLUJO_TAREA gana param onEmptyField=fail(default)|skip. DynamicFormRenderer: modal propio
+     (_confirmOpen) que, al confirmar, RE-EJECUTA el boton con confirmed=true.
+  3. GRILLA: columna "Asignaciones" (conteo, click -> modal historial fecha+usuario+badge Asignado/Devuelto) +
+     columna "Rechazado"; conteo por pagina via GetConteosAsync. CSS cd-asig-btn/cd-hist-*.
+  4. FILTRO: campo "rechazado" (Bool) en ConciliacionFilter -> "buscar documentos rechazados".
+- GATE: build Release 0 errores (SuperAdmin + backend); unit tests Application 1145/1145; sin drift dual
+  (has-pending-model-changes vacio PG+SQL). WILSON redesplegado (publish con BaseOutputPath redirigido para no
+  tocar src/bin bloqueado por servidores dev sueltos 5234/5249); columnas renderizan sin errores de consola.
+- PENDIENTE (DATA dev, self-serve): cablear el boton button_541d4 con 2 reglas: [0] REINICIAR {onEmptyField:skip}
+  (params_override en el link existente), [1] DEVOLVER_CONCILIADOR {emptyFieldCode:fecha_compra, confirmMessage}.
+  Ids: form AUT-COMPRA-001, doc regla 11110000-...-0003, tenant e3519cc4-..., REINICIAR rule 11110000-...-0004.
+- DEPLOY: NO. Ver [[flujo-asignado-desde-campo-formulario]].
+- FIX adicional (mismo dia, reportado al probar): el lookup inline del Contenedor en la grilla del conciliador
+  (columnas Orden Compra / Num Factura SISTEMA / dinamicas tipo Lookup) se quedaba ABIERTO sin forma de cerrarlo
+  cuando no habia coincidencias -- el DataLookupField en modo typeahead solo cierra su popup al ELEGIR fila
+  (ChooseAsync), sin cierre por blur/clic-fuera. FIX targeted (sin tocar el componente compartido que usan todos
+  los formularios): boton "x" Cancelar en el editor inline (ConciliacionDian.razor: CancelSysEdit para numsol/oc +
+  CloseEdit para dinamicos; CSS cd-lk-x). Validado en 5263 (abrir lookup OC -> aparece "Cancelar" -> cierra).
+  Redesplegado WILSON. NOTA de fondo (no arreglada aqui, afecta a todos los forms): el popup typeahead de
+  DataLookupField deberia cerrarse tambien al perder foco.
+
+## 2026-10-29 - INTEGRACION requerimiento_compras al tronco + DOBLE PUSH (modulo Requerimientos/Compras)
+
+- PEDIDO (sesion ecorex.soldarco): integrar `requerimiento_compras` (tip 16e87c54, en origin) al tronco.
+- MISMA SITUACION que el merge DIAN: la rama traia 18 commits sobre la base, pero 11 eran un merge de sincronizacion
+  (661670a3) con el tronco VIEJO (SHAs ya reemplazadas por el espejo limpio: los 7 DIAN nuevos + v0.16.241-245 de
+  origin). Confirmado: 11 patch-ids ya presentes en el tronco. Los GENUINAMENTE nuevos son 6 commits de feature.
+- HECHO (cherry-pick limpio de los 6, mismo criterio aprobado para no re-duplicar historia en el espejo):
+  a908e500,c409d9e6,76ef9bd3,a22f035e,f0de6be6,2a489d68 (ex 9b953e0a..16e87c54) sobre el tronco 13ac25b8.
+  Cherry-pick SIN conflictos (auto-merge de DynamicFormRenderer/FormDesigner/snapshots/DI). VERIFICACION: el
+  unico residual `git diff origin/requerimiento_compras HEAD` son los 2 commits DIAN mas nuevos que la rama NO
+  tenia (CompletarPasoFlujoVerb.cs compuertas + TaskDetailModal/app.css boton diagrama) -> nada del modulo
+  Requerimientos perdido, cero duplicados. Ambos remotos a 2a489d68 por FAST-FORWARD. Rama intacta en 16e87c54.
+- MIGRACIONES (DUALES, ADITIVAS AddColumn, auto-migra al arrancar): AddRequerimientoSolicitante (PG 20261022234952 /
+  SQL 20261022235420), AddRequerimientoObservaciones (PG 20261028211829 / SQL 20261028212145), AddRequerimientoForzarDividir
+  (PG 20261029142238 / SQL 20261029142522). Build Release confirma sin drift de modelo. CONFIG sin migracion:
+  modo Consolidado/Dividido en TenantConfiguration (ConfigKey 'requerimientos.modo', default Consolidado).
+- GATE: build Release 0 errores; dotnet format (archivos tocados) limpio; unit tests Domain 35/35 + Application
+  1145/1145 (0 fallos); grep de secretos limpio; gitleaks lo corre el CI. Matriz dual integracion (PG+SQLServer
+  Testcontainers): NO corrida local (pesada); migraciones solo AddColumn -> la cubre el CI.
+- RESUMEN FUNCIONAL: boton "Configuracion" en el header del modulo (modo Consolidado/Dividido + /requerimientos-config);
+  vista Consolidada por producto (compra a nivel de grupo via "Planificar grupo", export incluye miembros); override
+  "Dividir" por registro (forzar_dividir); modal "Planificar grupo" 2 tabs (Detalle + Planificacion transaccional).
+- DEPLOY: NO (paso aparte, requiere OK por version). Ver [[worktree-requerimiento-compras]].
+
+## 2026-10-29 - MERGE feat/flujo-botones-form-dian al tronco + DOBLE PUSH (botones del form que operan el flujo DIAN)
+
+- PEDIDO (sesion ecorex.soldarco): unir `feat/flujo-botones-form-dian` al tronco fase-0/clon-backbone y doble push
+  (origin/fase-0/clon-backbone + origin/main espejo). No reorganizar ramas ni reescribir historia. Sin deploy.
+- OJO (el premise del pedido estaba desactualizado): la rama traia 13 commits "sobre origin", pero origin YA habia
+  avanzado (otra sesion pusheo v0.16.241-245 con OTRAS SHAs). Divergencia real desde f56a7c4c (v0.16.240):
+  * origin (main==fase-0, aa9e2097) = base + 6 commits v0.16.241-245.
+  * local HEAD (d9c43fa6, == feat/flujo-botones-form-dian) = base + 7 commits DIAN/flujo + 6 DUPLICADOS de
+    v0.16.241-245 (confirmado: 6 patch-ids identicos).
+- HECHO (estrategia aprobada por el usuario: cherry-pick de los 7 nuevos, espejo limpio sin duplicados):
+  reset del tronco a origin/fase-0 (aa9e2097) + cherry-pick de los 7 commits DIAN/flujo
+  (6529773e,6ef354de,b01ef8ee,441fb8ac,4732ee15,4c68e1e7,d9c43fa6 -> nuevos 6422fa5c..13ac25b8). VERIFICACION
+  CLAVE: `git diff d9c43fa6 HEAD` = VACIO (el arbol resultante es identico al tip de la rama; nada perdido, los
+  duplicados absorbidos). Ambos remotos quedaron en 13ac25b8 por FAST-FORWARD (no force, no rewrite). La rama
+  feat/flujo-botones-form-dian se deja intacta en d9c43fa6.
+- GATE: build Release 0 errores; dotnet format (archivos tocados) limpio; unit tests Domain 35/35 + Application
+  1145/1145 (0 fallos); sin archivos de Migrations (no requiere database update). gitleaks: no instalado local
+  (lo corre el CI); grep manual del diff sin secretos. Matriz dual de integracion (PG+SQLServer Testcontainers):
+  NO corrida local (pesada, Docker); sin cambios de esquema -> la cubre el CI.
+- CONFIG DE DATOS (NO viaja en el merge): el boton "Aprobar" de AUT-COMPRA-001 opera por REGLAS enganchadas al
+  campo (rules + form_field_rules), datos por tenant; en prod hay que crearlas self-serve o por SQL.
+- DEPLOY: NO (paso aparte, requiere OK por version). Ver [[flujo-asignado-desde-campo-formulario]], [[dron-conciliacion-dian-merge]].
+
+## 2026-10-29 - Control de formulario "Boton (imprimir lienzo)" self-serve (sesion formularios)
+
+- PEDIDO (sesion de formularios, paso 13 CANVAS-EMP): control nuevo tipo "Boton", configurable 100% desde
+  FormDesigner, colocable en cualquier parte del formulario (fuera del LienzoBloques), que al hacer clic abra
+  la vista existente FormPrintLienzo del lienzo elegido en pestana nueva. Que funcione tambien en /f/ anonimo.
+- HECHO (patron calcado de AiCompose, FormControlType persistido como string AL FINAL del enum):
+  * `FormControlType.ActionButton` (enum, al final; preserva ordinales). `FormFieldValidator.IsNonInput` lo marca
+    sin captura de valor.
+  * `Ecorex.Application/Forms/ActionButtonConfig.cs` (NUEVO): OptionsJson bajo "button" -> action ("print-lienzo"),
+    targetField (field_code del LienzoBloques; vacio = el primero), label ("Imprimir lienzo"). Parse/Serialize tolerante.
+  * DynamicFormRenderer: `RenderActionButton` + `OnActionButtonClickAsync` (FlushDraftAsync -> window.open _blank,
+    MISMO patron que el Button legacy IMPRIMIR_PLANTILLA). Nuevo `[Parameter] PublicToken`: en /f/ agrega `&token=`.
+  * FormPublic.razor pasa `PublicToken="@Token"`.
+  * FormPrintLienzo.razor token-aware: si viene `?token=`, valida (IFormTokenService, unico punto cross-tenant) y
+    envuelve las lecturas en `AmbientTenantContext.Begin(tenant)`, con guarda: el registro debe ser de la
+    DefinitionId del token (si no -> no imprime).
+  * FormDesigner: "Boton (imprimir lienzo)" en el dropdown "Tipo de elemento" (self-serve) + panel de config en la
+    pestana **Datos** (Accion / Lienzo a imprimir / Texto del boton) + preview en el lienzo.
+- PRUEBAS: build SuperAdmin verde (0 errores, solo warnings preexistentes). E2E en BITCODE/CANVAS-EMP con build
+  local `appout-actionbtn` + preview `actionbtn-bitcode-5257` (DB ecorex, dev-login acuartas@bitcode.com.co):
+  dropdown lista el control, panel Datos OK, preview en lienzo, impresion por sesion y por token anonimo /f/
+  (BMC 9 bloques, sin "no disponible"). Seed de prueba: question `btn_imprimir_lienzo` en CANVAS-EMP + token
+  anonimo de prueba (solo dev DB). OJO: en esta DB local `ecorex` el tenant `019f478d` = BITCODE (en prod ese
+  guid es AGRO).
+- DEPLOY: NO (usuario: "nada de deploy por ahora"). Commit-less; queda el build local para que el usuario valide.
+- Ver [[form-boton-imprimir-lienzo]], [[form-lienzo-aicompose]].
+
+## 2026-10-29 - FormPrint: secciones numeradas + 2a accion "Imprimir formulario completo" (sesion formularios)
+
+- PEDIDO (sesion de formularios): (1) numerar las secciones del documento FormPrint como los pasos del asistente
+  ("1. Contexto general" ... "13. Lienzo del negocio"), sin numerar la cabecera ni las sub-secciones, para
+  cualquier form; (2) agregar al ActionButton una 2a accion `print-form` que abra FormPrint (registro completo)
+  en pestana nueva, y hacer FormPrint token-aware (igual que FormPrintLienzo) para que funcione en /f/ anonimo.
+- HECHO:
+  * `ActionButtonConfig`: nueva const `ActionPrintForm = "print-form"` + `DefaultFormLabel`. print-form no usa
+    TargetField.
+  * `DynamicFormRenderer.OnActionButtonClickAsync`: ramifica por accion -> print-form abre `/formularios/imprimir/{id}`
+    (sin field), print-lienzo sigue en `/formularios/imprimir-lienzo/{id}?field=`; ambos anexan `&token=` en /f/.
+    `RenderActionButton` ya no exige lienzo para print-form (solo print-lienzo).
+  * `FormPrint.razor`: numeracion de PASOS 1..N con contador unico en orden de arbol. Un contenedor es "paso"
+    (se numera) si cuelga de un contenedor `Tabs` (sus hijos = pasos/pestanas) o si es de NIVEL SUPERIOR y NO es
+    Tabs (form plano). La cabecera (el propio Tabs) y las sub-secciones NO se numeran. Token-aware calcado de
+    FormPrintLienzo (`?token=` -> ValidateAsync -> AmbientTenantContext.Begin + guarda por DefinitionId); el boton
+    "Imprimir lienzo" interno reenvia el token.
+  * `FormDesigner`: dropdown "Accion del boton" ahora ofrece "Imprimir lienzo" y "Imprimir formulario completo";
+    "Lienzo a imprimir" se oculta para print-form; al cambiar de accion, si la etiqueta seguia siendo el default
+    de la otra, se ajusta al nuevo default. Palette renombrada a "Boton (imprimir)".
+- PRUEBAS (BITCODE/CANVAS-EMP, build local `appout-actionbtn` + preview `actionbtn-bitcode-5257`, DB ecorex):
+  FormPrint numera exacto la cabecera "Diagnostico del modelo de negocio" SIN numero y los 13 pasos 1..13; el
+  dropdown del disenador lista las 2 acciones y oculta "Lienzo a imprimir" en print-form (etiqueta auto). Token
+  anonimo: sin token -> "no disponible" (sin fuga); con token valido -> documento completo; token + registro de
+  OTRA definicion -> "no disponible" (guarda). Token de prueba eliminado tras validar; el ActionButton existente
+  restaurado a print-lienzo.
+- DEPLOY: NO. Queda el build local para que el usuario coloque 2 ActionButtons en el paso 13 de CANVAS-EMP.
+- Ver [[form-boton-imprimir-lienzo]].
+
+## 2026-10-29 - v0.16.245: TRACE del envio a YCloud (curl + respuesta) gateado por env
+
+- PEDIDO (usuario): poder ver el "curl" COMPLETO que se consume al enviar la plantilla a YCloud + la respuesta,
+  para diagnosticar por que el mensaje NO llega al cliente (la tarea ya tiene un numero valido = el del usuario).
+- HECHO (YCloudApiClient.SendMessageAsync, por donde pasan TODOS los envios: texto/media/plantilla/reaccion):
+  cuando `ECOREX_YCLOUD_TRACE=1` (o true/yes) se registra en el log del server:
+  * REQUEST: el curl equivalente (POST /v2/whatsapp/messages) con el PAYLOAD completo (plantilla, idioma,
+    components, header de documento con link/filename, from, to). La API KEY va REDACTADA (***REDACTED***) -nunca
+    se loguea el secreto, repo publico-; el payload no lleva secretos.
+  * RESPONSE: status HTTP + body completo de YCloud (wamid si acepto, o el error).
+  * EXCEPTION: si la llamada truena.
+  Off por defecto (volumen). Se lee una vez al cargar el tipo (activar/desactivar = reiniciar el contenedor).
+  Leer: `docker logs <ecorex-app> 2>&1 | grep "YCLOUD TRACE"`.
+- PRUEBAS: build Infrastructure verde (0 errores). Sin migracion. DI inyecta ILogger (AddHttpClient); nada
+  construye el cliente a mano.
+- OJO: la plantilla del flujo con PDF null NO llega a SendMessageAsync (se bloquea antes), asi que ahi no hay
+  trace; el trace SI captura los textos de SARA (que Meta marca failed "sin detalle") y cualquier plantilla que
+  SI se envie. Ver [[bitacora-fallos-envio-whatsapp]].
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.245 (incluye tambien v0.16.243 breaker + v0.16.244 URL PDF).
+
+## 2026-10-29 - v0.16.244: la bitacora registra la URL PUBLICA del PDF de la cotizacion
+
+- CONTEXTO: para YCloud/Cloud el PDF de la cotizacion NO viaja como bytes; se PUBLICA a una URL publica
+  (_mediaStore.PublishAsync) y esa URL se manda como header de media de la plantilla (es lo que Meta descarga).
+  Si el envio falla "sin detalle", no habia forma de verificar si el problema era el ARCHIVO (no generado,
+  vacio, inalcanzable, content-type, tamano) sin leer el log por SSH.
+- HECHO (NodeNotifyService): se captura headerMediaUrl y se deja en la bitacora:
+  * Fallo (RecordSendFailureNoteAsync): si el PDF SI se publico pero el envio igual fallo, la nota de "Fallos
+    de envio" ahora incluye "| PDF de la cotizacion publicado (abrelo para verificar...): <url>".
+  * Exito (RecordContactShareObservationAsync): la nota de contexto/bitacora del agente incluye
+    "cotizacion adjunta (archivo) - PDF: <url>".
+  OJO: si el PDF salio NULL (no se genero), NO hay URL; ahi sigue el motivo especifico de ResolveFormPdfAsync
+  (v0.16.242). La URL cubre el caso "se publico pero Meta lo rechazo".
+- PRUEBAS: build Application verde (0 errores). Sin migracion (solo texto en notas; reusa Message.Body). Cambios
+  solo en metodos privados (firmas internas); no afecta llamadas externas ni tests.
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.244. Ver [[bitacora-fallos-envio-whatsapp]].
+
+## 2026-10-28 - v0.16.243: circuit-breaker anti-loop del agente de nodo de flujo
+
+- INCIDENTE (AGRO): el nodo "Agente seguimiento inteligente" (agente IA en nodo, ADR-0090) entro en LOOP
+  INFINITO y agoto el cupo de Gemini del usuario. En /bitacora-agente > "Atencion del agente": ~50 lineas
+  atendidas por ese paso y el numero de prueba del usuario (573217626882) con 365 invocaciones.
+- CAUSA RAIZ (verificada en codigo): el runner trataba el envio como OK en cuanto YCloud ACEPTA (sent=true) y
+  pausaba esperando respuesta; el "failed" de Meta llega DESPUES por webhook. No habia NINGUN chequeo de
+  DeliveryStatus en runner/invoker. Cuando la entrega falla de forma sistemica (saldo/WABA YCloud, externo), el
+  cliente nunca recibe -> nunca responde -> la cadencia/reintentos re-invocan el modelo en todas las lineas
+  retenidas sin freno. MaxWhatsAppAsks=4 solo cuenta ENVIOS por paso; las re-corridas que esperan/re-deciden sin
+  enviar no lo tocaban.
+- HECHO (fix v0.16.243, en WorkflowAgentStepRunner.RunClaimedAsync, ANTES de armar contexto e invocar el modelo;
+  ambos cortan DURO via FinalizeAsFailureAsync(allowRoute:false) -ReturnToPersonAsync con OnFailure=Retry NO
+  pararia el loop-):
+  * Circuit breaker por fallo de entrega (K=3): si PendingWhatsAppConversationId esta seteado y los ULTIMOS 3
+    salientes de esa conversacion estan TODOS en DeliveryStatus="failed" -> no se invoca al modelo; paso a una
+    persona con el motivo real (revisar numero + saldo/estado de la linea). Const DeliveryFailStreakToBreak=3.
+  * Tope duro de invocaciones por paso: columna nueva WorkflowStepHistory.AgentInvokeCount (int, se incrementa
+    justo antes de cada invocacion real; sobrevive a reanudaciones, se reinicia por ciclo). Si >=
+    MaxAgentInvokesPerStep (env ECOREX_AGENT_MAX_INVOKES_PER_STEP, 20 por defecto) -> paso a una persona.
+  * Migracion dual AddAgentInvokeCount (PG + SQL Server, agent_invoke_count int NOT NULL default 0; prod aplica
+    en arranque via MigrateAsync).
+- PRUEBAS: build verde (Application + SuperAdmin aislado); Domain 35/35; Application 1145/1145; 3 tests nuevos del
+  breaker/tope en WorkflowAgentStepTests (matriz dual PG+SQLServer) 6/6. Integracion dual: 511/513 (los 2 fallos
+  son el MISMO test de forms DefinitionCrud_AndResponseRoundTrip_DataJsonIsIdentical en ambos motores, ver abajo).
+- GOTCHA del tronco (ARREGLADO aqui): f56a7c4c (v0.16.240, ADR-0139) dejo WhatsAppTemplatesTests.cs SIN COMPILAR
+  (el fake UnusedYCloudClient no implementaba IYCloudApiClient.GetMessageAsync). Como el build de imagen GHCR no
+  compila los tests, paso inadvertido (el CI de PR si lo habria pillado). Se agrego el stub minimo; sin eso NINGUN
+  test de integracion compilaba.
+- BLOQUEO/HALLAZGO AJENO: DynamicFormsTests.DefinitionCrud_AndResponseRoundTrip_DataJsonIsIdentical:86 falla
+  DETERMINISTA en ambos motores (Assert.NotEqual de ids: tras SUBMIT de REF-001, GetOrCreateDraftAsync devuelve la
+  respuesta ya enviada en vez de un draft nuevo). NO es de este cambio (no toco forms); es un bug LATENTE del
+  tronco que solo se vio ahora porque el fix de compilacion hizo correr la suite por primera vez. Dejado como tarea
+  aparte (dominio forms).
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.243. SIGUIENTE (externo, usuario): resolver el saldo/estado
+  WABA en YCloud -raiz del dia, nada se entrega-; el fix solo ACOTA el gasto. Ver [[agente-flujo-circuit-breaker-loop]].
+
+## 2026-10-28 - v0.16.240: consultar YCloud para recuperar el motivo REAL de un fallo "sin detalle" [ADR-0139]
+
+- CASO (AGRO, tarea T00558, cliente 573182800618): WhatsApp no llego; la pestana "Fallos de envio" mostraba
+  "sin detalle de Meta". DIAGNOSTICO (verificado en codigo + conversacion en prod): la decision
+  plantilla-vs-texto por ventana de 24h YA existe y funciona (SARA en WorkflowAgentWhatsApp.AskAsync y
+  AgentReactivacionService; el nodo NOTIFICACION del flujo en NodeNotifyService SIEMPRE usa plantilla). Para
+  T00558 se envio por PLANTILLA (lo correcto en frio), YCloud la ACEPTO y luego el webhook de entrega la marco
+  "failed" SIN codigo. O sea: el fallo NO fue la ventana, fue el destino (numero que no recibe; otros fallos del
+  tablero son un fijo 604 y un numero malformado 507). El hueco real: el webhook de estado llego sin el codigo
+  de Meta, por eso "sin detalle".
+- HECHO (mejora A, SOLO LECTURA, sin tocar el envio -> respeta "no multiplicar salidas del emisor"):
+  * IYCloudApiClient.GetMessageAsync + impl (GET /whatsapp/messages/{id} con fallback por listado; parser
+    tolerante de status + error.code/message, objeto "error" o arreglo "errors", code num/texto).
+  * IWhatsAppConnectorService.ProbeDeliveryStatusAsync (reusa la API key YCloud ya cifrada de la linea; solo YCloud).
+  * AiAgentLineService.RefreshDeliveryFailureReasonsAsync: toma los salientes "failed" SIN motivo con ExternalId,
+    consulta YCloud y rellena DeliveryError con el codigo real (mismo formato del webhook); no cambia DeliveryStatus.
+  * UI: boton "Actualizar motivos desde YCloud" en la pestana Fallos de BitacoraAgente.razor.
+- PRUEBAS: build verde (Infrastructure + Application + SuperAdmin razor, 0 errores); Application.Tests 1145/1145
+  (nuevo test RefreshDeliveryFailureReasons_*). Sin migracion (reusa Message.DeliveryStatus/DeliveryError de ADR-0135).
+- DEPLOY: PENDIENTE OK del usuario. Version lista v0.16.240. SIGUIENTE: validar E2E con la API key real de AGRO
+  (confirmar el codigo de 573182800618); posible paso B = validar el numero antes de disparar.
+- OJO: la decision plantilla-vs-texto por ventana esta DUPLICADA (WorkflowAgentWhatsApp + AgentReactivacionService);
+  consolidarla en UN solo "portero de ventana" es un refactor pendiente (NO arregla T00558). Ver [[ADR-0139]].
+
+## 2026-10-28 - v0.16.239: fix "A second operation was started on this context" en /conciliacion-dian [ADR-0138]
+
+- BUG (pre-existente, NO de c621e6d8): al asignar usuario desde el modal de tarea abierto sobre
+  /conciliacion-dian, el circuito se caia con InvalidOperationException "A second operation was started on
+  this context instance...". Causa: el IApplicationDbContext scoped se COMPARTE entre la pagina y el modal;
+  el ReloadAsync del padre (ContarPorEstado/ListRenglones) se solapaba con el trabajo del modal sobre el
+  MISMO contexto.
+- FIX A (robusto): contexto EF efimero por consulta para las LECTURAS del conciliador. Nueva abstraccion
+  IApplicationDbContextFactory (Application) -> IScopedDbContext; impl ApplicationDbContextFactory
+  (Infrastructure) registrada Scoped en cada rama de proveedor (DAL dual), que newea el contexto del
+  proveedor activo con el MISMO ITenantContext del circuito (filtro multi-tenant intacto). ConciliacionDian
+  Service inyecta la fabrica y envuelve las lecturas en 'await using var db = _dbFactory.Create()'
+  (ListDocumentos/GetDocumento/ListRenglones/ContarPorEstado/ListPorAutorizar/IsColumnValueUsed). Las
+  escrituras siguen en el _db scoped (unidad de trabajo del circuito).
+- PRUEBAS: build verde (Infrastructure + Application); 1144 tests unitarios de Application en verde. Sin
+  migracion (solo codigo). SuperAdmin compila (en el build de solucion solo fallo el COPY del DLL por
+  instancias dev corriendo, no la compilacion).
+- DEPLOY: DESPLEGADO 2026-10-28 por VIA RAPIDA (imagen GHCR a1267f8f + pull en prod); verificado
+  interno 5480 y publico app2 = v0.16.239, HTTP 200. PENDIENTE: E2E en /conciliacion-dian (SOLDARCO) +
+  integrar al worktree 5263 via prompt.
+- VIA RAPIDA AHORA ES LA POR DEFECTO: nuevo wrapper deploy/deploy-prod-fast.ps1 (gh run watch opcional
+  + ssh actualizar-en-linux.sh + verificacion). deploy-prod.ps1 (build-from-git) queda como FALLBACK
+  (marcado en su encabezado). El servidor ya corre sobre docker-compose.image.yml. Ver memoria
+  [[deploy-via-rapida-ghcr]].
+
+## 2026-10-28 - DEPLOY v0.16.238 a produccion + fix OOM del build-from-git
+
+- DEPLOY (con OK explicito del usuario) de v0.16.238 a app2.bitcode.com.co. Empaqueta: ADR-0135 (codigo real
+  de Meta en fallos de entrega, v0.16.236), ADR-0136 (alcance por usuario en tableros, v0.16.237) y ADR-0137
+  (pestana "Fallos de envio" en /bitacora-agente, v0.16.238). Verificado: interno 5480 y publico app2 reportan
+  version=v0.16.238, login=200.
+- BLOQUEO Y FIX: el build-from-git fallo 2 veces por OOM (csc exit 137 / MSB6006 en Ecorex.Infrastructure). El
+  host (10.0.0.3) tiene 7.8Gi RAM; 4GB de swap NO bastaron. Causa raiz: dotnet publish compila varios proyectos
+  csc EN PARALELO y el pico combinado agota RAM+swap. FIX PERMANENTE (commit cca681b2, en Dockerfile.superadmin):
+  compilar en serie -> `dotnet publish ... -maxcpucount:1 /p:UseSharedCompilation=false`. Con eso + 8GB de swap
+  temporal (no en fstab) el build paso (lento por el swap, pero estable). Ver memoria [[deploy-host-oom-swap]].
+- PENDIENTE/OJO: swap temporal de 8GB sigue en el host (se limpia al reiniciar; se puede quitar). La pestana de
+  fallos y el codigo de Meta solo se pueblan con fallos NUEVOS (post-deploy); los mensajes viejos no traen estado.
+
+## 2026-10-27 - v0.16.238: bitacora - pestana "Fallos de envio" de WhatsApp (ver el "no llego" sin SSH) [ADR-0137]
+
+- PEDIDO (usuario): "si pasa un error, verlo en la bitacora" -> poder ver en la app los fallos de ENVIO de WhatsApp
+  (el "no llego") sin entrar al servidor por SSH a leer docker logs. Decisiones con el usuario: alcance = SOLO
+  fallos de envio de WhatsApp (no crashes del sistema ni errores del agente, que ya estan en /bitacora-agente);
+  ubicacion = dentro de /bitacora-agente.
+- CAMBIO: nueva pestana "Fallos de envio" en /bitacora-agente. Lista los salientes con DeliveryStatus=="failed"
+  del tenant (mas recientes primero): contacto+telefono+linea, fecha, MOTIVO real de Meta (DeliveryError, codigo +
+  texto; "sin detalle de Meta" si Meta no dio nada) y el texto del mensaje. SIN migracion (reusa
+  Message.DeliveryStatus/DeliveryError de ADR-0135).
+- IMPLEMENTACION: IAiAgentLineService.ListDeliveryFailuresAsync (tenant-scoped por filtro global) + DTO
+  AgentDeliveryFailureDto; UI con pestanas (_tab); el boton "Limpiar bitacora y cache" (borra logs del AGENTE) se
+  oculta en la pestana de fallos para no confundir (no toca mensajes).
+- PRUEBAS: build verde; sin fake de IAiAgentLineService en tests (no rompe). Verificado E2E en navegador: se sembro
+  un fallo de prueba en dev local -> contador "(1)" + fila con linea + fecha + "codigo 131026 - Message
+  undeliverable" + texto; luego se borro el dato de prueba; la pestana "Atencion del agente" sigue sin regresion.
+- OJO: la lista solo se puebla con fallos REALES posteriores al deploy de ADR-0135 en prod (el estado de entrega lo
+  avanza el webhook de estado; mensajes viejos no tienen DeliveryStatus). DEPLOY: SIN desplegar (pendiente OK).
+
+## 2026-10-27 - v0.16.237: tableros - alcance por usuario (default "mis tareas" + quien ve todo) [ADR-0136]
+
+- PEDIDO (usuario): que el tablero se filtre por defecto a cada usuario con SUS tareas (que vea solo su carga) y
+  poder configurar POR TABLERO que usuarios SI pueden ver todas las tareas.
+- DECISIONES CON EL USUARIO: (1) bloqueo DURO para el no autorizado (no solo default visual); (2) el restringido
+  ve SUS tareas + las NO ASIGNADAS (para tomar trabajo libre), nunca las de otros.
+- MODELO: nuevo TaskBoard.SeeAllUserIdsJson (gemelo de AllowedUserIdsJson, ADR-0117, pero para el ALCANCE interno).
+  Null/vacio = sin restriccion (default "equipo", todos ven todo). Con usuarios = restriccion ACTIVA: el tablero
+  abre en "Pendientes mios" y solo esos usuarios (+ Owner/Admin) ven todo; los demas quedan con bloqueo duro
+  (solo mios + no asignados). jsonb PG / nvarchar(max) SQL. Migracion dual AddBoardSeeAllUsers (solo la columna).
+- ENFORCEMENT EN SERVIDOR (ActivityBoardService.GetBoardDetailAsync): si no puede ver todo, el alcance pedido se
+  coacciona a Mine; contadores de equipo/terminados no se calculan ni se revelan. La UI ademas oculta esos chips,
+  pero la seguridad NO depende de la UI.
+- UI: ActivityBoardDetail computa el permiso desde el resumen (ya trae SeeAllUserIds) -> default Mine con
+  restriccion activa; sincroniza con el detalle tras cada reload; SetScopeAsync ignora equipo/terminados si no
+  puede ver todo. Self-serve en /tableros: segundo selector "Quien ve todas las tareas" (clon de "Visible para").
+- PRUEBAS: build verde, 1322 tests unitarios verdes (Application 1144 + SuperAdmin 178), migracion PG aplicada al
+  dev local. E2E navegador (AGROMETALICAS, Owner): el selector guarda see_all_user_ids_json; PRUEBAS OT con
+  restriccion abre en "Pendientes mios"; Owner conserva los 4 chips (bypass). FALTA validar con usuario Member
+  real (AGRO local solo tiene Admin/Owner) que al no-admin se le ocultan equipo/terminados.
+- DEPLOY: SIN desplegar (pendiente OK del usuario). Va aparte del batch v0.16.233/234/235/236 pendiente.
+
+## 2026-10-27 - v0.16.236: WhatsApp/YCloud - visibilidad del error de entrega (codigo real de Meta) [ADR-0135]
+
+- CONTEXTO (hand-off de la sesion data-ops): en prod, salientes a un numero (AGROMETALICAS, linea YCloud
+  COMERCIAL_AGENTE) fallaban 5/5; YCloud ACEPTA y Meta devuelve `failed` por el webhook de estado, pero la nota
+  quedaba "Motivo: sin detalle de Meta" -> no se capturaba el codigo real (1013/131026/131047...), asi que cada
+  "no llego" obligaba a adivinar en BD.
+- CAMBIO A (YCloudWebhookParser.ParseStatus): lectura tolerante EXTENDIDA del error. Ademas de
+  error.{code,message/title/detail} y errors[0], ahora lee el detalle ANIDADO de Meta (error_data.details /
+  errorData.details / .detail, y href como ultimo recurso) y el codigo anidado en error_data/errorData.code.
+  Nuevo campo YCloudStatusUpdate.ErrorRaw = subarbol de error CRUDO (JSON) para ajustar el parser con un payload
+  real si aparece una forma nueva.
+- CAMBIO B (Program.cs webhook YCloud): el motivo visible ahora es "codigo 131026 - Message undeliverable"
+  (codigo + texto) y se guarda en Message.DeliveryError; "sin detalle de Meta" SOLO cuando de verdad no llega
+  nada. El LogWarning del fallo incluye el payload de error CRUDO (errorRaw=...).
+- CORRECCION A LA PREMISA DEL HAND-OFF: el proyecto NO usa Serilog; usa el logging por defecto de .NET, que YA
+  escribe a stdout -> el warning sale en `docker compose logs superadmin`. No habia sink a archivo que arreglar;
+  lo que faltaba era el payload crudo (agregado). Si en prod aun no se viera, seria un override de nivel por env
+  del contenedor (Logging__LogLevel__*), no Serilog.
+- PRUEBAS: 3 tests nuevos en YCloudWebhookParserStatusTests (detalle anidado error_data.details; codigo anidado
+  errorData.code=1013; captura de ErrorRaw). Suite del parser de estado 10/10. Build Release verde. SIN migracion.
+
+## 2026-10-27 - v0.16.235: fix - borrado robusto (no envenenar el DbContext del circuito Blazor)
+
+- SINTOMA (reporte del usuario): a veces no se podia eliminar una regla del conciliador ni un contenedor de
+  datos; salia un error de SaveChanges que no correspondia a lo que se estaba borrando.
+- CAUSA: el DbContext es scoped y en Blazor vive TODO el circuito. (1) ConciliacionRuleService.DeleteAsync hacia
+  Remove+SaveChanges, que volcaba el change-tracker ENTERO; un cambio ajeno pendiente (p.ej. un borrado de
+  contenedor a medias) tumbaba el borrado de la regla con un error que no era suyo. (2) DataModelService al
+  borrar un contenedor dejaba que la cascada de BD arrastrara los ImportProcess, pero ImportRun->ImportProcess
+  es Restrict (la bitacora SOBREVIVE): la cascada chocaba con esa FK y envenenaba el DbContext, de modo que todo
+  SaveChanges posterior (incluido borrar una regla) re-lanzaba el error.
+- FIX: (1) ConciliacionRuleService.DeleteAsync usa ExecuteDeleteAsync (respeta el filtro global por tenant, no
+  toca entidades rastreadas de otros). (2) DataModelService.DeleteAsync quita runs y procesos a mano ANTES de la
+  cascada (cascada diferida, regla #5), igual que DataContainerService. SIN migracion.
+- PRUEBAS: build Release verde; fix defensivo de borrado (sin test nuevo). Va junto con v0.16.233/234 y v0.16.236
+  en el mismo deploy.
+
+## 2026-10-27 - v0.16.234: conceptos - tablero COMPARTIDO por categoria (antes creaba uno por subcategoria)
+
+- SINTOMA (reporte del usuario): al crear una subcategoria (concepto) aparecia un tablero nuevo cada vez.
+- CAUSA: EnsureConceptBoardAsync (ActividadCatalogoService) creaba un tablero dedicado 1:1 por concepto si se
+  dejaba "Tablero que aplica" en "Ninguno" (el default). Era intencional (ningun concepto huerfano) pero
+  proliferaban tableros. Decision del usuario (2026-10-27): reusar un tablero COMPARTIDO.
+- CAMBIO: EnsureConceptBoardAsync ahora comparte el tablero POR CATEGORIA. Si otra subcategoria de la misma
+  categoria ya tiene tablero (no archivado), lo reusa (con su estado de cierre); solo el PRIMER concepto de la
+  categoria crea el tablero (columnas default, code CNC-, nombrado por la CATEGORIA). El usuario puede
+  sobreescribir eligiendo un tablero concreto en el selector del concepto (se respeta). Afecta solo conceptos
+  NUEVOS; los existentes conservan su tablero actual. SIN migracion (no hay esquema nuevo; se resuelve por
+  hermanos de la misma CategoriaId).
+- PRUEBAS: test dual nuevo ActivityCatalogBoardSharingTests (PG + SQL Server): 2 conceptos de una categoria
+  comparten 1 tablero nombrado por la categoria; otra categoria obtiene el suyo; tablero explicito se respeta.
+  Application.Tests 1144/1144. SIN migracion.
+- SIGUIENTE: va junto con v0.16.233 (fix borrar estado); pedir OK del usuario para deploy
+  ([[pedir-ok-antes-de-deploy-prod]]).
+
+## 2026-10-27 - v0.16.233: fix - no se podia eliminar un ESTADO del tablero (FK + guard en tabla equivocada)
+
+- SINTOMA (reporte del usuario): al eliminar un estado del tablero (modal "Estados del tablero") salia
+  "No se pudo eliminar el estado: An error occurred while saving the entity changes. See the inner exception".
+- CAUSA (dos bugs combinados): (1) TaskBoardService.DeleteColumnAsync solo miraba `TaskCards` en el guard, pero
+  Tableros.razor gestiona tableros de ACTIVIDADES, cuyas tarjetas son `TaskItem` -> el guard pasaba aunque
+  hubiera tareas. (2) Tanto `TaskCard.ColumnId` como `TaskItem.ColumnId` son FK `Restrict`: una tarea (activa o
+  archivada) aun apuntando al estado tumbaba el SaveChanges. "Completado" (estado de cierre, auto-archivo 3 dias)
+  suele tener tareas movidas ahi sin archivar todavia.
+- FIX (TaskBoardService.cs): el guard bloquea con tarjetas ACTIVAS contando AMBOS modelos (TaskCards + TaskItems)
+  y devuelve el mensaje amigable "tiene N tarea(s), muevelas primero"; las ARCHIVADAS se reubican a otro estado
+  del mismo tablero (prefiere otro de cierre) con entidades TRACKEADAS + un unico SaveChanges atomico (evita que
+  ClientSetNull pise la reasignacion al quitar la columna); un concepto (000270) que apuntara su estado
+  "terminado" a este queda sin marcador (null). Auditoria `task-board-column.delete`. Conteos de ListColumns/
+  UpdateColumn ahora suman TaskItems (antes 0 en tableros de actividades -> badge y mensaje veraces).
+- PRUEBAS: test dual nuevo ActivityBoardTests.DeleteColumn_RelocatesArchivedTasks_ButBlocksWhenActiveRemain
+  (PG + SQL Server) verde; suites de tableros 52/52 dual; unitarios Application 1144/1144. SIN migracion.
+- SIGUIENTE: pedir OK del usuario para deploy ([[pedir-ok-antes-de-deploy-prod]]).
+
 ## 2026-10-26 - v0.16.232: Exportar/importar la definicion de un contenedor a JSON (ADR-0132) (integrado al tronco, SIN deploy)
 
 - QUE: en el modulo Contenedor de datos, boton "Exportar" por tarjeta (descarga un JSON con la DEFINICION:

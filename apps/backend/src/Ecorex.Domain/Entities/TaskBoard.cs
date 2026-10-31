@@ -82,4 +82,15 @@ public class TaskBoard : TenantEntity
     /// memoria (portable PG/SQL Server). jsonb PG / nvarchar(max) SQL Server.
     /// </summary>
     public string? AllowedUserIdsJson { get; set; }
+
+    /// <summary>
+    /// Alcance por usuario DENTRO del tablero: arreglo JSON de TenantUserId (Guid) autorizados a ver TODAS las
+    /// tareas del tablero. Null o vacio = SIN restriccion (todos ven todo, comportamiento clasico: default
+    /// alcance "equipo"). Con valores, la restriccion queda ACTIVA: el tablero abre por defecto en "Pendientes
+    /// mios" para cada usuario y SOLO los usuarios de esta lista (mas Owner/Admin) pueden ver el alcance
+    /// "equipo"/"terminados" (todas las tareas); los demas quedan limitados a sus tareas + las "no asignadas"
+    /// (bloqueo duro, forzado en el servidor). El chequeo se hace en memoria (portable PG/SQL Server).
+    /// jsonb PG / nvarchar(max) SQL Server.
+    /// </summary>
+    public string? SeeAllUserIdsJson { get; set; }
 }

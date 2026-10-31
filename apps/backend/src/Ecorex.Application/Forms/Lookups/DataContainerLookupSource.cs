@@ -41,6 +41,19 @@ public sealed class DataContainerLookupSource : IFormLookupSource
 
         var rows = await _containers.ListRowsAsync(containerId, request.Query, parentRowId: null, take: FetchCap, ct: cancellationToken);
 
+        // Filtros de igualdad ya resueltos (fijos + cascada resuelta por el renderer). Se aplican
+        // ANTES de paginar para que el total refleje lo filtrado. Una columna desconocida no matchea
+        // nada (lista vacia), nunca se ignora en silencio.
+        var eq = ResolveEqColumns(request.EqFilters, nameToCol);
+        if (eq is not null)
+        {
+            if (eq.Count == 0) { return new FormLookupPage(Array.Empty<FormLookupItem>(), 0, false); }
+            rows = rows
+                .Where(r => eq.All(f =>
+                    ValuesEqual(r.ValuesByColumnId.TryGetValue(f.ColId, out var v) ? v : null, f.Expected)))
+                .ToList();
+        }
+
         var total = rows.Count;
         var page = rows
             .Skip(Math.Max(0, request.Skip))
@@ -110,6 +123,22 @@ public sealed class DataContainerLookupSource : IFormLookupSource
             }
         }
         return null;
+    }
+
+    // Traduce los filtros de igualdad (nombre de columna -> valor esperado) a ids de columna. Devuelve
+    // null si no hay filtros. Si alguna columna no existe en la tabla, devuelve lista VACIA: no hay como
+    // satisfacer el filtro, asi que la busqueda no debe traer nada (en vez de ignorarlo).
+    private static IReadOnlyList<(Guid ColId, string Expected)>? ResolveEqColumns(
+        IReadOnlyDictionary<string, string>? filters, Dictionary<string, Guid> nameToCol)
+    {
+        if (filters is null || filters.Count == 0) { return null; }
+        var list = new List<(Guid, string)>(filters.Count);
+        foreach (var (col, expected) in filters)
+        {
+            if (!nameToCol.TryGetValue(col, out var cid)) { return Array.Empty<(Guid, string)>(); }
+            list.Add((cid, expected));
+        }
+        return list;
     }
 
     // Igualdad EXACTA (decision del usuario): numerica si ambos lados son numero (3 == 3.0), si no

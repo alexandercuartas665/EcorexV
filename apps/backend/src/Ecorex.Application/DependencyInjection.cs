@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<Notifications.ITemplateMediaStore, Notifications.NullTemplateMediaStore>();
         services.AddScoped<Tenancy.IWhatsAppConnectorService, Tenancy.WhatsAppConnectorService>();
         services.AddScoped<Tenancy.IAgentCierreService, Tenancy.AgentCierreService>();
+        services.AddScoped<Tenancy.IAgentAvisoTareaService, Tenancy.AgentAvisoTareaService>();
         services.AddScoped<Tenancy.IAgentReactivacionService, Tenancy.AgentReactivacionService>();
         services.AddScoped<Tenancy.ITelegramConfigService, Tenancy.TelegramConfigService>();
         services.AddScoped<Notifications.INotificationChannelSender, Notifications.NotificationChannelSender>();
@@ -58,11 +59,13 @@ public static class DependencyInjection
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionRuleService, Automatizaciones.ConciliacionDian.ConciliacionRuleService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionFieldService, Automatizaciones.ConciliacionDian.ConciliacionFieldService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IAutorizacionComprasConfigService, Automatizaciones.ConciliacionDian.AutorizacionComprasConfigService>();
+        services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionAsignacionHistorialService, Automatizaciones.ConciliacionDian.ConciliacionAsignacionHistorialService>();
         services.AddScoped<Preferences.IUserTablePrefsService, Preferences.UserTablePrefsService>();
         services.AddScoped<Preferences.ISavedFilterService, Preferences.SavedFilterService>();
         services.AddScoped<Requerimientos.IRequerimientoConfigService, Requerimientos.RequerimientoConfigService>();
         services.AddScoped<Requerimientos.IRequerimientoService, Requerimientos.RequerimientoService>();
         services.AddScoped<Requerimientos.IRequerimientoFieldService, Requerimientos.RequerimientoFieldService>();
+        services.AddScoped<Requerimientos.IRequerimientoReturnService, Requerimientos.RequerimientoReturnService>();
         services.AddScoped<Tenancy.ITenantApiService, Tenancy.TenantApiService>();
         services.AddScoped<Tenancy.IFollowUpTaskService, Tenancy.FollowUpTaskService>();
         services.AddScoped<Tenancy.IChatService, Tenancy.ChatService>();
@@ -156,6 +159,7 @@ public static class DependencyInjection
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.ItemLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.DataContainerLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.ExternalDatasetLookupSource>();
+        services.AddScoped<Forms.Lookups.IFormLookupSource, Forms.Lookups.SystemUserLookupSource>();
         services.AddScoped<Forms.Lookups.IFormLookupService, Forms.Lookups.FormLookupService>();
         // Motor de reglas (FASE 4 ola 3, ADR-0016): REGISTRO TIPADO de verbos en DI (el
         // ejecutor resuelve por diccionario IRuleVerb.Name; verbo desconocido = error
@@ -175,6 +179,9 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CargarFilasDesdeGrillaVerb>();   // FEATURE C: cargar filas de una grilla a otra
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarRequerimientosDesdeTablaVerb>();  // Capa 10: necesidad de compra por fila
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.DireccionarConciliadorVerb>();   // Conciliador: boton del form -> columna del renglon
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CompletarPasoFlujoVerb>();        // Flujo: boton del form cierra el paso actual (con campos obligatorios opcionales)
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ReiniciarFlujoTareaVerb>();       // Flujo: boton del form reinicia el ciclo reasignado al usuario de un campo (Rechazar/Redireccionar)
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.DevolverConciliadorVerb>();        // Conciliador: campo de redireccion vacio -> confirma y devuelve el documento al conciliador (rechazado)
         // Modulos de sistema (FASE 5, ADR-0017): organigrama de dependencias (legacy 000850)
         // y registro de modulos web (legacy 000109).
         services.AddScoped<Organization.IOrgUnitService, Organization.OrgUnitService>();
@@ -246,6 +253,7 @@ public static class DependencyInjection
         // Campos configurables por ficha (000232): vuelven las fichas del tercero datos por tenant.
         services.AddScoped<Directorio.ITerceroFieldService, Directorio.TerceroFieldService>();
         services.AddScoped<Directorio.ITerceroFichaService, Directorio.TerceroFichaService>();
+        services.AddScoped<Directorio.IDirectorioLayoutConfigService, Directorio.DirectorioLayoutConfigService>();
         services.AddScoped<Directorio.ITerceroFormService, Directorio.TerceroFormService>();
         // Variante de UI del Directorio elegida por el tenant (Ligero | Especializado), en TenantConfiguration.
         services.AddScoped<Directorio.IDirectoryVariantService, Directorio.DirectoryVariantService>();

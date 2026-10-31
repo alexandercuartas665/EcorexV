@@ -61,6 +61,12 @@ public interface IRequerimientoConfigService
     Task<RequerimientoOrigenDto?> SaveOrigenAsync(SaveRequerimientoOrigenRequest req, CancellationToken ct = default);
     Task<bool> DeleteOrigenAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>Modo de trabajo del modulo (Consolidado/Dividido). Config por tenant, se guarda en
+    /// TenantConfiguration (clave/valor). Default Consolidado si no hay nada guardado.</summary>
+    Task<RequerimientoModo> GetModoAsync(CancellationToken ct = default);
+    /// <summary>Guarda el modo de trabajo del modulo para el tenant.</summary>
+    Task SetModoAsync(RequerimientoModo modo, CancellationToken ct = default);
+
     /// <summary>Subcategorias (conceptos 000270) para elegir el proceso de compra del origen.</summary>
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default);
     /// <summary>Formularios publicados/activos para elegir la fuente (TipoFuente=Formulario).</summary>

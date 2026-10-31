@@ -275,6 +275,9 @@ public interface IApplicationDbContext
     DbSet<ConciliacionFieldDefinition> ConciliacionFieldDefinitions { get; }
     DbSet<ConciliacionFieldValue> ConciliacionFieldValues { get; }
 
+    // Historial de asignaciones del renglon (append-only): veces direccionado + quienes/cuando + rechazos.
+    DbSet<ConciliacionDianAsignacion> ConciliacionDianAsignaciones { get; }
+
     // Preferencias de vista de tablas por usuario (orden/ocultas/anchos/sorts/grupos/fijas). Presentacion.
     DbSet<UserTablePreference> UserTablePreferences { get; }
 

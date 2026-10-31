@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Infrastructure.Persistence;
 
-public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModularDbContext, IDataProtectionKeyContext
+public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContext, IDirectorioModularDbContext, IDataProtectionKeyContext
 {
     private readonly ITenantContext _tenantContext;
 
@@ -287,6 +287,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
     public DbSet<ConciliacionRule> ConciliacionRules => Set<ConciliacionRule>();
     public DbSet<ConciliacionFieldDefinition> ConciliacionFieldDefinitions => Set<ConciliacionFieldDefinition>();
     public DbSet<ConciliacionFieldValue> ConciliacionFieldValues => Set<ConciliacionFieldValue>();
+    public DbSet<ConciliacionDianAsignacion> ConciliacionDianAsignaciones => Set<ConciliacionDianAsignacion>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
     // Requerimientos y Compras (Capa 10).
     public DbSet<RequerimientoOrigen> RequerimientoOrigenes => Set<RequerimientoOrigen>();
@@ -1185,6 +1186,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.Property(x => x.ListViewConfigJson).HasColumnType(jsonColumnType);
             // Restriccion de visibilidad por usuario (arreglo de TenantUserId). Null/vacio = todos.
             b.Property(x => x.AllowedUserIdsJson).HasColumnType(jsonColumnType);
+            // Alcance por usuario: quienes ven TODAS las tareas (arreglo de TenantUserId). Null/vacio = todos ven todo.
+            b.Property(x => x.SeeAllUserIdsJson).HasColumnType(jsonColumnType);
             // ADR-0020: codigo legible de los tableros de actividades (PRY-0042); los CRM
             // heredados no tienen (null). Unico por tenant cuando existe (indice filtrado).
             b.Property(x => x.Code).HasMaxLength(20);
@@ -2734,6 +2737,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             // FK al CCD. Restrict: el borrado del encabezado lo maneja el servicio (evita cascada implicita).
             b.HasOne(x => x.Documento).WithMany(d => d.Renglones)
                 .HasForeignKey(x => x.DocumentoId).OnDelete(DeleteBehavior.Restrict);
+            // Flag de devuelto/rechazado al conciliador: default false (las filas existentes nacen no rechazadas).
+            b.Property(x => x.Rechazado).HasDefaultValue(false);
             b.HasIndex(x => new { x.TenantId, x.DocumentoId, x.Estado });
             // Ingesta idempotente del bot: no duplicar la misma factura (CUFE) en el mismo documento.
             b.HasIndex(x => new { x.TenantId, x.DocumentoId, x.Cufe }).IsUnique();
@@ -2823,6 +2828,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IDirectorioModu
             b.HasOne(x => x.FieldDefinition).WithMany().HasForeignKey(x => x.FieldDefinitionId).OnDelete(DeleteBehavior.Cascade);
             // Un valor por (renglon, campo). Busqueda tipica: todos los valores de un renglon.
             b.HasIndex(x => new { x.TenantId, x.RenglonId, x.FieldDefinitionId }).IsUnique();
+        });
+
+        // Historial de asignaciones del renglon (append-only): cuenta veces direccionado + quienes/cuando + rechazos.
+        modelBuilder.Entity<ConciliacionDianAsignacion>(b =>
+        {
+            b.Property(x => x.Accion).HasConversion<int>();
+            b.Property(x => x.TaskNumber).HasMaxLength(40);
+            b.HasOne(x => x.Renglon).WithMany().HasForeignKey(x => x.RenglonId).OnDelete(DeleteBehavior.Cascade);
+            // Busqueda tipica: todos los eventos de un renglon (o de un conjunto de renglones) por fecha.
+            b.HasIndex(x => new { x.TenantId, x.RenglonId });
         });
 
         // Campos dinamicos de Requerimientos (Ola 12): definicion por tenant + ambito, valores por dueno (EAV).

@@ -71,6 +71,26 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
         Put("documento", task.RequesterDocument);
         Put("nit", task.RequesterDocument);
 
+        // Usuario ASIGNADO a la tarea (el responsable). Solo con prefijo {usuario.*} (no bare) para no
+        // colisionar con las variables del solicitante/tarea. Alimenta los avisos de "tarea asignada"
+        // (ej. {usuario.nombre}, {usuario.telefono}) y esta disponible para cualquier notificacion de nodo.
+        if (task.AssigneeTenantUserId is Guid assigneeId)
+        {
+            var asignado = await _db.TenantUsers.AsNoTracking()
+                .Where(u => u.Id == assigneeId)
+                .Select(u => new { u.Email, u.Phone, Display = u.PlatformUser != null ? u.PlatformUser.DisplayName : null })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (asignado is not null)
+            {
+                void PutUsuario(string key, string? value) => map["usuario." + key] = value ?? string.Empty;
+                PutUsuario("nombre", string.IsNullOrWhiteSpace(asignado.Display) ? asignado.Email : asignado.Display);
+                PutUsuario("email", asignado.Email);
+                PutUsuario("correo", asignado.Email);
+                PutUsuario("telefono", asignado.Phone);
+                PutUsuario("celular", asignado.Phone);
+            }
+        }
+
         // Empresa: datos de la Entidad PRINCIPAL del tenant (membrete de documentos, {empresa.*}).
         // Solo con prefijo (no bare): evita colisionar con variables de tarea/formulario.
         var empresa = await _db.Entidades.AsNoTracking()

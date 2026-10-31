@@ -39,6 +39,12 @@ public sealed class RequerimientoService : IRequerimientoService
         var items = await _db.Items.AsNoTracking()
             .Where(i => itemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => new { i.Name, i.Sku }, ct);
         var reqIds = rows.Select(r => r.Id).ToList();
+        // Numero de la actividad origen (para mostrar/linkear "de que actividad vino la solicitud").
+        var taskIds = rows.Where(r => r.SourceTaskItemId != null).Select(r => r.SourceTaskItemId!.Value).Distinct().ToList();
+        var taskNums = taskIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.TaskItems.AsNoTracking().Where(t => taskIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Number, ct);
         // Carga TODOS los hijos (no solo el agregado): los necesita la grilla para las filas hijas expandibles
         // y el export. Resuelve el nombre del proveedor en memoria.
         var hijosRows = await _db.RequerimientoCompraHijos.AsNoTracking()
@@ -71,7 +77,10 @@ public sealed class RequerimientoService : IRequerimientoService
                 hl.Count,
                 hl.Sum(x => x.Cantidad),
                 hl.Sum(x => x.Total),
-                hl);
+                hl,
+                r.SolicitanteUserId, r.SolicitanteNombre, r.SourceTaskItemId,
+                r.SourceTaskItemId is Guid st && taskNums.TryGetValue(st, out var tn) ? tn : null,
+                r.ForzarDividir);
         }).ToList();
     }
 
@@ -90,6 +99,19 @@ public sealed class RequerimientoService : IRequerimientoService
         // La clave de agrupacion une pedidos del MISMO producto: el item si existe, si no el texto normalizado.
         var clave = req.ItemId is Guid ci ? ci.ToString() : desc.ToUpperInvariant();
 
+        // Solicitante: snapshot del nombre/correo si no viene dado (traza de quien pidio).
+        var solicitanteNombre = req.SolicitanteNombre;
+        if (string.IsNullOrWhiteSpace(solicitanteNombre) && req.SolicitanteUserId is Guid su)
+        {
+            // Nombre visible: DisplayName del PlatformUser, fallback al correo del TenantUser (mismo patron que
+            // el campo de sistema "Usuario" en formularios). Se guarda como snapshot para no perderlo despues.
+            solicitanteNombre = await _db.TenantUsers.AsNoTracking()
+                .Where(u => u.Id == su)
+                .Join(_db.PlatformUsers.AsNoTracking().IgnoreQueryFilters(), tu => tu.PlatformUserId, pu => pu.Id,
+                    (tu, pu) => pu.DisplayName ?? tu.Email)
+                .FirstOrDefaultAsync(ct);
+        }
+
         var entity = new RequerimientoCompra
         {
             TenantId = tenantId,
@@ -102,6 +124,11 @@ public sealed class RequerimientoService : IRequerimientoService
             FechaNecesidad = req.FechaNecesidad,
             Estado = RequerimientoEstado.Recibido,
             ClaveAgrupacion = clave,
+            SolicitanteUserId = req.SolicitanteUserId,
+            SolicitanteNombre = string.IsNullOrWhiteSpace(solicitanteNombre) ? null : solicitanteNombre!.Trim(),
+            SourceTaskItemId = req.SourceTaskItemId,
+            Observaciones = string.IsNullOrWhiteSpace(req.Observaciones) ? null : req.Observaciones!.Trim(),
+            ObservacionesDespacho = string.IsNullOrWhiteSpace(req.ObservacionesDespacho) ? null : req.ObservacionesDespacho!.Trim(),
         };
         _db.RequerimientosCompra.Add(entity);
         await _db.SaveChangesAsync(ct);
@@ -143,6 +170,18 @@ public sealed class RequerimientoService : IRequerimientoService
         }
         r.Estado = RequerimientoEstado.Ejecutado;
         await _db.SaveChangesAsync(ct);
+        return (await ListAsync(new RequerimientoFiltro(), ct)).FirstOrDefault(x => x.Id == id);
+    }
+
+    public async Task<RequerimientoDto?> SetForzarDividirAsync(Guid id, bool dividir, CancellationToken ct = default)
+    {
+        var r = await _db.RequerimientosCompra.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (r is null) { return null; }
+        if (r.ForzarDividir != dividir)
+        {
+            r.ForzarDividir = dividir;
+            await _db.SaveChangesAsync(ct);
+        }
         return (await ListAsync(new RequerimientoFiltro(), ct)).FirstOrDefault(x => x.Id == id);
     }
 
@@ -218,6 +257,63 @@ public sealed class RequerimientoService : IRequerimientoService
 
         await _db.SaveChangesAsync(ct);
         return await GetPlanificacionAsync(padre.Id, ct);
+    }
+
+    public async Task<PlanificarGrupoResult> PlanificarGrupoAsync(PlanificarGrupoRequest req, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return new PlanificarGrupoResult(false, "Sin tenant resuelto.", 0); }
+
+        var lineas = (req.Lineas ?? Array.Empty<PlanificarGrupoLinea>()).Where(l => l.Cantidad > 0).ToList();
+        if (lineas.Count == 0) { return new PlanificarGrupoResult(false, "No hay cantidades para planificar.", 0); }
+
+        var ids = lineas.Select(l => l.RequerimientoId).Distinct().ToList();
+        var padres = await _db.RequerimientosCompra.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+        var existentes = (await _db.RequerimientoCompraHijos.Where(h => ids.Contains(h.RequerimientoId)).ToListAsync(ct))
+            .GroupBy(h => h.RequerimientoId).ToDictionary(g => g.Key, g => g.Sum(h => h.Cantidad));
+
+        // 1) Validar TODO antes de tocar nada (transaccional: todo o nada).
+        foreach (var l in lineas)
+        {
+            var padre = padres.FirstOrDefault(p => p.Id == l.RequerimientoId);
+            if (padre is null) { return new PlanificarGrupoResult(false, "Una necesidad del grupo ya no existe.", 0); }
+            var yaPlan = existentes.GetValueOrDefault(padre.Id);
+            if (yaPlan + l.Cantidad > padre.Cantidad)
+            {
+                return new PlanificarGrupoResult(false,
+                    $"En '{padre.Descripcion}' lo planificado ({yaPlan + l.Cantidad:#,##0.##}) excederia la necesidad ({padre.Cantidad:#,##0.##}).", 0);
+            }
+        }
+
+        // 2) Agregar una distribucion a cada necesidad (sin tocar las existentes) + un solo SaveChanges.
+        var precio = req.PrecioUnitario < 0 ? 0 : req.PrecioUnitario;
+        var despacho = (req.CaracteristicasDespacho ?? "").Trim();
+        var entrega = (req.TiempoEntrega ?? "").Trim();
+        var creados = 0;
+        foreach (var l in lineas)
+        {
+            var padre = padres.First(p => p.Id == l.RequerimientoId);
+            _db.RequerimientoCompraHijos.Add(new RequerimientoCompraHijo
+            {
+                TenantId = tenantId,
+                RequerimientoId = padre.Id,
+                Cantidad = l.Cantidad,
+                FechaProgramadaCompra = req.FechaProgramadaCompra,
+                CaracteristicasDespacho = despacho,
+                TiempoEntrega = entrega,
+                ProveedorId = req.ProveedorId,
+                ProveedorContactoId = req.ProveedorId is null ? null : req.ProveedorContactoId,
+                PrecioUnitario = precio,
+                Estado = req.ProveedorId is not null ? RequerimientoEstado.ConProveedor : RequerimientoEstado.Planificado,
+            });
+            if (padre.Estado is RequerimientoEstado.Recibido or RequerimientoEstado.Agrupado or RequerimientoEstado.Planificado)
+            {
+                padre.Estado = RequerimientoEstado.Planificado;
+            }
+            creados++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return new PlanificarGrupoResult(true, null, creados);
     }
 
     private static PlanificacionDto BuildPlanificacion(RequerimientoCompra r, List<RequerimientoCompraHijo> hijos,

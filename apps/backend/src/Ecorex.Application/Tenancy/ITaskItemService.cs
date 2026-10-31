@@ -48,6 +48,15 @@ public interface ITaskItemService
         Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Enlaza el contacto de la tarea a un Tercero del Directorio (000232) y SINCRONIZA los 4 datos de
+    /// contacto (nombre/correo/telefono/identificacion) desde ese Tercero. Lo usa "Editar contacto" del
+    /// detalle cuando el usuario crea o edita el contacto en el TerceroModal. Editable mientras la tarea
+    /// no este Cerrada. NotFound si la tarea no existe; Invalid si el Tercero no existe o la tarea esta cerrada.
+    /// </summary>
+    Task<TaskCoreResult<TaskItemDetailDto>> SetContactTerceroAsync(
+        Guid taskId, Guid terceroId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Cambia el estado validando TaskItemStateMachine; transicion invalida -> InvalidTransition.
     /// Registra actividad y setea ClosedAt al pasar a Closed.
     /// </summary>

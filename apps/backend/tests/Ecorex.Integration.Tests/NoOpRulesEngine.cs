@@ -17,6 +17,7 @@ internal sealed class NoOpRulesEngine : IRulesEngine
         Guid formQuestionId, IReadOnlyDictionary<string, string?> formData,
         Guid? formResponseId = null, Guid? executedByTenantUserId = null,
         Guid? actorUserId = null, string actorName = "Sistema",
+        bool confirmed = false,
         CancellationToken cancellationToken = default)
         => Task.FromResult(new FormFieldRulesOutcome(
             Array.Empty<RuleExecutionOutcome>(), Array.Empty<RuleAction>(), formData));

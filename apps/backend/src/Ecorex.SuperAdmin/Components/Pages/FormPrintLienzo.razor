@@ -4,10 +4,12 @@
 @using Ecorex.Application.Forms
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Shared.Forms
+@using Ecorex.SuperAdmin.Auth
 @using Microsoft.AspNetCore.Components
 @using Microsoft.JSInterop
 @inject IFormDefinitionService DefinitionsSvc
 @inject IFormResponseService ResponsesSvc
+@inject IFormTokenService TokensSvc
 @inject IJSRuntime JS
 
 @* Impresion del control LienzoBloques (ADR-0133): una sola pagina apaisada con la grilla del lienzo
@@ -145,6 +147,10 @@
     /// <summary>Codigo del campo lienzo a imprimir; si falta, toma el primer LienzoBloques de la definicion.</summary>
     [Parameter, SupplyParameterFromQuery(Name = "field")] public string? Field { get; set; }
 
+    /// <summary>Token publico del visor /f/{token} (si se imprime desde la superficie anonima): fija el tenant por
+    /// ambiente para que el registro, de otro modo tenant-scoped, sea visible sin sesion. Opcional.</summary>
+    [Parameter, SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
+
     private FormDefinitionDetailDto? _definition;
     private FormResponseDto? _response;
     private FormQuestionDto? _lienzo;
@@ -153,7 +159,36 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Superficie anonima /f/: sin sesion el HasQueryFilter ocultaria el registro. Si viene un token valido lo
+        // validamos (UNICO punto cross-tenant) y fijamos su tenant como ambiente alrededor de las lecturas. El token
+        // ya acota a UNA definicion: solo imprimimos si el registro pertenece a esa definicion.
+        if (!string.IsNullOrWhiteSpace(Token))
+        {
+            var v = await TokensSvc.ValidateAsync(Token);
+            if (v is { IsValid: true, TenantId: Guid tenantId, DefinitionId: Guid tokenDefId })
+            {
+                using (AmbientTenantContext.Begin(tenantId))
+                {
+                    await LoadAsync(tokenDefId);
+                }
+            }
+        }
+        else
+        {
+            await LoadAsync(null);
+        }
+        _loading = false;
+    }
+
+    private async Task LoadAsync(Guid? tokenDefinitionId)
+    {
         _response = await ResponsesSvc.GetAsync(ResponseId);
+        // Con token: el registro debe ser de la definicion del token (no imprimir un registro de otra).
+        if (_response is not null && tokenDefinitionId is Guid defId && _response.DefinitionId != defId)
+        {
+            _response = null;
+            return;
+        }
         if (_response is not null)
         {
             _definition = await DefinitionsSvc.GetAsync(_response.DefinitionId);
@@ -165,7 +200,6 @@
                     : lienzos.FirstOrDefault();
             }
         }
-        _loading = false;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

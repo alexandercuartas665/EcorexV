@@ -37,6 +37,7 @@ public class RowIngestServiceTests
         public DbSet<Ecorex.Domain.Entities.ConciliacionRule> ConciliacionRules => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.ConciliacionFieldDefinition> ConciliacionFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.ConciliacionFieldValue> ConciliacionFieldValues => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionDianAsignacion> ConciliacionDianAsignaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();

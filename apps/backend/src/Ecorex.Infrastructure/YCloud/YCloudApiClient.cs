@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Ecorex.Application.Tenancy;
+using Microsoft.Extensions.Logging;
 
 namespace Ecorex.Infrastructure.YCloud;
 
@@ -15,10 +16,26 @@ internal sealed class YCloudApiClient : IYCloudApiClient
     private const string ApiBase = "https://api.ycloud.com/v2";
 
     private readonly HttpClient _http;
+    private readonly ILogger<YCloudApiClient> _logger;
 
-    public YCloudApiClient(HttpClient http)
+    // TRACE de diagnostico: cuando ECOREX_YCLOUD_TRACE=1 (o true), se registra en el log del server el "curl"
+    // COMPLETO de cada envio a YCloud (payload) + la RESPUESTA (status + body), para ver exactamente que se manda
+    // al enviar una plantilla y que contesta YCloud. La API key NUNCA se loguea (repo publico): se redacta. Off por
+    // defecto (ruido/volumen). Se lee una vez al cargar el tipo; activar/desactivar requiere reiniciar el contenedor.
+    // Leer en prod: docker logs <ecorex-app> 2>&1 | grep "YCLOUD TRACE".
+    private static readonly bool TraceEnabled = ReadTraceFlag();
+
+    public YCloudApiClient(HttpClient http, ILogger<YCloudApiClient> logger)
     {
         _http = http;
+        _logger = logger;
+    }
+
+    private static bool ReadTraceFlag()
+    {
+        var v = Environment.GetEnvironmentVariable("ECOREX_YCLOUD_TRACE");
+        return !string.IsNullOrWhiteSpace(v)
+            && (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase) || v.Equals("yes", StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<YCloudCheckResult> CheckAsync(string apiKey, string? phoneNumber, CancellationToken cancellationToken = default)
@@ -190,13 +207,28 @@ internal sealed class YCloudApiClient : IYCloudApiClient
 
     private async Task<YCloudSendResult> SendMessageAsync(string apiKey, object payload, CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{ApiBase}/whatsapp/messages");
+        var url = $"{ApiBase}/whatsapp/messages";
+        if (TraceEnabled)
+        {
+            string payloadJson;
+            try { payloadJson = JsonSerializer.Serialize(payload); } catch { payloadJson = "<payload no serializable>"; }
+            // "curl" equivalente con la API key REDACTADA (nunca se loguea el secreto): asi se ve exactamente que
+            // se manda al enviar la plantilla/texto. El payload NO lleva secretos (from/to/template/components).
+            _logger.LogInformation(
+                "[YCLOUD TRACE] REQUEST\ncurl -X POST {Url} -H \"X-API-Key: ***REDACTED***\" -H \"Content-Type: application/json\" -d '{Payload}'",
+                url, payloadJson);
+        }
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Add("X-API-Key", apiKey);
         req.Content = JsonContent.Create(payload);
         try
         {
             using var res = await _http.SendAsync(req, ct);
             var body = await res.Content.ReadAsStringAsync(ct);
+            if (TraceEnabled)
+            {
+                _logger.LogInformation("[YCLOUD TRACE] RESPONSE HTTP {Status} body={Body}", (int)res.StatusCode, body);
+            }
             if (!res.IsSuccessStatusCode)
             {
                 return new YCloudSendResult(false, null, ExtractError(body) ?? $"HTTP {(int)res.StatusCode}");
@@ -207,6 +239,7 @@ internal sealed class YCloudApiClient : IYCloudApiClient
         }
         catch (Exception ex)
         {
+            if (TraceEnabled) { _logger.LogWarning(ex, "[YCLOUD TRACE] EXCEPTION en POST {Url}", url); }
             return new YCloudSendResult(false, null, ex.Message);
         }
     }
@@ -288,6 +321,104 @@ internal sealed class YCloudApiClient : IYCloudApiClient
             offset += pageSize;
         }
         return new YCloudTemplateListResult(true, list, null);
+    }
+
+    public async Task<YCloudMessageStatusResult> GetMessageAsync(string apiKey, string messageId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return new YCloudMessageStatusResult(false, null, null, null, "Falta el id del mensaje.");
+        }
+        // 1) Recurso directo: GET /whatsapp/messages/{id}. 2) Si no existe por esa via (algunos ids solo salen por
+        //    listado), fallback a GET /whatsapp/messages?id={id}&limit=1 y se lee el primer item.
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/whatsapp/messages/{Uri.EscapeDataString(messageId)}");
+            req.Headers.Add("X-API-Key", apiKey);
+            using var res = await _http.SendAsync(req, cancellationToken);
+            var body = await res.Content.ReadAsStringAsync(cancellationToken);
+            if (res.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(body);
+                return ParseMessageStatus(doc.RootElement);
+            }
+            if ((int)res.StatusCode != 404)
+            {
+                return new YCloudMessageStatusResult(false, null, null, null, ExtractError(body) ?? $"HTTP {(int)res.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            return new YCloudMessageStatusResult(false, null, null, null, ex.Message);
+        }
+
+        // Fallback por listado (el id directo dio 404).
+        try
+        {
+            using var req2 = new HttpRequestMessage(HttpMethod.Get, $"{ApiBase}/whatsapp/messages?id={Uri.EscapeDataString(messageId)}&limit=1");
+            req2.Headers.Add("X-API-Key", apiKey);
+            using var res2 = await _http.SendAsync(req2, cancellationToken);
+            var body2 = await res2.Content.ReadAsStringAsync(cancellationToken);
+            if (!res2.IsSuccessStatusCode)
+            {
+                return new YCloudMessageStatusResult(false, null, null, null, ExtractError(body2) ?? $"HTTP {(int)res2.StatusCode}");
+            }
+            using var doc2 = JsonDocument.Parse(body2);
+            if (doc2.RootElement.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array && items.GetArrayLength() > 0)
+            {
+                return ParseMessageStatus(items[0]);
+            }
+            return new YCloudMessageStatusResult(false, null, null, null, "YCloud no devolvio el mensaje (id no encontrado).");
+        }
+        catch (Exception ex)
+        {
+            return new YCloudMessageStatusResult(false, null, null, null, ex.Message);
+        }
+    }
+
+    /// <summary>Parsea un objeto de mensaje de YCloud: estado + (si fallo) codigo y texto de error de Meta. Tolerante
+    /// a que el error venga como objeto "error" o arreglo "errors", y a code numerico o texto.</summary>
+    private static YCloudMessageStatusResult ParseMessageStatus(JsonElement msg)
+    {
+        var status = TryStr(msg, "status");
+        string? code = null, message = null;
+
+        // error como objeto: { code, title, message, ... }
+        if (msg.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object)
+        {
+            (code, message) = ReadErrorFields(err);
+        }
+        // errors como arreglo: [ { code, title, message } ] (se toma el primero con datos).
+        if ((code is null && message is null) && msg.TryGetProperty("errors", out var errs) && errs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var e in errs.EnumerateArray())
+            {
+                if (e.ValueKind != JsonValueKind.Object) { continue; }
+                (code, message) = ReadErrorFields(e);
+                if (code is not null || message is not null) { break; }
+            }
+        }
+        return new YCloudMessageStatusResult(true, status, code, message, null);
+    }
+
+    // Lee (code, message) de un objeto de error de Meta/YCloud. code puede ser numero o texto; el texto puede venir
+    // en "message", "title" o "errorMessage". Devuelve (null, null) si no hay nada util.
+    private static (string? Code, string? Message) ReadErrorFields(JsonElement err)
+    {
+        string? code = null;
+        if (err.TryGetProperty("code", out var c))
+        {
+            code = c.ValueKind == JsonValueKind.Number ? c.GetRawText()
+                : c.ValueKind == JsonValueKind.String ? c.GetString()
+                : null;
+        }
+        var message = TryStr(err, "message") ?? TryStr(err, "title") ?? TryStr(err, "errorMessage");
+        // Detalle anidado estilo Meta: error.error_data.details
+        if (message is null && err.TryGetProperty("error_data", out var ed) && ed.ValueKind == JsonValueKind.Object)
+        {
+            message = TryStr(ed, "details");
+        }
+        return (string.IsNullOrWhiteSpace(code) ? null : code, string.IsNullOrWhiteSpace(message) ? null : message);
     }
 
     private static string? TryStr(JsonElement el, string prop)

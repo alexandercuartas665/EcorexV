@@ -27,15 +27,17 @@ public sealed class ActividadesToolset : IActividadesToolset
     private readonly IFormResponseService _forms;
     private readonly IFormDefinitionService _formDefs;
     private readonly ITenantContext _tenant;
+    private readonly IAgentAvisoTareaService _aviso;
 
     public ActividadesToolset(IApplicationDbContext db, ITaskItemService tasks, IFormResponseService forms,
-        IFormDefinitionService formDefs, ITenantContext tenant)
+        IFormDefinitionService formDefs, ITenantContext tenant, IAgentAvisoTareaService aviso)
     {
         _db = db;
         _tasks = tasks;
         _forms = forms;
         _formDefs = formDefs;
         _tenant = tenant;
+        _aviso = aviso;
     }
 
     public string GroupKey => "actividades";
@@ -313,6 +315,14 @@ public sealed class ActividadesToolset : IActividadesToolset
 
         // 4) Adjuntar automaticamente la media entrante de la conversacion.
         var adjuntados = await AttachConversationMediaAsync(taskId, ct);
+
+        // 5) Aviso de "tarea asignada" al usuario ASIGNADO (ADR-0140): best-effort. Solo en la creacion REAL
+        // (no en los caminos idempotentes de arriba, que ya devolvieron). Deja rastro en la bitacora del agente
+        // y en la historia de la tarea; un fallo de envio no rompe la respuesta al cliente.
+        if (AiToolRunContext.AgentId is Guid avisoAgentId)
+        {
+            await _aviso.NotifyTaskAssignedAsync(avisoAgentId, taskId, AiToolRunContext.ConversationId, actor, ct);
+        }
 
         // Nombre del tablero del concepto (best-effort, para el mensaje).
         string? tablero = null;

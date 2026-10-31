@@ -6,8 +6,10 @@ namespace Ecorex.Application.Rules.Verbs;
 /// <summary>
 /// Verbo DIRECCIONAR_CONCILIADOR: lo dispara el boton "Direccionar compra" del formulario de la tarea creada
 /// desde el conciliador DIAN. Por cada mapeo configurado en "Configuracion de tarea" (campo del formulario ->
-/// columna del conciliador: "oc" | "numsol" | "dyn:{fieldKey}") toma el valor ACTUAL del campo del formulario
-/// y lo ESCRIBE en el renglon del conciliador del que nacio la tarea. Los mapeos viven en la config compartida
+/// columna del conciliador: "oc" | "numsol" | "asignado" | "dyn:{fieldKey}") toma el valor ACTUAL del campo del
+/// formulario y lo ESCRIBE en el renglon del conciliador del que nacio la tarea. El destino "asignado" guarda el
+/// usuario (id de TenantUser, p. ej. de un campo origen SystemUser como "Redireccionamiento") como responsable del
+/// renglon, lo mismo que el selector "responsable" del panel. Los mapeos viven en la config compartida
 /// (IAutorizacionComprasConfigService), asi que cambiarlos no toca la regla. No tiene params.
 /// </summary>
 public sealed class DireccionarConciliadorVerb : IRuleVerb
@@ -48,10 +50,12 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
             return RuleVerbResult.Fail("El formulario no esta ligado a una tarea (sin referencia).");
         }
 
-        var renglonId = await _cfg.ResolveRenglonByTaskNumberAsync(reference!, cancellationToken);
+        // La referencia puede ser el numero de tarea (form dentro de la tarea) o el id del renglon directo
+        // (form abierto en el panel del modulo de autorizacion): se resuelve en ambos casos.
+        var renglonId = await _cfg.ResolveRenglonByReferenceAsync(reference!, cancellationToken);
         if (renglonId is not Guid rid)
         {
-            return RuleVerbResult.Fail($"No se encontro la factura del conciliador para la tarea {reference}.");
+            return RuleVerbResult.Fail($"No se encontro la factura del conciliador para la referencia {reference}.");
         }
 
         // Mapeos POR FORMULARIO: cada salida configurada tiene su propio Direccionar; se resuelve por el
@@ -75,6 +79,15 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
             else if (string.Equals(target, "numsol", StringComparison.OrdinalIgnoreCase))
             {
                 await _conc.UpdateNumFacturaSoldarcoAsync(rid, value, cancellationToken); applied++;
+            }
+            else if (string.Equals(target, "asignado", StringComparison.OrdinalIgnoreCase))
+            {
+                // El valor es el id del TenantUser (campo origen SystemUser). Solo asignamos si trae un GUID
+                // valido; vacio = no tocar el responsable (no lo borramos por accidente al direccionar).
+                if (Guid.TryParse(value, out var userId))
+                {
+                    await _cfg.SetAsignadoAsync(rid, userId, cancellationToken); applied++;
+                }
             }
             else if (target.StartsWith("dyn:", StringComparison.Ordinal))
             {

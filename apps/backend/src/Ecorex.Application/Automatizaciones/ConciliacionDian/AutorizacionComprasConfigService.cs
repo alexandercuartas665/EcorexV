@@ -77,6 +77,9 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Numero de actividad ya solicitada para una factura (anti-duplicado). null si no se ha solicitado.</summary>
     Task<string?> GetSolicitadaAsync(Guid renglonId, CancellationToken ct = default);
     Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default);
+    /// <summary>Quita el vinculo renglon-&gt;tarea del mapa "solicitadas" (al devolver el documento al conciliador,
+    /// para que un re-direccionamiento cree una tarea nueva). Idempotente.</summary>
+    Task ClearSolicitadaAsync(Guid renglonId, CancellationToken ct = default);
     /// <summary>Mapa COMPLETO renglon->numero de actividad ya creada (una sola lectura; para pintar la grilla
     /// del conciliador en bloque). Lo comparten la autorizacion y la creacion de tareas por linea.</summary>
     Task<IReadOnlyDictionary<Guid, string>> GetSolicitadasMapAsync(CancellationToken ct = default);
@@ -93,8 +96,18 @@ public interface IAutorizacionComprasConfigService
     /// <summary>Resuelve el renglon del conciliador a partir del numero de tarea (reverse del mapa solicitadas;
     /// no hay FK task->renglon). null si no se encuentra.</summary>
     Task<Guid?> ResolveRenglonByTaskNumberAsync(string taskNumber, CancellationToken ct = default);
+    /// <summary>Resuelve el renglon desde la REFERENCIA del formulario, venga como quiera: primero como numero
+    /// de tarea (form abierto dentro de la tarea creada), y si no, como id de renglon directo (form abierto en
+    /// el PANEL del modulo de autorizacion, cuya referencia ES el id del renglon). null si ninguna aplica.</summary>
+    Task<Guid?> ResolveRenglonByReferenceAsync(string reference, CancellationToken ct = default);
     /// <summary>Campos (code+label) de un formulario, para el editor de mapeos (excluye no-dato: Button/Heading/etc.).</summary>
     Task<IReadOnlyList<FormFieldOptionDto>> ListFormFieldsAsync(Guid formDefinitionId, CancellationToken ct = default);
+
+    /// <summary>Codigos de campo que son texto/numero/fecha PLANOS (SourceKind=Options): los unicos seguros para
+    /// prellenar con datos crudos de la factura. EXCLUYE campos repurposados a lookup del Contenedor, usuario del
+    /// sistema, tercero, item, etc., para no pisarlos con el valor crudo (p. ej. meter la fecha en un campo que
+    /// ahora es un selector de usuario).</summary>
+    Task<IReadOnlySet<string>> GetPlainTextFieldCodesAsync(Guid formDefinitionId, CancellationToken ct = default);
     /// <summary>Secciones (contenedores de nivel superior, con nombre) de un formulario, para elegir cuales ocultar.</summary>
     Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default);
     /// <summary>Secciones a ocultar en autorizacion para el formulario dado (salen de la salida cuyo form coincide).</summary>
@@ -131,11 +144,13 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
     private readonly IConceptoActividadService _conceptos;
     private readonly IFormDefinitionService _forms;
     private readonly IRuleDocumentService _rules;
+    private readonly IConciliacionAsignacionHistorialService _hist;
 
     public AutorizacionComprasConfigService(IApplicationDbContext db, ITenantContext tenant,
-        IConceptoActividadService conceptos, IFormDefinitionService forms, IRuleDocumentService rules)
+        IConceptoActividadService conceptos, IFormDefinitionService forms, IRuleDocumentService rules,
+        IConciliacionAsignacionHistorialService hist)
     {
-        _db = db; _tenant = tenant; _conceptos = conceptos; _forms = forms; _rules = rules;
+        _db = db; _tenant = tenant; _conceptos = conceptos; _forms = forms; _rules = rules; _hist = hist;
     }
 
     private sealed record Stored(Guid? Sub, Guid? Form);
@@ -216,10 +231,20 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsignKey, ct);
         var map = ParseMap(row?.ConfigValue);
         var key = renglonId.ToString();
+        var prev = map.TryGetValue(key, out var pv) && Guid.TryParse(pv, out var pg) ? (Guid?)pg : null;
         if (userId is Guid uid) { map[key] = uid.ToString(); } else { map.Remove(key); }
         var json = JsonSerializer.Serialize(map);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsignKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
+
+        // Historial: contar un direccionamiento solo cuando se asigna a un usuario REAL y DISTINTO del anterior
+        // (evita doble conteo si se re-escribe el mismo). Al direccionar, el documento deja de estar "rechazado".
+        if (userId is Guid nuid && nuid != prev)
+        {
+            await _hist.RegistrarAsync(renglonId, nuid, null, ConciliacionAsignacionAccion.Asignado, ct);
+            var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+            if (r is not null) { r.Rechazado = false; }
+        }
         await _db.SaveChangesAsync(ct);
     }
 
@@ -268,6 +293,16 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var json = JsonSerializer.Serialize(map);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = SolicKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task ClearSolicitadaAsync(Guid renglonId, CancellationToken ct = default)
+    {
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SolicKey, ct);
+        if (row is null) { return; }
+        var map = ParseMap(row.ConfigValue);
+        if (!map.Remove(renglonId.ToString())) { return; } // ya no estaba: idempotente
+        row.ConfigValue = JsonSerializer.Serialize(map);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -331,6 +366,23 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         return null;
     }
 
+    public async Task<Guid?> ResolveRenglonByReferenceAsync(string reference, CancellationToken ct = default)
+    {
+        reference = (reference ?? string.Empty).Trim();
+        if (reference.Length == 0) { return null; }
+        // 1) Form abierto DENTRO de la tarea: la referencia es el numero de tarea.
+        var byTask = await ResolveRenglonByTaskNumberAsync(reference, ct);
+        if (byTask is Guid g) { return g; }
+        // 2) Form abierto en el PANEL del modulo: la referencia ES el id del renglon. Se valida que exista
+        //    (y sea del tenant, via el filtro global) para no escribir sobre un id cualquiera.
+        if (Guid.TryParse(reference, out var rid)
+            && await _db.ConciliacionDianRenglones.AsNoTracking().AnyAsync(r => r.Id == rid, ct))
+        {
+            return rid;
+        }
+        return null;
+    }
+
     public async Task<IReadOnlyList<FormFieldOptionDto>> ListFormFieldsAsync(Guid formDefinitionId, CancellationToken ct = default)
     {
         var def = await _forms.GetAsync(formDefinitionId, ct);
@@ -343,6 +395,21 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .OrderBy(q => q.SortOrder)
             .Select(q => new FormFieldOptionDto(q.FieldCode, q.Label))
             .ToList();
+    }
+
+    public async Task<IReadOnlySet<string>> GetPlainTextFieldCodesAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var def = await _forms.GetAsync(formDefinitionId, ct);
+        if (def is null) { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+        // Solo campos "crudos": texto/area/numero/fecha con origen de opciones (no lookups ni usuarios).
+        var plain = new HashSet<FormControlType>
+        {
+            FormControlType.Text, FormControlType.TextArea, FormControlType.Number, FormControlType.Date,
+        };
+        return def.Questions
+            .Where(q => q.SourceKind == FormSourceKind.Options && plain.Contains(q.ControlType))
+            .Select(q => q.FieldCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default)

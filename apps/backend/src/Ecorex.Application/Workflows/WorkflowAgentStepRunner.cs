@@ -52,6 +52,26 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     private const int MaxWhatsAppAsks = 4;
 
     /// <summary>
+    /// CIRCUIT BREAKER anti-loop por FALLO DE ENTREGA: si el paso espera una respuesta de WhatsApp y los ULTIMOS
+    /// K salientes de esa conversacion estan TODOS en DeliveryStatus=failed, el cliente NO esta recibiendo (saldo
+    /// del proveedor, numero sin WhatsApp, WABA restringida). Se DETIENE el agente del paso -sin invocar al
+    /// modelo- y el paso vuelve a una persona, en vez de seguir redactando y "enviando" mensajes que nunca llegan
+    /// (que fue lo que quemo el cupo de Gemini). El estado de entrega lo setea el webhook de estado del proveedor
+    /// (ADR-0135/0137), asincrono: para cuando el paso se re-dispara (reintento/cadencia), los salientes previos
+    /// ya tienen su estado definitivo, asi que el breaker ve el fallo real.
+    /// </summary>
+    private const int DeliveryFailStreakToBreak = 3;
+
+    /// <summary>
+    /// TOPE DURO de invocaciones del modelo por paso: backstop INDEPENDIENTE del envio. Aunque el agente no envie
+    /// (solo lea/espere y se re-dispare por cadencia o reanudacion), nunca invoca al proveedor mas de estas veces
+    /// en un mismo paso; superado, el paso se detiene y vuelve a una persona. Es la red que corta un bucle que el
+    /// breaker de entrega no ve (porque no hubo envio fallido que medir). Configurable por entorno
+    /// (ECOREX_AGENT_MAX_INVOKES_PER_STEP), 20 por defecto.
+    /// </summary>
+    private static readonly int MaxAgentInvokesPerStep = ReadEnvInt("ECOREX_AGENT_MAX_INVOKES_PER_STEP", 20, 3, 1000);
+
+    /// <summary>
     /// Tope de reloj de UNA corrida del agente (la llamada al proveedor + su bucle de herramientas). Acota un
     /// proveedor colgado: superado, el paso vuelve a una persona con el motivo. Configurable por entorno
     /// (ECOREX_AGENT_RUN_TIMEOUT_MIN), 6 min por defecto.
@@ -177,6 +197,45 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             return WorkflowAgentStepOutcome.NoAgent;
         }
 
+        // ---- FRENOS ANTI-LOOP (van ANTES de armar contexto e invocar al modelo: si el paso debe detenerse, no se
+        // gasta ni una llamada al proveedor). Ambos cortan DURO (FinalizeAsFailureAsync, allowRoute:false): fijan
+        // AgentAttemptedAt y limpian la espera, sin importar la politica OnFailure del nodo, para que el barrido NO
+        // vuelva a tomar el paso (ReturnToPersonAsync, en cambio, con OnFailure=Retry dejaria el paso para re-barrer
+        // y el bucle seguiria). El paso queda vigente y Pending para una persona, con el motivo real en la bitacora.
+
+        // 1) TOPE DURO de invocaciones por paso: backstop independiente del envio.
+        if (step.AgentInvokeCount >= MaxAgentInvokesPerStep)
+        {
+            _logger.LogWarning(
+                "Paso {StepId}: tope duro de invocaciones del agente alcanzado ({Count}/{Max}); se detiene y vuelve a una persona.",
+                step.Id, step.AgentInvokeCount, MaxAgentInvokesPerStep);
+            return await FinalizeAsFailureAsync(step, nodeAgent,
+                $"El agente invoco al modelo {step.AgentInvokeCount} veces en este paso (tope {MaxAgentInvokesPerStep}); se detiene para no gastar de mas y el paso queda para una persona.",
+                allowRoute: false, cancellationToken);
+        }
+
+        // 2) CIRCUIT BREAKER por FALLO DE ENTREGA (K salientes seguidos en failed): el cliente no esta recibiendo,
+        // no tiene sentido invocar al modelo para redactar otro mensaje que tampoco llegara.
+        if (step.PendingWhatsAppConversationId is Guid breakerConvId)
+        {
+            var lastOutboundStatuses = await _db.Messages.AsNoTracking()
+                .Where(m => m.ConversationId == breakerConvId && m.Direction == MessageDirection.Outbound)
+                .OrderByDescending(m => m.SentAt)
+                .Take(DeliveryFailStreakToBreak)
+                .Select(m => m.DeliveryStatus)
+                .ToListAsync(cancellationToken);
+            if (lastOutboundStatuses.Count >= DeliveryFailStreakToBreak
+                && lastOutboundStatuses.All(s => string.Equals(s, "failed", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogWarning(
+                    "Paso {StepId}: los ultimos {K} WhatsApp de la conversacion {ConvId} fallaron en la entrega; se detiene el seguimiento y vuelve a una persona.",
+                    step.Id, DeliveryFailStreakToBreak, breakerConvId);
+                return await FinalizeAsFailureAsync(step, nodeAgent,
+                    $"Los ultimos {DeliveryFailStreakToBreak} WhatsApp a este contacto fallaron en la entrega (estado del proveedor: failed); el cliente no los esta recibiendo. Se detiene el seguimiento automatico para no gastar de mas; el paso queda para una persona (revisa el numero del contacto y el saldo/estado de la linea de WhatsApp).",
+                    allowRoute: false, cancellationToken);
+            }
+        }
+
         var contextResult = await _contextBuilder.BuildAsync(step.Id, cancellationToken);
         if (!contextResult.IsOk || contextResult.Value is null)
         {
@@ -233,6 +292,11 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         };
 
         var attemptNo = step.AgentAttemptCount + 1;
+
+        // TOPE DURO anti-loop: se cuenta ESTA invocacion (vamos a llamar al proveedor). Se persiste junto con el
+        // cierre/pausa/devolucion de abajo (misma entidad rastreada); si la corrida revienta antes de cualquier
+        // SaveChanges, se suelta el claim y no se persiste -coherente: no hubo decision que cobrar al contador.
+        step.AgentInvokeCount += 1;
 
         // Tope de reloj de la corrida (B): un proveedor colgado no debe dejar el paso "trabajando" sin fin.
         WorkflowAgentInvocationResult invocation;

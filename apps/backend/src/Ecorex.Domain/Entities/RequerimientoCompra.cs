@@ -62,6 +62,24 @@ public sealed class RequerimientoCompra : TenantEntity
     /// <summary>Clave por la que se agrupan los pedidos del MISMO producto (p.ej. ItemId o referencia).</summary>
     public string ClaveAgrupacion { get; set; } = string.Empty;
 
+    /// <summary>Override por registro: si es true, esta necesidad NO se consolida con las del mismo producto
+    /// (sale como linea propia y se planifica aparte) aunque el modulo este en modo Consolidado.</summary>
+    public bool ForzarDividir { get; set; }
+
+    // ---- Trazabilidad de la solicitud (quien pidio y desde que actividad) ----
+    /// <summary>TenantUser que origino la solicitud (quien envio el formulario). Null si anonimo (/f publico).</summary>
+    public Guid? SolicitanteUserId { get; set; }
+    /// <summary>Nombre/correo del solicitante, snapshot al crear (para no perderlo si cambia el usuario).</summary>
+    public string? SolicitanteNombre { get; set; }
+    /// <summary>Actividad (TaskItem) donde se origino la solicitud (el formulario vivia en esa tarea). Null si no aplica.</summary>
+    public Guid? SourceTaskItemId { get; set; }
+
+    // ---- Observaciones (texto libre, se pueden alimentar desde el mapeo de una regla de formulario) ----
+    /// <summary>Observaciones generales de la necesidad.</summary>
+    public string? Observaciones { get; set; }
+    /// <summary>Observaciones/caracteristicas de despacho deseadas; sirven de default al planificar el hijo.</summary>
+    public string? ObservacionesDespacho { get; set; }
+
     public ICollection<RequerimientoCompraHijo> Hijos { get; set; } = new List<RequerimientoCompraHijo>();
 }
 

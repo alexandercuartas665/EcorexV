@@ -56,6 +56,13 @@ public static class DependencyInjection
             // EcorexDbContext se resuelve hacia el contexto SQL Server: mismos filtros
             // multi-tenant, mismas entidades, solo cambian proveedor y migraciones.
             services.AddScoped<EcorexDbContext>(sp => sp.GetRequiredService<SqlServerEcorexDbContext>());
+            // Fabrica de contextos EFIMEROS de solo lectura (ver IApplicationDbContextFactory):
+            // instancias propias para consultas que no deben compartir el DbContext scoped del
+            // circuito. Mismo ITenantContext del scope => mismo filtro multi-tenant.
+            services.AddScoped<IApplicationDbContextFactory>(sp => new ApplicationDbContextFactory(
+                () => new SqlServerEcorexDbContext(
+                    sp.GetRequiredService<DbContextOptions<SqlServerEcorexDbContext>>(),
+                    sp.GetRequiredService<ITenantContext>())));
         }
         else if (string.Equals(provider, "Postgres", StringComparison.OrdinalIgnoreCase))
         {
@@ -65,6 +72,13 @@ public static class DependencyInjection
                        .UseSnakeCaseNamingConvention()
                        .AddInterceptors(sp.GetRequiredService<AuditableTenantInterceptor>());
             });
+            // Fabrica de contextos EFIMEROS de solo lectura (ver IApplicationDbContextFactory):
+            // instancias propias para consultas que no deben compartir el DbContext scoped del
+            // circuito. Mismo ITenantContext del scope => mismo filtro multi-tenant.
+            services.AddScoped<IApplicationDbContextFactory>(sp => new ApplicationDbContextFactory(
+                () => new EcorexDbContext(
+                    sp.GetRequiredService<DbContextOptions<EcorexDbContext>>(),
+                    sp.GetRequiredService<ITenantContext>())));
         }
         else
         {

@@ -665,6 +665,28 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return new LineSendResult(result.Ok, result.Error);
     }
 
+    public async Task<WhatsAppDeliveryProbeResult> ProbeDeliveryStatusAsync(Guid lineId, string externalId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(externalId))
+        {
+            return new WhatsAppDeliveryProbeResult(false, null, null, null, "El mensaje no tiene id de proveedor (no se puede consultar).");
+        }
+        // IgnoreQueryFilters: lo invoca el backfill de la bitacora (sin usuario/tenant en sesion en el barrido); el
+        // lineId ya viene resuelto en el tenant correcto.
+        var line = await _db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return new WhatsAppDeliveryProbeResult(false, null, null, null, "La linea no existe."); }
+        if (line.Provider != WhatsAppProvider.YCloud)
+        {
+            return new WhatsAppDeliveryProbeResult(false, null, null, null, "La consulta de estado por id solo aplica a lineas YCloud.");
+        }
+        var key = YCloudApiKey(line);
+        if (key is null) { return new WhatsAppDeliveryProbeResult(false, null, null, null, "Falta la API key de la linea YCloud."); }
+
+        var r = await _ycloud.GetMessageAsync(key, externalId, cancellationToken);
+        if (!r.IsSuccess) { return new WhatsAppDeliveryProbeResult(false, null, null, null, r.Error ?? "No se pudo consultar el mensaje en YCloud."); }
+        return new WhatsAppDeliveryProbeResult(true, r.Status, r.ErrorCode, r.ErrorMessage, null);
+    }
+
     // Resuelve linea conectada + numero normalizado (agnostico de proveedor). Error no nulo si algo falta.
     private async Task<(string? Error, WhatsAppLine? Line, string Digits)> ReadyAsync(Guid lineId, string phone, CancellationToken ct)
     {

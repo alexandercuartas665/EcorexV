@@ -30,7 +30,11 @@ public sealed record ActivityBoardSummaryDto(
     // Auto-archivado (ADR-0123): dias que una tarea cerrada aguanta antes de archivarse sola. 0 = nunca.
     int AutoArchiveDoneDays = 15,
     // Motivos/conceptos de cierre del tablero (para el selector "Concepto de cierre" del nodo de flujo).
-    IReadOnlyList<string>? CloseReasons = null);
+    IReadOnlyList<string>? CloseReasons = null,
+    // Alcance por usuario: TenantUserId que pueden ver TODAS las tareas. Null/vacio = sin restriccion (todos
+    // ven todo). Con valores, solo esos (+ Owner/Admin) ven el equipo; los demas ven solo su carga. Precarga
+    // el editor del administrador.
+    IReadOnlyList<Guid>? SeeAllUserIds = null);
 
 public sealed record ActivityBoardIndexDto(
     IReadOnlyList<ActivityBoardSummaryDto> Boards, ActivityBoardKpisDto Kpis);
@@ -67,7 +71,9 @@ public sealed record CreateActivityBoardRequest(
     TaskBoardStatus Status = TaskBoardStatus.InProgress,
     DateTimeOffset? DueDate = null,
     // Restriccion de visibilidad por usuario al crear (TenantUserId). Null/vacio = todos.
-    IReadOnlyList<Guid>? AllowedUserIds = null);
+    IReadOnlyList<Guid>? AllowedUserIds = null,
+    // Alcance por usuario al crear: TenantUserId que pueden ver todas las tareas. Null/vacio = sin restriccion.
+    IReadOnlyList<Guid>? SeeAllUserIds = null);
 
 public sealed record UpdateActivityBoardRequest(
     string Name, string? Description, string? Color,
@@ -82,7 +88,10 @@ public sealed record UpdateActivityBoardRequest(
     // lista con ids = solo esos TenantUser (mas Owner/Admin) ven el tablero.
     IReadOnlyList<Guid>? AllowedUserIds = null,
     // Auto-archivado (ADR-0123): dias para archivar lo cerrado. Null = NO tocar; 0 = nunca; >0 = plazo.
-    int? AutoArchiveDoneDays = null);
+    int? AutoArchiveDoneDays = null,
+    // Alcance por usuario: TenantUserId que pueden ver todas las tareas. Null = NO tocar; lista vacia = quitar la
+    // restriccion (todos ven todo); lista con ids = solo esos (+ Owner/Admin) ven el equipo, los demas su carga.
+    IReadOnlyList<Guid>? SeeAllUserIds = null);
 
 /// <summary>Alcance del detalle del tablero (chips del prototipo).</summary>
 public enum ActivityBoardScope
@@ -187,7 +196,13 @@ public sealed record ActivityBoardDetailDto(
     // Si las tarjetas muestran el nombre del contacto/cliente como titulo (en vez del titulo de la actividad).
     bool CardPrimaryContact = false,
     // Auto-archivado (ADR-0123): dias para archivar lo cerrado. 0 = nunca.
-    int AutoArchiveDoneDays = 15);
+    int AutoArchiveDoneDays = 15,
+    // Alcance por usuario (SeeAllUserIds): true = el tablero tiene la restriccion ACTIVA (algun usuario en la
+    // lista), asi que el default es "mis tareas". false = sin restriccion (default clasico "equipo").
+    bool SeeAllRestrictionOn = false,
+    // true = quien abre puede ver TODAS las tareas (sin restriccion, o esta en la lista, o es Owner/Admin).
+    // false = bloqueo duro: solo ve sus tareas + las no asignadas; los alcances "equipo"/"terminados" se niegan.
+    bool CanSeeAllTasks = true);
 
 /// <summary>
 /// Creacion rapida desde la columna del tablero. ActivityTypeId null usa el primer tipo

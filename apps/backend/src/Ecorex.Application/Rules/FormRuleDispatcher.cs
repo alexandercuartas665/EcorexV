@@ -23,6 +23,7 @@ public interface IFormRuleDispatcher
         Guid definitionId, string fieldCode, IReadOnlyDictionary<string, string?> values,
         Guid? formResponseId = null, Guid? executedByTenantUserId = null,
         Guid? actorUserId = null, string actorName = "Sistema",
+        bool confirmed = false,
         CancellationToken cancellationToken = default);
 }
 
@@ -58,6 +59,7 @@ public sealed class FormRuleDispatcher : IFormRuleDispatcher
         Guid definitionId, string fieldCode, IReadOnlyDictionary<string, string?> values,
         Guid? formResponseId = null, Guid? executedByTenantUserId = null,
         Guid? actorUserId = null, string actorName = "Sistema",
+        bool confirmed = false,
         CancellationToken cancellationToken = default)
     {
         var questionId = await _db.FormQuestions
@@ -69,7 +71,7 @@ public sealed class FormRuleDispatcher : IFormRuleDispatcher
             return Empty;
         }
         return await _engine.ExecuteForFormFieldAsync(
-            id, values, formResponseId, executedByTenantUserId, actorUserId, actorName, cancellationToken);
+            id, values, formResponseId, executedByTenantUserId, actorUserId, actorName, confirmed, cancellationToken);
     }
 }
 

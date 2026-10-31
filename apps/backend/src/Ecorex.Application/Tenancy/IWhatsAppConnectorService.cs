@@ -55,4 +55,15 @@ public interface IWhatsAppConnectorService
 
     /// <summary>Descarga la media ENTRANTE de un mensaje (imagen) a base64. Solo lineas Evolution. Lo usa el webhook.</summary>
     Task<Ecorex.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken cancellationToken = default);
+
+    /// <summary>ADR-0139: CONSULTA (solo lectura) el estado de un saliente por su id de proveedor (<paramref name="externalId"/>:
+    /// el wamid de Meta o el id de YCloud guardado al enviar), para recuperar el MOTIVO REAL de Meta cuando el webhook
+    /// de estado llego "failed" sin detalle. Solo lineas YCloud; no reenvia nada. Resultado con estado + codigo/texto
+    /// de error de Meta, o Error no nulo si no se pudo consultar (linea no YCloud, sin API key, HTTP, etc.).</summary>
+    Task<WhatsAppDeliveryProbeResult> ProbeDeliveryStatusAsync(Guid lineId, string externalId, CancellationToken cancellationToken = default);
 }
+
+/// <summary>Resultado de consultar el estado de un saliente (ADR-0139). <paramref name="Ok"/>=la consulta se pudo hacer;
+/// <paramref name="Status"/> el estado del proveedor; <paramref name="ErrorCode"/>/<paramref name="ErrorMessage"/> el
+/// motivo de Meta si fallo; <paramref name="Error"/> no nulo = fallo la consulta (no el mensaje).</summary>
+public sealed record WhatsAppDeliveryProbeResult(bool Ok, string? Status, string? ErrorCode, string? ErrorMessage, string? Error);

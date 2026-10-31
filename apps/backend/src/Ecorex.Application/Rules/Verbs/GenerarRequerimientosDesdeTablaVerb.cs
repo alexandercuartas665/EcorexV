@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
+using Ecorex.Application.Common;
 using Ecorex.Application.Requerimientos;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Rules.Verbs;
 
@@ -18,10 +20,11 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
 
     private readonly IRequerimientoService _req;
     private readonly IRequerimientoFieldService _fields;
+    private readonly IApplicationDbContext _db;
 
-    public GenerarRequerimientosDesdeTablaVerb(IRequerimientoService req, IRequerimientoFieldService fields)
+    public GenerarRequerimientosDesdeTablaVerb(IRequerimientoService req, IRequerimientoFieldService fields, IApplicationDbContext db)
     {
-        _req = req; _fields = fields;
+        _req = req; _fields = fields; _db = db;
     }
 
     public string Name => VerbName;
@@ -58,6 +61,8 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                     new RuleParamOption("unidad", "Unidad"),
                     new RuleParamOption("fecha", "Fecha requerida"),
                     new RuleParamOption("area", "Area solicitante"),
+                    new RuleParamOption("observaciones", "Observaciones generales"),
+                    new RuleParamOption("observaciones_despacho", "Observaciones de despacho"),
                     new RuleParamOption("origen", "Origen (sobrescribe)")
                 ]),
             new RuleVerbParamDescriptor("autoComplete", "Completar paso", RuleParamType.Boolean, Required: false,
@@ -102,8 +107,39 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                 .ToDictionary(d => "dyn:" + d.FieldKey, d => d.Id, StringComparer.Ordinal);
         }
 
+        // Trazabilidad: quien pidio (el que envio el formulario) y desde que actividad.
+        // En on-submit el contexto trae ExecutedByTenantUserId (= submitter) y FormResponseId;
+        // la actividad origen se resuelve por el Reference (= numero de tarea) de la respuesta.
+        var solicitanteUserId = context.ExecutedByTenantUserId;
+        Guid? sourceTaskId = context.TaskItemId;
+        if (sourceTaskId is null && context.FormResponseId is Guid frId)
+        {
+            var reference = await _db.FormResponses.AsNoTracking()
+                .Where(r => r.Id == frId).Select(r => r.Reference).FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(reference))
+            {
+                sourceTaskId = await _db.TaskItems.AsNoTracking()
+                    .Where(t => t.Number == reference).Select(t => (Guid?)t.Id).FirstOrDefaultAsync(cancellationToken);
+            }
+        }
+
+        // Idempotencia (evita duplicar al re-ejecutar la regla / doble clic del boton): se omite una fila si
+        // ya existe una necesidad de la MISMA actividad origen con el mismo producto+unidad. Tambien se
+        // deduplican filas identicas dentro de la misma corrida. La clave es insensible a mayusculas/espacios.
+        var existingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (sourceTaskId is Guid stk)
+        {
+            var prev = await _db.RequerimientosCompra.AsNoTracking()
+                .Where(x => x.SourceTaskItemId == stk)
+                .Select(x => new { x.Descripcion, x.UnidadMedida })
+                .ToListAsync(cancellationToken);
+            foreach (var p in prev) { existingKeys.Add(DedupKey(p.Descripcion, p.UnidadMedida)); }
+        }
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var created = 0;
         var skipped = 0;
+        var duplicadas = 0;
         foreach (var row in rows)
         {
             if (row.ValueKind != JsonValueKind.Object) { skipped++; continue; }
@@ -117,6 +153,8 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
             var area = areaHeader;
             var origenId = origenParam;
             string? descripcionOverride = null;
+            string? observaciones = null;
+            string? obsDespacho = null;
             var dynValues = new Dictionary<Guid, string?>();
 
             // Overrides por mapeo.
@@ -130,6 +168,8 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                     case "unidad": unidad = val ?? ""; break;
                     case "fecha": if (TryDate(val, out var dm)) { fecha = new DateTimeOffset(dm.Date, TimeSpan.Zero); } break;
                     case "area": area = val ?? ""; break;
+                    case "observaciones": observaciones = val; break;
+                    case "observaciones_despacho": obsDespacho = val; break;
                     case "origen": if (Guid.TryParse(val, out var og)) { origenId = og; } break;
                     default:
                         if (target.StartsWith("dyn:", StringComparison.Ordinal) && dynDefs is not null
@@ -147,10 +187,16 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
             var descripcion = string.IsNullOrWhiteSpace(obs) ? baseDesc!.Trim() : $"{baseDesc!.Trim()} ({obs!.Trim()})";
             if (cantidad <= 0) { skipped++; continue; }
 
+            // Omite si ya existe (ejecucion previa) o si se repite dentro de esta misma corrida.
+            var key = DedupKey(descripcion, unidad);
+            if (existingKeys.Contains(key) || !seenKeys.Add(key)) { duplicadas++; continue; }
+
             try
             {
                 var saved = await _req.CrearAsync(
-                    new CrearRequerimientoRequest(origenId, area, null, descripcion, cantidad, unidad, fecha),
+                    new CrearRequerimientoRequest(origenId, area, null, descripcion, cantidad, unidad, fecha,
+                        SolicitanteUserId: solicitanteUserId, SourceTaskItemId: sourceTaskId,
+                        Observaciones: observaciones, ObservacionesDespacho: obsDespacho),
                     cancellationToken);
                 if (saved is null) { return new RuleVerbResult(false, $"No se pudo crear la necesidad '{descripcion}'.", created); }
                 // Campos propios de la necesidad creada.
@@ -166,8 +212,18 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
             }
         }
 
-        var msg = $"{created} necesidad(es) de compra creada(s)." + (skipped > 0 ? $" {skipped} fila(s) omitida(s) (sin producto o cantidad)." : "");
+        var msg = $"{created} necesidad(es) de compra creada(s)."
+            + (duplicadas > 0 ? $" {duplicadas} ya existia(n) (no se duplicaron)." : "")
+            + (skipped > 0 ? $" {skipped} fila(s) omitida(s) (sin producto o cantidad)." : "");
         return RuleVerbResult.Ok(msg, created, autoCompleteStep: context.GetBoolParam("autoComplete"));
+    }
+
+    /// <summary>Clave de deduplicacion: producto + unidad, insensible a mayusculas y espacios colapsados.</summary>
+    private static string DedupKey(string? descripcion, string? unidad)
+    {
+        static string N(string? s) => string.Join(' ', (s ?? "").Trim().ToLowerInvariant()
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return N(descripcion) + "|" + N(unidad);
     }
 
     /// <summary>Lee el parametro 'mapeo' (objeto JSON destino -> "kind:ref"); ignora valores vacios.</summary>

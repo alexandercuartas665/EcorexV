@@ -28,6 +28,10 @@ public sealed class TerceroFichaService : ITerceroFichaService
     // Reproduce el mapeo original: fiscal para cliente/proveedor, comercial para cliente/sospechoso.
     private static readonly (string Key, string Title, string Desc, string Color, string? Perfil)[] Defaults =
     [
+        // "general": ficha RESERVADA que se pinta EN LINEA junto a los campos principales del modal del
+        // tercero (no es una tarjeta colapsable). Sus campos se intercalan entre los principales segun su
+        // "ancla" (ver DirectorioLayoutConfigService). Siempre visible.
+        ("general",   "Datos principales",  "Campos que aparecen junto a los datos principales del tercero", "#0EA5E9", null),
         ("base",      "Base",               "Datos universales (direccion, sitio web, correo)", "#475569", null),
         ("fiscal",    "Datos fiscales",     "Datos tributarios y de facturacion", "#B45309", "cliente,proveedor"),
         ("comercial", "Datos comerciales",  "Vendedor, origen y gestion de riesgo", "#7C3AED", "cliente,sospechoso"),
@@ -66,7 +70,24 @@ public sealed class TerceroFichaService : ITerceroFichaService
             await _db.SaveChangesAsync(cancellationToken);
             return;
         }
-        // Tenant EXISTENTE sin la ficha "Base": se agrega (idempotente, siempre visible).
+        // Tenant EXISTENTE sin alguna ficha de sistema (Base / general): se agrega (idempotente, siempre
+        // visible). "general" se siembra con SortOrder -1 para que quede primera (se pinta en linea).
+        var added = false;
+        if (!existingKeys.Contains("general"))
+        {
+            _db.TerceroFichaDefinitions.Add(new TerceroFichaDefinition
+            {
+                TenantId = tenantId,
+                FichaKey = "general",
+                Title = "Datos principales",
+                Description = "Campos que aparecen junto a los datos principales del tercero",
+                Color = "#0EA5E9",
+                Perfil = null,
+                SortOrder = -1,
+                IsSystem = true
+            });
+            added = true;
+        }
         if (!existingKeys.Contains("base"))
         {
             _db.TerceroFichaDefinitions.Add(new TerceroFichaDefinition
@@ -80,6 +101,10 @@ public sealed class TerceroFichaService : ITerceroFichaService
                 SortOrder = 0,
                 IsSystem = true
             });
+            added = true;
+        }
+        if (added)
+        {
             await _db.SaveChangesAsync(cancellationToken);
         }
     }

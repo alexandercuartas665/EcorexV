@@ -84,6 +84,63 @@ public class YCloudWebhookParserStatusTests
     }
 
     [Fact]
+    public void Detalle_anidado_de_meta_error_data_details_se_lee()
+    {
+        // Variante real de Meta: el texto util viene en error.error_data.details (no en message/title).
+        const string json = """
+        {
+          "whatsappMessage": {
+            "from": "573171990738", "to": "573182800618", "status": "failed",
+            "error": {
+              "code": 131026,
+              "title": "Message undeliverable",
+              "error_data": { "details": "Message was not sent as part of an experiment" }
+            }
+          }
+        }
+        """;
+        var s = ParseOne(json);
+        Assert.Equal("131026", s.ErrorCode);
+        // Prioridad: title explicito gana al details anidado (ambos sirven; el codigo es lo critico).
+        Assert.Equal("Message undeliverable", s.ErrorMessage);
+        Assert.Contains("131026", s.ErrorRaw);
+        Assert.Contains("error_data", s.ErrorRaw);
+    }
+
+    [Fact]
+    public void Detalle_solo_en_error_data_details_cuando_no_hay_message_ni_title()
+    {
+        const string json = """
+        {
+          "whatsappMessage": {
+            "from": "573171990738", "to": "573182800618", "status": "failed",
+            "errors": [ { "code": 131047, "error_data": { "details": "Re-engagement message" } } ]
+          }
+        }
+        """;
+        var s = ParseOne(json);
+        Assert.Equal("131047", s.ErrorCode);
+        Assert.Equal("Re-engagement message", s.ErrorMessage);
+        Assert.Contains("Re-engagement message", s.ErrorRaw);
+    }
+
+    [Fact]
+    public void Codigo_anidado_en_error_data_cuando_no_esta_arriba()
+    {
+        const string json = """
+        {
+          "whatsappMessage": {
+            "from": "573171990738", "to": "573182800618", "status": "failed",
+            "error": { "errorData": { "code": 1013, "details": "User is not a valid WhatsApp user" } }
+          }
+        }
+        """;
+        var s = ParseOne(json);
+        Assert.Equal("1013", s.ErrorCode);
+        Assert.Equal("User is not a valid WhatsApp user", s.ErrorMessage);
+    }
+
+    [Fact]
     public void Captura_wamid_de_meta_y_id_de_ycloud_por_separado()
     {
         // La correlacion del estado debe poder cruzar por el id de YCloud (lo que se guarda al enviar) o el wamid de Meta.

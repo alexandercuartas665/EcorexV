@@ -76,6 +76,33 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         return true;
     }
 
+    // ---- Modo de trabajo del modulo (Consolidado/Dividido): config por tenant en TenantConfiguration ----
+    private const string ModoKey = "requerimientos.modo";
+
+    public async Task<RequerimientoModo> GetModoAsync(CancellationToken ct = default)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == ModoKey)
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+        return Enum.TryParse<RequerimientoModo>(val, ignoreCase: true, out var m) ? m : RequerimientoModo.Consolidado;
+    }
+
+    public async Task SetModoAsync(RequerimientoModo modo, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == ModoKey, ct);
+        if (row is null)
+        {
+            _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = ModoKey, ConfigValue = modo.ToString() });
+        }
+        else
+        {
+            row.ConfigValue = modo.ToString();
+        }
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default)
         => (await _catalogo.ListSubcategoriasAsync(null, includeArchived: false, ct))
             .OrderBy(s => s.Nombre)

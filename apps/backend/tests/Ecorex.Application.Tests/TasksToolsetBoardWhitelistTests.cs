@@ -113,6 +113,7 @@ public class TasksToolsetBoardWhitelistTests
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateAsync(Guid taskId, UpdateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> CopyAsync(Guid sourceTaskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemDetailDto>> UpdateCustomFieldsAsync(Guid taskId, string? customFieldsJson, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<TaskItemDetailDto>> SetContactTerceroAsync(Guid taskId, Guid terceroId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> ChangeStatusAsync(Guid taskId, TaskItemStatus newStatus, string? reason, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> AssignAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<TaskItemSummaryDto>> UnassignAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -153,6 +154,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<Ecorex.Domain.Entities.ConciliacionRule> ConciliacionRules => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.ConciliacionFieldDefinition> ConciliacionFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.ConciliacionFieldValue> ConciliacionFieldValues => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.ConciliacionDianAsignacion> ConciliacionDianAsignaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoOrigen> RequerimientoOrigenes => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoProveedorRegla> RequerimientoProveedorReglas => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoCompra> RequerimientosCompra => throw new NotSupportedException();
@@ -397,7 +399,14 @@ public class TasksToolsetBoardWhitelistTests
 
         var db = new FakeAppDb(inner);
         var tasks = new FakeTasks();
-        return (new TasksToolset(db, tasks, new FakeTenant(), new FakeQuoteDoc(), new FakeSender()), tasks, inner);
+        return (new TasksToolset(db, tasks, new FakeTenant(), new FakeQuoteDoc(), new FakeSender(), new FakeAviso()), tasks, inner);
+    }
+
+    // Aviso de tarea asignada: no-op en estas pruebas (su logica se cubre aparte).
+    private sealed class FakeAviso : IAgentAvisoTareaService
+    {
+        public Task NotifyTaskAssignedAsync(Guid agentId, Guid taskId, Guid? conversationId, Guid actorUserId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 
     private static async Task<JsonElement> CreateAsync(TasksToolset ts, string? tablero, string titulo = "Necesito ayuda")

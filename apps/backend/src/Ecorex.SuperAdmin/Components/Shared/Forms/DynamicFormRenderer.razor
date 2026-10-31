@@ -18,6 +18,7 @@
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @inject Ecorex.Application.Tenancy.ITenantUserService TenantUsersSvc
 @inject Ecorex.Application.Tenancy.ITaskDocumentsService TaskDocsSvc
+@inject Ecorex.Application.Requerimientos.IRequerimientoReturnService ReqReturnSvc
 @inject Ecorex.Application.Organization.IOrgUnitService OrgUnitsSvc
 @inject Ecorex.Application.Forms.IFormTextAssistService AiTextSvc
 @inject Ecorex.Application.Forms.IFormSignatureService SignSvc
@@ -120,6 +121,25 @@ else
         @if (_infoMessage is not null)
         {
             <div class="dfr-alert" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46;">@_infoMessage</div>
+        }
+
+        @if (_confirmOpen)
+        {
+            <div class="dfr-aimodal-back" @onclick="CancelRuleConfirm">
+                <div class="dfr-aimodal dfr-aimodal-preview" @onclick:stopPropagation="true" style="max-width:460px;">
+                    <div class="dfr-aimodal-head">
+                        <div class="dfr-aimodal-title">Confirmar</div>
+                        <button type="button" class="dfr-aimodal-x" @onclick="CancelRuleConfirm" aria-label="Cerrar">&times;</button>
+                    </div>
+                    <div class="dfr-aimodal-body"><p style="margin:0;">@_confirmMessage</p></div>
+                    <div class="dfr-aimodal-foot">
+                        <div class="dfr-aimodal-btns">
+                            <button type="button" class="btn btn-sm" @onclick="CancelRuleConfirm">Cancelar</button>
+                            <button type="button" class="btn btn-primary btn-sm" @onclick="ConfirmRuleAsync" disabled="@IsLocked">Confirmar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         }
 
         @{ var rootQuestions = QuestionsOf(null); }
@@ -371,11 +391,22 @@ else
     /// publico /f/{token}: el tenant viene del token validado, no de la sesion.
     /// </summary>
     [Parameter] public Guid? AmbientTenantId { get; set; }
+    /// <summary>
+    /// Token publico del visor /f/{token} (si el formulario se esta llenando anonimamente). Lo usa el control
+    /// "Boton de accion" (ActionButton) para que la vista de impresion del lienzo (FormPrintLienzo) resuelva el
+    /// tenant por el MISMO token (si no, FormPrintLienzo es tenant-scoped y el anonimo veria "no disponible").
+    /// Null en los modos con sesion (tarea, disenador).
+    /// </summary>
+    [Parameter] public string? PublicToken { get; set; }
     [Parameter] public EventCallback<FormResponseDto> OnSubmitted { get; set; }
 
     /// <summary>Una regla de boton (CONVERTIR_A_FORMULARIO, ADR-0078) creo OTRO registro y pide abrirlo:
     /// el renderer emite aqui el nuevo responseId para que el HOST lo abra (modal en la tarea, etc.).</summary>
     [Parameter] public EventCallback<Guid> OnOpenFormRequested { get; set; }
+
+    /// <summary>Una regla de boton (COMPLETAR_PASO_FLUJO) cerro el paso actual del flujo de la tarea: el
+    /// renderer avisa aqui para que el HOST (TaskDetailModal) recargue el flujo y refleje el avance.</summary>
+    [Parameter] public EventCallback OnStepCompleted { get; set; }
 
     /// <summary>
     /// Avisa al contenedor el borrador (FormResponse) en cuanto se crea/carga en modo Fill, SIN esperar
@@ -480,6 +511,11 @@ else
     private bool _busy;
     private bool _dirty;
     private string? _globalError;
+
+    // Modal de confirmacion de regla (RuleAction.Confirm): el boton que lo abrio + el mensaje a mostrar.
+    private bool _confirmOpen;
+    private string? _confirmMessage;
+    private FormQuestionDto? _confirmQuestion;
     private string? _infoMessage;   // mensaje de exito/resultado de una regla disparada por boton
     private DateTimeOffset? _lastSavedAt;
     private System.Threading.Timer? _autosaveTimer;
@@ -653,6 +689,10 @@ else
                 // Auto-resolucion multi-clave (VLOOKUP): resuelve las columnas 'resolve' de cada fila
                 // ANTES del calculo, para que un borrador restaurado traiga los precios ya puestos.
                 await ResolveAllGridsAsync();
+                // Retorno desde Requerimientos (Capa 10): si el form tiene regla GENERAR_REQUERIMIENTOS con
+                // "retorno" configurado y vive en una tarea, trae a cada fila del grid el valor cotizado/estado/
+                // proveedor de su necesidad. Antes del calculo para que un campo calculado pueda usar lo devuelto.
+                await ApplyRequerimientoReturnsAsync();
                 // Calculo (ola F2): valor inicial de grids (calc por fila + totales/roll-up) y campos calculados.
                 RecomputeGrids();
                 RecomputeCalculatedFields();
@@ -1055,6 +1095,9 @@ else
                             <span class="dfr-formbtn-note">Vincula una regla (ej. IMPRIMIR_PLANTILLA) a este boton en el disenador.</span>
                         }
                     </div>
+                    break;
+                case FormControlType.ActionButton:
+                    @RenderActionButton(q)
                     break;
                 default:
                     <label class="form-label dfr-label" title="@q.HelpText">
@@ -1936,6 +1979,7 @@ else
         if (string.Equals(res.Mode, "replace", StringComparison.OrdinalIgnoreCase)) { rows.Clear(); }
         var extras = GridExtrasOf(gridQ);
         var cols = GridColumnsOf(gridQ);
+        var startIndex = rows.Count;   // solo resolvemos el lookup de las filas que AGREGA el agente
         foreach (var pr in res.Rows)
         {
             var row = new Dictionary<string, string?>(StringComparer.Ordinal);
@@ -1944,7 +1988,25 @@ else
             row[GestionRowIdKey] = Guid.NewGuid().ToString("N");
             rows.Add(row);
         }
-        await SetValue(gridQ, System.Text.Json.JsonSerializer.Serialize(rows));   // recalcula calc/lookup
+        // El agente escribe las celdas directo, saltandose el lookup de grilla que SI corre cuando un
+        // humano teclea el codigo (GridLookupCommitAsync). Por eso, antes de recomputar, resolvemos el
+        // lookup de cada fila nueva (autollena costo/stock/... desde la fuente) para que las formulas por
+        // fila y los roll-ups no queden en 0. Dentro del _dbGate + BeginAmbient porque SearchAsync toca BD.
+        if (extras.Values.Any(e => e.Lookup is not null || e.Resolve is not null))
+        {
+            await _dbGate.WaitAsync();
+            try
+            {
+                using var ambient = BeginAmbient();
+                for (var i = startIndex; i < rows.Count; i++)
+                {
+                    await ResolveRowLookupsAsync(gridQ, rows, i);
+                }
+            }
+            finally { _dbGate.Release(); }
+        }
+        // SetValue recomputa SOLO calc por fila + roll-ups (crossGrid), NO el lookup de grilla (ya resuelto arriba).
+        await SetValue(gridQ, System.Text.Json.JsonSerializer.Serialize(rows));
         _aiResult.Remove(q.FieldCode);
     }
 
@@ -2102,6 +2164,104 @@ else
 
     private void DiscardAiCompose(FormQuestionDto q) => _aiComposeResult.Remove(q.FieldCode);
 
+    // ---- Boton de accion self-serve (ActionButton) ----
+    private readonly HashSet<string> _actionBusy = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _actionError = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Resuelve el LienzoBloques destino del boton: el de TargetField si se configuro, si no el
+    /// primer LienzoBloques del formulario. Null si el formulario no tiene ningun lienzo.</summary>
+    private FormQuestionDto? ResolveLienzoTarget(Ecorex.Application.Forms.ActionButtonConfig cfg)
+    {
+        if (_definition is null) { return null; }
+        if (!string.IsNullOrWhiteSpace(cfg.TargetField))
+        {
+            var byCode = _definition.Questions.FirstOrDefault(x => x.ControlType == FormControlType.LienzoBloques
+                && string.Equals(x.FieldCode, cfg.TargetField, StringComparison.OrdinalIgnoreCase));
+            if (byCode is not null) { return byCode; }
+        }
+        return _definition.Questions.FirstOrDefault(x => x.ControlType == FormControlType.LienzoBloques);
+    }
+
+    private RenderFragment RenderActionButton(FormQuestionDto q) => __builder =>
+    {
+        var cfg = Ecorex.Application.Forms.ActionButtonConfig.Parse(q.OptionsJson);
+        var busy = _actionBusy.Contains(q.FieldCode);
+        var err = _actionError.GetValueOrDefault(q.FieldCode);
+        var isPrintForm = string.Equals(cfg.Action, Ecorex.Application.Forms.ActionButtonConfig.ActionPrintForm, StringComparison.OrdinalIgnoreCase);
+        // print-lienzo exige un lienzo en el formulario; print-form imprime el registro completo (sin lienzo).
+        var lienzo = isPrintForm ? null : ResolveLienzoTarget(cfg);
+        var needsLienzo = !isPrintForm && lienzo is null;
+        var defLabel = isPrintForm
+            ? Ecorex.Application.Forms.ActionButtonConfig.DefaultFormLabel
+            : Ecorex.Application.Forms.ActionButtonConfig.DefaultLabel;
+        var label = string.IsNullOrWhiteSpace(cfg.Label) ? defLabel : cfg.Label;
+
+        <div class="dfr-formbtn-wrap">
+            <button type="button" class="dfr-formbtn"
+                    disabled="@(busy || Mode != FormRenderMode.Fill || needsLienzo)"
+                    @onclick="@(() => OnActionButtonClickAsync(q))">
+                @if (busy)
+                {
+                    <span class="dfr-spinner dfr-spinner-sm" role="status" aria-label="Abriendo"></span>
+                    <span>Abriendo...</span>
+                }
+                else
+                {
+                    <span>&#128424; @label</span>
+                }
+            </button>
+            @if (!string.IsNullOrWhiteSpace(q.HelpText)) { <span class="dfr-formbtn-note">@q.HelpText</span> }
+            @if (Mode != FormRenderMode.Fill)
+            {
+                <span class="dfr-formbtn-note">Vista previa: activo al llenar el formulario.</span>
+            }
+            else if (needsLienzo)
+            {
+                <span class="dfr-formbtn-note">Agrega un control "Lienzo de bloques" al formulario para poder imprimirlo.</span>
+            }
+            @if (err is not null) { <span class="dfr-formbtn-note" style="color:var(--danger,#b91c1c);">@err</span> }
+        </div>
+    };
+
+    private async Task OnActionButtonClickAsync(FormQuestionDto q)
+    {
+        if (_definition is null || Mode != FormRenderMode.Fill) { return; }
+        var cfg = Ecorex.Application.Forms.ActionButtonConfig.Parse(q.OptionsJson);
+        _actionError.Remove(q.FieldCode);
+        if (!_actionBusy.Add(q.FieldCode)) { return; }
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            // Las vistas de impresion leen el FormResponse PERSISTIDO por Id: hay que VOLCAR el borrador antes
+            // (mismo gotcha que OnAiComposeClickAsync: en wizard + HideSubmitChrome el autosave esta apagado).
+            await FlushDraftAsync();
+            if (_response is null) { _actionError[q.FieldCode] = "Guarda el registro antes de imprimir."; return; }
+
+            var isPrintForm = string.Equals(cfg.Action, Ecorex.Application.Forms.ActionButtonConfig.ActionPrintForm, StringComparison.OrdinalIgnoreCase);
+            string url;
+            if (isPrintForm)
+            {
+                // Documento completo del registro (FormPrint).
+                url = $"/formularios/imprimir/{_response.Id}";
+            }
+            else
+            {
+                var lienzo = ResolveLienzoTarget(cfg);
+                if (lienzo is null) { _actionError[q.FieldCode] = "El formulario no tiene ningun lienzo para imprimir."; return; }
+                url = $"/formularios/imprimir-lienzo/{_response.Id}?field={Uri.EscapeDataString(lienzo.FieldCode)}";
+            }
+            // Superficie publica /f/{token}: las vistas de impresion son tenant-scoped, asi que les pasamos el MISMO
+            // token para que resuelvan el tenant por ambiente (sin esto el anonimo veria "no esta disponible").
+            if (!string.IsNullOrWhiteSpace(PublicToken))
+            {
+                url += (url.Contains('?') ? "&" : "?") + $"token={Uri.EscapeDataString(PublicToken)}";
+            }
+            await JS.InvokeVoidAsync("open", url, "_blank");
+        }
+        catch (Exception ex) { _actionError[q.FieldCode] = $"No se pudo abrir la impresion: {ex.Message}"; }
+        finally { _actionBusy.Remove(q.FieldCode); await InvokeAsync(StateHasChanged); }
+    }
+
     private async Task OnFileSelectedAsync(FormQuestionDto q, InputFileChangeEventArgs e)
     {
         var file = e.File;
@@ -2138,6 +2298,99 @@ else
     private readonly HashSet<string> _lookupOpen = new(StringComparer.Ordinal);
     private readonly HashSet<string> _lookupBusy = new(StringComparer.Ordinal);
 
+    // ---- Filtro en cascada de listas de Contenedor (config-driven, FilterJson) ----
+
+    /// <summary>Etiquetas de los campos PADRE (obligatorios) de la cascada que aun estan sin elegir.
+    /// Si hay alguno, la lista se bloquea: no se puede buscar hasta completar el padre. Sincrono (solo
+    /// mira el estado del formulario), para poder decidirlo en el render.</summary>
+    private IReadOnlyList<string> CascadeMissingParents(FormQuestionDto q)
+    {
+        if (q.SourceKind != FormSourceKind.DataContainer || string.IsNullOrWhiteSpace(q.FilterJson))
+        {
+            return Array.Empty<string>();
+        }
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        if (!spec.HasCascade) { return Array.Empty<string>(); }
+        var missing = new List<string>();
+        foreach (var c in spec.Cascade!)
+        {
+            if (!c.IsComplete || !c.Require) { continue; }
+            if (string.IsNullOrWhiteSpace(_values.GetValueOrDefault(c.FromField)))
+            {
+                var lbl = _definition?.Questions.FirstOrDefault(x => x.FieldCode == c.FromField)?.Label ?? c.FromField;
+                if (!missing.Contains(lbl)) { missing.Add(lbl); }
+            }
+        }
+        return missing;
+    }
+
+    /// <summary>Resuelve los filtros de igualdad (fijos + cascada) contra el estado del formulario.
+    /// DEBE llamarse DENTRO del _dbGate y con un BeginAmbient activo (usa LookupSvc.ResolveAsync para
+    /// leer la columna del padre). Devuelve Blocked=true si falta un padre obligatorio o no se pudo
+    /// resolver su valor: en ese caso la busqueda no debe ir a la base.</summary>
+    private async Task<(bool Blocked, Dictionary<string, string>? Eq)> ResolveEqFiltersAsync(FormQuestionDto q)
+    {
+        if (q.SourceKind != FormSourceKind.DataContainer || string.IsNullOrWhiteSpace(q.FilterJson))
+        {
+            return (false, null);
+        }
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        if (spec.IsEmpty) { return (false, null); }
+
+        var eq = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (spec.Fixed is not null) { foreach (var (k, v) in spec.Fixed) { eq[k] = v; } }
+
+        if (spec.HasCascade)
+        {
+            foreach (var c in spec.Cascade!)
+            {
+                if (!c.IsComplete) { continue; } // entrada a medio configurar: no filtra
+                var parentQ = _definition?.Questions.FirstOrDefault(x => x.FieldCode == c.FromField);
+                var pv = _values.GetValueOrDefault(c.FromField);
+                if (parentQ is null || string.IsNullOrWhiteSpace(pv))
+                {
+                    if (c.Require) { return (true, null); }
+                    continue; // filtro opcional con padre vacio: se omite (lista completa)
+                }
+                string? resolved = null;
+                try
+                {
+                    var item = await LookupSvc.ResolveAsync(parentQ.SourceKind, parentQ.SourceRef ?? "", pv, new[] { c.FromColumn });
+                    resolved = item is not null && item.Fields.TryGetValue(c.FromColumn, out var fv) ? fv : null;
+                }
+                catch (Exception) { resolved = null; }
+                if (string.IsNullOrWhiteSpace(resolved))
+                {
+                    if (c.Require) { return (true, null); }
+                    continue;
+                }
+                eq[c.Column] = resolved!;
+            }
+        }
+        return (false, eq.Count > 0 ? eq : null);
+    }
+
+    /// <summary>Al cambiar un campo padre, limpia los hijos que dependen de el (su seleccion previa ya no
+    /// es coherente con el nuevo padre). Recursivo: cubre cadenas de mas de un nivel.</summary>
+    private async Task ClearDependentChildrenAsync(string parentFieldCode)
+    {
+        if (_definition is null) { return; }
+        foreach (var child in _definition.Questions)
+        {
+            if (child.SourceKind != FormSourceKind.DataContainer || string.IsNullOrWhiteSpace(child.FilterJson)) { continue; }
+            var spec = FormLookupFilterSpec.Parse(child.FilterJson);
+            if (!spec.HasCascade) { continue; }
+            if (!spec.Cascade!.Any(c => string.Equals(c.FromField, parentFieldCode, StringComparison.Ordinal))) { continue; }
+            if (string.IsNullOrEmpty(_values.GetValueOrDefault(child.FieldCode))) { continue; }
+
+            _lookupDisplay.Remove(child.FieldCode);
+            _lookupQuery[child.FieldCode] = null;
+            _lookupResults.Remove(child.FieldCode);
+            await SetValue(child, null);
+            await ClearDependentChildrenAsync(child.FieldCode); // nietos
+        }
+    }
+
     private RenderFragment RenderLookup(FormQuestionDto q, string? value) => __builder =>
     {
         var label = _lookupDisplay.GetValueOrDefault(q.FieldCode);
@@ -2152,6 +2405,15 @@ else
         }
         var display = label ?? value;
         var results = _lookupResults.GetValueOrDefault(q.FieldCode);
+
+        @* Cascada: mientras falte elegir el campo padre, la lista se bloquea con una pista. *@
+        var cascadeMissing = CascadeMissingParents(q);
+        if (cascadeMissing.Count > 0 && string.IsNullOrEmpty(value))
+        {
+            <input class="form-control" disabled
+                   placeholder="@($"Elige primero: {string.Join(", ", cascadeMissing)}")" />
+            return;
+        }
 
         if (q.Presentation == FormFieldPresentation.Dropdown)
         {
@@ -2203,7 +2465,7 @@ else
                     {
                         <div class="dfr-lookup-empty">
                             <span>Sin resultados.</span>
-                            @if (q.SourceKind != FormSourceKind.ExternalDataset)
+                            @if (q.SourceKind != FormSourceKind.ExternalDataset && q.SourceKind != FormSourceKind.SystemUser)
                             {
                                 <a class="dfr-lookup-create" href="@CreateLink(q.SourceKind)" target="_blank" rel="noopener">Crear en el modulo</a>
                             }
@@ -2282,9 +2544,19 @@ else
         try
         {
             using var ambient = BeginAmbient();
-            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
-                q.SourceKind, q.SourceRef, text, q.FilterJson, q.DisplayField, LookupFields(q), Skip: 0, Take: 20));
-            _lookupResults[q.FieldCode] = page.Items;
+            var (blocked, eq) = await ResolveEqFiltersAsync(q);
+            if (blocked)
+            {
+                // Falta el campo padre (o no se pudo resolver): no se consulta la base.
+                _lookupResults[q.FieldCode] = Array.Empty<FormLookupItem>();
+            }
+            else
+            {
+                var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                    q.SourceKind, q.SourceRef, text, q.FilterJson, q.DisplayField, LookupFields(q),
+                    Skip: 0, Take: 20, EqFilters: eq));
+                _lookupResults[q.FieldCode] = page.Items;
+            }
         }
         catch (Exception ex)
         {
@@ -2313,6 +2585,7 @@ else
             var targetQ = _definition!.Questions.FirstOrDefault(x => x.FieldCode == target);
             if (targetQ is not null) { ValidateField(targetQ); }
         }
+        await ClearDependentChildrenAsync(q.FieldCode); // la cascada hija depende de este padre
         RecomputeCalculatedFields();
         _dirty = true;
     }
@@ -2332,6 +2605,7 @@ else
         _lookupQuery[q.FieldCode] = null;
         _lookupOpen.Remove(q.FieldCode);
         await SetValue(q, null);
+        await ClearDependentChildrenAsync(q.FieldCode); // al vaciar el padre, se vacia la cascada hija
     }
 
     /// <summary>Al cargar, resuelve la etiqueta de cada id ya guardado (para mostrar nombre, no el Guid).</summary>
@@ -2345,11 +2619,24 @@ else
             try
             {
                 var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
-                if (item is not null) { _lookupDisplay[q.FieldCode] = item.Display; }
+                if (item is not null) { _lookupDisplay[q.FieldCode] = DisplayFromItem(q, item); }
             }
             catch (Exception) { /* la resolucion de etiqueta nunca rompe la carga */ }
         }
     }
+
+    /// <summary>
+    /// Etiqueta a mostrar de un valor de lookup ya resuelto. ResolveAsync (a diferencia de SearchAsync) NO
+    /// conoce el DisplayField, asi que su Display cae al fallback de la fuente (en el Contenedor, la primera
+    /// columna con valor, que suele ser el CODIGO, no el NOMBRE). Como LookupFields(q) ya pide el DisplayField,
+    /// su valor viene en item.Fields: se prefiere ese (p.ej. "NOMBRE") para que al reabrir se vea el label y no
+    /// el codigo. Sin DisplayField (p.ej. Usuarios del sistema) se usa el Display de la fuente.
+    /// </summary>
+    private static string DisplayFromItem(FormQuestionDto q, FormLookupItem item)
+        => (!string.IsNullOrWhiteSpace(q.DisplayField)
+            && item.Fields.TryGetValue(q.DisplayField!, out var dv)
+            && !string.IsNullOrWhiteSpace(dv))
+            ? dv! : item.Display;
 
     /// <summary>Resuelve la etiqueta de UN id de lookup bajo demanda (una sola vez por valor), fuera de la
     /// carga inicial: cubre los registros DERIVADOS cuyo id llego despues del load (el cliente recien creado
@@ -2365,7 +2652,7 @@ else
             var item = await LookupSvc.ResolveAsync(q.SourceKind, q.SourceRef ?? "", value, LookupFields(q));
             if (item is not null)
             {
-                _lookupDisplay[q.FieldCode] = item.Display;
+                _lookupDisplay[q.FieldCode] = DisplayFromItem(q, item);
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -3343,7 +3630,8 @@ else
         // 'resolve' de ESTA fila igual que SetGridCell, para que precio_corte/doblez y su aviso "sin tarifa"
         // no queden stale. Debe ir ANTES de SetValue para que el calculo use los precios recien resueltos.
         await ResolveGridRowAsync(q, rows, rowIndex);
-        // SetValue recalcula formulas por fila y roll-ups con los valores recien copiados.
+        // SetValue recomputa SOLO calc por fila + roll-ups (crossGrid) con los valores recien copiados; el
+        // lookup de grilla NO lo hace SetValue: ya se resolvio arriba (cfg.Autofill + ResolveGridRowAsync).
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
     }
 
@@ -3402,6 +3690,71 @@ else
         if (!_gridLookupNote.ContainsKey(key)) { _gridLookupNote[key] = "Codigo no encontrado."; }
         _gridLookupOpen.Remove(key);
         await SetValue(q, System.Text.Json.JsonSerializer.Serialize(rows));
+    }
+
+    /// <summary>
+    /// Resuelve los LOOKUP de una fila de grilla igual que cuando un humano teclea el codigo
+    /// (<see cref="GridLookupCommitAsync"/>): por cada columna con lookup toma el valor que ya hay en la
+    /// celda clave (o, si viene vacio, el de la columna destino del DisplayField, la de "nombre"), busca
+    /// coincidencia EXACTA por la clave (o por el texto mostrado), autollena las columnas destino y, si no
+    /// hay match, conserva lo que habia y avisa en la celda sin bloquear. Al final resuelve las columnas
+    /// 'resolve'. Lo usa <see cref="ApplyAiRowsAsync"/>, cuyo camino (el agente escribe las celdas directo)
+    /// se salta el lookup que SI dispara el teclado humano. NO toca _dbGate ni llama SetValue: el llamador
+    /// debe tener el _dbGate tomado + un BeginAmbient activo, y recomputar con un unico SetValue al terminar.
+    /// </summary>
+    private async Task ResolveRowLookupsAsync(FormQuestionDto q, List<Dictionary<string, string?>> rows, int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= rows.Count) { return; }
+        var row = rows[rowIndex];
+        foreach (var ex in GridExtrasOf(q).Values.Where(e => e.Lookup is not null))
+        {
+            var cfg = ex.Lookup!;
+            var noteKey = GridCellKey(q, rowIndex, ex.Id);
+            // Texto a resolver: lo que el agente puso en la celda clave; si viene vacio, el valor de la
+            // columna destino que corresponde al DisplayField (la columna de "nombre" mostrado).
+            var text = row.GetValueOrDefault(ex.Id)?.Trim();
+            if (string.IsNullOrEmpty(text) && !string.IsNullOrWhiteSpace(cfg.DisplayField))
+            {
+                var nameTarget = cfg.Autofill
+                    .FirstOrDefault(kv => string.Equals(kv.Key, cfg.DisplayField, StringComparison.OrdinalIgnoreCase)).Value;
+                if (!string.IsNullOrEmpty(nameTarget)) { text = row.GetValueOrDefault(nameTarget)?.Trim(); }
+            }
+            if (string.IsNullOrEmpty(text)) { continue; }   // sin clave que resolver en esta columna
+
+            FormLookupItem? match = null;
+            try
+            {
+                // Mismo criterio que GridLookupCommitAsync: buscar y matchear exacto por clave, si no por texto.
+                var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                    cfg.SourceKind, cfg.SourceRef, text, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
+                match = page.Items.FirstOrDefault(i => string.Equals(cfg.KeyOf(i), text, StringComparison.OrdinalIgnoreCase))
+                    ?? page.Items.FirstOrDefault(i => string.Equals(i.Display, text, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception lookupEx)
+            {
+                _gridLookupNote[noteKey] = $"No se pudo verificar el codigo: {lookupEx.Message}";
+                continue;
+            }
+
+            if (match is not null)
+            {
+                // Fija la celda a la clave canonica y vuelca el autollenado (igual que GridLookupChooseAsync).
+                row[ex.Id] = cfg.KeyOf(match);
+                foreach (var (source, target) in cfg.Autofill)
+                {
+                    row[target] = match.Fields.TryGetValue(source, out var v) ? v : null;
+                }
+                _gridLookupNote.Remove(noteKey);
+            }
+            else if (!_gridLookupNote.ContainsKey(noteKey))
+            {
+                // Sin match: se conserva lo que trajo el agente (pudo traer costo/nombre del documento) y solo
+                // se avisa; no se vacian destinos ni se bloquea (mismo criterio no-bloqueante que el teclado).
+                _gridLookupNote[noteKey] = "Codigo no encontrado.";
+            }
+        }
+        // Columnas 'resolve' (VLOOKUP por clave compuesta) con las claves ya autollenadas por el lookup.
+        await ResolveGridRowAsync(q, rows, rowIndex);
     }
 
     // ---- Maestro-detalle / subformulario (ola F5, doc 01 D7) ----
@@ -3659,6 +4012,42 @@ else
         => FormFieldValidator.ParseGridRows(_values.GetValueOrDefault(q.FieldCode))
             .Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal))
             .ToList();
+
+    /// <summary>Capa 10: escribe en el grid de origen los datos que REGRESAN desde Requerimientos (valor
+    /// cotizado, estado, proveedor...) emparejando cada fila por su descripcion/producto. No toca columnas no
+    /// configuradas; marca el borrador sucio para que el autosave lo persista. Silencioso si no aplica.</summary>
+    private async Task ApplyRequerimientoReturnsAsync()
+    {
+        if (Mode != FormRenderMode.Fill || _response is null || string.IsNullOrWhiteSpace(_response.Reference)) { return; }
+        Ecorex.Application.Requerimientos.RequerimientoReturnData? data;
+        try { data = await ReqReturnSvc.GetGridReturnsAsync(DefinitionId, _response.Reference!); }
+        catch { return; }
+        if (data is null) { return; }
+        var gridQ = _definition?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail
+            && string.Equals(x.FieldCode, data.GridFieldCode, StringComparison.OrdinalIgnoreCase));
+        if (gridQ is null) { return; }
+        var rows = GridRowsOf(gridQ);
+        if (rows.Count == 0) { return; }
+        var changed = false;
+        foreach (var row in rows)
+        {
+            var key = Ecorex.Application.Requerimientos.RequerimientoReturnService.NormDesc(row.GetValueOrDefault(data.MatchDescripcionCol));
+            if (string.IsNullOrEmpty(key) || !data.ValuesByKey.TryGetValue(key, out var vals)) { continue; }
+            foreach (var (col, source) in data.ColumnSources)
+            {
+                if (vals.TryGetValue(source, out var v) && !string.Equals(row.GetValueOrDefault(col), v, StringComparison.Ordinal))
+                {
+                    row[col] = v;
+                    changed = true;
+                }
+            }
+        }
+        if (changed)
+        {
+            _values[gridQ.FieldCode] = System.Text.Json.JsonSerializer.Serialize(rows);
+            _dirty = true;
+        }
+    }
 
     /// <summary>FEATURE A: opciones de un select de grilla tomadas de las filas VIVAS de otra grilla del formulario
     /// (value = valueField, etiqueta = labelField). Lee las filas ya computadas (RecomputeGrids las dejo en _values,
@@ -4506,8 +4895,16 @@ else
         FormDefaultDynamic.CurrentUser => string.IsNullOrWhiteSpace(_currentUserName)
             ? SubmittedByTenantUserId?.ToString()
             : _currentUserName,
+        // Usuario asignado a la tarea anfitriona (para campos con origen SystemUser): el id viaja en el
+        // token {tareas.asignado} que publica el host; el lookup resuelve el nombre al cargar.
+        FormDefaultDynamic.AssignedUser => TokenValue("asignado"),
         _ => null,
     };
+
+    /// <summary>Lee un token de <see cref="TaskTokens"/> (contexto de la tarea anfitriona). null si no hay
+    /// contexto o el token esta vacio. Lo usa el default dinamico AssignedUser.</summary>
+    private string? TokenValue(string key)
+        => TaskTokens is not null && TaskTokens.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : null;
 
     /// <summary>Aplica el formato de presentacion (moneda/%/entero) para MOSTRAR (no altera el valor guardado).</summary>
     /// <summary>Clase para alinear a la derecha las celdas de grid con formato numerico (moneda/entero/decimal/%).</summary>
@@ -4653,7 +5050,8 @@ else
             _values.GetValueOrDefault(q.FieldCode),
             FormFieldValidator.ParseOptions(q.OptionsJson),
             FormFieldValidator.ParseRules(q.ValidationJson),
-            q.OptionsJson);
+            q.OptionsJson,
+            q.SourceKind != FormSourceKind.Options);
         if (error is null)
         {
             _errors.Remove(q.FieldCode);
@@ -4865,19 +5263,29 @@ else
     /// devuelve IMPRIMIR_PLANTILLA, abre el flujo de impresion. La accion del boton ya no vive en
     /// options_json: es una regla del catalogo (el mismo enlazador que usan los campos).
     /// </summary>
-    private async Task OnButtonClickAsync(FormQuestionDto q)
+    private async Task OnButtonClickAsync(FormQuestionDto q, bool confirmed = false)
     {
         if (Mode != FormRenderMode.Fill || IsLocked || _response is null) { return; }
         if (!_ruleTriggerFields.Contains(q.FieldCode)) { return; }
 
         // Confirmacion opcional del boton (options_json {"confirm":"mensaje"}): si esta definida, pide
         // OK/Cancelar antes de disparar la regla. Reusa el confirm nativo (igual que el borrado de fila).
-        var confirmMsg = ButtonConfirmMessage(q.OptionsJson);
-        if (!string.IsNullOrWhiteSpace(confirmMsg)
-            && !await JS.InvokeAsync<bool>("confirm", confirmMsg))
+        // En la RE-EJECUCION tras el modal de confirmacion de regla (confirmed=true) no se vuelve a preguntar.
+        if (!confirmed)
         {
-            return;
+            var confirmMsg = ButtonConfirmMessage(q.OptionsJson);
+            if (!string.IsNullOrWhiteSpace(confirmMsg)
+                && !await JS.InvokeAsync<bool>("confirm", confirmMsg))
+            {
+                return;
+            }
         }
+
+        // Persiste el borrador ANTES de correr las reglas del boton: algunos verbos leen el formulario YA
+        // guardado (p. ej. COMPLETAR_PASO_FLUJO cierra el paso y el nodo siguiente resuelve su encargado desde
+        // un campo de ESTE form por su referencia). Sin este flush, lo recien elegido vive solo en memoria y el
+        // verbo veria el valor viejo. SaveAsync maneja su propio _dbGate, por eso va antes de tomarlo aqui.
+        try { await FlushDraftAsync(); } catch { /* guardado best-effort; la regla igual corre con _values */ }
 
         await _dbGate.WaitAsync();
         FormFieldRulesOutcome outcome;
@@ -4885,11 +5293,27 @@ else
         {
             using var ambient = BeginAmbient();
             outcome = await RulesDispatcher.OnFieldChangedAsync(
-                DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId);
+                DefinitionId, q.FieldCode, _values, _response?.Id, SubmittedByTenantUserId, confirmed: confirmed);
         }
         finally
         {
             _dbGate.Release();
+        }
+
+        // Confirmacion de regla (RuleAction.Confirm): un verbo pide OK antes de una accion destructiva
+        // (p. ej. devolver el documento al conciliador). Si no se confirmo aun, abre el modal y NO aplica
+        // ningun efecto (el verbo no toco nada); al confirmar, el host RE-EJECUTA este boton con confirmed=true.
+        if (!confirmed)
+        {
+            var confirmAction = outcome.Actions.FirstOrDefault(a => a.Kind == RuleActionKind.Confirm);
+            if (confirmAction is not null)
+            {
+                _confirmQuestion = q;
+                _confirmMessage = string.IsNullOrWhiteSpace(confirmAction.Value)
+                    ? "Confirmas esta accion?" : confirmAction.Value!;
+                _confirmOpen = true;
+                return;
+            }
         }
 
         // Resultado al usuario: si alguna regla fallo lo muestro como error; si no, junto los mensajes de exito.
@@ -4913,7 +5337,8 @@ else
             _ruleUiState.Apply(outcome.Actions, _values);
             _dirty = true;
             foreach (var fieldCode in outcome.Actions
-                .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm)
+                .Where(a => a.Kind != RuleActionKind.PrintTemplate && a.Kind != RuleActionKind.OpenForm
+                    && a.Kind != RuleActionKind.StepCompleted && a.Kind != RuleActionKind.Confirm)
                 .Select(a => a.FieldCode).Distinct(StringComparer.Ordinal))
             {
                 var touched = _definition!.Questions.FirstOrDefault(x => x.FieldCode == fieldCode);
@@ -4926,6 +5351,13 @@ else
         if (print is not null)
         {
             await StartPrintFromRuleAsync(print);
+        }
+
+        // Flujo: una regla (COMPLETAR_PASO_FLUJO) cerro el paso actual del flujo de la tarea. Avisa al HOST
+        // para que recargue el flujo (el DynamicFormRenderer no conoce el diagrama; solo reenvia la senal).
+        if (outcome.Actions.Any(a => a.Kind == RuleActionKind.StepCompleted) && OnStepCompleted.HasDelegate)
+        {
+            await OnStepCompleted.InvokeAsync();
         }
 
         // Transformacion (ADR-0078): una regla creo OTRO registro (CONVERTIR_A_FORMULARIO) y pide abrirlo.
@@ -4949,6 +5381,25 @@ else
                 await OnOpenFormRequested.InvokeAsync(openId);
             }
         }
+    }
+
+    /// <summary>El usuario acepto el modal de confirmacion de regla: re-ejecuta el MISMO boton con confirmed=true
+    /// para que el verbo (p. ej. DEVOLVER_CONCILIADOR) ejecute ahora si el efecto.</summary>
+    private async Task ConfirmRuleAsync()
+    {
+        var q = _confirmQuestion;
+        _confirmOpen = false;
+        _confirmMessage = null;
+        _confirmQuestion = null;
+        if (q is not null) { await OnButtonClickAsync(q, confirmed: true); }
+    }
+
+    /// <summary>El usuario cancelo el modal de confirmacion: no se hace nada (el verbo no toco estado).</summary>
+    private void CancelRuleConfirm()
+    {
+        _confirmOpen = false;
+        _confirmMessage = null;
+        _confirmQuestion = null;
     }
 
     /// <summary>ADR-0078: reabre el registro DERIVADO (Orden de Trabajo) de esta respuesta ya convertida. No

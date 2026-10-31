@@ -64,7 +64,24 @@ public enum RuleActionKind
     /// DynamicFormRenderer emitiendo OnOpenFormRequested para que el HOST lo abra (modal en la tarea, etc.).
     /// Se agrego al FINAL para no romper los ordinales del enum.
     /// </summary>
-    OpenForm
+    OpenForm,
+
+    /// <summary>
+    /// Efecto de UNA sola vez: un verbo CERRO el paso actual del flujo de la tarea (verbo
+    /// COMPLETAR_PASO_FLUJO, disparado por un boton del formulario). No cambia campos; le avisa al HOST
+    /// (TaskDetailModal) que recargue el flujo para reflejar el avance. La aplica el DynamicFormRenderer
+    /// emitiendo OnStepCompleted. Se agrego al FINAL para no romper los ordinales del enum.
+    /// </summary>
+    StepCompleted,
+
+    /// <summary>
+    /// Efecto de UNA sola vez: el verbo pide CONFIRMACION antes de ejecutar una accion destructiva/irreversible
+    /// (p. ej. devolver el documento al conciliador). No cambia campos ni estado: le pide al HOST
+    /// (DynamicFormRenderer) que muestre un modal con el mensaje (Value) y, si el usuario confirma, RE-EJECUTE
+    /// las reglas del mismo boton con RuleContext.Confirmed = true. Mecanismo generico, reusable. Se agrego al
+    /// FINAL para no romper los ordinales del enum.
+    /// </summary>
+    Confirm
 }
 
 /// <summary>
@@ -86,6 +103,15 @@ public sealed record RuleAction(RuleActionKind Kind, string FieldCode, string? V
     /// <summary>Abrir el registro de formulario recien creado <paramref name="responseId"/> (ADR-0078).</summary>
     public static RuleAction OpenForm(string responseId)
         => new(RuleActionKind.OpenForm, string.Empty, Value: responseId);
+
+    /// <summary>Avisar al HOST que el paso del flujo se cerro (recargar el flujo). Sin campo ni valor.</summary>
+    public static RuleAction StepCompleted()
+        => new(RuleActionKind.StepCompleted, string.Empty);
+
+    /// <summary>Pedir confirmacion al usuario con <paramref name="message"/> antes de ejecutar (el HOST re-corre
+    /// las reglas del boton con Confirmed=true si acepta). Sin campo; el mensaje viaja en Value.</summary>
+    public static RuleAction Confirm(string message)
+        => new(RuleActionKind.Confirm, string.Empty, Value: message);
 }
 
 /// <summary>Resultado de la ejecucion de UN verbo.</summary>
@@ -123,6 +149,11 @@ public sealed class RuleContext
     public Guid? WorkflowInstanceId { get; init; }
     public Guid? NodeId { get; init; }
     public Guid? FormResponseId { get; init; }
+
+    /// <summary>El usuario YA confirmo la accion en el modal de confirmacion del HOST (RuleAction.Confirm). Los
+    /// verbos que piden confirmacion ejecutan el efecto solo cuando esto es true; si es false y hace falta
+    /// confirmar, devuelven RuleAction.Confirm sin efectos. Default false.</summary>
+    public bool Confirmed { get; init; }
 
     /// <summary>Documento de datos del formulario (fieldCode -> valor). Mutable.</summary>
     public Dictionary<string, string?> FormData { get; init; } = new(StringComparer.Ordinal);
@@ -211,7 +242,8 @@ public sealed record RuleInvocation(
     Guid? ExecutedByTenantUserId = null,
     Guid? ActorUserId = null,
     string ActorName = "Sistema",
-    string? ParamsOverrideJson = null)
+    string? ParamsOverrideJson = null,
+    bool Confirmed = false)
 {
     public static RuleInvocation Manual(Guid? executedByTenantUserId = null, Guid? actorUserId = null, string actorName = "Sistema")
         => new(RuleTriggerKind.Manual, ExecutedByTenantUserId: executedByTenantUserId,

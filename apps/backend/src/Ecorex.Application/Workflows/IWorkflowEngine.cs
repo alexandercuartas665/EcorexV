@@ -85,4 +85,31 @@ public interface IWorkflowEngine
     Task<WorkflowResult<WorkflowInstanceDto>> ReopenStepAsync(
         Guid instanceId, Guid stepId, Guid? tenantUserId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// REINICIA la instancia: cierra TODOS los pasos vigentes (Skipped; historial append-only) y abre un
+    /// ciclo nuevo (CycleIndex+1, IsCycleStart, tope 50) en el nodo de reinicio -- por defecto el StartEvent
+    /// del flujo, o el nodo cuyo <paramref name="restartNodeBpmnId"/> se indique. Si llega
+    /// <paramref name="assigneeValue"/> (id o correo de un usuario del tenant), el/los paso(s) humano(s)
+    /// resultante(s) y el asignado de la TAREA quedan en ese usuario; deja constancia en la bitacora.
+    /// Pensado para un boton del formulario ("Rechazar"/"Redireccionar") que, cuando el ciclo arranco mal,
+    /// lo reinicia reasignado a quien corresponde.
+    /// </summary>
+    Task<WorkflowResult<WorkflowInstanceDto>> RestartInstanceAsync(
+        Guid instanceId, string? restartNodeBpmnId, string? assigneeValue,
+        Guid? executedByTenantUserId, string? note,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// RE-RESUELVE el encargado del paso VIGENTE desde el campo del formulario (WorkflowAssigneeSource.FormField
+    /// del nodo) y reasigna SOLO ese paso al nuevo usuario, SIN avanzar el flujo ni tocar el dueno de la TAREA.
+    /// Pensado para que el encargado de una COMPUERTA ATENDIDA (p. ej. "Autorizar Compra", encargado tomado de
+    /// text_ca893) DELEGUE la decision a otra persona: cambia ese campo y pulsa "Redireccionar"; la compuerta
+    /// sigue vigente, ahora en manos del delegado. Usa el MISMO resolver que asigna el paso al activarse, asi la
+    /// delegacion cae exactamente en quien caeria una activacion fresca. Solo aplica si el nodo toma el encargado
+    /// de un campo del formulario; si no, devuelve Invalid.
+    /// </summary>
+    Task<WorkflowResult<WorkflowInstanceDto>> ReassignCurrentStepFromFormAsync(
+        Guid instanceId, Guid stepId, Guid? actorUserId,
+        CancellationToken cancellationToken = default);
 }

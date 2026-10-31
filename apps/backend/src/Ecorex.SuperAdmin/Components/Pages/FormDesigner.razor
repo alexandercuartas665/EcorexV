@@ -872,6 +872,15 @@ else
 
     // Asistente de mapeo por formulario (GENERAR_REQUERIMIENTOS).
     private sealed class MapeoRow { public string Target = ""; public string Kind = "col"; public string Ref = ""; }
+    // Retorno (Requerimientos -> grid del formulario): a que COLUMNA del grid va cada FUENTE del requerimiento.
+    private sealed class ReturnRow { public string Col = ""; public string Source = ""; }
+    private static readonly RuleParamOption[] _mapeoReturnSources =
+    {
+        new("cotizado_total", "Valor cotizado (total linea)"),
+        new("cotizado_unit", "Valor cotizado (unitario)"),
+        new("estado", "Estado de la necesidad"),
+        new("proveedor", "Proveedor elegido"),
+    };
     private bool _mapeoOpen;
     private Guid _mapeoLinkId;
     private string _mapeoGrid = "";
@@ -880,6 +889,7 @@ else
     private List<RuleParamOption> _mapeoOrigenes = new();
     private List<RuleParamOption> _mapeoCustomTargets = new();
     private List<MapeoRow> _mapeoRows = new();
+    private List<ReturnRow> _mapeoReturnRows = new();
 
     // Editor de condicion inline (D4).
     private bool _condOpen;
@@ -935,7 +945,8 @@ else
         [FormControlType.TaskDocuments] = new("Documentos de la tarea", "Docs", "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6M9 17h4\"/>", "var(--t-slate)", "var(--t-slate-bg)", "control"),
         [FormControlType.AiIntake] = new("Asistente IA (imagen/PDF -> tabla)", "AsistenteIA", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
         [FormControlType.LienzoBloques] = new("Lienzo de bloques (BMC)", "Lienzo", "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 12h18M9 4v16M15 4v16\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
-        [FormControlType.AiCompose] = new("Asistente IA (llenar campos)", "AsistenteLlenar", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control")
+        [FormControlType.AiCompose] = new("Asistente IA (llenar campos)", "AsistenteLlenar", "<path d=\"M12 3a4 4 0 0 1 4 4c0 1.5-.8 2.3-1.5 3M12 3a4 4 0 0 0-4 4c0 1.5.8 2.3 1.5 3\"/><rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 14h8M8 17h5\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control"),
+        [FormControlType.ActionButton] = new("Boton (imprimir)", "BotonAccion", "<rect x=\"3\" y=\"7\" width=\"18\" height=\"10\" rx=\"2\"/><path d=\"M8 12h5M16 10v4\"/>", "var(--t-violet)", "var(--t-violet-bg)", "control")
     };
 
     private static readonly Dictionary<FormContainerType, Reg> ContainerReg = new()
@@ -1472,6 +1483,42 @@ else
         if (i >= 0) { targets.RemoveAt(i); }
         else { targets.Add(new Ecorex.Application.Forms.AiComposeTarget(null, lienzo, block)); }
         return SaveAcCfgAsync(q, cfg with { Targets = targets });
+    }
+
+    // ---- Config del control ActionButton (boton de accion self-serve: imprimir lienzo) ----
+    private static Ecorex.Application.Forms.ActionButtonConfig AbCfg(FormQuestionDto q)
+        => Ecorex.Application.Forms.ActionButtonConfig.Parse(q.OptionsJson);
+
+    private Task PatchAbCfgAsync(FormQuestionDto q, string key, string? raw)
+    {
+        var cfg = AbCfg(q);
+        if (key == "action")
+        {
+            var newAction = string.IsNullOrWhiteSpace(raw) ? Ecorex.Application.Forms.ActionButtonConfig.ActionPrintLienzo : raw!.Trim();
+            var isForm = string.Equals(newAction, Ecorex.Application.Forms.ActionButtonConfig.ActionPrintForm, StringComparison.OrdinalIgnoreCase);
+            // Al cambiar la accion: si la etiqueta seguia siendo el default de la otra accion (el autor no la toco),
+            // la cambiamos al default de la nueva; y print-form no usa lienzo destino.
+            var label = cfg.Label;
+            if (string.IsNullOrWhiteSpace(label)
+                || string.Equals(label, Ecorex.Application.Forms.ActionButtonConfig.DefaultLabel, StringComparison.Ordinal)
+                || string.Equals(label, Ecorex.Application.Forms.ActionButtonConfig.DefaultFormLabel, StringComparison.Ordinal))
+            {
+                label = isForm
+                    ? Ecorex.Application.Forms.ActionButtonConfig.DefaultFormLabel
+                    : Ecorex.Application.Forms.ActionButtonConfig.DefaultLabel;
+            }
+            cfg = cfg with { Action = newAction, Label = label, TargetField = isForm ? null : cfg.TargetField };
+        }
+        else
+        {
+            cfg = key switch
+            {
+                "targetField" => cfg with { TargetField = string.IsNullOrWhiteSpace(raw) ? null : raw!.Trim() },
+                "label" => cfg with { Label = string.IsNullOrWhiteSpace(raw) ? Ecorex.Application.Forms.ActionButtonConfig.DefaultLabel : raw!.Trim() },
+                _ => cfg
+            };
+        }
+        return PatchQuestionAsync(q, r => r with { OptionsJson = Ecorex.Application.Forms.ActionButtonConfig.Serialize(cfg) });
     }
 
     // ---- Drag and drop ----
@@ -2280,6 +2327,8 @@ else
         new("unidad", "Unidad"),
         new("fecha", "Fecha requerida"),
         new("area", "Area solicitante"),
+        new("observaciones", "Observaciones generales"),
+        new("observaciones_despacho", "Observaciones de despacho"),
     };
     private IReadOnlyList<RuleParamOption> MapeoTargets()
         => _mapeoBaseTargets.Concat(_mapeoCustomTargets).ToList();
@@ -2297,13 +2346,16 @@ else
     private void MapeoKindChanged(MapeoRow row, ChangeEventArgs e) { row.Kind = e.Value?.ToString() ?? "col"; row.Ref = ""; }
     private void MapeoRefChanged(MapeoRow row, ChangeEventArgs e) => row.Ref = e.Value?.ToString() ?? "";
     private void MapeoRemoveRow(int idx) { if (idx >= 0 && idx < _mapeoRows.Count) { _mapeoRows.RemoveAt(idx); } }
+    private void ReturnColChanged(ReturnRow r, ChangeEventArgs e) => r.Col = e.Value?.ToString() ?? "";
+    private void ReturnSourceChanged(ReturnRow r, ChangeEventArgs e) => r.Source = e.Value?.ToString() ?? "";
+    private void ReturnRemoveRow(int idx) { if (idx >= 0 && idx < _mapeoReturnRows.Count) { _mapeoReturnRows.RemoveAt(idx); } }
 
     private async Task OpenMapeoAssistantAsync(QuestionRuleLinkDto link)
     {
         _mapeoError = null;
         _mapeoLinkId = link.Id;
         _rulePickerOpen = false;
-        _mapeoGrid = ""; _mapeoOrigen = ""; _mapeoRows = new();
+        _mapeoGrid = ""; _mapeoOrigen = ""; _mapeoRows = new(); _mapeoReturnRows = new();
         try { _mapeoOrigenes = (await RuleOpts.GetOptionsAsync("requerimiento-origenes")).ToList(); } catch { _mapeoOrigenes = new(); }
         try { _mapeoCustomTargets = (await RuleOpts.GetOptionsAsync("requerimiento-campos-padre")).ToList(); } catch { _mapeoCustomTargets = new(); }
         var existing = await RulesSvc.GetFieldRuleOverrideAsync(link.Id);
@@ -2330,23 +2382,43 @@ else
                     _mapeoRows.Add(new MapeoRow { Target = p.Name, Kind = i >= 0 ? expr[..i] : "fixed", Ref = i >= 0 ? expr[(i + 1)..] : expr });
                 }
             }
+            _mapeoReturnRows = new();
+            if (root.TryGetProperty("retorno", out var rt) && rt.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var p in rt.EnumerateObject())
+                {
+                    var src = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? (p.Value.GetString() ?? "") : "";
+                    _mapeoReturnRows.Add(new ReturnRow { Col = p.Name, Source = src });
+                }
+            }
         }
         catch { }
     }
 
     private void AutoSuggestMapeo()
     {
-        // Elige la primera grilla si no hay una.
+        // Elige la grilla mas probable (lista de materiales): la que tenga columna de producto/descripcion Y
+        // cantidad. Si ninguna califica, la primera. Evita caer en una grilla auxiliar (p.ej. "Items" vacia).
         if (string.IsNullOrWhiteSpace(_mapeoGrid))
         {
-            _mapeoGrid = _def?.Questions.FirstOrDefault(x => x.ControlType == FormControlType.GridDetail)?.FieldCode ?? "";
+            var grids = _def?.Questions.Where(x => x.ControlType == FormControlType.GridDetail).ToList() ?? new();
+            bool Has(IEnumerable<FormGridColumn> cs, params string[] ns) => cs.Any(c => ns.Any(n =>
+                c.Id.Contains(n, StringComparison.OrdinalIgnoreCase) || c.Label.Contains(n, StringComparison.OrdinalIgnoreCase)));
+            var best = grids.FirstOrDefault(g =>
+            {
+                var cs = FormGridCalculator.ParseColumns(g.OptionsJson).ToList();
+                return Has(cs, "descrip", "producto", "material", "articulo") && Has(cs, "cantidad", "cant", "qty");
+            });
+            _mapeoGrid = (best ?? grids.FirstOrDefault())?.FieldCode ?? "";
         }
         var cols = MapeoGridCols().ToList();
         string? ColLike(params string[] needles) => cols.FirstOrDefault(c => needles.Any(n =>
             c.Id.Contains(n, StringComparison.OrdinalIgnoreCase) || c.Label.Contains(n, StringComparison.OrdinalIgnoreCase)))?.Id;
         var rows = new List<MapeoRow>();
         void AddCol(string target, string? col) { if (!string.IsNullOrWhiteSpace(col)) { rows.Add(new MapeoRow { Target = target, Kind = "col", Ref = col! }); } }
-        AddCol("descripcion", ColLike("producto", "descrip", "material", "item"));
+        // Producto/descripcion: prioriza una columna de descripcion/producto; "item" solo como ultimo recurso
+        // (en grillas APU "Item" es el numero de linea, no el producto).
+        AddCol("descripcion", ColLike("descrip", "producto", "material", "articulo", "nombre") ?? ColLike("item"));
         AddCol("cantidad", ColLike("cantidad", "cant", "qty"));
         AddCol("unidad", ColLike("unidad", "und", "um"));
         AddCol("fecha", ColLike("fecha", "requerida"));
@@ -2376,6 +2448,14 @@ else
                 mapeo[row.Target] = $"{row.Kind}:{row.Ref}";
             }
             if (mapeo.Count > 0) { obj["mapeo"] = mapeo; }
+            // Retorno (Requerimientos -> grid): columna del grid <- fuente. Ultima gana si se repite la columna.
+            var retorno = new System.Text.Json.Nodes.JsonObject();
+            foreach (var r in _mapeoReturnRows)
+            {
+                if (string.IsNullOrWhiteSpace(r.Col) || string.IsNullOrWhiteSpace(r.Source)) { continue; }
+                retorno[r.Col] = r.Source;
+            }
+            if (retorno.Count > 0) { obj["retorno"] = retorno; }
             var result = await RulesSvc.SetFieldRuleOverrideAsync(_mapeoLinkId, obj.ToJsonString());
             if (!result.IsOk) { _mapeoError = result.Error; return; }
             _mapeoOpen = false;
@@ -2711,6 +2791,12 @@ else
             case FormControlType.AiCompose:
                 <div class="fb-prev-capture dashed" style="height:52px">@((MarkupString)IconSvg("<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M12 3a4 4 0 0 1 4 4\"/><path d=\"M8 14h8\"/>", 16)) Asistente IA: llena campos/bloques desde el formulario</div>
                 break;
+            case FormControlType.ActionButton:
+                {
+                    var abPrev = Ecorex.Application.Forms.ActionButtonConfig.Parse(q.OptionsJson);
+                    <div class="fb-prev-input" style="display:inline-flex;align-items:center;gap:7px;width:auto;padding:7px 14px;border-radius:8px;font-weight:600;">@((MarkupString)IconSvg("<rect x=\"4\" y=\"5\" width=\"16\" height=\"14\" rx=\"2\"/><path d=\"M8 9h8M8 13h5\"/>", 15)) @(string.IsNullOrWhiteSpace(abPrev.Label) ? Ecorex.Application.Forms.ActionButtonConfig.DefaultLabel : abPrev.Label)</div>
+                }
+                break;
             case FormControlType.LienzoBloques:
                 {
                     var lzCfg = Ecorex.Application.Forms.LienzoBloquesConfig.Parse(q.OptionsJson);
@@ -2773,7 +2859,7 @@ else
                         FormControlType.Signature, FormControlType.Canvas,
                         FormControlType.Photo, FormControlType.Gps, FormControlType.File, FormControlType.Barcode,
                         FormControlType.Button, FormControlType.TaskDocuments, FormControlType.AiIntake,
-                        FormControlType.LienzoBloques, FormControlType.AiCompose
+                        FormControlType.LienzoBloques, FormControlType.AiCompose, FormControlType.ActionButton
                     };
                 <select class="fb-select" value="@q.ControlType" @onchange="@(e => ChangeTypeAsync(q, e.Value!.ToString()!))">
                     @foreach (var t in opts)
@@ -3246,6 +3332,48 @@ else
                 <input class="fb-input" value="@ac.Model" @onchange="@(e => PatchAcCfgAsync(node.Q!, "model", e.Value?.ToString()))" placeholder="vacio = el modelo del agente" />
             </div>
             <div class="fb-hint">El asistente lee las respuestas del formulario y PROPONE los destinos (campos/bloques). El control no guarda valor propio; escribe en los destinos. Respeta cupo/AiUsageLog y multi-tenant.</div>
+        }
+        @if (node is { IsQuestion: true, Q.ControlType: FormControlType.ActionButton })
+        {
+            var ab = AbCfg(node.Q!);
+            var abLienzos = _def!.Questions.Where(x => x.ControlType == FormControlType.LienzoBloques)
+                .OrderBy(x => x.SortOrder).ToList();
+            var abIsPrintForm = string.Equals(ab.Action, Ecorex.Application.Forms.ActionButtonConfig.ActionPrintForm, StringComparison.OrdinalIgnoreCase);
+            <div class="fb-field">
+                <label>Accion del boton</label>
+                <select class="fb-select" value="@ab.Action" @onchange="@(e => PatchAbCfgAsync(node.Q!, "action", e.Value?.ToString()))">
+                    <option value="@Ecorex.Application.Forms.ActionButtonConfig.ActionPrintLienzo">Imprimir lienzo</option>
+                    <option value="@Ecorex.Application.Forms.ActionButtonConfig.ActionPrintForm">Imprimir formulario completo</option>
+                </select>
+                <div class="fb-hint">@(abIsPrintForm
+                    ? "Abre el documento completo del registro (todas las secciones y campos) en una pestana nueva (guarda el borrador antes)."
+                    : "Abre la vista de impresion del lienzo elegido en una pestana nueva (guarda el borrador antes).")</div>
+            </div>
+            @if (!abIsPrintForm)
+            {
+                <div class="fb-field">
+                    <label>Lienzo a imprimir</label>
+                    @if (abLienzos.Count == 0)
+                    {
+                        <div class="fb-hint">No hay ningun control "Lienzo de bloques" en el formulario. Agrega uno para que el boton tenga que imprimir.</div>
+                    }
+                    else
+                    {
+                        <select class="fb-select" value="@(ab.TargetField ?? "")" @onchange="@(e => PatchAbCfgAsync(node.Q!, "targetField", e.Value?.ToString()))">
+                            <option value="">(el primer lienzo del formulario)</option>
+                            @foreach (var lz in abLienzos)
+                            {
+                                <option value="@lz.FieldCode">@(string.IsNullOrWhiteSpace(lz.Label) ? lz.FieldCode : lz.Label)</option>
+                            }
+                        </select>
+                    }
+                </div>
+            }
+            <div class="fb-field">
+                <label>Texto del boton</label>
+                <input class="fb-input" value="@ab.Label" @onchange="@(e => PatchAbCfgAsync(node.Q!, "label", e.Value?.ToString()))" placeholder="@Ecorex.Application.Forms.ActionButtonConfig.DefaultLabel" />
+            </div>
+            <div class="fb-hint">El boton se puede colocar en cualquier parte del formulario (no dentro del lienzo). No guarda valor propio. Funciona dentro de la tarea y en el enlace publico /f/.</div>
         }
         @if (node is { IsQuestion: true, Q.ControlType: FormControlType.GridDetail })
         {
@@ -3825,6 +3953,7 @@ else
                     <option value="@nameof(FormDefaultDynamic.None)">Ninguno</option>
                     <option value="@nameof(FormDefaultDynamic.Today)">Hoy (fecha)</option>
                     <option value="@nameof(FormDefaultDynamic.CurrentUser)">Usuario actual</option>
+                    <option value="@nameof(FormDefaultDynamic.AssignedUser)">Usuario asignado a la tarea</option>
                 </select>
             </div>
             @* El formato de mascara (moneda/telefono/...) no aplica a controles de OPCION; para Radio/MultiCheck
@@ -3936,6 +4065,7 @@ else
                     <option value="@nameof(FormSourceKind.Tercero)">Directorio (terceros)</option>
                     <option value="@nameof(FormSourceKind.Item)">Inventario (items)</option>
                     <option value="@nameof(FormSourceKind.ExternalDataset)">Dataset externo (SQL)</option>
+                    <option value="@nameof(FormSourceKind.SystemUser)">Usuarios del sistema</option>
                 </select>
             </div>
             @if (q.SourceKind != FormSourceKind.Options)
@@ -3985,11 +4115,28 @@ else
                     </select>
                 </div>
 
-                <div class="fb-field">
-                    <label>Filtro (JSON opcional)</label>
-                    <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
-                           @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
-                </div>
+                @if (q.SourceKind == FormSourceKind.DataContainer)
+                {
+                    <div class="fb-field">
+                        <label>Filtrar por otro campo (cascada)</label>
+                        @RenderCascadeEditor(q, fields)
+                    </div>
+                }
+                else if (q.SourceKind == FormSourceKind.SystemUser)
+                {
+                    <div class="fb-field">
+                        <label>Usuarios permitidos (vacio = todos)</label>
+                        @RenderSystemUserPicker(q)
+                    </div>
+                }
+                else
+                {
+                    <div class="fb-field">
+                        <label>Filtro (JSON opcional)</label>
+                        <input class="fb-input" value="@q.FilterJson" placeholder='{"perfil":"Cliente"}'
+                               @onchange="@(e => PatchQuestionAsync(q, r => r with { FilterJson = e.Value?.ToString() }))" />
+                    </div>
+                }
 
                 <div class="fb-field">
                     <label>Autollenar campos (al elegir, copia)</label>
@@ -3998,6 +4145,181 @@ else
             }
         </div>
     };
+
+    /// <summary>
+    /// Selector de USUARIOS PERMITIDOS para el origen "Usuarios del sistema" (sin JSON): casillas con los
+    /// usuarios del tenant; los marcados forman la lista blanca que guarda <see cref="FormQuestionDto.FilterJson"/>
+    /// como {"users":[..]} (ver <see cref="FormSystemUserFilter"/>). Ninguno marcado = todos (comportamiento
+    /// original). Asi un campo tipo "Aprobador del gasto" ofrece solo los usuarios elegidos.
+    /// </summary>
+    private RenderFragment RenderSystemUserPicker(FormQuestionDto q) => __builder =>
+    {
+        _ = EnsureSystemUsersAsync();
+        var selected = FormSystemUserFilter.Parse(q.FilterJson).UserIds
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        <div class="fb-autofill">
+            @if (_systemUsers.Count == 0)
+            {
+                <div class="fb-hint">Cargando usuarios del sistema...</div>
+            }
+            else
+            {
+                <div class="fb-hint">Marca los usuarios que apareceran en la lista. Si no marcas ninguno, se ofrecen todos.</div>
+                <div class="fb-chkgrid">
+                    @foreach (var u in _systemUsers)
+                    {
+                        <label class="pl-toggle">
+                            <input type="checkbox" checked="@selected.Contains(u.Value)"
+                                   @onchange="@(() => ToggleSystemUserAsync(q, u.Value))" />
+                            @u.Display
+                        </label>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    // Cache de los usuarios del tenant para el selector del disenador (se carga una vez via el lookup).
+    private List<FormLookupItem> _systemUsers = new();
+    private bool _systemUsersLoading;
+
+    private async Task EnsureSystemUsersAsync()
+    {
+        if (_systemUsers.Count > 0 || _systemUsersLoading) { return; }
+        _systemUsersLoading = true;
+        try
+        {
+            var page = await LookupSvc.SearchAsync(new FormLookupRequest(
+                FormSourceKind.SystemUser, "", null, null, null, Array.Empty<string>(), Skip: 0, Take: 200));
+            _systemUsers = page.Items.ToList();
+        }
+        catch (Exception)
+        {
+            _systemUsers = new();
+        }
+        finally
+        {
+            _systemUsersLoading = false;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task ToggleSystemUserAsync(FormQuestionDto q, string userId)
+    {
+        var next = FormSystemUserFilter.Parse(q.FilterJson).Toggle(userId);
+        return PatchQuestionAsync(q, r => r with { FilterJson = next.ToJsonOrNull() });
+    }
+
+    /// <summary>
+    /// Editor de CASCADA (sin JSON): cada fila dice "la columna X de esta tabla = el valor que tenga, en
+    /// el campo padre, su columna Y". El padre es otro campo lista de Contenedor del mismo formulario.
+    /// Escribe <see cref="FormQuestionDto.FilterJson"/> con <see cref="FormLookupFilterSpec"/>.
+    /// </summary>
+    private RenderFragment RenderCascadeEditor(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+
+        // Columnas de ESTA tabla (sin el pseudo-campo "id").
+        var ownCols = fields.Where(f => !string.Equals(f.Key, "id", StringComparison.OrdinalIgnoreCase)).ToList();
+        // Campos padre candidatos: otros campos lista de Contenedor con fuente elegida.
+        var parents = _def!.Questions
+            .Where(x => x.Id != q.Id && x.SourceKind == FormSourceKind.DataContainer && !string.IsNullOrWhiteSpace(x.SourceRef))
+            .ToList();
+
+        <div class="fb-autofill">
+            @if (rules.Count == 0)
+            {
+                <div class="fb-hint">Sin filtros. Agrega uno para que esta lista dependa de otro campo (p. ej. SUBCENTROS por el CENTRO elegido).</div>
+            }
+            @for (var i = 0; i < rules.Count; i++)
+            {
+                var idx = i;
+                var rule = rules[idx];
+                var parentQ = parents.FirstOrDefault(x => x.FieldCode == rule.FromField);
+                if (parentQ is not null)
+                {
+                    _ = EnsureLookupMetaAsync(FormSourceKind.DataContainer, parentQ.SourceRef);
+                }
+                var parentCols = parentQ is null
+                    ? new List<FormLookupFieldMeta>()
+                    : LookupFieldsFor(FormSourceKind.DataContainer, parentQ.SourceRef)
+                        .Where(f => !string.Equals(f.Key, "id", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                <div class="fb-autofill-row">
+                    <select class="fb-select" value="@rule.Column"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { Column = e.Value?.ToString() ?? "" }))">
+                        <option value="">Columna de esta tabla...</option>
+                        @foreach (var c in ownCols)
+                        {
+                            <option value="@c.Key" selected="@(c.Key == rule.Column)">@c.Label</option>
+                        }
+                    </select>
+                    <span class="fb-autofill-arrow">= valor de</span>
+                    <select class="fb-select" value="@rule.FromField"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { FromField = e.Value?.ToString() ?? "" }))">
+                        <option value="">Campo padre...</option>
+                        @foreach (var p in parents)
+                        {
+                            <option value="@p.FieldCode" selected="@(p.FieldCode == rule.FromField)">@p.Label</option>
+                        }
+                    </select>
+                    <select class="fb-select" value="@rule.FromColumn"
+                            @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { FromColumn = e.Value?.ToString() ?? "" }))">
+                        <option value="">Columna del padre...</option>
+                        @foreach (var c in parentCols)
+                        {
+                            <option value="@c.Key" selected="@(c.Key == rule.FromColumn)">@c.Label</option>
+                        }
+                    </select>
+                    <label title="Obliga a elegir primero el campo padre"
+                           style="display:inline-flex;align-items:center;gap:4px;font-size:.8rem;white-space:nowrap;">
+                        <input type="checkbox" checked="@rule.Require"
+                               @onchange="@(e => UpdateCascadeRuleAsync(q, idx, r => r with { Require = (bool)(e.Value ?? false) }))" />
+                        Obligatorio
+                    </label>
+                    <button type="button" class="fb-autofill-x" title="Quitar filtro"
+                            @onclick="@(() => RemoveCascadeRuleAsync(q, idx))">&times;</button>
+                </div>
+            }
+            <button type="button" class="fb-autofill-add" @onclick="@(() => AddCascadeRuleAsync(q))">+ Agregar filtro</button>
+        </div>
+    };
+
+    private Task AddCascadeRuleAsync(FormQuestionDto q)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        rules.Add(new FormLookupCascade("", "", "", true));
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    private Task RemoveCascadeRuleAsync(FormQuestionDto q, int index)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        if (index >= 0 && index < rules.Count) { rules.RemoveAt(index); }
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    private Task UpdateCascadeRuleAsync(FormQuestionDto q, int index, Func<FormLookupCascade, FormLookupCascade> edit)
+    {
+        var spec = FormLookupFilterSpec.Parse(q.FilterJson);
+        var rules = spec.Cascade?.ToList() ?? new List<FormLookupCascade>();
+        if (index >= 0 && index < rules.Count) { rules[index] = edit(rules[index]); }
+        return SaveCascadeAsync(q, spec, rules);
+    }
+
+    /// <summary>Reescribe FilterJson conservando los filtros fijos; null si no queda nada.</summary>
+    private Task SaveCascadeAsync(FormQuestionDto q, FormLookupFilterSpec prev, List<FormLookupCascade> rules)
+    {
+        // Se guardan incluso reglas incompletas (el usuario las completa); el motor ignora las que falten.
+        var cleaned = rules.Count > 0 ? rules : null;
+        var next = new FormLookupFilterSpec(prev.Fixed, cleaned);
+        var json = next.IsEmpty ? null : next.ToJson();
+        return PatchQuestionAsync(q, r => r with { FilterJson = json });
+    }
 
     /// <summary>Editor del mapa de autollenado: filas campoFuente -> campoFormulario (se copia al elegir).</summary>
     private RenderFragment RenderAutofillMap(FormQuestionDto q, IReadOnlyList<FormLookupFieldMeta> fields) => __builder =>
@@ -4224,8 +4546,13 @@ else
            con los campos/columnas REALES de este formulario. Guarda un override en el vinculo. *@
         @if (_mapeoOpen)
         {
-            <div class="fb-rule-picker" style="margin-top:10px;">
-                <div class="fb-rules-desc" style="font-weight:700;margin-bottom:6px;">Mapeo de requerimientos (solo este formulario)</div>
+            <div class="modal-overlay" style="z-index:72;" @onclick="@(() => _mapeoOpen = false)">
+              <div class="modal-dialog fd-mapeo-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+                <div class="modal-head">
+                    <h3>Mapeo de requerimientos (solo este formulario)</h3>
+                    <button class="modal-close" @onclick="@(() => _mapeoOpen = false)">&times;</button>
+                </div>
+                <div class="modal-body">
                 <div class="fb-field">
                     <label>Grilla de origen (cada fila es una necesidad)</label>
                     <select class="fb-select" value="@_mapeoGrid" @onchange="@(e => _mapeoGrid = e.Value?.ToString() ?? "")">
@@ -4292,12 +4619,43 @@ else
                     </div>
                 }
                 <button class="fb-rule-add" @onclick="@(() => _mapeoRows.Add(new MapeoRow()))">+ Agregar dato</button>
+
+                @* Retorno: datos que REGRESAN desde Requerimientos al grid (ej. valor cotizado por linea). Se
+                   emparejan por la descripcion/producto y se escriben al reabrir el formulario en la tarea. *@
+                <label style="font-size:11px;font-weight:700;color:var(--ink-3,#9ca3af);text-transform:uppercase;letter-spacing:.04em;display:block;margin-top:16px;">Devolver al grid (desde Requerimientos)</label>
+                <div class="fb-rules-desc" style="margin:2px 0 6px;">Al reabrir el formulario en la tarea, cada fila trae el dato de su necesidad (emparejado por el producto).</div>
+                @for (var ri = 0; ri < _mapeoReturnRows.Count; ri++)
+                {
+                    var rrow = _mapeoReturnRows[ri]; var ridx = ri;
+                    <div style="display:flex;gap:6px;align-items:center;margin:6px 0;">
+                        <select class="fb-select" style="flex:1.1;" @onchange="@(e => ReturnColChanged(rrow, e))">
+                            <option value="">Columna del grid...</option>
+                            @foreach (var c in MapeoGridCols())
+                            {
+                                <option value="@c.Id" selected="@(c.Id == rrow.Col)">@c.Label</option>
+                            }
+                        </select>
+                        <span style="color:var(--ink-3,#9ca3af);font-size:12px;">&larr;</span>
+                        <select class="fb-select" style="flex:1.3;" @onchange="@(e => ReturnSourceChanged(rrow, e))">
+                            <option value="">Dato de la necesidad...</option>
+                            @foreach (var s in _mapeoReturnSources)
+                            {
+                                <option value="@s.Value" selected="@(s.Value == rrow.Source)">@s.Label</option>
+                            }
+                        </select>
+                        <span class="fb-rule-x" title="Quitar" @onclick="@(() => ReturnRemoveRow(ridx))">&times;</span>
+                    </div>
+                }
+                <button class="fb-rule-add" @onclick="@(() => _mapeoReturnRows.Add(new ReturnRow()))">+ Agregar retorno</button>
+
                 @if (_mapeoError is not null) { <div style="color:#b91c1c;font-size:12px;margin-top:6px;">@_mapeoError</div> }
-                <div style="display:flex;gap:8px;margin-top:10px;">
-                    <button class="fb-btn-ghost" title="Sugerir el mapeo por el nombre de columnas/campos" @onclick="AutoSuggestMapeo">Auto-sugerir</button>
-                    <button class="fb-btn-ghost" style="flex:1;" @onclick="@(() => _mapeoOpen = false)">Cancelar</button>
-                    <button class="fb-btn-primary" style="flex:1;" disabled="@(_busy || string.IsNullOrWhiteSpace(_mapeoGrid))" @onclick="SaveMapeoAsync">Guardar</button>
                 </div>
+                <div class="modal-foot">
+                    <button class="fb-btn-ghost" title="Sugerir el mapeo por el nombre de columnas/campos" style="margin-right:auto;" @onclick="AutoSuggestMapeo">Auto-sugerir</button>
+                    <button class="fb-btn-ghost" @onclick="@(() => _mapeoOpen = false)">Cancelar</button>
+                    <button class="fb-btn-primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_mapeoGrid))" @onclick="SaveMapeoAsync">Guardar</button>
+                </div>
+              </div>
             </div>
         }
 

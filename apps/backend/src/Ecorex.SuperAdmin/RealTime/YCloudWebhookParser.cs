@@ -23,7 +23,10 @@ public sealed record YCloudStatusUpdate(
     // Id INTERNO de YCloud del mensaje (campo "id" del evento). Al ENVIAR, YCloud suele devolver solo su id (el
     // wamid de Meta aun no existe) y es lo que se guarda en Message.ExternalId; por eso la correlacion del estado
     // debe poder cruzar por ESTE id ademas del wamid de Meta.
-    string? ProviderId = null)
+    string? ProviderId = null,
+    // Subarbol de error CRUDO (JSON) del evento fallido, tal cual vino de Meta/YCloud. Se LOGUEA en el fallo para
+    // poder ajustar el parser con un payload real cuando la forma del error no sea una de las ya reconocidas.
+    string? ErrorRaw = null)
 {
     /// <summary>true si la entrega fallo (no llego al cliente): failed / undelivered.</summary>
     public bool IsFailure => !string.IsNullOrWhiteSpace(Status)
@@ -97,20 +100,41 @@ public static class YCloudWebhookParser
         var wamid = Str(msg, "wamid");
         var providerId = Str(msg, "id");
 
-        // error: objeto { code, message/title } o arreglo 'errors'. code puede venir numerico o string.
-        string? errCode = null, errMsg = null;
+        // error: objeto { code, message/title/detail } o arreglo 'errors'. El detalle de Meta suele venir MAS
+        // anidado (error.errorData.details / error_data.details; errors[0].error_data.details; href). code puede
+        // venir numerico o string. Ademas se guarda el subarbol CRUDO para diagnosticar formas no reconocidas.
+        string? errCode = null, errMsg = null, errRaw = null;
         if (msg.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.Object)
         {
-            errCode = NumOrStr(err, "code"); errMsg = Str(err, "message") ?? Str(err, "title") ?? Str(err, "detail");
+            errRaw = err.GetRawText();
+            (errCode, errMsg) = ReadError(err);
         }
         else if (msg.TryGetProperty("errors", out var errs) && errs.ValueKind == JsonValueKind.Array && errs.GetArrayLength() > 0)
         {
-            var e0 = errs[0];
-            errCode = NumOrStr(e0, "code"); errMsg = Str(e0, "message") ?? Str(e0, "title") ?? Str(e0, "detail");
+            errRaw = errs.GetRawText();
+            (errCode, errMsg) = ReadError(errs[0]);
         }
 
         var at = ParseTime(Str(msg, "updateTime") ?? Str(msg, "sendTime") ?? Str(msg, "timestamp"));
-        result.Add(new YCloudStatusUpdate(business, recipient, status!, wabaId, errCode, errMsg, wamid, at, providerId));
+        result.Add(new YCloudStatusUpdate(business, recipient, status!, wabaId, errCode, errMsg, wamid, at, providerId, errRaw));
+    }
+
+    // Lee (codigo, mensaje) de un nodo de error tolerando las variantes de Meta/YCloud: el mensaje puede venir
+    // directo (message/title/detail) o anidado (error_data.details / errorData.details), y como ultimo recurso el
+    // href. El codigo numerico puede estar en el nodo o anidado en error_data/errorData. Un nodo string se toma
+    // como el mensaje. Asi, aunque la forma cambie, se captura lo mejor disponible (y el crudo queda en ErrorRaw).
+    private static (string? code, string? msg) ReadError(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.String) { return (null, e.GetString()); }
+        if (e.ValueKind != JsonValueKind.Object) { return (null, null); }
+        var code = NumOrStr(e, "code")
+            ?? NumOrStrPath(e, "error_data", "code")
+            ?? NumOrStrPath(e, "errorData", "code");
+        var msg = Str(e, "message") ?? Str(e, "title") ?? Str(e, "detail")
+            ?? Str(e, "error_data", "details") ?? Str(e, "errorData", "details")
+            ?? Str(e, "error_data", "detail") ?? Str(e, "errorData", "detail")
+            ?? Str(e, "href");
+        return (code, msg);
     }
 
     // Lee un campo que puede venir como numero o string (ej. codigo de error de Meta).
@@ -123,6 +147,18 @@ public static class YCloudWebhookParser
             JsonValueKind.Number => v.ToString(),
             _ => null
         };
+    }
+
+    // Como NumOrStr pero descendiendo por una ruta de objetos (ej. error_data.code).
+    private static string? NumOrStrPath(JsonElement el, params string[] path)
+    {
+        var cur = el;
+        for (var i = 0; i < path.Length - 1; i++)
+        {
+            if (cur.ValueKind != JsonValueKind.Object || !cur.TryGetProperty(path[i], out var next)) { return null; }
+            cur = next;
+        }
+        return NumOrStr(cur, path[^1]);
     }
 
     private static void ParseEvent(JsonElement evt, List<YCloudParsedMessage> result)

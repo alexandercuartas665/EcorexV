@@ -1761,6 +1761,9 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .tk-flow-zoom { display: flex; align-items: center; gap: 3px; }
 .tk-flow-zbtn { width: 24px; height: 24px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; cursor: pointer; color: var(--ink-2); font-size: 13px; font-weight: 700; line-height: 1; display: grid; place-items: center; }
 .tk-flow-zbtn:hover { background: var(--surface-2); color: var(--ink); }
+.tk-flow-zbtn:disabled { opacity: .4; cursor: default; }
+.tk-flow-zbtn:disabled:hover { background: var(--surface); color: var(--ink-2); }
+.tk-flow-reset { font-size: 15px; }
 .tk-flow-zval { font-size: 11px; font-weight: 700; color: var(--ink-3); min-width: 34px; text-align: center; }
 /* Boton del menu del nodo: pildora VISIBLE (borde + fondo + sombra) para que el usuario la ubique
    sin adivinar. Se resalta en hover y en el paso vigente (current). */

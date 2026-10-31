@@ -20,7 +20,14 @@ public sealed record RequerimientoDto(
     int CantidadHijos,
     decimal CantidadPlanificada,
     decimal MontoTotal,
-    IReadOnlyList<RequerimientoHijoDto> Hijos);
+    IReadOnlyList<RequerimientoHijoDto> Hijos,
+    // Trazabilidad: quien pidio y desde que actividad.
+    Guid? SolicitanteUserId = null,
+    string? SolicitanteNombre = null,
+    Guid? SourceTaskItemId = null,
+    string? SourceTaskNumber = null,
+    // Override por registro: sacar esta necesidad de la consolidacion (se planifica aparte).
+    bool ForzarDividir = false);
 
 /// <summary>Filtro de la grilla de necesidades.</summary>
 public sealed record RequerimientoFiltro(string? Texto = null, RequerimientoEstado? Estado = null, Guid? OrigenId = null);
@@ -33,7 +40,14 @@ public sealed record CrearRequerimientoRequest(
     string Descripcion,
     decimal Cantidad,
     string UnidadMedida,
-    DateTimeOffset? FechaNecesidad);
+    DateTimeOffset? FechaNecesidad,
+    // Trazabilidad opcional: quien pidio (TenantUser) y la actividad origen. El nombre se resuelve si va vacio.
+    Guid? SolicitanteUserId = null,
+    string? SolicitanteNombre = null,
+    Guid? SourceTaskItemId = null,
+    // Observaciones opcionales (las puede alimentar el mapeo de una regla de formulario).
+    string? Observaciones = null,
+    string? ObservacionesDespacho = null);
 
 /// <summary>Opcion de item para el selector (del modulo de Inventarios).</summary>
 public sealed record ItemOpcionDto(Guid Id, string Nombre, string? Sku);
@@ -90,6 +104,23 @@ public sealed record HijoInput(
 /// <summary>Guarda TODA la planificacion (hijos) de una necesidad de una vez (reemplaza el conjunto).</summary>
 public sealed record GuardarHijosRequest(Guid RequerimientoId, IReadOnlyList<HijoInput> Hijos);
 
+/// <summary>Una linea del plan de grupo: una necesidad del producto consolidado + la cantidad a planificar en esta pasada.</summary>
+public sealed record PlanificarGrupoLinea(Guid RequerimientoId, decimal Cantidad);
+
+/// <summary>Planifica VARIAS necesidades del mismo producto (vista consolidada) de una vez: AGREGA una
+/// distribucion (hijo) a cada una con el mismo proveedor/precio/fecha/despacho (no toca las ya existentes).</summary>
+public sealed record PlanificarGrupoRequest(
+    IReadOnlyList<PlanificarGrupoLinea> Lineas,
+    Guid? ProveedorId,
+    Guid? ProveedorContactoId,
+    decimal PrecioUnitario,
+    DateTimeOffset? FechaProgramadaCompra,
+    string? CaracteristicasDespacho,
+    string? TiempoEntrega);
+
+/// <summary>Resultado del plan de grupo.</summary>
+public sealed record PlanificarGrupoResult(bool Ok, string? Error, int HijosCreados);
+
 /// <summary>Estado de la planificacion de una necesidad: cantidades y sus hijos.</summary>
 public sealed record PlanificacionDto(
     Guid RequerimientoId,
@@ -124,6 +155,10 @@ public interface IRequerimientoService
     /// <summary>Reabre una necesidad Cerrada: Cerrado -> Ejecutado.</summary>
     Task<RequerimientoDto?> ReabrirAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>Marca/desmarca una necesidad como "dividir" (override por registro): si es true, no se
+    /// consolida con las del mismo producto aunque el modulo este en modo Consolidado.</summary>
+    Task<RequerimientoDto?> SetForzarDividirAsync(Guid id, bool dividir, CancellationToken ct = default);
+
     /// <summary>Items activos del modulo de Inventarios para el selector.</summary>
     Task<IReadOnlyList<ItemOpcionDto>> ListItemsAsync(CancellationToken ct = default);
     /// <summary>Origenes ACTIVOS para el alta.</summary>
@@ -135,6 +170,11 @@ public interface IRequerimientoService
     /// <summary>Reemplaza el conjunto de hijos de una necesidad. Valida que la suma NO exceda al padre;
     /// pone el padre en Planificado si queda con hijos (o Recibido si queda sin ninguno). Devuelve el nuevo estado.</summary>
     Task<PlanificacionDto?> GuardarHijosAsync(GuardarHijosRequest req, CancellationToken ct = default);
+
+    /// <summary>Planifica de una sola vez varias necesidades del mismo producto (vista consolidada): AGREGA
+    /// una distribucion a cada una con proveedor/precio/fecha compartidos, sin tocar las existentes, validando
+    /// el restante de cada necesidad. Transaccional (todo o nada).</summary>
+    Task<PlanificarGrupoResult> PlanificarGrupoAsync(PlanificarGrupoRequest req, CancellationToken ct = default);
 
     // ---- Ola 4: proveedores ----
     /// <summary>Proveedores del Directorio General para el selector del hijo.</summary>

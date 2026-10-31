@@ -33,6 +33,7 @@ public abstract class DirectorioSharedBase : ComponentBase
     [Inject] protected ITerceroService TerceroSvc { get; set; } = default!;
     [Inject] protected ITerceroFieldService FieldSvc { get; set; } = default!;
     [Inject] protected ITerceroFichaService FichaSvc { get; set; } = default!;
+    [Inject] protected IDirectorioLayoutConfigService LayoutSvc { get; set; } = default!;
     [Inject] protected ITerceroFormService FormsSvc { get; set; } = default!;
     [Inject] protected ICurrentPermissions Perms { get; set; } = default!;
     [Inject] protected IJSRuntime JS { get; set; } = default!;
@@ -516,6 +517,29 @@ public abstract class DirectorioSharedBase : ComponentBase
     protected bool _cfgShowInFilter;
     protected string _cfgRepeatWith = "";
 
+    // ---- Zona principal "general": posicion (ancla) del campo + config del Sector / Industria ----
+    // Solo aplica cuando la ficha seleccionada es "general": donde se intercala el campo entre los
+    // principales (DirectorioLayoutConfigService) y si Sector es lista o texto libre.
+    protected const string GeneralFichaKey = "general";
+    protected string _cfgAnchor = "sector";
+    protected Dictionary<string, string> _cfgAnchors = new(StringComparer.Ordinal);
+    protected bool _secIsList;
+    protected string _secOptions = "";
+    protected bool _secSaved;
+
+    /// <summary>Anclas (campo principal -> etiqueta) para el selector "Posicion" de los campos "general".</summary>
+    protected static readonly (string Key, string Label)[] AnchorOptions =
+    [
+        ("nombre", "Despues de Razon social / Nombre"),
+        ("identificacion", "Despues de Identificacion"),
+        ("ciudad", "Despues de Ciudad"),
+        ("sector", "Despues de Sector / Cargo"),
+        ("correo", "Despues de Correo"),
+        ("telefono", "Despues de Telefono"),
+        ("vendedor", "Despues de Vendedor asignado"),
+        ("estado", "Despues de Estado")
+    ];
+
     /// <summary>Todos los campos del tenant: la formula puede referenciar cualquier ficha.</summary>
     protected List<TerceroFieldDto> _cfgAllFields = new();
 
@@ -663,6 +687,12 @@ public abstract class DirectorioSharedBase : ComponentBase
         _fichaError = null;
         _fichas = (await FichaSvc.ListAsync()).ToList();
         _cfgFicha = _fichas.FirstOrDefault()?.FichaKey ?? "fiscal";
+        // Layout de la zona principal: config del Sector + anclas de los campos "general".
+        var layout = await LayoutSvc.GetAsync();
+        _secIsList = layout.SectorIsList;
+        _secOptions = layout.SectorOptions ?? "";
+        _cfgAnchors = new Dictionary<string, string>(layout.Anchors, StringComparer.Ordinal);
+        _secSaved = false;
         ResetCfgForm();
         await FieldSvc.EnsureDefaultsAsync();
         await LoadCfgFieldsAsync();
@@ -857,6 +887,7 @@ public abstract class DirectorioSharedBase : ComponentBase
         _cfgFormulaError = null;
         _cfgShowInFilter = false;
         _cfgRepeatWith = "";
+        _cfgAnchor = "sector";
     }
 
     protected async Task EditCfgFieldAsync(TerceroFieldDto f)
@@ -872,6 +903,7 @@ public abstract class DirectorioSharedBase : ComponentBase
         _cfgFormulaError = null;
         _cfgShowInFilter = f.ShowInFilter;
         _cfgRepeatWith = f.RepeatWithFieldKey ?? "";
+        _cfgAnchor = _cfgAnchors.TryGetValue(f.FieldKey, out var anc) && !string.IsNullOrWhiteSpace(anc) ? anc : "sector";
         if (f.FieldType == TerceroFieldType.Lookup) { await LoadLookupCfgAsync(f.Options); }
         else { ResetLookupCfg(); }
     }
@@ -922,6 +954,12 @@ public abstract class DirectorioSharedBase : ComponentBase
                     _cfgError = "No se pudo guardar el campo.";
                     return;
                 }
+                // Posicion (ancla) del campo "general" entre los principales.
+                if (_cfgFicha == GeneralFichaKey)
+                {
+                    await LayoutSvc.SetAnchorAsync(upd.FieldKey, _cfgAnchor);
+                    _cfgAnchors[upd.FieldKey] = _cfgAnchor;
+                }
             }
             else
             {
@@ -931,6 +969,11 @@ public abstract class DirectorioSharedBase : ComponentBase
                 {
                     _cfgError = "No se pudo crear el campo. Revisa la ficha seleccionada.";
                     return;
+                }
+                if (_cfgFicha == GeneralFichaKey)
+                {
+                    await LayoutSvc.SetAnchorAsync(created.FieldKey, _cfgAnchor);
+                    _cfgAnchors[created.FieldKey] = _cfgAnchor;
                 }
             }
             ResetCfgForm();
@@ -1011,8 +1054,23 @@ public abstract class DirectorioSharedBase : ComponentBase
         try
         {
             await FieldSvc.DeleteFieldAsync(f.Id);
+            // Limpia su ancla del layout (idempotente) para no dejar huerfanas en la config.
+            await LayoutSvc.RemoveAnchorAsync(f.FieldKey);
+            _cfgAnchors.Remove(f.FieldKey);
             if (_cfgEditingId == f.Id) { ResetCfgForm(); }
             await LoadCfgFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Guarda la config del campo Sector / Industria (lista con opciones, o texto libre).</summary>
+    protected async Task SaveSectorCfgAsync()
+    {
+        _busy = true;
+        try
+        {
+            await LayoutSvc.SetSectorAsync(_secIsList, _secIsList ? _secOptions : null);
+            _secSaved = true;
         }
         finally { _busy = false; }
     }

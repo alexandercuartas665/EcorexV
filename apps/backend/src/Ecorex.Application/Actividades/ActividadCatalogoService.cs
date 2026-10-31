@@ -524,22 +524,48 @@ public sealed class ActividadCatalogoService : IActividadCatalogoService
     }
 
     /// <summary>
-    /// Coherencia concepto&lt;-&gt;tablero (1:1): si el concepto queda SIN tablero, crea uno dedicado
-    /// (columnas default del prototipo + code CNC-) y lo enlaza, con la columna "Completado" como estado
-    /// de cierre. Se agrega al mismo DbContext -> se persiste en el SaveChanges del alta/edicion. Asi la
-    /// creacion del tablero vive DENTRO de Conceptos y ningun concepto queda huerfano de tablero.
+    /// Coherencia concepto&lt;-&gt;tablero: si el concepto queda SIN tablero, se le enlaza un tablero
+    /// COMPARTIDO POR CATEGORIA en vez de crear uno por cada subcategoria. Si otra subcategoria de la
+    /// misma categoria ya tiene tablero (no archivado), se reusa ese (con su estado de cierre); solo el
+    /// PRIMER concepto de la categoria crea el tablero (columnas default del prototipo, code CNC-,
+    /// nombrado por la CATEGORIA). Asi una categoria tiene un solo tablero, no proliferan tableros por
+    /// concepto y ningun concepto queda huerfano. Decision del usuario 2026-10-27 (antes era 1:1). El
+    /// usuario puede sobreescribir eligiendo un tablero concreto en el selector del concepto.
     /// </summary>
     private async Task EnsureConceptBoardAsync(
         ActividadSubcategoria entity, Guid tenantId, CancellationToken cancellationToken)
     {
         if (entity.TaskBoardId is not null) { return; }
 
+        // Reusar el tablero de una subcategoria hermana (misma categoria) cuyo tablero siga vivo.
+        var sibling = await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(s => s.CategoriaId == entity.CategoriaId && s.Id != entity.Id && s.TaskBoardId != null)
+            .OrderBy(s => s.SortOrder).ThenBy(s => s.Codigo)
+            .Select(s => new { s.TaskBoardId, s.TaskBoardColumnId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (sibling?.TaskBoardId is Guid sharedBoardId
+            && await _db.TaskBoards.AnyAsync(b => b.Id == sharedBoardId && !b.IsArchived, cancellationToken))
+        {
+            entity.TaskBoardId = sharedBoardId;
+            // Mismo estado de cierre que la categoria; si el hermano no tenia, la columna IsDone del tablero.
+            entity.TaskBoardColumnId = sibling.TaskBoardColumnId
+                ?? await _db.TaskBoardColumns.Where(c => c.BoardId == sharedBoardId && c.IsDone)
+                    .Select(c => (Guid?)c.Id).FirstOrDefaultAsync(cancellationToken);
+            return;
+        }
+
+        // Primer concepto de la categoria: crea el tablero COMPARTIDO, nombrado por la categoria.
+        var categoriaNombre = await _db.ActividadCategorias.AsNoTracking()
+            .Where(c => c.Id == entity.CategoriaId).Select(c => c.Nombre).FirstOrDefaultAsync(cancellationToken);
+        var boardName = !string.IsNullOrWhiteSpace(categoriaNombre) ? categoriaNombre!.Trim()
+            : (string.IsNullOrWhiteSpace(entity.Nombre) ? "Tablero" : entity.Nombre);
+
         var nextOrder = (await _db.TaskBoards.Select(b => (int?)b.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
         var board = new TaskBoard
         {
             TenantId = tenantId,
             Kind = TaskBoardKind.Activities,
-            Name = string.IsNullOrWhiteSpace(entity.Nombre) ? "Tablero" : entity.Nombre,
+            Name = boardName,
             Status = TaskBoardStatus.OnTime,
             SortOrder = nextOrder
         };

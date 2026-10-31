@@ -57,6 +57,17 @@ public class WorkflowStepHistory : TenantEntity
     public int AgentAttemptCount { get; set; }
 
     /// <summary>
+    /// TOPE DURO anti-loop: cuantas veces se INVOCO al modelo en este paso (toda corrida que llega a llamar
+    /// al proveedor, incluidas las pausas por WhatsApp y las reanudaciones). Distinto de
+    /// <see cref="AgentAttemptCount"/> (que solo cuenta intentos FALLIDOS para la politica de reintentos): una
+    /// pausa a la espera de respuesta no es un fallo y no incrementa aquel, pero SI cuenta aqui. Superado el
+    /// tope del runner, el paso se detiene y vuelve a una persona (backstop independiente del envio, por si el
+    /// agente se re-dispara en bucle sin enviar). Sobrevive a las reanudaciones (misma fila del paso); se
+    /// reinicia por ciclo (una fila nueva por reinicio).
+    /// </summary>
+    public int AgentInvokeCount { get; set; }
+
+    /// <summary>
     /// Resultado PROPUESTO por el agente (mismo vocabulario que <see cref="ApprovalResult"/>).
     /// Campo propio y no reuso de ApprovalResult porque CompleteStepAsync SOBRESCRIBE
     /// ApprovalResult/ApprovalComment con lo que decide quien cierra: la propuesta se perderia

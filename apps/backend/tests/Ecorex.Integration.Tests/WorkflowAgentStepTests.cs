@@ -561,6 +561,127 @@ public abstract class WorkflowAgentStepTestsBase
         }
     }
 
+    // ---- Frenos anti-loop (circuit breaker por fallo de entrega + tope duro de invocaciones) ----
+
+    /// <summary>
+    /// TOPE DURO anti-loop: un paso cuyo contador de invocaciones (AgentInvokeCount) ya supero el tope del
+    /// runner NO vuelve a llamar al modelo: se detiene y vuelve a una persona con el motivo. Es el backstop
+    /// independiente del envio (por si el agente se re-dispara en bucle sin enviar nada medible). Matriz dual.
+    /// </summary>
+    [Fact]
+    public async Task HardInvokeCap_StopsStep_WithoutCallingModel()
+    {
+        var seed = await SeedTenantAsync("AgentStep TopeDuro");
+        ScenarioSeed scenario;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            scenario = await SeedScenarioAsync(ctx, seed, WorkflowAgentAutonomy.Autonomous);
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.AgentInvokeCount = 999;   // ya excedio cualquier tope configurado del runner
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = _fixture.CreateContext(seed.TenantId);
+        var invoker = FakeWorkflowAgentInvoker.Answering("Approved", "cerraria... pero el tope lo frena antes");
+        var runner = BuildRunner(ctx2, seed, invoker);
+
+        var outcome = await runner.RunAsync(scenario.AgentStepId);
+
+        Assert.Equal(WorkflowAgentStepOutcome.ReturnedToPerson, outcome);
+        Assert.Equal(0, invoker.Calls);   // NO se invoco al modelo: no se gasto ni un token
+
+        await using var ctx3 = _fixture.CreateContext(seed.TenantId);
+        var after = await ctx3.WorkflowStepHistories.AsNoTracking().FirstAsync(s => s.Id == scenario.AgentStepId);
+        Assert.True(after.IsCurrent);                       // sigue vigente para una persona (no se cierra en falso)
+        Assert.Equal(WorkflowStepStatus.Pending, after.Status);
+        Assert.NotNull(after.AgentAttemptedAt);             // corte DURO: no se re-barre en bucle
+        Assert.Contains("tope", after.AgentFailureReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.False(await ctx3.AiUsageLogs.AsNoTracking().AnyAsync());   // sin consumo registrado (no hubo llamada)
+    }
+
+    /// <summary>
+    /// CIRCUIT BREAKER por fallo de entrega: si los ULTIMOS K (=3) salientes de la conversacion que el paso
+    /// espera estan TODOS en DeliveryStatus=failed (el cliente no recibe), el paso NO invoca al modelo: se
+    /// detiene, suelta la espera y vuelve a una persona con el motivo real. Esto es lo que corta el bucle que
+    /// quemaba el cupo cuando el envio esta caido (saldo/numero/WABA). Matriz dual.
+    /// </summary>
+    [Fact]
+    public async Task DeliveryFailureBreaker_StopsStep_WhenLastThreeOutboundsAllFailed_WithoutCallingModel()
+    {
+        var seed = await SeedTenantAsync("AgentStep BreakerEntrega");
+        ScenarioSeed scenario;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            scenario = await SeedScenarioAsync(ctx, seed, WorkflowAgentAutonomy.Autonomous);
+            var conv = new Conversation { TenantId = seed.TenantId, ContactPhone = "573217626882" };
+            ctx.Conversations.Add(conv);
+            await ctx.SaveChangesAsync();
+
+            var t0 = new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
+            ctx.Messages.AddRange(
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound, Body = "recordatorio 1", SentAt = t0, DeliveryStatus = "failed" },
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound, Body = "recordatorio 2", SentAt = t0.AddMinutes(10), DeliveryStatus = "failed" },
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound, Body = "recordatorio 3", SentAt = t0.AddMinutes(20), DeliveryStatus = "failed" });
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.PendingWhatsAppConversationId = conv.Id;   // el paso espera respuesta por esta conversacion
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = _fixture.CreateContext(seed.TenantId);
+        var invoker = FakeWorkflowAgentInvoker.Answering("Approved", "no deberia correr: la entrega esta caida");
+        var runner = BuildRunner(ctx2, seed, invoker);
+
+        var outcome = await runner.RunAsync(scenario.AgentStepId);
+
+        Assert.Equal(WorkflowAgentStepOutcome.ReturnedToPerson, outcome);
+        Assert.Equal(0, invoker.Calls);   // NO se invoco al modelo
+
+        await using var ctx3 = _fixture.CreateContext(seed.TenantId);
+        var after = await ctx3.WorkflowStepHistories.AsNoTracking().FirstAsync(s => s.Id == scenario.AgentStepId);
+        Assert.True(after.IsCurrent);
+        Assert.Equal(WorkflowStepStatus.Pending, after.Status);
+        Assert.NotNull(after.AgentAttemptedAt);
+        Assert.Null(after.PendingWhatsAppConversationId);   // se solto la espera (ya no re-dispara por esta conv)
+        Assert.Contains("entrega", after.AgentFailureReason!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// El breaker NO se dispara si NO hay K fallos seguidos: basta con que el saliente MAS RECIENTE SI se haya
+    /// entregado para que el seguimiento continue normal (el agente SI corre). Prueba el umbral K=3. Matriz dual.
+    /// </summary>
+    [Fact]
+    public async Task DeliveryFailureBreaker_DoesNotTrip_WhenMostRecentOutboundDelivered()
+    {
+        var seed = await SeedTenantAsync("AgentStep BreakerNoCorta");
+        ScenarioSeed scenario;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            scenario = await SeedScenarioAsync(ctx, seed, WorkflowAgentAutonomy.Autonomous);
+            var conv = new Conversation { TenantId = seed.TenantId, ContactPhone = "573217626882" };
+            ctx.Conversations.Add(conv);
+            await ctx.SaveChangesAsync();
+
+            var t0 = new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
+            ctx.Messages.AddRange(
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound, Body = "viejo 1", SentAt = t0, DeliveryStatus = "failed" },
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound, Body = "viejo 2", SentAt = t0.AddMinutes(10), DeliveryStatus = "failed" },
+                new Message { TenantId = seed.TenantId, ConversationId = conv.Id, Direction = MessageDirection.Outbound, Body = "ultimo si llego", SentAt = t0.AddMinutes(20), DeliveryStatus = "delivered" });
+            var step = await ctx.WorkflowStepHistories.SingleAsync(s => s.Id == scenario.AgentStepId);
+            step.PendingWhatsAppConversationId = conv.Id;
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = _fixture.CreateContext(seed.TenantId);
+        var invoker = FakeWorkflowAgentInvoker.Answering("Approved", "la entrega funciona: el agente SI corre");
+        var runner = BuildRunner(ctx2, seed, invoker);
+
+        var outcome = await runner.RunAsync(scenario.AgentStepId);
+
+        // El breaker NO corto: el agente corrio (se invoco al modelo una vez) y resolvio el paso.
+        Assert.Equal(1, invoker.Calls);
+        Assert.Equal(WorkflowAgentStepOutcome.Completed, outcome);
+    }
+
     // ---- Dobles ----
 
     /// <summary>

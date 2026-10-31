@@ -13,6 +13,9 @@ on:
       - "**.md"
       - "docs/**"
       - "PROGRESO.md"
+      # Los scripts/compose de despliegue NO afectan la imagen (solo depende de apps/**):
+      # cambiarlos no debe reconstruir ni republicar la imagen.
+      - "deploy/**"
   workflow_dispatch: {}
 
 concurrency:

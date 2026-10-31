@@ -1,0 +1,59 @@
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Ecorex.Infrastructure.SqlServer.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddDocumentoAnalisis : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.CreateTable(
+                name: "documentos_analisis",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    lote_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    stored_file_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    file_name = table.Column<string>(type: "nvarchar(260)", maxLength: 260, nullable: false),
+                    extension = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: false),
+                    content_type = table.Column<string>(type: "nvarchar(160)", maxLength: 160, nullable: true),
+                    size_bytes = table.Column<long>(type: "bigint", nullable: false),
+                    estado = table.Column<int>(type: "int", nullable: false),
+                    motivo_error = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    is_deleted = table.Column<bool>(type: "bit", nullable: false),
+                    deleted_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
+                    deleted_by_tenant_user_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
+                    created_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
+                    updated_by = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    tenant_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_documentos_analisis", x => x.id);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_documentos_analisis_tenant_id_lote_id",
+                table: "documentos_analisis",
+                columns: new[] { "tenant_id", "lote_id" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_documentos_analisis_tenant_id_stored_file_id",
+                table: "documentos_analisis",
+                columns: new[] { "tenant_id", "stored_file_id" });
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "documentos_analisis");
+        }
+    }
+}

@@ -1,0 +1,563 @@
+@page "/analizador-documentos"
+@attribute [Authorize(Policy = "Perm:analizador-documentos:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.DocumentosAnalisis
+@using Ecorex.Application.Roles
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDocumentoAnalisisService Docs
+@inject ICurrentPermissions Perms
+
+@* Analizador de documentos (fase 1: carga). Parrilla que recibe lotes de PDF, los sube al
+   almacenamiento unificado (Azure Blob / disco via IFileStorageService) y los lista. Tokens del
+   workspace ECOREX (--brand/--ink/--surface/--line). El motor de analisis es fase siguiente. *@
+
+<PageTitle>Analizador de documentos - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span class="cur">Analizador de documentos</span>
+</nav>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+            </div>
+            <span>Analizador de documentos</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Documentos</h1>
+        <p class="page-sub" style="margin-bottom:0;">
+            Carga lotes de archivos PDF. Cada archivo se sube al almacenamiento del sistema y queda
+            registrado en la parrilla, listo para analizar.
+        </p>
+    </div>
+    @if (_canEdit)
+    {
+        <div class="ad-head-actions">
+            <button class="ad-btn" @onclick="AbrirConfigAsync">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Configuracion
+            </button>
+        </div>
+    }
+</div>
+
+@if (_cargando)
+{
+    <p class="ad-muted" style="padding:24px 0;">Cargando...</p>
+}
+else
+{
+    @if (_canCreate)
+    {
+        <div class="ad-drop">
+            <div class="ad-drop-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
+            </div>
+            <div class="ad-drop-txt">
+                <strong>Subir archivos PDF</strong>
+                <span class="ad-muted">Solo PDF &#183; hasta @MaxMb MB por archivo &#183; varios a la vez</span>
+            </div>
+            <label class="ad-btn primary @(_subiendo ? "disabled" : "")">
+                @(_subiendo ? "Subiendo..." : "Elegir archivos")
+                <InputFile class="ad-file-hidden" accept="application/pdf,.pdf" multiple
+                           OnChange="OnFilesSelectedAsync" disabled="@_subiendo" />
+            </label>
+        </div>
+    }
+
+    @if (_mensaje is not null)
+    {
+        <div class="ad-alert @(_mensajeEsError ? "err" : "ok")">@_mensaje</div>
+    }
+
+    @if (_cola.Count > 0)
+    {
+        <div class="ad-cola">
+            <div class="ad-cola-head">Lote actual &#183; @_cola.Count archivo(s)</div>
+            @foreach (var c in _cola)
+            {
+                <div class="ad-cola-row">
+                    <span class="ad-cola-name" title="@c.Nombre">@c.Nombre</span>
+                    <span class="ad-cola-size">@FormatoTamano(c.Bytes)</span>
+                    <span class="ad-chip @ChipClase(c.Estado)">@EstadoTexto(c.Estado)</span>
+                    @if (c.Estado == ColaEstado.Error && c.Error is not null)
+                    {
+                        <span class="ad-cola-err" title="@c.Error">@c.Error</span>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    <div class="ad-grid-wrap">
+        <table class="ad-grid">
+            <thead>
+                <tr>
+                    <th>Documento</th>
+                    <th style="width:120px;">Tamano</th>
+                    <th style="width:120px;">Estado</th>
+                    <th style="width:180px;">Cargado</th>
+                    <th style="width:150px;" class="ad-right">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_docs.Count == 0)
+                {
+                    <tr>
+                        <td colspan="5" class="ad-empty">Aun no hay documentos. Sube uno o varios PDF para empezar.</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var d in _docs)
+                    {
+                        <tr>
+                            <td class="ad-doc-name">
+                                <svg class="ad-doc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                                <span title="@d.FileName">@d.FileName</span>
+                            </td>
+                            <td>@FormatoTamano(d.SizeBytes)</td>
+                            <td><span class="ad-chip @ChipClaseDoc(d.Estado)">@EstadoDocTexto(d.Estado)</span></td>
+                            <td>@d.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td class="ad-right">
+                                <a class="ad-btn sm" href="@d.Url" target="_blank" rel="noopener">Ver</a>
+                                @if (_canDelete)
+                                {
+                                    <button class="ad-btn sm danger" @onclick="() => EliminarAsync(d)" disabled="@_subiendo">Eliminar</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_configOpen)
+{
+    <div class="modal-overlay" @onclick="() => _configOpen = false">
+        <div class="modal-dialog" style="max-width:720px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Configuracion del Analizador</h3>
+                <button class="modal-close" @onclick="() => _configOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="ad-muted" style="margin-top:0;">
+                    Selecciona agentes de tu modulo de Agentes y define, para cada uno, su <strong>prompt principal
+                    de analisis</strong> (vive aqui, no cambia el prompt global del agente). Marca cual es el
+                    <strong>agente activo</strong> del Analizador.
+                </p>
+
+                <div class="ad-add-row">
+                    <select class="ad-input" value="@(_nuevoAgenteId?.ToString() ?? "")"
+                            @onchange="e => _nuevoAgenteId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null">
+                        <option value="">-- Elige un agente --</option>
+                        @foreach (var a in _agentesDisponibles)
+                        {
+                            <option value="@a.AgentId">@a.AgentName@(string.IsNullOrWhiteSpace(a.AgentRole) ? "" : $" ({a.AgentRole})")</option>
+                        }
+                    </select>
+                    <button class="ad-btn primary" @onclick="AgregarAgenteAsync" disabled="@(_nuevoAgenteId is null || _ocupadoCfg)">Agregar</button>
+                </div>
+                @if (_agentesDisponibles.Count == 0 && _agentesConfig.Count == 0)
+                {
+                    <p class="ad-muted">No hay agentes en tu tenant todavia. Crealos en el modulo de Agentes y vuelve aqui a seleccionarlos.</p>
+                }
+
+                @if (_configMsg is not null)
+                {
+                    <div class="ad-alert @(_configMsgErr ? "err" : "ok")">@_configMsg</div>
+                }
+
+                <div class="ad-cfg-list">
+                    @foreach (var a in _agentesConfig)
+                    {
+                        var agente = a;
+                        <div class="ad-cfg-card @(agente.IsActive ? "active" : "")">
+                            <div class="ad-cfg-top">
+                                <div class="ad-cfg-name">
+                                    <strong>@agente.AgentName</strong>
+                                    @if (!string.IsNullOrWhiteSpace(agente.AgentRole)) { <span class="ad-muted"> &#183; @agente.AgentRole</span> }
+                                </div>
+                                <div class="ad-cfg-top-actions">
+                                    <label class="ad-radio">
+                                        <input type="radio" name="agente-activo" checked="@agente.IsActive"
+                                               @onchange="() => MarcarActivoAsync(agente.AgentId)" disabled="@_ocupadoCfg" />
+                                        Activo
+                                    </label>
+                                    <button class="ad-btn sm danger" @onclick="() => QuitarAgenteAsync(agente.AgentId)" disabled="@_ocupadoCfg">Quitar</button>
+                                </div>
+                            </div>
+                            <textarea class="ad-input ad-prompt" rows="5" placeholder="Prompt principal de analisis para este agente..."
+                                      @bind="_promptEdit[agente.AgentId]"></textarea>
+                            <div class="ad-cfg-foot">
+                                <button class="ad-btn sm" @onclick="() => GuardarPromptAsync(agente.AgentId)" disabled="@_ocupadoCfg">Guardar prompt</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="ad-btn" @onclick="() => _configOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .ad-muted { color: var(--ink-2); font-size: 13px; }
+    .ad-head-actions { display: flex; align-items: flex-start; gap: 8px; }
+    .ad-add-row { display: flex; gap: 8px; align-items: center; margin: 4px 0 14px; }
+    .ad-add-row .ad-input { flex: 1 1 auto; }
+    .ad-input { width: 100%; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink);
+        border-radius: 9px; padding: 9px 12px; font-size: 13px; font-family: inherit; }
+    .ad-input:focus { outline: none; border-color: var(--brand); }
+    .ad-prompt { resize: vertical; min-height: 90px; }
+    .ad-cfg-list { display: flex; flex-direction: column; gap: 12px; }
+    .ad-cfg-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
+    .ad-cfg-card.active { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset; }
+    .ad-cfg-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .ad-cfg-name { font-size: 14px; color: var(--ink); }
+    .ad-cfg-top-actions { display: flex; align-items: center; gap: 12px; }
+    .ad-radio { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+    .ad-cfg-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+    .ad-drop {
+        display: flex; align-items: center; gap: 16px;
+        border: 1px dashed var(--line-2); border-radius: 14px;
+        background: var(--surface-2); padding: 18px 20px; margin: 4px 0 18px;
+    }
+    .ad-drop-ico { width: 44px; height: 44px; flex: 0 0 44px; color: var(--brand);
+        display: flex; align-items: center; justify-content: center;
+        background: var(--brand-soft); border-radius: 12px; }
+    .ad-drop-ico svg { width: 22px; height: 22px; }
+    .ad-drop-txt { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; }
+    .ad-drop-txt strong { color: var(--ink); font-size: 14px; }
+
+    .ad-btn {
+        display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+        border: 1px solid var(--line-2); background: var(--surface); color: var(--ink);
+        border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 600;
+        text-decoration: none; line-height: 1; white-space: nowrap;
+    }
+    .ad-btn:hover { background: var(--surface-3); }
+    .ad-btn.primary { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+    .ad-btn.primary:hover { background: var(--brand-2); }
+    .ad-btn.sm { padding: 6px 12px; font-size: 12px; }
+    .ad-btn.danger:hover { background: #fde8e8; color: #b91c1c; border-color: #f3c0c0; }
+    .ad-btn.disabled, .ad-btn[disabled] { opacity: .55; pointer-events: none; cursor: default; }
+    .ad-file-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+
+    .ad-alert { border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0 0 16px; }
+    .ad-alert.ok { background: #e8f5ee; color: #166534; border: 1px solid #bfe6cd; }
+    .ad-alert.err { background: #fde8e8; color: #b91c1c; border: 1px solid #f3c0c0; }
+
+    .ad-cola { border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+        margin: 0 0 18px; overflow: hidden; }
+    .ad-cola-head { padding: 10px 14px; font-size: 12px; font-weight: 700; color: var(--ink-2);
+        background: var(--surface-2); border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: .04em; }
+    .ad-cola-row { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+    .ad-cola-row:last-child { border-bottom: 0; }
+    .ad-cola-name { flex: 1 1 auto; font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ad-cola-size { flex: 0 0 auto; font-size: 12px; color: var(--ink-2); }
+    .ad-cola-err { flex: 1 1 100%; font-size: 12px; color: #b91c1c; }
+
+    .ad-chip { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 10px;
+        font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+    .ad-chip.wait { background: var(--surface-3); color: var(--ink-2); }
+    .ad-chip.run { background: #e6eefc; color: #1d4ed8; }
+    .ad-chip.ok { background: #e8f5ee; color: #166534; }
+    .ad-chip.err { background: #fde8e8; color: #b91c1c; }
+
+    .ad-grid-wrap { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+    .ad-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ad-grid thead th { text-align: left; padding: 11px 16px; font-size: 11px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2);
+        background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    .ad-grid tbody td { padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--ink); vertical-align: middle; }
+    .ad-grid tbody tr:last-child td { border-bottom: 0; }
+    .ad-grid tbody tr:hover td { background: var(--surface-2); }
+    .ad-right { text-align: right; }
+    .ad-right .ad-btn { margin-left: 6px; }
+    .ad-doc-name { display: flex; align-items: center; gap: 10px; }
+    .ad-doc-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+    .ad-doc-ico { width: 18px; height: 18px; flex: 0 0 18px; color: var(--ink-3); }
+    .ad-empty { text-align: center; color: var(--ink-2); padding: 40px 16px; }
+</style>
+
+@code {
+    /// <summary>Clave del modulo en la matriz de roles (coincide con la ruta y el menu).</summary>
+    private const string ModuleKey = "analizador-documentos";
+
+    /// <summary>Tope de archivos por lote (defensa; cada uno ademas limitado por tamano).</summary>
+    private const int MaxArchivosLote = 200;
+
+    private static int MaxMb => (int)(DocumentoAnalisisService.MaxUploadBytes / (1024 * 1024));
+
+    private bool _cargando = true;
+    private bool _canCreate;
+    private bool _canDelete;
+    private bool _canEdit;
+    private bool _subiendo;
+
+    // ---- Configuracion (agentes del modulo) ----
+    private bool _configOpen;
+    private bool _ocupadoCfg;
+    private string? _configMsg;
+    private bool _configMsgErr;
+    private Guid? _nuevoAgenteId;
+    private List<DocumentoAnalisisAgenteDto> _agentesConfig = new();
+    private List<DocumentoAnalisisAgenteOpcionDto> _agentesDisponibles = new();
+    private readonly Dictionary<Guid, string> _promptEdit = new();
+
+    private string? _mensaje;
+    private bool _mensajeEsError;
+
+    private List<DocumentoAnalisisDto> _docs = new();
+    private readonly List<ColaItem> _cola = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eff = await Perms.GetAsync();
+        _canCreate = eff.Can(ModuleKey, PermissionAction.Create);
+        _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
+        _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        await RecargarAsync();
+        _cargando = false;
+    }
+
+    private async Task RecargarAsync()
+    {
+        _docs = (await Docs.ListarAsync()).ToList();
+    }
+
+    private async Task OnFilesSelectedAsync(InputFileChangeEventArgs e)
+    {
+        if (!_canCreate || _subiendo) { return; }
+
+        _mensaje = null;
+        _cola.Clear();
+
+        IReadOnlyList<IBrowserFile> archivos;
+        try { archivos = e.GetMultipleFiles(MaxArchivosLote); }
+        catch { Avisar($"Puedes subir hasta {MaxArchivosLote} archivos por lote.", true); return; }
+
+        if (archivos.Count == 0) { return; }
+
+        foreach (var f in archivos)
+        {
+            _cola.Add(new ColaItem { Nombre = f.Name, Bytes = f.Size, Estado = ColaEstado.EnCola });
+        }
+
+        _subiendo = true;
+        StateHasChanged();
+
+        // Un nuevo lote por cada accion de carga: agrupa los documentos subidos juntos.
+        var loteId = Guid.CreateVersion7();
+        var ok = 0;
+        var err = 0;
+
+        for (var i = 0; i < archivos.Count; i++)
+        {
+            var file = archivos[i];
+            var item = _cola[i];
+            item.Estado = ColaEstado.Subiendo;
+            StateHasChanged();
+
+            var bytes = await LeerPdfAsync(file, item);
+            if (bytes is null)
+            {
+                item.Estado = ColaEstado.Error;
+                err++;
+                StateHasChanged();
+                continue;
+            }
+
+            try
+            {
+                await Docs.SubirAsync(loteId, new DocumentoAnalisisUploadItem(file.Name, "application/pdf", bytes));
+                item.Estado = ColaEstado.Ok;
+                ok++;
+            }
+            catch (Exception ex)
+            {
+                item.Estado = ColaEstado.Error;
+                item.Error = ex.Message;
+                err++;
+            }
+            StateHasChanged();
+        }
+
+        _subiendo = false;
+        await RecargarAsync();
+        Avisar(err == 0
+            ? $"{ok} documento(s) cargado(s)."
+            : $"{ok} cargado(s), {err} con error. Revisa el detalle del lote.", err > 0);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Lee y valida el PDF en el cliente (feedback inmediato): extension, no vacio, tamano y FIRMA de
+    /// bytes magicos. El servicio vuelve a validar como defensa. Devuelve los bytes o null (con motivo).
+    /// </summary>
+    private async Task<byte[]?> LeerPdfAsync(IBrowserFile file, ColaItem item)
+    {
+        var ext = DocumentUploadGuard.ResolveExtension(file.Name);
+        if (ext != ".pdf") { item.Error = "Solo se admiten archivos PDF."; return null; }
+        if (file.Size <= 0) { item.Error = "El archivo esta vacio."; return null; }
+        if (file.Size > DocumentoAnalisisService.MaxUploadBytes) { item.Error = $"Supera el limite de {MaxMb} MB."; return null; }
+
+        try
+        {
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(DocumentoAnalisisService.MaxUploadBytes).CopyToAsync(ms);
+            var bytes = ms.ToArray();
+            if (!DocumentUploadGuard.MatchesSignature(bytes, ext))
+            {
+                item.Error = "El contenido no corresponde a un PDF.";
+                return null;
+            }
+            return bytes;
+        }
+        catch
+        {
+            item.Error = "No se pudo leer el archivo.";
+            return null;
+        }
+    }
+
+    private async Task EliminarAsync(DocumentoAnalisisDto d)
+    {
+        if (!_canDelete || _subiendo) { return; }
+        await Docs.EliminarAsync(d.Id);
+        await RecargarAsync();
+        Avisar($"Documento '{d.FileName}' eliminado.", false);
+    }
+
+    // ---- Configuracion: agentes del modulo (solo seleccion de agentes existentes + prompt) ----
+
+    private async Task AbrirConfigAsync()
+    {
+        if (!_canEdit) { return; }
+        _configMsg = null;
+        _nuevoAgenteId = null;
+        await RecargarConfigAsync();
+        _configOpen = true;
+    }
+
+    private async Task RecargarConfigAsync()
+    {
+        _agentesConfig = (await Docs.ListarAgentesConfigAsync()).ToList();
+        _agentesDisponibles = (await Docs.ListarAgentesDisponiblesAsync()).ToList();
+        _promptEdit.Clear();
+        foreach (var a in _agentesConfig) { _promptEdit[a.AgentId] = a.PromptPrincipal; }
+    }
+
+    private async Task AgregarAgenteAsync()
+    {
+        if (_nuevoAgenteId is not Guid id || _ocupadoCfg) { return; }
+        _ocupadoCfg = true;
+        try { await Docs.AgregarAgenteAsync(id); _nuevoAgenteId = null; await RecargarConfigAsync(); AvisarCfg("Agente agregado.", false); }
+        catch (Exception ex) { AvisarCfg(ex.Message, true); }
+        finally { _ocupadoCfg = false; }
+    }
+
+    private async Task GuardarPromptAsync(Guid agentId)
+    {
+        if (_ocupadoCfg) { return; }
+        _ocupadoCfg = true;
+        try
+        {
+            await Docs.GuardarPromptAgenteAsync(agentId, _promptEdit.TryGetValue(agentId, out var p) ? p : "");
+            await RecargarConfigAsync();
+            AvisarCfg("Prompt guardado.", false);
+        }
+        catch (Exception ex) { AvisarCfg(ex.Message, true); }
+        finally { _ocupadoCfg = false; }
+    }
+
+    private async Task MarcarActivoAsync(Guid agentId)
+    {
+        if (_ocupadoCfg) { return; }
+        _ocupadoCfg = true;
+        try { await Docs.MarcarAgenteActivoAsync(agentId); await RecargarConfigAsync(); AvisarCfg("Agente activo actualizado.", false); }
+        catch (Exception ex) { AvisarCfg(ex.Message, true); }
+        finally { _ocupadoCfg = false; }
+    }
+
+    private async Task QuitarAgenteAsync(Guid agentId)
+    {
+        if (_ocupadoCfg) { return; }
+        _ocupadoCfg = true;
+        try { await Docs.QuitarAgenteAsync(agentId); await RecargarConfigAsync(); AvisarCfg("Agente quitado.", false); }
+        catch (Exception ex) { AvisarCfg(ex.Message, true); }
+        finally { _ocupadoCfg = false; }
+    }
+
+    private void AvisarCfg(string texto, bool esError) { _configMsg = texto; _configMsgErr = esError; }
+
+    private void Avisar(string texto, bool esError)
+    {
+        _mensaje = texto;
+        _mensajeEsError = esError;
+    }
+
+    private static string FormatoTamano(long bytes)
+    {
+        if (bytes <= 0) { return "-"; }
+        string[] unidades = ["B", "KB", "MB", "GB"];
+        double valor = bytes;
+        var i = 0;
+        while (valor >= 1024 && i < unidades.Length - 1) { valor /= 1024; i++; }
+        return $"{valor:0.#} {unidades[i]}";
+    }
+
+    private static string ChipClase(ColaEstado e) => e switch
+    {
+        ColaEstado.EnCola => "wait",
+        ColaEstado.Subiendo => "run",
+        ColaEstado.Ok => "ok",
+        _ => "err"
+    };
+
+    private static string EstadoTexto(ColaEstado e) => e switch
+    {
+        ColaEstado.EnCola => "En cola",
+        ColaEstado.Subiendo => "Subiendo",
+        ColaEstado.Ok => "OK",
+        _ => "Error"
+    };
+
+    private static string ChipClaseDoc(DocumentoAnalisisEstado e) => e switch
+    {
+        DocumentoAnalisisEstado.Cargado => "ok",
+        DocumentoAnalisisEstado.EnAnalisis => "run",
+        DocumentoAnalisisEstado.Analizado => "ok",
+        _ => "err"
+    };
+
+    private static string EstadoDocTexto(DocumentoAnalisisEstado e) => e switch
+    {
+        DocumentoAnalisisEstado.Cargado => "Cargado",
+        DocumentoAnalisisEstado.EnAnalisis => "En analisis",
+        DocumentoAnalisisEstado.Analizado => "Analizado",
+        _ => "Error"
+    };
+
+    private enum ColaEstado { EnCola, Subiendo, Ok, Error }
+
+    private sealed class ColaItem
+    {
+        public string Nombre { get; set; } = "";
+        public long Bytes { get; set; }
+        public ColaEstado Estado { get; set; }
+        public string? Error { get; set; }
+    }
+}

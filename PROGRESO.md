@@ -2,6 +2,45 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-31 - Modulo "Analizador de documentos" (carga PDF a blob + config de prompt por agente)
+
+- AGENTE: Claude Opus 4.8. Worktree pdf-file-upload-module-8af632 (rama claude/pdf-file-upload-module-8af632).
+  SIN DEPLOY. Validado en dev (preview 5232, BD local ecorex 5442, login real acuartas@bitcode.com.co en BITCODE).
+- PEDIDO: modulo nuevo para procesar lotes GRANDES de PDF. Arranca con una parrilla que recibe archivos; cada PDF se
+  sube al blob storage YA existente del sistema (IFileStorageService). 2a iteracion: boton + modal de Configuracion
+  que permite SELECCIONAR un agente de la lista EXISTENTE (NO crear modulo de agentes nuevo) y guardar ahi el "prompt
+  principal de analisis" por agente, marcando cual es el activo; y subir el limite de carga de PDF (pueden ser enormes).
+- DECISIONES (AskUserQuestion): (1) modelo de datos = entidad propia del modulo (DocumentoAnalisis, 1 fila por PDF con
+  estado/lote/FK a StoredFile), NO reusar StoredFile directo. (2) Alcance = solo carga + parrilla (motor de analisis es
+  fase futura). (3) El prompt vive EN EL MODULO, por agente (tabla propia), NO toca el SystemPrompt global del agente.
+  (4) Limite = 500 MB por archivo.
+- SOLUCION: entidad DocumentoAnalisis (TenantEntity + ISoftDeletable; LoteId, StoredFileId, FileName, Extension,
+  ContentType, SizeBytes, Estado, MotivoError) y DocumentoAnalisisAgentePrompt (TenantEntity; AgentId FK logica a
+  AiAgent, PromptPrincipal, IsActive, hard-delete). Enum DocumentoAnalisisEstado (Cargado/EnAnalisis/Analizado/Error).
+  Servicio DocumentoAnalisisService: SubirAsync valida (.pdf + magic bytes %PDF + <=500MB), guarda via
+  IFileStorageService.SaveAsync (modulo "AnalizadorDocumentos", ref1=lote), inserta fila y compensa (DeleteAsync) si
+  falla; ListarAsync/EliminarAsync; y config: ListarAgentesDisponiblesAsync (de AiAgents, excluyendo ya usados),
+  ListarAgentesConfigAsync, AgregarAgenteAsync (1er agente queda activo), GuardarPromptAgenteAsync, MarcarAgenteActivoAsync,
+  QuitarAgenteAsync. Pagina AnalizadorDocumentos.razor (/analizador-documentos, policy Perm:analizador-documentos:View):
+  parrilla con InputFile multiple + modal de Configuracion (gated por Edit) que selecciona agentes existentes y edita su
+  prompt. Registro en catalogo (ModuleDefinition 000895, area Sistema) + menu "Analizador" (seeding env-gated
+  ECOREX_MENU_ANALIZADOR=true). Migraciones DUALES (PG + SQL Server) limpias: AddDocumentoAnalisis +
+  AddDocumentoAnalisisAgentePrompt (tablas + indices, sin drift).
+- ARCHIVOS: nuevos Domain/Entities/DocumentoAnalisis.cs, DocumentoAnalisisAgentePrompt.cs, Enums/DocumentoAnalisisEstado.cs;
+  Application/DocumentosAnalisis/ (interface + DTOs); SuperAdmin/Services/DocumentoAnalisisService.cs;
+  SuperAdmin/Components/Pages/AnalizadorDocumentos.razor; 4 migraciones (2 PG, 2 SQL Server) + snapshots. Modificados:
+  Infrastructure/Persistence/EcorexDbContext.cs (2 DbSet + configs), DatabaseSeeder.cs (modulo + menu), SuperAdmin/Program.cs
+  (registro DI + bloque seeding env-gated).
+- VALIDADO E2E (preview 5232): subida de PDF (COMP merged.pdf 2 MB) -> fila "Cargado" + Ver/Eliminar; limite anuncia
+  "hasta 500 MB"; modal de Configuracion abre, lista agentes existentes (Clasificador de contactos, Analista BMC),
+  Agregar fija el agente y lo marca Activo, Guardar prompt persiste. Verificado en BD: documentos_analisis_agente_prompts
+  con agent_id del Clasificador, is_active=t y prompt guardado. Build verde (0 errores). NOTA: el banner "Ha ocurrido un
+  error" que aparece en el DOM es el #blazor-error-ui estandar OCULTO (display:none), no hubo excepcion real.
+- SIGUIENTE: fase de analisis (motor que consume el prompt activo por PDF); para archivos de 500 MB conviene streamear a
+  blob en vez de leer byte[] completo a memoria (documentado en el servicio). Merge de la rama a tronco + OK de deploy
+  (ambos pendientes de senal del usuario). Reflejar en vault (INVENTARIO GENERAL) al cerrar el modulo.
+- BLOQUEOS: ninguno.
+
 ## 2026-10-30 - Campos configurables en la zona principal del tercero + Sector como lista (ADR-0141)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev preview 5234, AGRO). Codigo en tronco, pendiente OK de deploy.

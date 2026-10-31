@@ -241,6 +241,8 @@ builder.Services.AddScoped<Ecorex.Application.Tenancy.IFormRecordBroadcaster, Ec
 builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.INewtonEventSender, Ecorex.SuperAdmin.Agents.NewtonEventSender>();
 // Gestor UNIFICADO de archivos (Azure Blob / disco), transversal a todos los modulos. Registra en StoredFile.
 builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
+// Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.
+builder.Services.AddScoped<Ecorex.Application.DocumentosAnalisis.IDocumentoAnalisisService, Ecorex.SuperAdmin.Services.DocumentoAnalisisService>();
 
 // Atencion automatica del agente de IA por lineas de WhatsApp: lector de recursos (wwwroot) +
 // despachador en background con debounce (reemplaza la cola no-op de Application).
@@ -695,6 +697,24 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_GESDOC"), "tru
         await seeder.EnsureGestorDocumentalDefaultsAsync(t.Id);
         await seeder.EnsureGestorDocumentalMenuAsync(t.Id);
         app.Logger.LogWarning("[menu-gesdoc] Gestor Documental habilitado para {Name}", t.Name);
+    }
+}
+
+// Analizador de documentos (Sistema): registra el modulo 000895 en el catalogo global y crea la seccion
+// "Analizador" con su item en TODOS los tenants ya sembrados. Idempotente (ECOREX_MENU_ANALIZADOR=true).
+if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_ANALIZADOR"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await seeder.EnsureAnalizadorDocumentosModuleAsync();
+    var tenantIds = await db.Tenants.IgnoreQueryFilters()
+        .Select(t => new { t.Id, t.Name })
+        .ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureAnalizadorDocumentosMenuAsync(t.Id);
+        app.Logger.LogWarning("[menu-analizador] 'Analizador de documentos' habilitado para {Name}", t.Name);
     }
 }
 

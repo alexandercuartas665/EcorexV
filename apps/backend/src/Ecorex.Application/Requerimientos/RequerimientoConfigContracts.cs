@@ -75,6 +75,14 @@ public interface IRequerimientoConfigService
     /// <summary>Agentes ACTIVOS del modulo de agentes para el selector de la config.</summary>
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListAgentesAsync(CancellationToken ct = default);
 
+    /// <summary>Catalogo de unidades de medida del modulo (p.ej. Unidad, Caja, Kilogramo). Config por tenant
+    /// en TenantConfiguration. Si el tenant no ha guardado ninguna, devuelve las comunes por defecto
+    /// (<see cref="RequerimientoUnidades.Comunes"/>).</summary>
+    Task<IReadOnlyList<string>> GetUnidadesAsync(CancellationToken ct = default);
+    /// <summary>Guarda el catalogo de unidades de medida del tenant (se normaliza: recorta, descarta vacias y
+    /// deduplica conservando el orden). Lista vacia = vuelve a las unidades comunes por defecto.</summary>
+    Task SetUnidadesAsync(IEnumerable<string> unidades, CancellationToken ct = default);
+
     /// <summary>Subcategorias (conceptos 000270) para elegir el proceso de compra del origen.</summary>
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default);
     /// <summary>Formularios publicados/activos para elegir la fuente (TipoFuente=Formulario).</summary>

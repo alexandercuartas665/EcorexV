@@ -136,6 +136,48 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
             .OrderBy(a => a.SortOrder).ThenBy(a => a.Name)
             .Select(a => new RequerimientoOpcionDto(a.Id, a.Name)).ToListAsync(ct);
 
+    // ---- Catalogo de unidades de medida: config por tenant en TenantConfiguration (una por linea) ----
+    private const string UnidadesKey = "requerimientos.unidades";
+
+    public async Task<IReadOnlyList<string>> GetUnidadesAsync(CancellationToken ct = default)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == UnidadesKey)
+            .Select(c => c.ConfigValue)
+            .FirstOrDefaultAsync(ct);
+        var list = ParseUnidades(val);
+        return list.Count > 0 ? list : RequerimientoUnidades.Comunes;
+    }
+
+    public async Task SetUnidadesAsync(IEnumerable<string> unidades, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        // Normaliza: recorta, descarta vacias y deduplica (insensible a mayusculas) conservando el orden.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var clean = new List<string>();
+        foreach (var u in unidades ?? Enumerable.Empty<string>())
+        {
+            var t = (u ?? "").Trim();
+            if (t.Length > 0 && seen.Add(t)) { clean.Add(t); }
+        }
+        var value = string.Join('\n', clean);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == UnidadesKey, ct);
+        if (row is null)
+        {
+            _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = UnidadesKey, ConfigValue = value });
+        }
+        else
+        {
+            row.ConfigValue = value;
+        }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private static List<string> ParseUnidades(string? raw)
+        => string.IsNullOrWhiteSpace(raw)
+            ? new List<string>()
+            : raw.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListSubcategoriasAsync(CancellationToken ct = default)
         => (await _catalogo.ListSubcategoriasAsync(null, includeArchived: false, ct))
             .OrderBy(s => s.Nombre)

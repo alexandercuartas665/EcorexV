@@ -648,12 +648,15 @@ else
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Descripcion (si no eliges item)
                     <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Producto a comprar" @bind="_aDescripcion" />
                 </label>
+                <datalist id="req-unidad-list">
+                    @foreach (var u in _unidades) { <option value="@u"></option> }
+                </datalist>
                 <div style="display:flex;gap:12px;">
                     <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);flex:1;">Cantidad
                         <input type="number" step="any" min="0" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aCantidad" />
                     </label>
                     <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);flex:1;">Unidad
-                        <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="unid / caja / kg" @bind="_aUnidad" />
+                        <input list="req-unidad-list" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Elige o escribe (unid, caja, kg...)" @bind="_aUnidad" />
                     </label>
                 </div>
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Area solicitante
@@ -733,7 +736,7 @@ else
                     </p>
                     <div class="cd-grid-wrap">
                         <table class="cd-grid">
-                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th>@if (_planIsGroup && _canConfig) { <th></th> }</tr></thead>
+                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th>Unidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th>@if (_planIsGroup && _canConfig) { <th></th> }</tr></thead>
                             <tbody>
                                 @foreach (var pr in _planRegs)
                                 {
@@ -743,6 +746,7 @@ else
                                         <td>@(string.IsNullOrWhiteSpace(prr.SolicitanteNombre) ? "-" : prr.SolicitanteNombre)</td>
                                         <td>@(string.IsNullOrWhiteSpace(prr.SourceTaskNumber) ? "-" : prr.SourceTaskNumber)</td>
                                         <td class="num">@Fmt(prr.Cantidad)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.UnidadMedida) ? "-" : prr.UnidadMedida)</td>
                                         <td class="num">@Fmt(prr.CantidadPlanificada)</td>
                                         <td class="num">@Fmt(prr.Cantidad - prr.CantidadPlanificada)</td>
                                         <td>@(prr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
@@ -994,6 +998,11 @@ else
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">El agente del <strong>modulo de agentes</strong> que compara las cotizaciones del comparador y propone la mejor opcion.</div>
                 </div>
                 <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Unidades de medida</div>
+                    <textarea class="form-control form-control-sm" rows="6" @bind="_cfgUnidades" placeholder="Una por linea (Unidad, Caja, Kilogramo...)" style="font-size:12.5px;font-family:inherit;"></textarea>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Una unidad por linea. Aparecen al crear una necesidad y en el verbo <strong>Generar requerimientos desde tabla</strong>. Si lo dejas vacio se usan las unidades comunes por defecto.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
                     <button class="btn btn-link btn-sm" style="padding:0;" @onclick="GoToConfigAvanzada">Configuracion avanzada (origenes y proveedores) &rarr;</button>
                 </div>
                 @if (_cfgError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgError</div> }
@@ -1217,6 +1226,9 @@ else
     // Agente evaluador de cotizaciones (modulo de agentes) elegido en la config.
     private Guid? _cfgAgente;
     private List<RequerimientoOpcionDto> _agentes = new();
+    // Catalogo de unidades de medida del tenant (para el datalist del alta); _cfgUnidades = texto editable del modal.
+    private List<string> _unidades = new();
+    private string _cfgUnidades = "";
 
     // Clave de consolidacion del grupo abierto (para recalcular el grupo tras un "Dividir").
     private string _pgKey = "";
@@ -1694,6 +1706,7 @@ else
         {
             _agentes = (await ConfigSvc.ListAgentesAsync()).ToList();
             _cfgAgente = await ConfigSvc.GetAgenteCotizacionesAsync();
+            _cfgUnidades = string.Join('\n', await ConfigSvc.GetUnidadesAsync());
         }
         catch (Exception ex) { _cfgError = ex.Message; }
         _showConfigModal = true;
@@ -1708,6 +1721,8 @@ else
         {
             await ConfigSvc.SetModoAsync(_cfgModo);
             await ConfigSvc.SetAgenteCotizacionesAsync(_cfgAgente);
+            await ConfigSvc.SetUnidadesAsync(_cfgUnidades.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            _unidades = (await ConfigSvc.GetUnidadesAsync()).ToList();
             _modo = _cfgModo;
             // El modo del modulo manda sobre la vista: al guardar, la grilla pasa al modo elegido.
             _consolidate = _modo == RequerimientoModo.Consolidado;
@@ -1768,6 +1783,8 @@ else
         // Modo del modulo (Consolidado/Dividido): manda sobre el estado inicial de la vista consolidada.
         _modo = await ConfigSvc.GetModoAsync();
         _consolidate = _modo == RequerimientoModo.Consolidado;
+        // Catalogo de unidades de medida (comunes por defecto) para el datalist del alta.
+        try { _unidades = (await ConfigSvc.GetUnidadesAsync()).ToList(); } catch { }
         // Asegura que las columnas dinamicas esten en el orden aunque no hubiera prefs guardadas.
         foreach (var c in _dynCols) { if (!_order.Contains(c.Key)) { _order.Add(c.Key); } }
         await LoadSavedFiltersAsync();

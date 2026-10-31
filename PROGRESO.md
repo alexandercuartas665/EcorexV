@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-31 - Unidades de medida: catalogo comun + columna en Planificar + verbo (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores. SIN MIGRACION.
+- PEDIDO (usuario): en el modal de Planificar (pestana Detalle, junto a Cantidad) agregar las unidades de
+  medida; agregar las unidades mas comunes; y agregarlo tambien al verbo que configura el formulario.
+- HECHO:
+  * RequerimientoUnidades.cs (NUEVO): FUENTE UNICA del catalogo de unidades comunes (27: Unidad, Caja,
+    Paquete, Bulto, Docena, Par, Juego, Kit, Rollo, Resma, Metro, Metro cuadrado/cubico, Centimetro, Pulgada,
+    Kilogramo, Gramo, Libra, Tonelada, Litro, Mililitro, Galon, Caneca, Hora, Dia, Servicio, Global).
+  * Config por tenant SIN migracion: TenantConfiguration clave "requerimientos.unidades" (una por linea);
+    IRequerimientoConfigService + RequerimientoConfigService ganan GetUnidadesAsync (fallback a las comunes) y
+    SetUnidadesAsync (normaliza: recorta/descarta vacias/deduplica conservando orden).
+  * UI RequerimientosCompra.razor: (a) pestana Detalle del modal Planificar -> nueva columna "Unidad" junto a
+    Cantidad; (b) alta "Nueva necesidad" -> el campo Unidad pasa de texto libre a input con datalist
+    (#req-unidad-list) de las unidades comunes (sigue permitiendo escribir una propia); (c) modal
+    "Configuracion del modulo" -> editor textarea "Unidades de medida" (una por linea) que persiste el catalogo.
+  * Verbo GENERAR_REQUERIMIENTOS_DESDE_TABLA (el que configura el formulario que genera requerimientos): nuevo
+    parametro Select "unidadFija" (Unidad por defecto) con Options = RequerimientoUnidades.Comunes; se aplica a
+    la fila cuando no trae unidad propia.
+- VALIDADO E2E en 5265 (SKY SYSTEM): config -> textarea sembrado con las 27 unidades; Planificar de CABLE UTP
+  CAT 6A -> Detalle con cabeceras [..Cantidad, Unidad, Planificado..] y fila "1 | und"; "Nueva necesidad" ->
+  datalist #req-unidad-list con 27 opciones e input Unidad enlazado (list="req-unidad-list").
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy.
+
 ## 2026-10-30 - Tarjetas del comparador: fecha/hora cotizado + contacto (nombre/tel/correo) (worktree requerimiento_compras)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug+Release 0 errores.

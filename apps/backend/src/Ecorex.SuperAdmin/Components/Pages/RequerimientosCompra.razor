@@ -969,12 +969,19 @@ else
 @if (_showConfigModal)
 {
     <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showConfigModal = false">
-        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+        <div style="background:var(--surface,#fff);border-radius:12px;width:960px;max-width:95vw;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
                 <strong style="font-size:14px;">Configuracion del modulo</strong>
                 <button class="btn btn-link btn-sm" @onclick="() => _showConfigModal = false">&times;</button>
             </div>
-            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <button class="req-pgtab @(_cfgTab == "general" ? "on" : "")" @onclick='() => _cfgTab = "general"'>General</button>
+                <button class="req-pgtab @(_cfgTab == "origenes" ? "on" : "")" @onclick='() => _cfgTab = "origenes"'>Origenes (@_cfgOrigenes.Count)</button>
+                <button class="req-pgtab @(_cfgTab == "proveedores" ? "on" : "")" @onclick='() => _cfgTab = "proveedores"'>Matriz de proveedores (@_cfgReglas.Count)</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;min-height:280px;">
+                @if (_cfgTab == "general")
+                {
                 <div>
                     <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:8px;">Modo de trabajo</div>
                     <label style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid @(_cfgModo == RequerimientoModo.Consolidado ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");border-radius:10px;cursor:pointer;margin-bottom:8px;background:@(_cfgModo == RequerimientoModo.Consolidado ? "var(--brand-soft,#eef2ff)" : "transparent");">
@@ -1009,14 +1016,204 @@ else
                     <textarea class="form-control form-control-sm" rows="6" @bind="_cfgUnidades" placeholder="Una por linea (Unidad, Caja, Kilogramo...)" style="font-size:12.5px;font-family:inherit;"></textarea>
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Una unidad por linea. Aparecen al crear una necesidad y en el verbo <strong>Generar requerimientos desde tabla</strong>. Si lo dejas vacio se usan las unidades comunes por defecto.</div>
                 </div>
-                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
-                    <button class="btn btn-link btn-sm" style="padding:0;" @onclick="GoToConfigAvanzada">Configuracion avanzada (origenes y proveedores) &rarr;</button>
-                </div>
                 @if (_cfgError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgError</div> }
+                }
+                else if (_cfgTab == "origenes")
+                {
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                        <p style="font-size:12px;color:var(--ink-3,#6b7280);margin:0;flex:1;">De donde llega cada necesidad y que subcategoria/proceso del modulo de Actividades ejecuta la compra de ese genero.</p>
+                        <button class="btn btn-primary btn-sm" @onclick="() => OpenCfgOrigen(null)" disabled="@_busy">+ Nuevo origen</button>
+                    </div>
+                    @if (_cfgOrigenes.Count == 0)
+                    {
+                        <div style="padding:24px;text-align:center;color:var(--ink-3,#6b7280);font-size:13px;border:1px dashed var(--line-2,#e5e7eb);border-radius:10px;">Sin origenes todavia. Crea el primero (p.ej. "Insumos de Oficina") con "+ Nuevo origen".</div>
+                    }
+                    else
+                    {
+                        <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;">
+                            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                                <thead><tr style="background:var(--surface-2,#f8fafc);text-align:left;"><th style="padding:9px 12px;">Nombre</th><th style="padding:9px 12px;">Area</th><th style="padding:9px 12px;">Fuente</th><th style="padding:9px 12px;">Proceso de compra</th><th style="padding:9px 12px;">Activo</th><th style="padding:9px 12px;"></th></tr></thead>
+                                <tbody>
+                                    @foreach (var o in _cfgOrigenes)
+                                    {
+                                        var oo = o;
+                                        <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                            <td style="padding:9px 12px;font-weight:600;">@oo.Nombre</td>
+                                            <td style="padding:9px 12px;">@(string.IsNullOrWhiteSpace(oo.Area) ? "-" : oo.Area)</td>
+                                            <td style="padding:9px 12px;">@CfgFuenteLabel(oo)</td>
+                                            <td style="padding:9px 12px;">@(oo.SubcategoriaNombre ?? "(sin proceso)")</td>
+                                            <td style="padding:9px 12px;">@(oo.Activo ? "Si" : "No")</td>
+                                            <td style="padding:9px 12px;text-align:right;white-space:nowrap;">
+                                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenCfgOrigen(oo)" disabled="@_busy">Editar</button>
+                                                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCfgOrigenAsync(oo.Id)" disabled="@_busy">Eliminar</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                        <p style="font-size:12px;color:var(--ink-3,#6b7280);margin:0;flex:1;">Asocia un proveedor del Directorio a una dimension del producto (referencia, marca, subgrupo, grupo o categoria). Al planificar, la regla MAS especifica que aplique sugiere el proveedor.</p>
+                        <button class="btn btn-primary btn-sm" @onclick="() => OpenCfgRegla(null)" disabled="@_busy">+ Nueva regla</button>
+                    </div>
+                    @if (_cfgReglas.Count == 0)
+                    {
+                        <div style="padding:24px;text-align:center;color:var(--ink-3,#6b7280);font-size:13px;border:1px dashed var(--line-2,#e5e7eb);border-radius:10px;">Sin reglas todavia. Agrega la primera (p.ej. marca "ACME" -> proveedor "Distribuidora X").</div>
+                    }
+                    else
+                    {
+                        <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;">
+                            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                                <thead><tr style="background:var(--surface-2,#f8fafc);text-align:left;"><th style="padding:9px 12px;">Dimension</th><th style="padding:9px 12px;">Valor</th><th style="padding:9px 12px;">Proveedor</th><th style="padding:9px 12px;text-align:right;">Prioridad</th><th style="padding:9px 12px;">Origen</th><th style="padding:9px 12px;">Activo</th><th style="padding:9px 12px;"></th></tr></thead>
+                                <tbody>
+                                    @foreach (var r in _cfgReglas)
+                                    {
+                                        var rr = r;
+                                        <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                            <td style="padding:9px 12px;font-weight:600;">@CfgDimensionLabel(rr.Dimension)</td>
+                                            <td style="padding:9px 12px;">@(rr.ValorNombre ?? rr.ValorDimension)</td>
+                                            <td style="padding:9px 12px;">@(rr.ProveedorNombre ?? "(proveedor)")</td>
+                                            <td style="padding:9px 12px;text-align:right;">@rr.Prioridad</td>
+                                            <td style="padding:9px 12px;">@(rr.Aprendida ? "Aprendida" : "Manual")</td>
+                                            <td style="padding:9px 12px;">@(rr.Activo ? "Si" : "No")</td>
+                                            <td style="padding:9px 12px;text-align:right;white-space:nowrap;">
+                                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenCfgRegla(rr)" disabled="@_busy">Editar</button>
+                                                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCfgReglaAsync(rr.Id)" disabled="@_busy">Eliminar</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    @if (_cfgError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgError</div> }
+                }
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                <button class="btn btn-primary btn-sm" @onclick="SaveConfigAsync" disabled="@_busy">Guardar</button>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showConfigModal = false" disabled="@_busy">Cancelar</button>
+                @if (_cfgTab == "general")
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="SaveConfigAsync" disabled="@_busy">Guardar</button>
+                }
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showConfigModal = false" disabled="@_busy">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Config: editor de origen (dentro del modal de configuracion) ---- *@
+@if (_cfgShowOrigen)
+{
+    <div style="position:fixed;inset:0;z-index:4300;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _cfgShowOrigen = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">@(_cfgoId is null ? "Nuevo origen" : "Editar origen")</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _cfgShowOrigen = false">&times;</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Nombre
+                    <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Insumos de Oficina" @bind="_cfgoNombre" />
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Area solicitante
+                    <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Proyectos / Oficina / Inventario" @bind="_cfgoArea" />
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Tipo de fuente
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoTipoFuente">
+                        @foreach (var t in Enum.GetValues<RequerimientoFuenteTipo>())
+                        {
+                            <option value="@t">@CfgTipoFuenteLabel(t)</option>
+                        }
+                    </select>
+                </label>
+                @if (_cfgoTipoFuente == RequerimientoFuenteTipo.Formulario)
+                {
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Formulario que alimenta
+                        <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoFuenteRefId">
+                            <option value="">(elige un formulario)</option>
+                            @foreach (var f in _cfgForms)
+                            {
+                                <option value="@f.Id">@f.Nombre</option>
+                            }
+                        </select>
+                    </label>
+                }
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proceso de compra (subcategoria que ejecuta)
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoSubcategoriaId">
+                        <option value="">(sin proceso)</option>
+                        @foreach (var s in _cfgSubcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proceso de cotizacion (subcategoria que pide precio)
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoSubcategoriaCotizacionId">
+                        <option value="">(sin proceso de cotizacion)</option>
+                        @foreach (var s in _cfgSubcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;"><input type="checkbox" @bind="_cfgoActivo" /> Activo</label>
+                @if (_cfgoError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgoError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="SaveCfgOrigenAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _cfgShowOrigen = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Config: editor de regla de proveedor (dentro del modal de configuracion) ---- *@
+@if (_cfgShowRegla)
+{
+    <div style="position:fixed;inset:0;z-index:4300;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _cfgShowRegla = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">@(_cfgrId is null ? "Nueva regla" : "Editar regla")</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _cfgShowRegla = false">&times;</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Dimension
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgrDimension" @bind:after="OnCfgDimensionChanged">
+                        @foreach (var d in Enum.GetValues<RequerimientoDimension>())
+                        {
+                            <option value="@d">@CfgDimensionLabel(d)</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Valor de la dimension
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgrValor">
+                        <option value="">(elige un valor)</option>
+                        @foreach (var v in _cfgValores)
+                        {
+                            <option value="@v.Id">@v.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proveedor
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgrProveedor">
+                        <option value="">(elige un proveedor)</option>
+                        @foreach (var p in _cfgProvs)
+                        {
+                            <option value="@p.Id">@p.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Prioridad (menor gana primero)
+                    <input type="number" min="0" step="1" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgrPrioridad" />
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;"><input type="checkbox" @bind="_cfgrActivo" /> Activo</label>
+                @if (_cfgrError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgrError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="SaveCfgReglaAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _cfgShowRegla = false" disabled="@_busy">Cancelar</button>
             </div>
         </div>
     </div>
@@ -1236,6 +1433,35 @@ else
     // Catalogo de unidades de medida del tenant (para el datalist del alta); _cfgUnidades = texto editable del modal.
     private List<string> _unidades = new();
     private string _cfgUnidades = "";
+
+    // ---- Config avanzada embebida en el modal (antes pagina /requerimientos-config) ----
+    private string _cfgTab = "general";                 // general | origenes | proveedores
+    private List<RequerimientoOrigenDto> _cfgOrigenes = new();
+    private List<RequerimientoOpcionDto> _cfgSubcats = new();
+    private List<RequerimientoOpcionDto> _cfgForms = new();
+    private List<RequerimientoReglaDto> _cfgReglas = new();
+    private List<RequerimientoOpcionDto> _cfgProvs = new();
+    private List<RequerimientoOpcionDto> _cfgValores = new();
+    // Editor de origen
+    private bool _cfgShowOrigen;
+    private string? _cfgoError;
+    private Guid? _cfgoId;
+    private string _cfgoNombre = "";
+    private string _cfgoArea = "";
+    private RequerimientoFuenteTipo _cfgoTipoFuente = RequerimientoFuenteTipo.Manual;
+    private string _cfgoFuenteRefId = "";
+    private string _cfgoSubcategoriaId = "";
+    private string _cfgoSubcategoriaCotizacionId = "";
+    private bool _cfgoActivo = true;
+    // Editor de regla (matriz de proveedores)
+    private bool _cfgShowRegla;
+    private string? _cfgrError;
+    private Guid? _cfgrId;
+    private RequerimientoDimension _cfgrDimension = RequerimientoDimension.Marca;
+    private string _cfgrValor = "";
+    private string _cfgrProveedor = "";
+    private int _cfgrPrioridad = 100;
+    private bool _cfgrActivo = true;
 
     // Clave de consolidacion del grupo abierto (para recalcular el grupo tras un "Dividir").
     private string _pgKey = "";
@@ -1711,14 +1937,26 @@ else
     {
         _cfgError = null;
         _cfgModo = _modo;
+        _cfgTab = "general";
         try
         {
             _agentes = (await ConfigSvc.ListAgentesAsync()).ToList();
             _cfgAgente = await ConfigSvc.GetAgenteCotizacionesAsync();
             _cfgUnidades = string.Join('\n', await ConfigSvc.GetUnidadesAsync());
+            await LoadCfgAvanzadaAsync();
         }
         catch (Exception ex) { _cfgError = ex.Message; }
         _showConfigModal = true;
+    }
+
+    // Carga los datos de las pestanas Origenes y Matriz de proveedores (antes la pagina /requerimientos-config).
+    private async Task LoadCfgAvanzadaAsync()
+    {
+        _cfgOrigenes = (await ConfigSvc.ListOrigenesAsync()).ToList();
+        _cfgSubcats = (await ConfigSvc.ListSubcategoriasAsync()).ToList();
+        _cfgForms = (await ConfigSvc.ListFormulariosAsync()).ToList();
+        _cfgReglas = (await ConfigSvc.ListReglasAsync()).ToList();
+        _cfgProvs = (await ConfigSvc.ListProveedoresAsync()).ToList();
     }
     private void OnCfgAgenteChanged(ChangeEventArgs e)
         => _cfgAgente = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
@@ -1742,7 +1980,125 @@ else
         catch (Exception ex) { _cfgError = ex.Message; }
         finally { _busy = false; }
     }
-    private void GoToConfigAvanzada() => Nav.NavigateTo("/requerimientos-config");
+    // ---- Config avanzada: origenes ----
+    private void OpenCfgOrigen(RequerimientoOrigenDto? o)
+    {
+        _cfgoError = null;
+        _cfgoId = o?.Id;
+        _cfgoNombre = o?.Nombre ?? "";
+        _cfgoArea = o?.Area ?? "";
+        _cfgoTipoFuente = o?.TipoFuente ?? RequerimientoFuenteTipo.Manual;
+        _cfgoFuenteRefId = o?.FuenteRefId?.ToString() ?? "";
+        _cfgoSubcategoriaId = o?.SubcategoriaCompraId?.ToString() ?? "";
+        _cfgoSubcategoriaCotizacionId = o?.SubcategoriaCotizacionId?.ToString() ?? "";
+        _cfgoActivo = o?.Activo ?? true;
+        _cfgShowOrigen = true;
+    }
+
+    private async Task SaveCfgOrigenAsync()
+    {
+        _cfgoError = null;
+        _busy = true;
+        try
+        {
+            var req = new SaveRequerimientoOrigenRequest(
+                _cfgoId, _cfgoNombre, _cfgoArea, _cfgoTipoFuente,
+                Guid.TryParse(_cfgoFuenteRefId, out var f) ? f : null,
+                Guid.TryParse(_cfgoSubcategoriaId, out var s) ? s : null,
+                Guid.TryParse(_cfgoSubcategoriaCotizacionId, out var sc) ? sc : null,
+                _cfgoActivo);
+            var saved = await ConfigSvc.SaveOrigenAsync(req);
+            if (saved is null) { _cfgoError = "No se pudo guardar."; return; }
+            _cfgShowOrigen = false;
+            _msg = $"Origen '{saved.Nombre}' guardado.";
+            await LoadCfgAvanzadaAsync();
+            _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
+        }
+        catch (Exception ex) { _cfgoError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteCfgOrigenAsync(Guid id)
+    {
+        _busy = true;
+        try { await ConfigSvc.DeleteOrigenAsync(id); await LoadCfgAvanzadaAsync(); }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // ---- Config avanzada: matriz de proveedores ----
+    private async Task OpenCfgRegla(RequerimientoReglaDto? r)
+    {
+        _cfgrError = null;
+        _cfgrId = r?.Id;
+        _cfgrDimension = r?.Dimension ?? RequerimientoDimension.Marca;
+        _cfgrPrioridad = r?.Prioridad ?? 100;
+        _cfgrActivo = r?.Activo ?? true;
+        _cfgrProveedor = r?.ProveedorId.ToString() ?? "";
+        _cfgValores = (await ConfigSvc.ListValoresDimensionAsync(_cfgrDimension)).ToList();
+        _cfgrValor = r?.ValorDimension ?? "";
+        _cfgShowRegla = true;
+    }
+
+    private async Task OnCfgDimensionChanged()
+    {
+        _cfgValores = (await ConfigSvc.ListValoresDimensionAsync(_cfgrDimension)).ToList();
+        _cfgrValor = "";
+    }
+
+    private async Task SaveCfgReglaAsync()
+    {
+        _cfgrError = null;
+        _busy = true;
+        try
+        {
+            var req = new SaveReglaRequest(
+                _cfgrId, _cfgrDimension, _cfgrValor,
+                Guid.TryParse(_cfgrProveedor, out var p) ? p : Guid.Empty,
+                _cfgrPrioridad, _cfgrActivo);
+            var saved = await ConfigSvc.SaveReglaAsync(req);
+            if (saved is null) { _cfgrError = "No se pudo guardar."; return; }
+            _cfgShowRegla = false;
+            _msg = $"Regla guardada: {CfgDimensionLabel(saved.Dimension)} -> {saved.ProveedorNombre}.";
+            await LoadCfgAvanzadaAsync();
+        }
+        catch (Exception ex) { _cfgrError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteCfgReglaAsync(Guid id)
+    {
+        _busy = true;
+        try { await ConfigSvc.DeleteReglaAsync(id); await LoadCfgAvanzadaAsync(); }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string CfgDimensionLabel(RequerimientoDimension d) => d switch
+    {
+        RequerimientoDimension.Referencia => "Referencia (item)",
+        RequerimientoDimension.Marca => "Marca",
+        RequerimientoDimension.Subgrupo => "Subgrupo",
+        RequerimientoDimension.Grupo => "Grupo",
+        RequerimientoDimension.Categoria => "Categoria (tipo)",
+        _ => d.ToString()
+    };
+
+    private static string CfgTipoFuenteLabel(RequerimientoFuenteTipo t) => t switch
+    {
+        RequerimientoFuenteTipo.Manual => "Manual",
+        RequerimientoFuenteTipo.Formulario => "Formulario",
+        RequerimientoFuenteTipo.Contenedor => "Contenedor de datos",
+        _ => t.ToString()
+    };
+
+    private static string CfgFuenteLabel(RequerimientoOrigenDto o) => o.TipoFuente switch
+    {
+        RequerimientoFuenteTipo.Manual => "Manual",
+        RequerimientoFuenteTipo.Formulario => o.FuenteNombre is { } n ? $"Formulario: {n}" : "Formulario (sin elegir)",
+        RequerimientoFuenteTipo.Contenedor => "Contenedor",
+        _ => "-"
+    };
 
     // Override por registro: saca/mete una necesidad de la consolidacion (se planifica aparte).
     private async Task ToggleForzarDividirAsync(RequerimientoDto r)

@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-10-31 - Config del modulo unificada en el modal (origenes + matriz de proveedores embebidos) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM). Build Debug 0 errores. SIN MIGRACION, solo UI.
+- PEDIDO (usuario): dejar todo en "requerimientos-compra"; llevar las opciones de "requerimientos-config" al
+  boton de Configuracion del modulo; el modal debe ser mas ancho para soportar todo.
+- HECHO (RequerimientosCompra.razor):
+  * Modal de Configuracion ensanchado (max-width 520px -> width 960px / max-width 95vw) y convertido en pestanas:
+    **General** (Modo Consolidado/Dividido, Agente evaluador, Unidades de medida — lo que ya estaba) |
+    **Origenes** (tabla CRUD + editor) | **Matriz de proveedores** (tabla CRUD + editor).
+  * Se porto el contenido de la pagina /requerimientos-config DENTRO del modal: tablas de origenes y de reglas,
+    y los dos editores (origen / regla) como sub-modales (z-index 4300). Estado y metodos namespaced con prefijo
+    _cfg*/Cfg* (OpenCfgOrigen/SaveCfgOrigenAsync/DeleteCfgOrigenAsync, OpenCfgRegla/SaveCfgReglaAsync/
+    DeleteCfgReglaAsync, LoadCfgAvanzadaAsync, CfgDimensionLabel/CfgTipoFuenteLabel/CfgFuenteLabel) para no chocar
+    con los existentes (_origenes/_proveedores/DeleteAsync del propio modulo). Datos via ConfigSvc (mismo
+    IRequerimientoConfigService); al guardar un origen tambien se refresca el dropdown de alta (_origenes via
+    Svc.ListOrigenesActivosAsync). Se quito el enlace "Configuracion avanzada ->" (ya no hace falta).
+  * La pagina /requerimientos-config se deja intacta (sigue accesible por el menu); se puede ocultar ese enlace
+    duplicado si el usuario lo pide.
+- VALIDADO E2E en 5265 (SKY SYSTEM): modal 960px con 3 pestanas (General | Origenes (3) | Matriz (0)); tabla de
+  origenes con COMERCIAL/INSUMOS/PROYECTOS y Editar/Eliminar; "+ Nuevo origen" abre el editor (Nombre, Tipo de
+  fuente...); "+ Nueva regla" abre el editor con las 5 dimensiones y 2 proveedores.
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy.
+
 ## 2026-10-31 - Unidades de medida: catalogo comun + columna en Planificar + verbo (worktree requerimiento_compras)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores. SIN MIGRACION.

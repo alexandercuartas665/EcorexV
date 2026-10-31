@@ -766,9 +766,11 @@ else
             {
             <div style="padding:14px 18px;">
                 <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:12px;">
-                    <span>Cantidad total: <strong>@Fmt(TotalPlan)</strong></span>
-                    <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong></span>
-                    <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong></span>
+                    @{ var _uSuf = string.IsNullOrWhiteSpace(PlanUnidad) ? "" : " " + PlanUnidad; }
+                    @if (!string.IsNullOrWhiteSpace(PlanUnidad)) { <span>Unidad: <strong>@PlanUnidad</strong></span> }
+                    <span>Cantidad total: <strong>@Fmt(TotalPlan)</strong>@_uSuf</span>
+                    <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong>@_uSuf</span>
+                    <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong>@_uSuf</span>
                     <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
                 </div>
 
@@ -781,7 +783,7 @@ else
                         <thead>
                             <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
                                 @if (_planIsGroup) { <th style="padding:7px 10px;">Necesidad (origen)</th> }
-                                <th style="padding:7px 10px;">Cantidad</th>
+                                <th style="padding:7px 10px;">Cantidad@(string.IsNullOrWhiteSpace(PlanUnidad) ? "" : $" ({PlanUnidad})")</th>
                                 <th style="padding:7px 10px;">Fecha de compra</th>
                                 <th style="padding:7px 10px;">Despacho</th>
                                 <th style="padding:7px 10px;">Tiempo de entrega</th>
@@ -811,7 +813,12 @@ else
                                             </select>
                                         </td>
                                     }
-                                    <td style="padding:5px 8px;"><input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" /></td>
+                                    <td style="padding:5px 8px;">
+                                        <div style="display:flex;align-items:center;gap:5px;">
+                                            <input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" />
+                                            @if (!string.IsNullOrWhiteSpace(PlanUnidad)) { <span style="font-size:11.5px;color:var(--ink-3,#6b7280);white-space:nowrap;">@PlanUnidad</span> }
+                                        </div>
+                                    </td>
                                     <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" /></td>
                                     <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" /></td>
                                     <td style="padding:5px 8px;"><input style="width:130px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="15 dias, inmediato" @bind="hi.Entrega" /></td>
@@ -1298,6 +1305,8 @@ else
     private decimal TotalPlan => _planIsGroup ? _planRegs.Sum(r => r.Cantidad) : _planCantidadPadre;
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
     private decimal RestanteActual => TotalPlan - PlanificadaActual;
+    // Unidad de medida del producto que se planifica (primera no vacia entre las necesidades; mismo producto = misma unidad).
+    private string PlanUnidad => _planRegs.Select(r => r.UnidadMedida).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u))?.Trim() ?? "";
 
     // ---- Constructor de filtros (arbol AND/OR anidado; se evalua en cliente) ----
     private const string FilterModule = "RequerimientosCompra";

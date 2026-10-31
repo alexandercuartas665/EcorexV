@@ -24,6 +24,11 @@
 - VALIDADO E2E en 5265 (SKY SYSTEM): config -> textarea sembrado con las 27 unidades; Planificar de CABLE UTP
   CAT 6A -> Detalle con cabeceras [..Cantidad, Unidad, Planificado..] y fila "1 | und"; "Nueva necesidad" ->
   datalist #req-unidad-list con 27 opciones e input Unidad enlazado (list="req-unidad-list").
+- SEGUIMIENTO (mismo dia, pedido del usuario "en el modulo de planificacion tambien"): la unidad ahora tambien
+  se ve en la pestana "Planificacion" del modal (antes solo en "Detalle"): propiedad PlanUnidad (primera unidad
+  no vacia de las necesidades); (a) resumen superior -> chip "Unidad: und" + sufijo de unidad en Cantidad total /
+  Planificada / Sin planificar; (b) tabla de compras programadas -> cabecera "Cantidad (und)" y la unidad junto
+  al input de cantidad de cada fila. Build Debug 0 errores. VALIDADO E2E en 5265 (chip, cabecera y sufijo por fila).
 - PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy.
 
 ## 2026-10-30 - Tarjetas del comparador: fecha/hora cotizado + contacto (nombre/tel/correo) (worktree requerimiento_compras)

@@ -16,14 +16,22 @@ namespace Ecorex.Application.Directorio;
 public sealed class TerceroService : ITerceroService
 {
     private readonly IApplicationDbContext _db;
+    private readonly IApplicationDbContextFactory _dbFactory;
     private readonly ITenantContext _tenant;
     private readonly IDirectoryVariantService _variant;
     private readonly IDataLookupService _lookup;
 
-    public TerceroService(IApplicationDbContext db, ITenantContext tenant, IDirectoryVariantService variant, IDataLookupService lookup)
+    public TerceroService(
+        IApplicationDbContext db, IApplicationDbContextFactory dbFactory,
+        ITenantContext tenant, IDirectoryVariantService variant, IDataLookupService lookup)
     {
         _variant = variant;
         _db = db;
+        // Las LECTURAS usan un contexto EF efimero (ADR-0138, [[dbcontext-efimero-lectura-factory]]) para no
+        // chocar con otras operaciones del circuito sobre el _db scoped ("A second operation was started...");
+        // pasa p.ej. cuando el buscador del Directorio y el modal del tercero leen a la vez. Las ESCRITURAS
+        // siguen en el _db scoped (unidad de trabajo/transaccion del circuito).
+        _dbFactory = dbFactory;
         _tenant = tenant;
         _lookup = lookup;
     }
@@ -31,9 +39,10 @@ public sealed class TerceroService : ITerceroService
     public async Task<IReadOnlyList<TerceroListItemDto>> ListAsync(
         TerceroListFilter filter, CancellationToken cancellationToken = default)
     {
+        await using var db = _dbFactory.Create();
         // Solo empresas + personas individuales: las personas asignadas a una empresa (EmpresaId
         // != null) se ocultan (cuentan como contacto de la empresa).
-        var query = _db.Terceros.AsNoTracking().AsQueryable();
+        var query = db.Terceros.AsNoTracking().AsQueryable();
         // Clasico: solo nivel raiz. Modular (IncludeSubContacts): tambien las personas vinculadas a una empresa.
         if (!filter.IncludeSubContacts)
         {
@@ -102,18 +111,18 @@ public sealed class TerceroService : ITerceroService
                 t.EmpresaId,
                 // Nombre de la empresa a la que esta vinculada la persona (para el enlace del listado Modular).
                 EmpresaNombre = t.EmpresaId != null
-                    ? _db.Terceros.Where(e => e.Id == t.EmpresaId).Select(e => e.Nombre).FirstOrDefault()
+                    ? db.Terceros.Where(e => e.Id == t.EmpresaId).Select(e => e.Nombre).FirstOrDefault()
                     : null,
                 // Contactos = contactos embebidos + terceros activos vinculados a esta empresa. El mismo
                 // predicado (activos) que usa ListContactosAsync, para que el contador y la lista coincidan.
-                Contactos = _db.TerceroContactos.Count(c => c.TerceroId == t.Id)
-                    + _db.Terceros.Count(p => p.EmpresaId == t.Id && p.Estado != TerceroEstado.Inactivo)
+                Contactos = db.TerceroContactos.Count(c => c.TerceroId == t.Id)
+                    + db.Terceros.Count(p => p.EmpresaId == t.Id && p.Estado != TerceroEstado.Inactivo)
             })
             .ToListAsync(cancellationToken);
 
         // Claves marcadas "ofrecer como filtro" (ADR-0029). Se traen definiciones (tipo + config) una vez.
         // Excluye campos de secciones del motor Modular (clave "mod_"): no aplican al listado Clasico (Capa 8).
-        var filterDefs = await _db.TerceroFieldDefinitions
+        var filterDefs = await db.TerceroFieldDefinitions
             .AsNoTracking()
             .Where(f => f.ShowInFilter && !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
             .Select(f => new FilterFieldDef(f.FieldKey, f.FieldType, f.Options))
@@ -137,7 +146,7 @@ public sealed class TerceroService : ITerceroService
             .Select(r => r.VendedorAsesorId!.Value).Distinct().ToList();
         var asesorNombres = asesorIds.Count == 0
             ? new Dictionary<Guid, string>()
-            : await _db.Asesores.AsNoTracking()
+            : await db.Asesores.AsNoTracking()
                 .Where(a => asesorIds.Contains(a.Id))
                 .ToDictionaryAsync(a => a.Id, a => a.Nombre, cancellationToken);
 
@@ -255,10 +264,11 @@ public sealed class TerceroService : ITerceroService
 
     public async Task<TerceroDetailDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var t = await _db.Terceros.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        await using var db = _dbFactory.Create();
+        var t = await db.Terceros.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (t is null) { return null; }
 
-        var contactos = await _db.TerceroContactos.AsNoTracking()
+        var contactos = await db.TerceroContactos.AsNoTracking()
             .Where(c => c.TerceroId == id)
             .OrderBy(c => c.Nombre)
             .Select(c => new TerceroContactoDto(c.Id, c.TerceroId, c.Nombre, c.Cargo, c.Email, c.Telefono))
@@ -267,14 +277,14 @@ public sealed class TerceroService : ITerceroService
         string? empresaNombre = null;
         if (t.EmpresaId is Guid empresaId)
         {
-            empresaNombre = await _db.Terceros.AsNoTracking()
+            empresaNombre = await db.Terceros.AsNoTracking()
                 .Where(e => e.Id == empresaId).Select(e => e.Nombre).FirstOrDefaultAsync(cancellationToken);
         }
 
         string? vendedorAsesorNombre = null;
         if (t.VendedorAsesorId is Guid asesorId)
         {
-            vendedorAsesorNombre = await _db.Asesores.AsNoTracking()
+            vendedorAsesorNombre = await db.Asesores.AsNoTracking()
                 .Where(a => a.Id == asesorId).Select(a => a.Nombre).FirstOrDefaultAsync(cancellationToken);
         }
 
@@ -342,9 +352,10 @@ public sealed class TerceroService : ITerceroService
 
     public async Task<TerceroDedupKeys> GetDedupKeysAsync(CancellationToken cancellationToken = default)
     {
+        await using var db = _dbFactory.Create();
         // TODOS los terceros del tenant (empresas + personas, incluidas las asignadas a empresa y las
         // inactivas): el filtro global por tenant ya acota; aqui NO se filtra a mano por TenantId.
-        var rows = await _db.Terceros.AsNoTracking()
+        var rows = await db.Terceros.AsNoTracking()
             .Select(t => new { t.Nombre, t.IdValor })
             .ToListAsync(cancellationToken);
 
@@ -473,10 +484,11 @@ public sealed class TerceroService : ITerceroService
     public async Task<IReadOnlyList<TerceroContactoDto>> ListContactosAsync(
         Guid terceroId, CancellationToken cancellationToken = default)
     {
+        await using var db = _dbFactory.Create();
         // Un contacto asociado nuevo ES un Tercero tipo Persona vinculado por EmpresaId (modal completo).
         // Se listan JUNTO con los contactos ligeros heredados (entidad TerceroContacto), que se siguen
         // mostrando y editando pero ya no se crean. El flag EsTercero le dice a la UI como tratarlos.
-        var ligeros = await _db.TerceroContactos.AsNoTracking()
+        var ligeros = await db.TerceroContactos.AsNoTracking()
             .Where(c => c.TerceroId == terceroId)
             .Select(c => new TerceroContactoDto(c.Id, c.TerceroId, c.Nombre, c.Cargo, c.Email, c.Telefono, false))
             .ToListAsync(cancellationToken);
@@ -484,7 +496,7 @@ public sealed class TerceroService : ITerceroService
         // Se muestran TODOS los terceros activos vinculados por EmpresaId (no solo Tipo=Persona): el
         // contador de la empresa cuenta todos los vinculados, asi que la lista debe coincidir. Antes el
         // filtro extra Tipo=Persona podia ocultar contactos que el contador SI sumaba ("dice 10, muestra 0").
-        var personas = await _db.Terceros.AsNoTracking()
+        var personas = await db.Terceros.AsNoTracking()
             .Where(p => p.EmpresaId == terceroId && p.Estado != TerceroEstado.Inactivo)
             .Select(p => new TerceroContactoDto(p.Id, terceroId, p.Nombre, p.Cargo, p.Email, p.Telefono, true))
             .ToListAsync(cancellationToken);
@@ -601,15 +613,18 @@ public sealed class TerceroService : ITerceroService
 
     public async Task<IReadOnlyList<TerceroNotaDto>> ListNotasAsync(
         Guid terceroId, CancellationToken cancellationToken = default)
-        => await _db.TerceroNotas.AsNoTracking()
+    {
+        await using var db = _dbFactory.Create();
+        return await db.TerceroNotas.AsNoTracking()
             .Where(n => n.TerceroId == terceroId)
             .OrderByDescending(n => n.CreatedAt)
             .Select(n => new TerceroNotaDto(
                 n.Id, n.TerceroId, n.Texto, n.Accion, n.Categoria, n.Subcategoria, n.Autor, n.CreatedAt,
                 n.ConceptoActividadId,
-                n.ConceptoActividadId == null ? null : _db.ConceptosActividad.Where(c => c.Id == n.ConceptoActividadId).Select(c => c.Name).FirstOrDefault(),
+                n.ConceptoActividadId == null ? null : db.ConceptosActividad.Where(c => c.Id == n.ConceptoActividadId).Select(c => c.Name).FirstOrDefault(),
                 n.FormResponseId, n.Valor))
             .ToListAsync(cancellationToken);
+    }
 
     public async Task<TerceroResult<TerceroNotaDto>> AddNotaAsync(
         Guid terceroId, SaveNotaRequest request, CancellationToken cancellationToken = default)
@@ -667,13 +682,14 @@ public sealed class TerceroService : ITerceroService
 
     public async Task<TerceroKpisDto> GetKpisAsync(CancellationToken cancellationToken = default)
     {
-        var activos = _db.Terceros.AsNoTracking().Where(t => t.Estado != TerceroEstado.Inactivo);
+        await using var db = _dbFactory.Create();
+        var activos = db.Terceros.AsNoTracking().Where(t => t.Estado != TerceroEstado.Inactivo);
         var clientes = await activos.CountAsync(
             t => (t.Perfiles & TerceroPerfil.Cliente) == TerceroPerfil.Cliente, cancellationToken);
         var empresas = await activos.CountAsync(t => t.Tipo == TerceroTipo.Empresa, cancellationToken);
         var personas = await activos.CountAsync(t => t.Tipo == TerceroTipo.Persona, cancellationToken);
         // Contactos asociados = contactos embebidos + personas reasignadas a una empresa.
-        var contactosEmbebidos = await _db.TerceroContactos.AsNoTracking().CountAsync(cancellationToken);
+        var contactosEmbebidos = await db.TerceroContactos.AsNoTracking().CountAsync(cancellationToken);
         var personasAsignadas = await activos.CountAsync(t => t.EmpresaId != null, cancellationToken);
         return new TerceroKpisDto(clientes, empresas, personas, contactosEmbebidos + personasAsignadas);
     }

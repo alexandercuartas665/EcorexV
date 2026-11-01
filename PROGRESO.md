@@ -16746,3 +16746,21 @@ Borrado ATOMICO por SQL (una transaccion, backup previo ecorex-2026-10-09-0940).
 Verificacion post: items=0, terceros=0, task_items=0, workflow_instances=0, citas_ligadas=0.
 NO se toco: usuarios, tableros, formularios, flujos (definiciones), contenedores, menus, config de items
 (grupos/tipos/campos). Excepcion ETL (sin AdminAuditLog).
+
+## 2026-10-31 - requerimiento_compras: matriz inteligente + vigencia (commit ef5bffd1)
+
+Rama `requerimiento_compras` (worktree aislado, puerto 5265, tenant SKY SYSTEM). SIN deploy, SIN push a
+fase-0/clon-backbone. Pedido del usuario: mas inteligencia al editor de la matriz de proveedores.
+- Reglas con VARIAS condiciones combinadas con AND; gana la mas especifica (mas condiciones), desempate
+  por menor Prioridad.
+- Proveedor en autocompletar desde el Directorio; "+ Crear en Directorio" reusa el TerceroModal (perfil
+  Proveedor + nombre prellenado) y trae sus contactos asociados al crearlo.
+- Matriz agrupada por proveedor con "Dias que sostiene una cotizacion" editable por proveedor; ademas dias
+  de vigencia por regla (la regla gana sobre el default del proveedor).
+- Tarjetas de cotizacion marcan vigencia: ambar "por vencer" y rojo "vencida" (FechaCotizacion + dias).
+- Sin migracion: metadatos en TenantConfiguration key requerimientos.matriz_ext. Fix z-index para que el
+  TerceroModal (1100) quede encima del modal de config (1000) y del editor de regla (1050).
+- 7 archivos: RequerimientoConfigContracts/Service, RequerimientoContracts/Service, RequerimientosCompra.razor,
+  RequerimientosConfig.razor, CotizacionesComparador.razor. Validado E2E en 5265/SKY. Pusheado a origin.
+- FALTA (a senal del usuario): PROMPT de integracion a dev central (acumula 06f84d9d/681f0164/f784db0b/
+  ef5bffd1) + deploy.

@@ -49,13 +49,17 @@
                 var esMejorPrecio = o.PrecioUnitario > 0m && o.PrecioUnitario == _minPrecio;
                 var esGanador = _evaluado && _ganador == o.ProveedorId;
                 (int Pos, string Motivo)? rk = _rank.TryGetValue(o.ProveedorId, out var rv) ? rv : null;
-                <div class="rqc-card @(esGanador ? "rqc-win" : "")">
+                var vig = Vig(oc);
+                var vigBorde = vig == VigEstado.Vencida ? "#dc2626" : vig == VigEstado.PorVencer ? "#d97706" : "";
+                <div class="rqc-card @(esGanador ? "rqc-win" : "")" style="@(vigBorde.Length > 0 ? $"border-left:3px solid {vigBorde};" : "")">
                     <div class="rqc-card-top">
                         <span class="rqc-prov">@(string.IsNullOrWhiteSpace(o.ProveedorNombre) ? "(proveedor)" : o.ProveedorNombre)</span>
                         <div class="rqc-badges">
                             @if (esGanador) { <span class="rqc-badge rqc-badge-ai">Recomendado por IA@(rk is { } rr ? $" (#{rr.Pos})" : "")</span> }
                             else if (rk is { } rr2) { <span class="rqc-badge rqc-badge-rank">#@rr2.Pos</span> }
                             @if (esMejorPrecio) { <span class="rqc-badge rqc-badge-low">Mejor precio</span> }
+                            @if (vig == VigEstado.Vencida) { <span class="rqc-badge" style="background:rgba(220,38,38,.12);color:#b91c1c;" title="Paso los dias de vigencia; puede que ya no sea valida">Vencida</span> }
+                            else if (vig == VigEstado.PorVencer) { <span class="rqc-badge" style="background:rgba(217,119,6,.14);color:#b45309;" title="Cerca de vencer su vigencia">Por vencer</span> }
                             <span class="rqc-badge rqc-badge-src">@FuenteLbl(o.Fuente)</span>
                         </div>
                     </div>
@@ -76,7 +80,7 @@
                         <div><span class="rqc-k">Entrega</span><span class="rqc-v">@Dash(o.TiempoEntrega)</span></div>
                         <div><span class="rqc-k">Despacho</span><span class="rqc-v">@Dash(o.CaracteristicasDespacho)</span></div>
                         <div><span class="rqc-k">Pago</span><span class="rqc-v">@Dash(o.CondicionesPago)</span></div>
-                        <div><span class="rqc-k">Vigencia</span><span class="rqc-v">@(o.VigenciaHasta is { } vh ? vh.ToString("dd/MM/yy") : "-")</span></div>
+                        <div><span class="rqc-k">Vigencia</span><span class="rqc-v" style="@(vigBorde.Length > 0 ? $"color:{vigBorde};font-weight:600;" : "")">@VigenciaTexto(oc, vig)</span></div>
                     </div>
                     @if (!string.IsNullOrWhiteSpace(o.ContactoNombre) || !string.IsNullOrWhiteSpace(o.ContactoTelefono) || !string.IsNullOrWhiteSpace(o.ContactoCorreo))
                     {
@@ -376,4 +380,28 @@
     private static string Dash(string? s) => string.IsNullOrWhiteSpace(s) ? "-" : s!;
     private static string Money(decimal d) => d.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
     private static string FechaHora(DateTimeOffset? d) => d is { } v ? v.LocalDateTime.ToString("dd/MM/yy HH:mm") : "-";
+
+    // Estado de vigencia de una oferta por los dias configurados (regla/proveedor) contados desde la fecha cotizada.
+    private enum VigEstado { NA, Vigente, PorVencer, Vencida }
+    private static VigEstado Vig(CotizacionDto o)
+    {
+        if (o.VigenciaDias is not int dias || dias <= 0 || o.FechaCotizacion is not { } fc) { return VigEstado.NA; }
+        var expiry = fc.LocalDateTime.AddDays(dias);
+        var leftDays = (expiry - DateTime.Now).TotalDays;
+        if (leftDays < 0) { return VigEstado.Vencida; }
+        if (leftDays <= Math.Max(1, dias * 0.2)) { return VigEstado.PorVencer; }
+        return VigEstado.Vigente;
+    }
+
+    // Texto de la celda Vigencia: si hay dias configurados muestra "N dias -> vence dd/MM/yy"; si no, la fecha manual.
+    private static string VigenciaTexto(CotizacionDto o, VigEstado vig)
+    {
+        if (o.VigenciaDias is int dias && dias > 0 && o.FechaCotizacion is { } fc)
+        {
+            var expiry = fc.LocalDateTime.AddDays(dias);
+            var sufijo = vig == VigEstado.Vencida ? " (vencida)" : vig == VigEstado.PorVencer ? " (por vencer)" : "";
+            return $"{dias} d -> {expiry:dd/MM/yy}{sufijo}";
+        }
+        return o.VigenciaHasta is { } vh ? vh.ToString("dd/MM/yy") : "-";
+    }
 }

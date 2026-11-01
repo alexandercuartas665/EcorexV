@@ -346,35 +346,60 @@ public sealed class RequerimientoService : IRequerimientoService
             .OrderBy(t => t.Nombre)
             .Select(t => new RequerimientoOpcionDto(t.Id, t.Nombre)).Take(2000).ToListAsync(ct);
 
-    public async Task<RequerimientoOpcionDto?> SugerirProveedorAsync(Guid itemId, CancellationToken ct = default)
+    /// <summary>Valores de las dimensiones de un item (Guid como texto) para evaluar las reglas de la matriz.</summary>
+    private async Task<Dictionary<Domain.Enums.RequerimientoDimension, string>?> ItemDimValuesAsync(Guid itemId, CancellationToken ct)
     {
         var item = await _db.Items.AsNoTracking().FirstOrDefaultAsync(i => i.Id == itemId, ct);
         if (item is null) { return null; }
-
-        // De MAS especifico a mas general: Referencia > Marca > Subgrupo > Grupo > Categoria. Gana el primero que aplique.
-        var orden = new (Domain.Enums.RequerimientoDimension Dim, Guid? Val)[]
+        var map = new Dictionary<Domain.Enums.RequerimientoDimension, string>
         {
-            (Domain.Enums.RequerimientoDimension.Referencia, item.Id),
-            (Domain.Enums.RequerimientoDimension.Marca, item.BrandId),
-            (Domain.Enums.RequerimientoDimension.Subgrupo, item.SubgroupId),
-            (Domain.Enums.RequerimientoDimension.Grupo, item.GroupId),
-            (Domain.Enums.RequerimientoDimension.Categoria, item.ItemTypeId),
+            [Domain.Enums.RequerimientoDimension.Referencia] = item.Id.ToString()
         };
-        foreach (var (dim, val) in orden)
+        if (item.BrandId is Guid b) { map[Domain.Enums.RequerimientoDimension.Marca] = b.ToString(); }
+        if (item.SubgroupId is Guid sg) { map[Domain.Enums.RequerimientoDimension.Subgrupo] = sg.ToString(); }
+        if (item.GroupId is Guid gr) { map[Domain.Enums.RequerimientoDimension.Grupo] = gr.ToString(); }
+        if (item.ItemTypeId is Guid it) { map[Domain.Enums.RequerimientoDimension.Categoria] = it.ToString(); }
+        return map;
+    }
+
+    /// <summary>Una regla aplica si el item cumple TODAS sus condiciones (AND).</summary>
+    private static bool ReglaAplica(RequerimientoReglaDto r, IReadOnlyDictionary<Domain.Enums.RequerimientoDimension, string> itemDims)
+        => r.Condiciones.Count > 0 && r.Condiciones.All(c => itemDims.TryGetValue(c.Dimension, out var v) && string.Equals(v, c.Valor, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Elige la regla ganadora para un item: mas condiciones (mas especifica) gana; a igualdad, menor
+    /// Prioridad. Opcionalmente acota a un proveedor y a reglas con vigencia definida.</summary>
+    private static RequerimientoReglaDto? MejorRegla(IEnumerable<RequerimientoReglaDto> reglas,
+        IReadOnlyDictionary<Domain.Enums.RequerimientoDimension, string> itemDims, Guid? proveedorId = null, bool soloConVigencia = false)
+        => reglas.Where(r => r.Activo)
+            .Where(r => proveedorId is null || r.ProveedorId == proveedorId)
+            .Where(r => !soloConVigencia || r.VigenciaDias is not null)
+            .Where(r => ReglaAplica(r, itemDims))
+            .OrderByDescending(r => r.Condiciones.Count).ThenBy(r => r.Prioridad)
+            .FirstOrDefault();
+
+    public async Task<RequerimientoOpcionDto?> SugerirProveedorAsync(Guid itemId, CancellationToken ct = default)
+    {
+        var itemDims = await ItemDimValuesAsync(itemId, ct);
+        if (itemDims is null) { return null; }
+        var reglas = await _config.ListReglasAsync(ct);
+        var ganadora = MejorRegla(reglas, itemDims);
+        if (ganadora is null) { return null; }
+        var nombre = await _db.Terceros.AsNoTracking().Where(t => t.Id == ganadora.ProveedorId)
+            .Select(t => t.Nombre).FirstOrDefaultAsync(ct);
+        return new RequerimientoOpcionDto(ganadora.ProveedorId, nombre ?? ganadora.ProveedorNombre ?? "(proveedor)");
+    }
+
+    /// <summary>Dias de vigencia resueltos para una oferta: la regla mas especifica (de ese proveedor) que
+    /// aplique al item y tenga dias definidos GANA; si no hay, el default del proveedor; si no, null.</summary>
+    private static int? ResolverVigenciaDias(IReadOnlyList<RequerimientoReglaDto> reglas,
+        IReadOnlyDictionary<Guid, int> provMap, IReadOnlyDictionary<Domain.Enums.RequerimientoDimension, string>? itemDims, Guid proveedorId)
+    {
+        if (itemDims is not null)
         {
-            if (val is not Guid g) { continue; }
-            var valStr = g.ToString();
-            var regla = await _db.RequerimientoProveedorReglas.AsNoTracking()
-                .Where(x => x.Activo && x.Dimension == dim && x.ValorDimension == valStr)
-                .OrderBy(x => x.Prioridad).FirstOrDefaultAsync(ct);
-            if (regla is not null)
-            {
-                var nombre = await _db.Terceros.AsNoTracking().Where(t => t.Id == regla.ProveedorId)
-                    .Select(t => t.Nombre).FirstOrDefaultAsync(ct);
-                return new RequerimientoOpcionDto(regla.ProveedorId, nombre ?? "(proveedor)");
-            }
+            var r = MejorRegla(reglas, itemDims, proveedorId, soloConVigencia: true);
+            if (r?.VigenciaDias is int d) { return d; }
         }
-        return null;
+        return provMap.TryGetValue(proveedorId, out var pv) ? pv : (int?)null;
     }
 
     public async Task<EjecutarCompraResultado> EjecutarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default)
@@ -719,6 +744,10 @@ public sealed class RequerimientoService : IRequerimientoService
         var provIds = rows.Select(r => r.ProveedorId).Distinct().ToList();
         var provs = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
             .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+        // Vigencia (dias que sostiene la cotizacion): reglas + dimensiones del item + default por proveedor.
+        var reglasVig = await _config.ListReglasAsync(ct);
+        var provVig = await _config.GetProveedorVigenciaMapAsync(ct);
+        var itemDims = itemId is Guid iid ? await ItemDimValuesAsync(iid, ct) : null;
         // Contacto (con quien se hablo) resuelto por lote desde el Directorio, para pintar nombre/tel/correo.
         var contIds = rows.Where(r => r.ProveedorContactoId is not null)
             .Select(r => r.ProveedorContactoId!.Value).Distinct().ToList();
@@ -739,11 +768,12 @@ public sealed class RequerimientoService : IRequerimientoService
             {
                 cNom = ci.Nombre; cTel = ci.Tel; cMail = ci.Mail;
             }
+            var vigDias = ResolverVigenciaDias(reglasVig, provVig, itemDims, c.ProveedorId);
             list.Add(new CotizacionDto(
                 c.Id, c.ProveedorId, provs.TryGetValue(c.ProveedorId, out var pn) ? pn : null,
                 c.PrecioUnitario, c.TiempoEntrega, c.CaracteristicasDespacho, c.CondicionesPago,
                 c.VigenciaHasta, c.Notas, c.Fuente, c.ProveedorContactoId, ult?.Precio, varPct,
-                c.FechaCotizacion, cNom, cTel, cMail));
+                c.FechaCotizacion, cNom, cTel, cMail, vigDias));
         }
         // Mas barato primero (los de precio 0 = sin precio al final).
         return list

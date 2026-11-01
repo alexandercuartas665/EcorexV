@@ -346,9 +346,10 @@ else
         try
         {
             var req = new SaveReglaRequest(
-                _reglaId, _rDimension, _rValor,
+                _reglaId,
+                new List<ReglaCondicion> { new(_rDimension, _rValor) },
                 Guid.TryParse(_rProveedor, out var p) ? p : Guid.Empty,
-                _rPrioridad, _rActivo);
+                _rPrioridad, _rActivo, null);
             var saved = await Svc.SaveReglaAsync(req);
             if (saved is null) { _reglaError = "No se pudo guardar."; return; }
             _showRegla = false;

@@ -142,7 +142,10 @@ public sealed record CotizacionDto(
     DateTimeOffset? FechaCotizacion = null,
     string? ContactoNombre = null,
     string? ContactoTelefono = null,
-    string? ContactoCorreo = null);
+    string? ContactoCorreo = null,
+    // Dias que sostiene su cotizacion (resuelto: regla mas especifica que aplique, si no el default del
+    // proveedor). Null = sin vigencia configurada. La tarjeta lo usa para marcar "por vencer"/"vencida".
+    int? VigenciaDias = null);
 
 /// <summary>Alta/edicion de una oferta (Id null = alta). Identifica el producto por item o por descripcion.</summary>
 public sealed record SaveCotizacionRequest(

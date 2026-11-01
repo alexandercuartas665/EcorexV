@@ -199,50 +199,108 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
 
     // ---- Ola 4: matriz de proveedores ----
 
+    // Extension de la matriz SIN migracion: condiciones extra (AND) y dias de vigencia por regla, y dias de
+    // vigencia default por proveedor. Se guarda como un JSON en TenantConfiguration (clave MatrizExtKey).
+    private const string MatrizExtKey = "requerimientos.matriz_ext";
+    private sealed class MatrizExt
+    {
+        public Dictionary<string, ReglaExt> Reglas { get; set; } = new();
+        public Dictionary<string, int> Prov { get; set; } = new();
+    }
+    private sealed class ReglaExt
+    {
+        // Condiciones EXTRA (ademas de la primaria que vive en la entidad): [dimensionName, valorGuid].
+        public List<string[]> Cond { get; set; } = new();
+        public int? Vig { get; set; }
+    }
+
+    private async Task<MatrizExt> LoadExtAsync(CancellationToken ct)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == MatrizExtKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(val)) { return new MatrizExt(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<MatrizExt>(val!) ?? new MatrizExt(); }
+        catch { return new MatrizExt(); }
+    }
+
+    private async Task PersistExtAsync(MatrizExt ext, Guid tid, CancellationToken ct)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(ext);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == MatrizExtKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = MatrizExtKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private static RequerimientoDimension ParseDim(string s)
+        => Enum.TryParse<RequerimientoDimension>(s, out var d) ? d : RequerimientoDimension.Grupo;
+
     public async Task<IReadOnlyList<RequerimientoReglaDto>> ListReglasAsync(CancellationToken ct = default)
     {
         var reglas = await _db.RequerimientoProveedorReglas.AsNoTracking()
             .OrderBy(r => r.Dimension).ThenBy(r => r.Prioridad).ToListAsync(ct);
         if (reglas.Count == 0) { return new List<RequerimientoReglaDto>(); }
 
+        var ext = await LoadExtAsync(ct);
+
         var provIds = reglas.Select(r => r.ProveedorId).Distinct().ToList();
         var provs = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
             .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
 
-        var nombres = new Dictionary<(RequerimientoDimension, string), string>();
-        foreach (var grp in reglas.GroupBy(r => r.Dimension))
+        // Todas las condiciones (primaria + extras) por dimension, para resolver nombres en lote.
+        var pares = new HashSet<(RequerimientoDimension, string)>();
+        foreach (var r in reglas)
         {
-            var guids = grp.Select(r => r.ValorDimension).Distinct()
-                .Where(v => Guid.TryParse(v, out _)).Select(Guid.Parse).ToList();
-            var cat = await ValoresCatalogoAsync(grp.Key, guids, ct);
-            foreach (var r in grp)
+            pares.Add((r.Dimension, r.ValorDimension));
+            if (ext.Reglas.TryGetValue(r.Id.ToString(), out var re))
             {
-                if (Guid.TryParse(r.ValorDimension, out var g) && cat.TryGetValue(g, out var nm))
+                foreach (var c in re.Cond)
                 {
-                    nombres[(grp.Key, r.ValorDimension)] = nm;
+                    if (c.Length == 2) { pares.Add((ParseDim(c[0]), c[1])); }
                 }
             }
         }
+        var nombres = new Dictionary<(RequerimientoDimension, string), string>();
+        foreach (var grp in pares.GroupBy(p => p.Item1))
+        {
+            var guids = grp.Select(p => p.Item2).Distinct().Where(v => Guid.TryParse(v, out _)).Select(Guid.Parse).ToList();
+            var cat = await ValoresCatalogoAsync(grp.Key, guids, ct);
+            foreach (var p in grp)
+            {
+                if (Guid.TryParse(p.Item2, out var g) && cat.TryGetValue(g, out var nm)) { nombres[(grp.Key, p.Item2)] = nm; }
+            }
+        }
+        string? Nom(RequerimientoDimension d, string v) => nombres.TryGetValue((d, v), out var n) ? n : v;
 
-        return reglas.Select(r => new RequerimientoReglaDto(
-            r.Id, r.Dimension, r.ValorDimension,
-            nombres.TryGetValue((r.Dimension, r.ValorDimension), out var vn) ? vn : r.ValorDimension,
-            r.ProveedorId, provs.TryGetValue(r.ProveedorId, out var pn) ? pn : null,
-            r.Prioridad, r.Aprendida, r.Activo)).ToList();
+        return reglas.Select(r =>
+        {
+            var cond = new List<ReglaCondicionResueltaDto> { new(r.Dimension, r.ValorDimension, Nom(r.Dimension, r.ValorDimension)) };
+            int? vig = null;
+            if (ext.Reglas.TryGetValue(r.Id.ToString(), out var re))
+            {
+                foreach (var c in re.Cond)
+                {
+                    if (c.Length == 2) { var d = ParseDim(c[0]); cond.Add(new(d, c[1], Nom(d, c[1]))); }
+                }
+                vig = re.Vig;
+            }
+            return new RequerimientoReglaDto(
+                r.Id, r.Dimension, r.ValorDimension, Nom(r.Dimension, r.ValorDimension),
+                r.ProveedorId, provs.TryGetValue(r.ProveedorId, out var pn) ? pn : null,
+                r.Prioridad, r.Aprendida, r.Activo, cond, vig);
+        }).ToList();
     }
 
     public async Task<RequerimientoReglaDto?> SaveReglaAsync(SaveReglaRequest req, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tenantId) { return null; }
-        var valor = (req.ValorDimension ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(valor)) { throw new InvalidOperationException("Elige el valor de la dimension."); }
+        var cond = (req.Condiciones ?? new List<ReglaCondicion>())
+            .Select(c => new ReglaCondicion(c.Dimension, (c.Valor ?? "").Trim()))
+            .Where(c => !string.IsNullOrWhiteSpace(c.Valor)).ToList();
+        if (cond.Count == 0) { throw new InvalidOperationException("Agrega al menos una condicion (dimension + valor)."); }
         if (req.ProveedorId == Guid.Empty) { throw new InvalidOperationException("Elige un proveedor."); }
 
-        var clash = await _db.RequerimientoProveedorReglas.AnyAsync(x =>
-            x.Dimension == req.Dimension && x.ValorDimension == valor && x.ProveedorId == req.ProveedorId
-            && (req.Id == null || x.Id != req.Id), ct);
-        if (clash) { throw new InvalidOperationException("Ya existe esa regla (misma dimension, valor y proveedor)."); }
-
+        var primaria = cond[0];
         RequerimientoProveedorRegla entity;
         if (req.Id is Guid id)
         {
@@ -255,13 +313,23 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
             entity = new RequerimientoProveedorRegla { TenantId = tenantId };
             _db.RequerimientoProveedorReglas.Add(entity);
         }
-        entity.Dimension = req.Dimension;
-        entity.ValorDimension = valor;
+        entity.Dimension = primaria.Dimension;
+        entity.ValorDimension = primaria.Valor;
         entity.ProveedorId = req.ProveedorId;
         entity.Prioridad = req.Prioridad;
         entity.Activo = req.Activo;
-        entity.Aprendida = entity.Aprendida; // conserva el flag si venia aprendida
         await _db.SaveChangesAsync(ct);
+
+        // Condiciones extra (de la 2a en adelante) + vigencia -> blob de extension.
+        var ext = await LoadExtAsync(ct);
+        var re = new ReglaExt
+        {
+            Cond = cond.Skip(1).Select(c => new[] { c.Dimension.ToString(), c.Valor }).ToList(),
+            Vig = req.VigenciaDias
+        };
+        if (re.Cond.Count == 0 && re.Vig is null) { ext.Reglas.Remove(entity.Id.ToString()); }
+        else { ext.Reglas[entity.Id.ToString()] = re; }
+        await PersistExtAsync(ext, tenantId, ct);
 
         return (await ListReglasAsync(ct)).FirstOrDefault(r => r.Id == entity.Id);
     }
@@ -272,7 +340,32 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         if (r is null) { return false; }
         _db.RequerimientoProveedorReglas.Remove(r);
         await _db.SaveChangesAsync(ct);
+        if (_tenant.TenantId is Guid tid)
+        {
+            var ext = await LoadExtAsync(ct);
+            if (ext.Reglas.Remove(id.ToString())) { await PersistExtAsync(ext, tid, ct); }
+        }
         return true;
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, int>> GetProveedorVigenciaMapAsync(CancellationToken ct = default)
+    {
+        var ext = await LoadExtAsync(ct);
+        var map = new Dictionary<Guid, int>();
+        foreach (var kv in ext.Prov)
+        {
+            if (Guid.TryParse(kv.Key, out var g)) { map[g] = kv.Value; }
+        }
+        return map;
+    }
+
+    public async Task SetProveedorVigenciaAsync(Guid proveedorId, int? dias, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var ext = await LoadExtAsync(ct);
+        if (dias is int d && d > 0) { ext.Prov[proveedorId.ToString()] = d; }
+        else { ext.Prov.Remove(proveedorId.ToString()); }
+        await PersistExtAsync(ext, tid, ct);
     }
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)

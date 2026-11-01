@@ -30,7 +30,17 @@ public sealed record SaveRequerimientoOrigenRequest(
     Guid? SubcategoriaCotizacionId,
     bool Activo);
 
-/// <summary>Una fila de la matriz de proveedores (con nombres resueltos para mostrar).</summary>
+/// <summary>Una condicion de una regla: dimension + valor (Guid del catalogo de inventario como texto).
+/// Las condiciones de una regla se combinan con AND (la regla aplica si el item cumple TODAS).</summary>
+public sealed record ReglaCondicion(RequerimientoDimension Dimension, string Valor);
+
+/// <summary>Condicion de una regla con el nombre del valor ya resuelto (para mostrar).</summary>
+public sealed record ReglaCondicionResueltaDto(RequerimientoDimension Dimension, string Valor, string? ValorNombre);
+
+/// <summary>Una fila de la matriz de proveedores (con nombres resueltos para mostrar). Una regla puede
+/// COMBINAR varias dimensiones (<see cref="Condiciones"/>, AND); Dimension/ValorDimension/ValorNombre son la
+/// primera condicion (compatibilidad). <see cref="VigenciaDias"/> = dias que sostiene una cotizacion por esta
+/// regla (gana sobre el default del proveedor); null = usar el del proveedor.</summary>
 public sealed record RequerimientoReglaDto(
     Guid Id,
     RequerimientoDimension Dimension,
@@ -40,16 +50,22 @@ public sealed record RequerimientoReglaDto(
     string? ProveedorNombre,
     int Prioridad,
     bool Aprendida,
-    bool Activo);
+    bool Activo,
+    IReadOnlyList<ReglaCondicionResueltaDto> Condiciones,
+    int? VigenciaDias);
 
-/// <summary>Alta/edicion de una regla de la matriz. Id null = alta.</summary>
+/// <summary>Alta/edicion de una regla de la matriz. Id null = alta. <see cref="Condiciones"/> debe traer al
+/// menos una (AND entre todas). <see cref="VigenciaDias"/> null = hereda del proveedor.</summary>
 public sealed record SaveReglaRequest(
     Guid? Id,
-    RequerimientoDimension Dimension,
-    string ValorDimension,
+    IReadOnlyList<ReglaCondicion> Condiciones,
     Guid ProveedorId,
     int Prioridad,
-    bool Activo);
+    bool Activo,
+    int? VigenciaDias);
+
+/// <summary>Dias de vigencia de cotizacion por proveedor (default del proveedor; una regla puede sobreescribirlo).</summary>
+public sealed record ProveedorVigenciaDto(Guid ProveedorId, int? VigenciaDias);
 
 /// <summary>
 /// Configuracion del modulo de Requerimientos (Capa 10): ORIGENES (Ola 1) + MATRIZ de proveedores (Ola 4).
@@ -96,4 +112,10 @@ public interface IRequerimientoConfigService
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default);
     /// <summary>Valores posibles de una dimension (catalogo de inventario: tipo/grupo/subgrupo/marca/item).</summary>
     Task<IReadOnlyList<RequerimientoOpcionDto>> ListValoresDimensionAsync(RequerimientoDimension dimension, CancellationToken ct = default);
+
+    /// <summary>Dias de vigencia de cotizacion por proveedor (default del proveedor). Mapa proveedorId -> dias.
+    /// Config por tenant en TenantConfiguration (sin migracion). Solo incluye proveedores con valor definido.</summary>
+    Task<IReadOnlyDictionary<Guid, int>> GetProveedorVigenciaMapAsync(CancellationToken ct = default);
+    /// <summary>Fija (o limpia, con null) los dias de vigencia default de un proveedor.</summary>
+    Task SetProveedorVigenciaAsync(Guid proveedorId, int? dias, CancellationToken ct = default);
 }

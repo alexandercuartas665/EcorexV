@@ -67,6 +67,19 @@ public static class WorkflowAgentContextSerializer
         {
             sb.AppendLine();
             sb.AppendLine("## Resultado de la llamada");
+            if (!string.IsNullOrWhiteSpace(vc.Status)) { sb.AppendLine($"- Estado: {vc.Status}"); }
+            // "Hubo contacto": Ola 1 no tiene aun el motivo exacto de corte de Retell (eso llega en una ola
+            // posterior), asi que se INFIERE de la duracion y de que haya transcripcion. Es una PISTA para
+            // enrutar o decidir si reintentar, no un dato duro.
+            var huboContacto = (vc.DurationSeconds is int d && d > 0) || !string.IsNullOrWhiteSpace(vc.Transcript);
+            sb.AppendLine(huboContacto
+                ? "- Contacto: parece que SI hubo conversacion (hay duracion/transcripcion)."
+                : "- Contacto: parece que NO hubo conversacion (sin duracion ni transcripcion); trata la llamada como no contestada.");
+            if (vc.DurationSeconds is int dur) { sb.AppendLine($"- Duracion (s): {dur}"); }
+            if (vc.CallSuccessful is bool ok)
+            {
+                sb.AppendLine($"- Logro su objetivo segun Retell (call_successful): {(ok ? "si" : "no")}");
+            }
             if (!string.IsNullOrWhiteSpace(vc.CapturedJson)) { sb.AppendLine($"- Datos capturados: {vc.CapturedJson}"); }
             if (!string.IsNullOrWhiteSpace(vc.Transcript)) { sb.AppendLine($"- Transcripcion: {vc.Transcript}"); }
             if (string.IsNullOrWhiteSpace(vc.CapturedJson) && string.IsNullOrWhiteSpace(vc.Transcript))

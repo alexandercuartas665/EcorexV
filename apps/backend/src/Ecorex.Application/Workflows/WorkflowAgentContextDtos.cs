@@ -40,8 +40,18 @@ public sealed record WorkflowAgentContextDto(
     IReadOnlyList<string>? AvailableTaskTags = null);
 
 /// <summary>Resultado de una llamada de voz (Retell) que el agente solicito: el transcript y los datos
-/// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario.</summary>
-public sealed record WorkflowAgentVoiceCallDto(string? Transcript, string? CapturedJson);
+/// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario o para ELEGIR
+/// la ruta de una decision. Ola 1 (ADR-0142): se agrega el estado de la llamada (Status/Duracion/CallSuccessful)
+/// para distinguir "hablo y hubo decision" de "no contesto" al enrutar o decidir si reintentar.</summary>
+public sealed record WorkflowAgentVoiceCallDto(
+    string? Transcript,
+    string? CapturedJson,
+    // Estado terminal de la VoiceCall (Analyzed | Ended | Failed | Error | ...), como texto.
+    string? Status = null,
+    // Duracion en segundos (si Retell la reporto). 0/null + sin transcripcion => probable no-contacto.
+    int? DurationSeconds = null,
+    // call_analysis.call_successful de Retell (segun los success criteria del agente). Null si no vino.
+    bool? CallSuccessful = null);
 
 /// <summary>Respuesta que la persona dio por WhatsApp a la pregunta del agente (ADR-0092). <see cref="ReplyText"/>
 /// junta TODOS los mensajes entrantes frescos (una rafaga: "necesito 4 laminas" + "mi cedula es 10199857" llegan

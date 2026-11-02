@@ -14,5 +14,11 @@ public enum ContactCallObjetivo
     LlenarFormulario,
 
     /// <summary>Objetivo libre descrito en la instruccion adicional al prompt.</summary>
-    Personalizado
+    Personalizado,
+
+    /// <summary>Ola 1 (ADR-0142): seguimiento/cierre con el cliente por voz. Es una MARCA, no una directiva
+    /// pesada: el webhook NO vuelca a formulario y la conducta la lleva el prompt del agente de voz (SARA); el
+    /// resultado (transcript) alimenta la RUTA de la decision, no un formulario. Usado por el nodo de
+    /// seguimiento cuando NO tiene formulario asociado.</summary>
+    SeguimientoCierre
 }

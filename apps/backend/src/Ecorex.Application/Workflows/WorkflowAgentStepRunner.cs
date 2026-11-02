@@ -529,11 +529,18 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         }
 
         var formIds = context.Node.Form is { } f ? new[] { f.DefinitionId } : Array.Empty<Guid>();
+        // Ola 1 (ADR-0142): el objetivo es una MARCA que decide el comportamiento del webhook. Nodo CON formulario
+        // -> LlenarFormulario (el webhook vuelca los datos capturados al formulario del paso). Nodo de
+        // decision/seguimiento SIN formulario -> SeguimientoCierre: el webhook NO vuelca a formulario; la conducta
+        // la lleva el prompt del agente de voz (SARA) y el transcript alimenta la RUTA de la decision.
+        var objetivo = context.Node.Form is not null
+            ? nameof(ContactCallObjetivo.LlenarFormulario)
+            : nameof(ContactCallObjetivo.SeguimientoCierre);
         var placed = await _voice.PlaceCallAsync(new Voice.VoicePlaceCallRequest(
             ToNumber: callRequest.Numero,
             AiAgentId: voiceAgentId,
             PromptExtra: callRequest.Objetivo,
-            Objetivo: nameof(ContactCallObjetivo.LlenarFormulario),
+            Objetivo: objetivo,
             FormulariosPermitidos: formIds,
             ContactVariables: BuildContactVariables(context)), cancellationToken);
 

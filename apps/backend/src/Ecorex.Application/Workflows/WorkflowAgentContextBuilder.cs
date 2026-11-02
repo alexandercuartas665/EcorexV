@@ -151,7 +151,7 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         }
         var call = await _db.VoiceCalls.AsNoTracking()
             .Where(c => c.CallId == step.PendingVoiceCallId)
-            .Select(c => new { c.TranscriptText, c.AnalysisJson })
+            .Select(c => new { c.TranscriptText, c.AnalysisJson, c.Status, c.DurationSeconds })
             .FirstOrDefaultAsync(cancellationToken);
         if (call is null)
         {
@@ -159,7 +159,12 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         }
         return new WorkflowAgentVoiceCallDto(
             Clip(call.TranscriptText, WorkflowAgentContextLimits.MaxValueChars),
-            Clip(call.AnalysisJson, WorkflowAgentContextLimits.MaxValueChars));
+            Clip(call.AnalysisJson, WorkflowAgentContextLimits.MaxValueChars),
+            // Ola 1 (ADR-0142): estado para distinguir "hubo conversacion" de "no contesto". call_successful se
+            // parsea del call_analysis (mismo helper que usa la UI de prueba) sobre el JSON crudo, no el recortado.
+            Status: call.Status.ToString(),
+            DurationSeconds: call.DurationSeconds,
+            CallSuccessful: Ecorex.Application.Voice.RetellVoiceService.ExtractCallSuccessful(call.AnalysisJson));
     }
 
     // ---- (a) Nodo actual + formulario asociado con la definicion de sus campos ----

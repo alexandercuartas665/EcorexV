@@ -591,6 +591,18 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             sb.AppendLine();
             sb.AppendLine("REGLA CLAVE (esta COMPUERTA espera la respuesta del cliente): el SILENCIO del cliente NO es una decision. NUNCA elijas una ruta mientras el cliente NO haya respondido. Si el cliente aun no respondio, tu unica accion valida es 'preguntar_whatsapp' para enviarle un recordatorio; si ya insististe lo suficiente, responde puede_resolver=false para SEGUIR ESPERANDO. JAMAS cierres como 'no desea comprar' (ni ninguna ruta) por falta de respuesta. Elige una ruta SOLO cuando el cliente de una respuesta CLARA.");
         }
+        // Ola 1 (ADR-0142): reanudacion de una DECISION tras una llamada de voz. A diferencia del llenado, aqui el
+        // transcript sirve para ELEGIR LA RUTA, no para fijar campos. 'llamar_telefono' ya no se ofrece en la
+        // reanudacion (canCall == false con VoiceCallResult presente), asi que no re-llamara.
+        if (context.VoiceCallResult is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("YA tienes el RESULTADO de la llamada que solicitaste (ver 'Resultado de la llamada' en el contexto). Usa la TRANSCRIPCION para ELEGIR LA RUTA de la decision, NO para llenar un formulario. No vuelvas a llamar.");
+            sb.Append("Si NO hubo contacto (no contesto / sin conversacion), no inventes una decision por el silencio del cliente: ");
+            sb.AppendLine(canAskWhatsApp
+                ? "intenta por el otro canal con 'preguntar_whatsapp' (y 'programar_reintento' por si no responde), o responde puede_resolver=false para seguir esperando."
+                : "responde puede_resolver=false para que el paso se reintente mas tarde o vuelva a una persona.");
+        }
         sb.AppendLine("Solo cuando YA tengas lo necesario (o sea imposible conseguirlo), responde el JSON de decision descrito arriba, sin llamar mas herramientas.");
         return sb.ToString();
     }

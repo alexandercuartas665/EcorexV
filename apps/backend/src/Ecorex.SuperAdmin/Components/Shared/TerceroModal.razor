@@ -31,6 +31,8 @@
 @inject Ecorex.Application.Catalogos.ICiudadCatalogService CiudadSvc
 @inject Ecorex.Application.Asesores.IAsesorService AsesorSvc
 @inject Microsoft.JSInterop.IJSRuntime JS
+@inject NavigationManager Nav
+@inject IFormTokenService TokensSvc
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
 @if (_coOpen)
@@ -75,6 +77,59 @@
                     <button class="dg-btn-ghost" @onclick="CloseContacto" disabled="@_busy">Cancelar</button>
                     <button class="dg-btn-new" @onclick="SaveContactoAsync" disabled="@_busy">Guardar contacto</button>
                 </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL LLENAR FORMULARIO DEL TERCERO =====================
+   Abre el formulario asociado en una ventana (antes se desplegaba inline). La respuesta se
+   ancla por Reference = TERCERO:{id}, igual que el enlace publico compartido: los datos caen
+   SIEMPRE relacionados a este tercero. z-index 1200: por encima del modal del tercero (1100). *@
+@if (_formModal is not null && _editingId is not null)
+{
+    <div class="dg-overlay form" @onclick="CloseFormModal">
+        <div class="dg-modal form" @onclick:stopPropagation="true">
+            <div class="dg-as-head">
+                <div style="min-width:0">
+                    <div class="dg-as-kicker">FORMULARIO DEL TERCERO</div>
+                    <div class="dg-as-title">@_formModal.Title</div>
+                    <div class="dg-as-sub">@(string.IsNullOrWhiteSpace(_formModal.Code) ? "Los datos quedan relacionados a este tercero." : _formModal.Code + " - los datos quedan relacionados a este tercero.")</div>
+                </div>
+                <div class="dg-form-modal-acts">
+                    <button class="dg-btn-ghost sm" @onclick="() => ShareFormAsync(_formModal)"
+                            disabled="@(_shareBusy == _formModal.FormDefinitionId)"
+                            title="Compartir enlace para que el cliente lo llene">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5" /></svg>
+                        <span>@(_shareBusy == _formModal.FormDefinitionId ? "Generando..." : "Compartir")</span>
+                    </button>
+                    <button class="dg-close" @onclick="CloseFormModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                </div>
+            </div>
+            @if (_shareUrl is not null && _shareForFormId == _formModal.FormDefinitionId)
+            {
+                <div class="dg-share-bar">
+                    <div class="dg-share-row">
+                        <span class="dg-share-ic">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                        </span>
+                        <input class="dg-share-url" readonly value="@_shareUrl" @onclick:stopPropagation="true" />
+                        <button class="dg-share-copy" @onclick="() => CopyUrlAsync(_shareUrl!)" @onclick:stopPropagation="true">@(_copiedUrl == _shareUrl ? "Copiado" : "Copiar")</button>
+                        <button class="dg-share-x" @onclick="DismissShare" @onclick:stopPropagation="true" title="Ocultar enlace">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div class="dg-share-exp">Enlace reusable &#183; vence @(_shareExpiresAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm"))</div>
+                </div>
+            }
+            <div class="dg-form-modal-body">
+                <DynamicFormRenderer DefinitionId="@_formModal.FormDefinitionId"
+                                     Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
+                                     Mode="FormRenderMode.Fill"
+                                     ShowHeader="false"
+                                     OnSubmitted="OnFormModalSubmittedAsync" />
             </div>
         </div>
     </div>
@@ -942,43 +997,64 @@
                         }
                         else
                         {
-                            @* Lista para elegir cual formulario llenar; el elegido se despliega debajo. *@
+                            @* Cada formulario ABRE EN MODAL para llenarlo (ya no inline), o se comparte un
+                               enlace publico /f/ anclado a este tercero; lo que el cliente envie cae aqui. *@
                             <div class="dg-form-list">
                                 @foreach (var f in _forms)
                                 {
                                     var ff = f;
-                                    var on = _formSel == ff.FormDefinitionId;
-                                    <button class="dg-form-item @(on ? "on" : "")"
-                                            @onclick="() => _formSel = on ? null : ff.FormDefinitionId">
-                                        <span class="dg-form-item-ic">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></svg>
-                                        </span>
-                                        <span class="dg-form-item-txt">
-                                            <span class="dg-form-item-name">@ff.Title</span>
-                                            @if (!string.IsNullOrWhiteSpace(ff.Code))
+                                    <div class="dg-form-row">
+                                        <button class="dg-form-item" @onclick="() => OpenFormModal(ff)" title="Abrir para llenar">
+                                            <span class="dg-form-item-ic">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" /></svg>
+                                            </span>
+                                            <span class="dg-form-item-txt">
+                                                <span class="dg-form-item-name">@ff.Title</span>
+                                                @if (!string.IsNullOrWhiteSpace(ff.Code))
+                                                {
+                                                    <span class="dg-form-item-code">@ff.Code</span>
+                                                }
+                                            </span>
+                                            <span class="dg-form-item-chev">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+                                            </span>
+                                        </button>
+                                        <button class="dg-form-share" @onclick="() => ShareFormAsync(ff)"
+                                                disabled="@(_shareBusy == ff.FormDefinitionId)"
+                                                title="Compartir enlace para que el cliente lo llene">
+                                            @if (_shareBusy == ff.FormDefinitionId)
                                             {
-                                                <span class="dg-form-item-code">@ff.Code</span>
+                                                <span class="dg-form-share-sp">...</span>
                                             }
-                                        </span>
-                                        <span class="dg-form-item-chev" style="transform:rotate(@(on ? "90deg" : "0deg"))">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-                                        </span>
-                                    </button>
-                                    @if (on)
+                                            else
+                                            {
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 13.5 6.8 4M15.4 6.5 8.6 10.5" /></svg>
+                                            }
+                                        </button>
+                                    </div>
+                                    @if (_shareUrl is not null && _shareForFormId == ff.FormDefinitionId)
                                     {
-                                        <div class="dg-form-host" @key="ff.FormDefinitionId">
-                                            <DynamicFormRenderer DefinitionId="@ff.FormDefinitionId"
-                                                                 Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
-                                                                 Mode="FormRenderMode.Fill"
-                                                                 ShowHeader="false" />
+                                        <div class="dg-share-bar">
+                                            <div class="dg-share-row">
+                                                <span class="dg-share-ic">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+                                                </span>
+                                                <input class="dg-share-url" readonly value="@_shareUrl" @onclick:stopPropagation="true" />
+                                                <button class="dg-share-copy" @onclick="() => CopyUrlAsync(_shareUrl!)">@(_copiedUrl == _shareUrl ? "Copiado" : "Copiar")</button>
+                                                <button class="dg-share-x" @onclick="DismissShare" title="Ocultar enlace">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                                </button>
+                                            </div>
+                                            <div class="dg-share-exp">Enlace reusable &#183; vence @(_shareExpiresAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm"))</div>
                                         </div>
                                     }
                                 }
                             </div>
-                            @if (_formSel is null)
+                            @if (_shareError is not null)
                             {
-                                <p class="dg-aside-note">Elige un formulario de la lista para llenarlo con los datos de este tercero.</p>
+                                <p class="dg-note-err" style="margin-top:8px">@_shareError</p>
                             }
+                            <p class="dg-aside-note">Abre un formulario para llenarlo en una ventana, o comparte el enlace para que el cliente lo complete; en ambos casos los datos quedan en este tercero.</p>
                         }
 
                         @if (CrmWiring && _editingId is not null)

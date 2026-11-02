@@ -57,7 +57,13 @@ public partial class TerceroModal
 
     // ---- Formularios asociados (3a columna). Respuestas ancladas por Reference = "TERCERO:{id}". ----
     private List<TerceroFormLinkDto> _forms = new();
-    private Guid? _formSel;
+    private Guid? _formSel;                       // legado (ya no se usa inline; se conserva por los resets)
+    private TerceroFormLinkDto? _formModal;        // formulario abierto en MODAL para llenar
+    private Guid? _shareBusy;                       // FormDefinitionId mientras se emite el token
+    private string? _shareUrl;                      // ultimo enlace publico emitido
+    private Guid? _shareForFormId;                  // a que formulario pertenece _shareUrl
+    private DateTimeOffset? _shareExpiresAt;
+    private string? _shareError;
 
     // ---- Permisos (sub-permisos nombrados del Directorio General, ADR-0033) ----
     private bool _canCrearEmpresa = true;
@@ -329,6 +335,79 @@ public partial class TerceroModal
         StateHasChanged();
     }
 
+    // ---- Formularios del tercero: abrir en modal / compartir enlace publico ----
+    // Antes el formulario se desplegaba inline en el panel; ahora abre en una ventana propia.
+    // La respuesta se ancla por Reference = TERCERO:{id}, el MISMO anclaje que usa el enlace
+    // publico: lo que se llene aqui o lo que el cliente envie por /f/ cae en este tercero.
+    private void OpenFormModal(TerceroFormLinkDto ff)
+    {
+        _formModal = ff;
+        _shareError = null;
+        StateHasChanged();
+    }
+
+    private void CloseFormModal()
+    {
+        _formModal = null;
+        StateHasChanged();
+    }
+
+    private async Task OnFormModalSubmittedAsync(FormResponseDto _)
+    {
+        // Ya quedo anclada por Reference; avisamos al host para que refresque su lista. El modal
+        // se deja abierto: el propio renderer muestra el estado "enviado".
+        await OnChanged.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private void DismissShare()
+    {
+        _shareUrl = null;
+        _shareForFormId = null;
+        _shareExpiresAt = null;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Emite un token publico (/f/{token}) para este formulario anclado a Reference = TERCERO:{id}
+    /// y copia el enlace. Reusable 7 dias (168h), anonimo, sin un-solo-uso: el cliente lo llena a su
+    /// ritmo y lo enviado cae relacionado a este tercero. No crea tablas ni toca el backend del modulo.
+    /// </summary>
+    private async Task ShareFormAsync(TerceroFormLinkDto ff)
+    {
+        if (_editingId is not Guid id) { return; }
+        _shareBusy = ff.FormDefinitionId;
+        _shareError = null;
+        StateHasChanged();
+        EmitFormTokenResult? emitted = null;
+        try
+        {
+            var res = await TokensSvc.EmitAsync(ff.FormDefinitionId, new EmitFormTokenRequest(
+                Reference: ITerceroFormService.ReferenceFor(id),
+                ExpirationHours: 168, SingleUse: false, AllowAnonymous: true));
+            if (!res.IsOk || res.Value is null)
+            {
+                _shareError = res.Error ?? "No se pudo generar el enlace (revisa que el formulario este activo).";
+                return;
+            }
+            emitted = res.Value;
+        }
+        catch (Exception ex)
+        {
+            _shareError = "No se pudo generar el enlace: " + ex.Message;
+        }
+        finally
+        {
+            _shareBusy = null;
+        }
+        if (emitted is null) { StateHasChanged(); return; }
+        _shareUrl = $"{Nav.BaseUri}f/{emitted.Token}";
+        _shareExpiresAt = emitted.ExpiresAt;
+        _shareForFormId = ff.FormDefinitionId;
+        await CopyUrlAsync(_shareUrl);   // copia al portapapeles + muestra "Copiado"
+        StateHasChanged();
+    }
+
     // ---- Autocomplete de Ciudad (catalogo global de municipios de Colombia) ----
     private async Task OnCiudadFocus()
     {
@@ -427,6 +506,7 @@ public partial class TerceroModal
         _opps = new();
         _forms = new();
         _formSel = null;
+        _formModal = null; _shareUrl = null; _shareForFormId = null; _shareExpiresAt = null; _shareError = null; _shareBusy = null;
         ResetNoteForm();
         _modalError = null;
         _modalOpen = true;
@@ -559,6 +639,7 @@ public partial class TerceroModal
         _forms = (await FormsSvc.ListAsync()).ToList();
         _conceptos = await ConceptosSvc.ListAsync();
         _formSel = null;
+        _formModal = null; _shareUrl = null; _shareForFormId = null; _shareExpiresAt = null; _shareError = null; _shareBusy = null;
         ResetNoteForm();
         _modalError = null;
         _modalOpen = true;

@@ -2,6 +2,46 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-02 - RFQ Ola B: formulario inyectado con clave oculta (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores; 1145 tests
+  unitarios verdes. SIN MIGRACION (TenantConfiguration + FormResponse existente). Commit c1d90076, pusheado a
+  origin/requerimiento_compras. SIN integrar al tronco.
+- PEDIDO (usuario): "arranca la ola b" -> la "ida" del proceso de cotizacion gobernado: que el flujo presente al
+  proveedor un formulario ya cargado con las lineas que se cotizan, con una CLAVE oculta por fila para empatar la
+  respuesta despues.
+- HECHO:
+  * FormGridColumn.Hidden (FormGridCalculator.cs): columna de grilla que se CONSERVA en el dato y viaja en la
+    fila (round-trip), pero NO se pinta ni se exporta. El renderer la excluye de la vista (RenderGrid filtra
+    !Hidden; tambien ExportGridXlsx y DownloadGridTemplate). Aditivo (default false) => no cambia grillas previas.
+  * Config RFQ (IRequerimientoConfigService/RequerimientoConfigService): RfqFormMapDto (FormDefinitionId +
+    GridFieldCode + ColClave/ColDescripcion/ColCantidad/ColUnidad/ColFecha) en TenantConfiguration clave
+    "requerimientos.rfq" (sin migracion). ListGridFieldsAsync lista las grillas (GridDetail) y sus columnas de un
+    formulario para el configurador (marca las Hidden).
+  * RequerimientoService.CotizarPorProveedorAsync: carga el mapeo una vez (verifica la definicion Active); tras
+    crear cada RFQ, SeedRfqFormAsync siembra el FormResponse (Reference = numero de la tarea portadora,
+    IDEMPOTENTE por (definicion, reference): si el paso del flujo ya lo materializo se reusa) con una fila por
+    linea -clave de producto en la columna oculta + snapshot descripcion/cantidad/unidad/fecha- y enlaza
+    RequerimientoRfq.FormResponseId. Se escribe por el contexto (NO IFormResponseService) a proposito, para evitar
+    un ciclo de dependencias scoped con el motor de reglas (FormResponseService -> IRulesEngine -> verbo que usa
+    IRequerimientoService). Mismo formato { fieldCode: { value, type } }; el valor de la grilla es el arreglo JSON.
+  * UI: tarjeta "Formulario de cotizacion (RFQ)" en RequerimientosConfig.razor (elige formulario -> grilla ->
+    mapeo de columnas; la columna CLAVE marca "(oculta)"). Self-serve.
+- VALIDADO E2E en 5265 (SKY SYSTEM): se creo un formulario de prueba "RFQ TEST (Ola B)" con grilla lineas_rfq
+  (columna clave_prod Hidden + descripcion/cantidad/unidad/precio_unitario); se mapeo en la config (persiste en
+  requerimientos.rfq); "Cotizar por proveedor (RFQ)" sobre una distribucion Produvarios creo RFQ-0002 + tarea
+  T00217 + sembro el FormResponse (Reference=T00217) con value [{clave_prod:"d:cable utp cat 6",descripcion:"CABLE
+  UTP CAT 6",cantidad:"25.0000",unidad:"1"}] y enlazo form_response_id. La vista previa del formulario muestra
+  Descripcion/Cantidad/Unidad/Precio unitario pero NO la columna Clave (oculta). RfqLinea.clave_producto ==
+  grid.clave_prod (listo para el match-back de la Ola C).
+- DATOS DE PRUEBA en SKY dev (reversibles): formulario "RFQ TEST (Ola B)" (def bb000000-...001) + config
+  requerimientos.rfq apuntando a el; RFQ-0002 + tarea T00217 + FormResponse 01a19d43-...63; provider Produvarios
+  asignado al hijo 01a1874a-f6eb (25 und CABLE, quedo cotizada); (de Ola A) PROYECTOS.subcategoria_cotizacion_id.
+- SIGUIENTE: Ola C (la "vuelta"): al enviar el formulario, empatar por clave_prod -> escribir RfqLinea
+  (precio/vigencia/leadtime/marca/nota) + upsert de la cotizacion para el comparador/IA. Ola D: config con
+  precedencia (producto en planificacion > matriz > default del modulo) + override de mapeo por proveedor.
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy.
+
 ## 2026-10-31 - Config del modulo unificada en el modal (origenes + matriz de proveedores embebidos) (worktree requerimiento_compras)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM). Build Debug 0 errores. SIN MIGRACION, solo UI.

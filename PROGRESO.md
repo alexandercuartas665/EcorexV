@@ -2,6 +2,47 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-02 - RFQ Ola D: precedencia del proceso de cotizacion (producto > matriz > origen > default) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Ecorex.sln 0 errores, 1145
+  tests unitarios verdes. SIN MIGRACION (las 3 capas nuevas viven en TenantConfiguration, igual patron que
+  matriz_ext/requerimientos.rfq). SIN integrar al tronco (se acumula para el prompt de integracion a dev central).
+- PEDIDO (usuario): "Ola d" -> cadena de precedencia para QUE proceso de cotizacion (flujo/subcategoria) corre
+  cada RFQ. 2 decisiones (AskUserQuestion): (1) cadena = **producto (en Planificar) > matriz del proveedor >
+  origen de la linea (hoy) > default del modulo**; (2) el mapeo del formulario RFQ sigue UNICO por tenant (sin
+  override por proveedor por ahora).
+- HECHO:
+  * Fuente unica de clave: nuevo RequerimientoClave.Of(itemId, descripcion) (Application/Requerimientos);
+    RequerimientoService.ClaveProducto ahora delega ahi para que la clave calce en todo el modulo (incluida la
+    capa "producto" de la precedencia).
+  * IRequerimientoConfigService + RequerimientoConfigService: 3 capas nuevas, todas en TenantConfiguration:
+    - default del modulo: clave `requerimientos.cotizacion_default` (Get/SetCotizacionDefaultAsync).
+    - por proveedor (matriz): campo `ProvCot` dentro de `requerimientos.matriz_ext` (Get/SetProveedorProcesoMap/
+      Async); aditivo, conserva Reglas/Prov/Vig existentes.
+    - por producto: clave `requerimientos.cotizacion_producto` {claveProducto: subcatGuid}
+      (Get/SetProductoProcesoAsync por itemId/descripcion; GetProductoProcesoMapAsync).
+  * RequerimientoService.CotizarPorProveedorAsync: reemplaza el "primer origen que tenga proceso" por la cadena
+    producto -> matriz(proveedor) -> origen -> default; si ninguna capa resuelve, omite con aviso claro.
+  * UI (RequerimientosCompra.razor): (a) General -> selector "Proceso de cotizacion por defecto (RFQ)"; (b) Matriz
+    -> por proveedor, selector "Proceso de cotizacion" (persiste al cambiar, junto a los dias de vigencia); (c)
+    Planificar (pestana Planificacion) -> bloque "Proceso de cotizacion (RFQ) por producto" (un selector por
+    producto distinto del plan; persiste al cambiar). _subcats se carga en OnInitialized para el modal de plan.
+- VALIDADO E2E 5265/SKY (admin@sky-system.local): round-trip de las 3 capas confirmado en BD
+  (cotizacion_default=Cotizacion de equipos; matriz_ext.ProvCot INGETEL -> Visita tecnica; cotizacion_producto
+  {"d:cable utp cat 6a": Contratacion}). PRECEDENCIA probada en 2 niveles via RFQ reales:
+  * RFQ-0003 (CABLE UTP CAT 6A): tarea portadora subcategoria = **Contratacion** (capa PRODUCTO) ganando sobre
+    matriz(Visita tecnica), origen y default -> layer 1 > 2/3/4.
+  * RFQ-0005 (CONVERSOR, SIN entrada por producto): subcategoria = **Contratacion** (capa MATRIZ, tras fijar
+    INGETEL=Contratacion) ganando sobre origen(PROYECTOS) y default(Cotizacion de equipos) -> layer 2 > 3/4.
+  * GOTCHA util: un primer intento sobre CONVERSOR con INGETEL=Visita tecnica fallo con "El flujo esta pausado:
+    no se pueden iniciar instancias nuevas" -> confirma que el resolver SELECCIONO la subcategoria de la matriz;
+    el fallo es del motor de flujos (ajeno a Ola D). Por eso se reapunto la matriz a un flujo activo (Contratacion).
+- DATOS DE PRUEBA vivos en SKY (reversibles): config (default/matriz INGETEL/producto cable utp cat 6a), RFQ-0003
+  + RFQ-0005 + sus tareas portadoras, distribuciones de CABLE UTP CAT 6A y CONVERSOR (ambas Cotizada). Seq RFQ
+  tiene un hueco (0004) por el intento con flujo pausado.
+- SIGUIENTE: Ola E (multi-candidato por linea + ver estado RFQ en planeacion), Ola F (envio auto/plantillas/rondas)
+  a senal del usuario. El PROMPT de integracion a dev central ahora acumula tambien la Ola D.
+
 ## 2026-11-02 - RFQ Ola C: la "vuelta" (respuesta del proveedor -> linea RFQ + comparador) (worktree requerimiento_compras)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores. SIN MIGRACION

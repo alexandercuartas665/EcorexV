@@ -644,6 +644,12 @@ public sealed class RequerimientoService : IRequerimientoService
             else { avisos.Add("El formulario de cotizacion (RFQ) configurado no esta activo; las RFQ se crearon sin inyectar las lineas."); }
         }
 
+        // Ola D: precedencia del PROCESO de cotizacion (subcategoria/flujo que corre la tarea portadora):
+        // producto (en planificacion) > matriz del proveedor > origen de la linea (abajo) > default del modulo.
+        var cotDefault = await _config.GetCotizacionDefaultAsync(ct);
+        var provProceso = await _config.GetProveedorProcesoMapAsync(ct);
+        var prodProceso = await _config.GetProductoProcesoMapAsync(ct);
+
         var creadas = new List<RfqDto>();
         var totalLineas = 0;
 
@@ -653,20 +659,34 @@ public sealed class RequerimientoService : IRequerimientoService
             var provNombre = provNombres.TryGetValue(provId, out var pn) ? pn : null;
             var lineas = grupo.ToList();
 
-            // Resolver la subcategoria de cotizacion: la del primer origen (de las lineas) que la tenga.
+            // Resolver la subcategoria de cotizacion con la cadena de precedencia de la Ola D.
             Guid? subcategoriaId = null;
+            // 1. Producto en planificacion: la mas especifica (por clave de producto). Primera que aplique.
             foreach (var h in lineas)
             {
-                if (padres.TryGetValue(h.RequerimientoId, out var p) && p.OrigenId is Guid oid
-                    && subcatPorOrigen.TryGetValue(oid, out var sc) && sc is Guid scId)
+                var p = padres.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
+                if (prodProceso.TryGetValue(ClaveProducto(p?.ItemId, p?.Descripcion), out var pc)) { subcategoriaId = pc; break; }
+            }
+            // 2. Matriz del proveedor.
+            if (subcategoriaId is null && provProceso.TryGetValue(provId, out var mp)) { subcategoriaId = mp; }
+            // 3. Origen de las lineas (comportamiento previo): el primer origen que tenga proceso de cotizacion.
+            if (subcategoriaId is null)
+            {
+                foreach (var h in lineas)
                 {
-                    subcategoriaId = scId; break;
+                    if (padres.TryGetValue(h.RequerimientoId, out var p) && p.OrigenId is Guid oid
+                        && subcatPorOrigen.TryGetValue(oid, out var sc) && sc is Guid scId)
+                    {
+                        subcategoriaId = scId; break;
+                    }
                 }
             }
+            // 4. Default del modulo.
+            if (subcategoriaId is null && cotDefault is Guid dft) { subcategoriaId = dft; }
             if (subcategoriaId is null)
             {
                 omitidas += lineas.Count;
-                avisos.Add($"{provNombre ?? "Proveedor"}: ningun origen de sus lineas tiene proceso de COTIZACION configurado; se omitio.");
+                avisos.Add($"{provNombre ?? "Proveedor"}: no hay proceso de COTIZACION (ni por producto, ni por proveedor, ni en el origen, ni default del modulo); se omitio.");
                 continue;
             }
 
@@ -1012,10 +1032,9 @@ public sealed class RequerimientoService : IRequerimientoService
 
     /// <summary>Clave de agrupacion por producto, IGUAL que la de la grilla (ConsolKey): "i:{ItemId}" o
     /// "d:{descripcion en minusculas, recortada y con espacios colapsados}".</summary>
+    // Delega en la fuente unica compartida (RequerimientoClave) para que la clave calce en todo el modulo.
     private static string ClaveProducto(Guid? itemId, string? descripcion)
-        => itemId is Guid id
-            ? "i:" + id
-            : "d:" + string.Join(' ', (descripcion ?? "").Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        => RequerimientoClave.Of(itemId, descripcion);
 
     public async Task<IReadOnlyList<CotizacionDto>> ListCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default)
     {

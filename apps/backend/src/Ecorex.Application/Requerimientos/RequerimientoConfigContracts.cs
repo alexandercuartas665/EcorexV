@@ -141,6 +141,30 @@ public interface IRequerimientoConfigService
     /// <summary>Fija (o limpia, con null) los dias de vigencia default de un proveedor.</summary>
     Task SetProveedorVigenciaAsync(Guid proveedorId, int? dias, CancellationToken ct = default);
 
+    // ---- Ola D: precedencia del PROCESO de cotizacion (subcategoria/flujo que corre la RFQ) ----
+    // Cadena de resolucion al "Cotizar por proveedor": producto (en planificacion) > matriz del proveedor >
+    // origen de la linea (comportamiento previo) > default del modulo. Las tres capas nuevas viven en
+    // TenantConfiguration (sin migracion).
+
+    /// <summary>Proceso de cotizacion por DEFECTO del modulo (ultimo recurso de la cadena). Null si no se fijo.</summary>
+    Task<Guid?> GetCotizacionDefaultAsync(CancellationToken ct = default);
+    /// <summary>Fija (o limpia, con null) el proceso de cotizacion por defecto del modulo.</summary>
+    Task SetCotizacionDefaultAsync(Guid? subcategoriaId, CancellationToken ct = default);
+
+    /// <summary>Proceso de cotizacion fijado por PROVEEDOR (capa "matriz"). Mapa proveedorId -> subcategoria.
+    /// Solo incluye proveedores con valor definido.</summary>
+    Task<IReadOnlyDictionary<Guid, Guid>> GetProveedorProcesoMapAsync(CancellationToken ct = default);
+    /// <summary>Fija (o limpia, con null) el proceso de cotizacion de un proveedor.</summary>
+    Task SetProveedorProcesoAsync(Guid proveedorId, Guid? subcategoriaId, CancellationToken ct = default);
+
+    /// <summary>Proceso de cotizacion fijado por PRODUCTO (capa mas especifica, "producto en planificacion").
+    /// Mapa claveProducto -> subcategoria. La clave es la misma del comparador (<see cref="RequerimientoClave"/>).</summary>
+    Task<IReadOnlyDictionary<string, Guid>> GetProductoProcesoMapAsync(CancellationToken ct = default);
+    /// <summary>Lee el proceso de cotizacion fijado para un producto (por su item/descripcion). Null si no hay.</summary>
+    Task<Guid?> GetProductoProcesoAsync(Guid? itemId, string? descripcion, CancellationToken ct = default);
+    /// <summary>Fija (o limpia, con null) el proceso de cotizacion de un producto (por su item/descripcion).</summary>
+    Task SetProductoProcesoAsync(Guid? itemId, string? descripcion, Guid? subcategoriaId, CancellationToken ct = default);
+
     // ---- Ola B: formulario de cotizacion (RFQ) ----
 
     /// <summary>Mapeo del formulario de cotizacion (RFQ) del tenant (Ola B). Nunca null: todo vacio si no se ha

@@ -206,6 +206,8 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
     {
         public Dictionary<string, ReglaExt> Reglas { get; set; } = new();
         public Dictionary<string, int> Prov { get; set; } = new();
+        // Ola D: proceso de cotizacion por proveedor (proveedorId -> subcategoria Guid como texto).
+        public Dictionary<string, string> ProvCot { get; set; } = new();
     }
     private sealed class ReglaExt
     {
@@ -366,6 +368,87 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         if (dias is int d && d > 0) { ext.Prov[proveedorId.ToString()] = d; }
         else { ext.Prov.Remove(proveedorId.ToString()); }
         await PersistExtAsync(ext, tid, ct);
+    }
+
+    // ---- Ola D: precedencia del proceso de cotizacion (default modulo / por proveedor / por producto) ----
+    private const string CotDefaultKey = "requerimientos.cotizacion_default";
+    private const string CotProductoKey = "requerimientos.cotizacion_producto";
+
+    public async Task<Guid?> GetCotizacionDefaultAsync(CancellationToken ct = default)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == CotDefaultKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        return Guid.TryParse(val, out var g) ? g : null;
+    }
+
+    public async Task SetCotizacionDefaultAsync(Guid? subcategoriaId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == CotDefaultKey, ct);
+        var json = subcategoriaId is Guid g && g != Guid.Empty ? g.ToString() : "";
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = CotDefaultKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, Guid>> GetProveedorProcesoMapAsync(CancellationToken ct = default)
+    {
+        var ext = await LoadExtAsync(ct);
+        var map = new Dictionary<Guid, Guid>();
+        foreach (var kv in ext.ProvCot)
+        {
+            if (Guid.TryParse(kv.Key, out var pid) && Guid.TryParse(kv.Value, out var sub)) { map[pid] = sub; }
+        }
+        return map;
+    }
+
+    public async Task SetProveedorProcesoAsync(Guid proveedorId, Guid? subcategoriaId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var ext = await LoadExtAsync(ct);
+        if (subcategoriaId is Guid g && g != Guid.Empty) { ext.ProvCot[proveedorId.ToString()] = g.ToString(); }
+        else { ext.ProvCot.Remove(proveedorId.ToString()); }
+        await PersistExtAsync(ext, tid, ct);
+    }
+
+    private async Task<Dictionary<string, string>> LoadProductoProcesoAsync(CancellationToken ct)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == CotProductoKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(val)) { return new Dictionary<string, string>(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(val!) ?? new(); }
+        catch { return new Dictionary<string, string>(); }
+    }
+
+    public async Task<IReadOnlyDictionary<string, Guid>> GetProductoProcesoMapAsync(CancellationToken ct = default)
+    {
+        var raw = await LoadProductoProcesoAsync(ct);
+        var map = new Dictionary<string, Guid>();
+        foreach (var kv in raw)
+        {
+            if (Guid.TryParse(kv.Value, out var sub)) { map[kv.Key] = sub; }
+        }
+        return map;
+    }
+
+    public async Task<Guid?> GetProductoProcesoAsync(Guid? itemId, string? descripcion, CancellationToken ct = default)
+    {
+        var raw = await LoadProductoProcesoAsync(ct);
+        return raw.TryGetValue(RequerimientoClave.Of(itemId, descripcion), out var v) && Guid.TryParse(v, out var g) ? g : null;
+    }
+
+    public async Task SetProductoProcesoAsync(Guid? itemId, string? descripcion, Guid? subcategoriaId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var raw = await LoadProductoProcesoAsync(ct);
+        var clave = RequerimientoClave.Of(itemId, descripcion);
+        if (subcategoriaId is Guid g && g != Guid.Empty) { raw[clave] = g.ToString(); }
+        else { raw.Remove(clave); }
+        var json = System.Text.Json.JsonSerializer.Serialize(raw);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == CotProductoKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = CotProductoKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)

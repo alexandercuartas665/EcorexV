@@ -944,6 +944,29 @@ else
                     </table>
                 </div>
                 <button class="btn btn-outline-secondary btn-sm" style="margin-top:10px;" @onclick="AddHijoRow">+ Agregar compra programada</button>
+                @if (_canConfig)
+                {
+                    <div style="margin-top:14px;border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                        <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de cotizacion (RFQ) por producto</div>
+                        <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Fija que flujo/subcategoria corre la RFQ de este producto. Gana sobre el proveedor, el origen y el default del modulo. Se recuerda para el producto.</div>
+                        @foreach (var p in PlanProductos())
+                        {
+                            var pp = p;
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                                <span style="font-size:12.5px;min-width:160px;color:var(--ink,#1f2937);">@pp.Label</span>
+                                <select class="form-select form-select-sm" style="max-width:280px;font-size:12.5px;"
+                                        value="@(_planProcEdit.TryGetValue(pp.Clave, out var pcur) ? pcur : "")"
+                                        @onchange="e => SetPlanProcesoAsync(pp.ItemId, pp.Desc, e.Value?.ToString())">
+                                    <option value="">(usa proveedor / origen / default)</option>
+                                    @foreach (var s in _subcats)
+                                    {
+                                        <option value="@s.Id">@s.Nombre</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                }
                 @if (_planError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_planError</div> }
             </div>
             }
@@ -1014,6 +1037,17 @@ else
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">El agente del <strong>modulo de agentes</strong> que compara las cotizaciones del comparador y propone la mejor opcion.</div>
                 </div>
                 <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de cotizacion por defecto (RFQ)</div>
+                    <select class="form-select form-select-sm" @bind="_cfgCotDefault">
+                        <option value="">(sin default: usa el proceso del origen de la linea)</option>
+                        @foreach (var s in _subcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Flujo/subcategoria que corre la RFQ cuando ni el <strong>producto</strong> (en Planificar), ni el <strong>proveedor</strong> (matriz), ni el <strong>origen</strong> de la linea fijan uno. Es el ultimo recurso de la cadena.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
                     <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Unidades de medida</div>
                     <textarea class="form-control form-control-sm" rows="6" @bind="_cfgUnidades" placeholder="Una por linea (Unidad, Caja, Kilogramo...)" style="font-size:12.5px;font-family:inherit;"></textarea>
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Una unidad por linea. Aparecen al crear una necesidad y en el verbo <strong>Generar requerimientos desde tabla</strong>. Si lo dejas vacio se usan las unidades comunes por defecto.</div>
@@ -1081,6 +1115,17 @@ else
                                                    value="@(_cfgProvVigEdit.TryGetValue(provId, out var pv) ? pv : "")"
                                                    @onchange="e => _cfgProvVigEdit[provId] = e.Value?.ToString() ?? string.Empty" />
                                             <button class="btn btn-link btn-sm" style="padding:0;" @onclick="() => SaveProvVigenciaAsync(provId)" disabled="@_busy">Guardar</button>
+                                        </span>
+                                        <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2,#4b5563);" title="Flujo/subcategoria que corre la RFQ de este proveedor; gana sobre el origen y el default del modulo, y lo supera lo fijado por producto en Planificar.">Proceso de cotizacion
+                                            <select class="form-select form-select-sm" style="width:200px;height:28px;padding:0 8px;font-size:12.5px;"
+                                                    value="@(_cfgProvProcEdit.TryGetValue(provId, out var pp) ? pp : "")"
+                                                    @onchange="e => SaveProvProcesoAsync(provId, e.Value?.ToString())">
+                                                <option value="">(del origen / default)</option>
+                                                @foreach (var s in _subcats)
+                                                {
+                                                    <option value="@s.Id">@s.Nombre</option>
+                                                }
+                                            </select>
                                         </span>
                                         <span style="font-size:11.5px;color:var(--ink-3,#6b7280);">@grp.Count() regla(s)</span>
                                     </div>
@@ -1516,6 +1561,14 @@ else
     private Dictionary<Guid, int> _cfgProvVig = new();
     private Dictionary<Guid, string> _cfgProvVigEdit = new();
     private Ecorex.SuperAdmin.Components.Shared.TerceroModal? _terceroModal;
+    // Ola D: proceso de cotizacion por defecto del modulo + por proveedor (matriz). _subcats = catalogo comun.
+    private List<RequerimientoOpcionDto> _subcats = new();
+    private string _cfgCotDefault = "";
+    private Dictionary<Guid, Guid> _cfgProvProc = new();
+    private Dictionary<Guid, string> _cfgProvProcEdit = new();
+    // Ola D: proceso de cotizacion por PRODUCTO (lo fija el comprador en Planificar). Mapa clave -> subcat.
+    private IReadOnlyDictionary<string, Guid> _planProcMap = new Dictionary<string, Guid>();
+    private Dictionary<string, string> _planProcEdit = new();
 
     // Clave de consolidacion del grupo abierto (para recalcular el grupo tras un "Dividir").
     private string _pgKey = "";
@@ -1997,6 +2050,7 @@ else
             _agentes = (await ConfigSvc.ListAgentesAsync()).ToList();
             _cfgAgente = await ConfigSvc.GetAgenteCotizacionesAsync();
             _cfgUnidades = string.Join('\n', await ConfigSvc.GetUnidadesAsync());
+            _cfgCotDefault = (await ConfigSvc.GetCotizacionDefaultAsync())?.ToString() ?? "";
             await LoadCfgAvanzadaAsync();
         }
         catch (Exception ex) { _cfgError = ex.Message; }
@@ -2014,6 +2068,10 @@ else
         _cfgProvVig = (await ConfigSvc.GetProveedorVigenciaMapAsync()).ToDictionary(k => k.Key, v => v.Value);
         _cfgProvVigEdit = _cfgReglas.Select(r => r.ProveedorId).Distinct()
             .ToDictionary(id => id, id => _cfgProvVig.TryGetValue(id, out var d) ? d.ToString() : "");
+        // Ola D: proceso de cotizacion fijado por proveedor (matriz).
+        _cfgProvProc = (await ConfigSvc.GetProveedorProcesoMapAsync()).ToDictionary(k => k.Key, v => v.Value);
+        _cfgProvProcEdit = _cfgReglas.Select(r => r.ProveedorId).Distinct()
+            .ToDictionary(id => id, id => _cfgProvProc.TryGetValue(id, out var s) ? s.ToString() : "");
     }
     private void OnCfgAgenteChanged(ChangeEventArgs e)
         => _cfgAgente = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
@@ -2026,6 +2084,7 @@ else
             await ConfigSvc.SetModoAsync(_cfgModo);
             await ConfigSvc.SetAgenteCotizacionesAsync(_cfgAgente);
             await ConfigSvc.SetUnidadesAsync(_cfgUnidades.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            await ConfigSvc.SetCotizacionDefaultAsync(Guid.TryParse(_cfgCotDefault, out var cdef) ? cdef : null);
             _unidades = (await ConfigSvc.GetUnidadesAsync()).ToList();
             _modo = _cfgModo;
             // El modo del modulo manda sobre la vista: al guardar, la grilla pasa al modo elegido.
@@ -2188,6 +2247,56 @@ else
         finally { _busy = false; }
     }
 
+    // Ola D: fija el proceso de cotizacion de un proveedor (capa "matriz" de la precedencia). Persiste al cambiar.
+    private async Task SaveProvProcesoAsync(Guid provId, string? val)
+    {
+        _busy = true;
+        try
+        {
+            var sub = Guid.TryParse(val, out var g) ? (Guid?)g : null;
+            await ConfigSvc.SetProveedorProcesoAsync(provId, sub);
+            _cfgProvProcEdit[provId] = sub?.ToString() ?? "";
+            _cfgProvProc = (await ConfigSvc.GetProveedorProcesoMapAsync()).ToDictionary(k => k.Key, v => v.Value);
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Ola D: productos distintos de la planificacion abierta (por clave), para fijar su proceso de cotizacion.
+    private List<(string Clave, string Label, Guid? ItemId, string Desc)> PlanProductos()
+        => _planRegs
+            .GroupBy(r => RequerimientoClave.Of(r.ItemId, r.Descripcion))
+            .Select(g => (g.Key, (g.First().ItemNombre ?? g.First().Descripcion ?? g.Key), g.First().ItemId, g.First().Descripcion ?? string.Empty))
+            .ToList();
+
+    // Carga los procesos de cotizacion fijados por producto para la planificacion abierta.
+    private async Task LoadPlanProcesosAsync()
+    {
+        try
+        {
+            _planProcMap = await ConfigSvc.GetProductoProcesoMapAsync();
+            _planProcEdit = PlanProductos()
+                .ToDictionary(p => p.Clave, p => _planProcMap.TryGetValue(p.Clave, out var s) ? s.ToString() : "");
+        }
+        catch { _planProcEdit = new(); }
+    }
+
+    // Ola D: fija el proceso de cotizacion de un PRODUCTO desde la planificacion ("producto en planificacion",
+    // la capa mas especifica de la precedencia). Persiste al cambiar.
+    private async Task SetPlanProcesoAsync(Guid? itemId, string? desc, string? val)
+    {
+        _busy = true;
+        try
+        {
+            var sub = Guid.TryParse(val, out var g) ? (Guid?)g : null;
+            await ConfigSvc.SetProductoProcesoAsync(itemId, desc, sub);
+            _planProcEdit[RequerimientoClave.Of(itemId, desc)] = sub?.ToString() ?? "";
+            _planProcMap = await ConfigSvc.GetProductoProcesoMapAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
     private async Task DeleteCfgReglaAsync(Guid id)
     {
         _busy = true;
@@ -2284,6 +2393,8 @@ else
         _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
         _items = (await Svc.ListItemsAsync()).ToList();
         _proveedores = (await Svc.ListProveedoresAsync()).ToList();
+        // Catalogo de subcategorias (procesos de cotizacion) para los selectores de precedencia (Ola D).
+        try { _subcats = (await ConfigSvc.ListSubcategoriasAsync()).ToList(); } catch { }
         await ReloadAsync();
     }
 
@@ -2926,6 +3037,7 @@ else
         foreach (var h in _pHijos) { await FillContactoAsync(h); }
         // Valores de los campos dinamicos de las lineas (hijas) ya guardadas.
         await LoadHijoDynValuesAsync();
+        await LoadPlanProcesosAsync();
     }
 
     // Abre el MISMO modal de plan (rico) para una linea agrupada: una fila por necesidad/origen.
@@ -2945,6 +3057,7 @@ else
         _showPlan = true;
         foreach (var h in _pHijos) { await FillContactoAsync(h); }
         await LoadHijoDynValuesAsync();
+        await LoadPlanProcesosAsync();
     }
 
     // Construye las filas del plan en modo grupo: trae las divisiones guardadas de cada necesidad,

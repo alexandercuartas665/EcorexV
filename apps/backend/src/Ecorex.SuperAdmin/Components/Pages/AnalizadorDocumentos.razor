@@ -1,18 +1,25 @@
 @page "/analizador-documentos"
 @attribute [Authorize(Policy = "Perm:analizador-documentos:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
 @using Ecorex.Application.DocumentosAnalisis
 @using Ecorex.Application.Roles
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.RealTime
 @using Ecorex.SuperAdmin.Services
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @inject IDocumentoAnalisisService Docs
 @inject ICurrentPermissions Perms
+@inject IDocumentoAnalisisNotifier Notifier
+@inject AuthenticationStateProvider AuthProvider
+@implements IDisposable
 
-@* Analizador de documentos (fase 1: carga). Parrilla que recibe lotes de PDF, los sube al
-   almacenamiento unificado (Azure Blob / disco via IFileStorageService) y los lista. Tokens del
-   workspace ECOREX (--brand/--ink/--surface/--line). El motor de analisis es fase siguiente. *@
+@* Analizador de documentos. Parrilla que recibe lotes de PDF, los sube al almacenamiento unificado
+   (Azure Blob / disco via IFileStorageService), los lista y permite enviarlos a analisis: el agente de
+   vision separa cada PDF combinado en sus N soportes de pago y extrae metadata. Procesamiento en
+   background (worker) con spinner por archivo via notifier en proceso. Tokens del workspace ECOREX. *@
 
 <PageTitle>Analizador de documentos - ECOREX.tareas</PageTitle>
 
@@ -32,8 +39,8 @@
         </div>
         <h1 class="page-title" style="margin-top:12px;">Documentos</h1>
         <p class="page-sub" style="margin-bottom:0;">
-            Carga lotes de archivos PDF. Cada archivo se sube al almacenamiento del sistema y queda
-            registrado en la parrilla, listo para analizar.
+            Carga lotes de archivos PDF combinados. El agente de vision los separa en sus soportes de pago
+            individuales y extrae la metadata configurada.
         </p>
     </div>
     @if (_canEdit)
@@ -53,106 +60,237 @@
 }
 else
 {
-    @if (_canCreate)
-    {
-        <div class="ad-drop">
-            <div class="ad-drop-ico">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
-            </div>
-            <div class="ad-drop-txt">
-                <strong>Subir archivos PDF</strong>
-                <span class="ad-muted">Solo PDF &#183; hasta @MaxMb MB por archivo &#183; varios a la vez</span>
-            </div>
-            <label class="ad-btn primary @(_subiendo ? "disabled" : "")">
-                @(_subiendo ? "Subiendo..." : "Elegir archivos")
-                <InputFile class="ad-file-hidden" accept="application/pdf,.pdf" multiple
-                           OnChange="OnFilesSelectedAsync" disabled="@_subiendo" />
-            </label>
-        </div>
-    }
+    <div class="ad-tabs" role="tablist">
+        <button class="ad-tab @(_tab == Tab.Cargados ? "active" : "")" @onclick="() => _tab = Tab.Cargados" role="tab">
+            Cargados @if (_docs.Count > 0) { <span class="ad-tab-count">@_docs.Count</span> }
+        </button>
+        <button class="ad-tab @(_tab == Tab.Procesados ? "active" : "")" @onclick="CambiarAProcesadosAsync" role="tab">
+            Procesados @if (_procesados.Count > 0) { <span class="ad-tab-count">@_procesados.Count</span> }
+        </button>
+    </div>
 
     @if (_mensaje is not null)
     {
         <div class="ad-alert @(_mensajeEsError ? "err" : "ok")">@_mensaje</div>
     }
 
-    @if (_cola.Count > 0)
+    @if (_tab == Tab.Cargados)
     {
-        <div class="ad-cola">
-            <div class="ad-cola-head">Lote actual &#183; @_cola.Count archivo(s)</div>
-            @foreach (var c in _cola)
-            {
-                <div class="ad-cola-row">
-                    <span class="ad-cola-name" title="@c.Nombre">@c.Nombre</span>
-                    <span class="ad-cola-size">@FormatoTamano(c.Bytes)</span>
-                    <span class="ad-chip @ChipClase(c.Estado)">@EstadoTexto(c.Estado)</span>
-                    @if (c.Estado == ColaEstado.Error && c.Error is not null)
-                    {
-                        <span class="ad-cola-err" title="@c.Error">@c.Error</span>
-                    }
+        @if (_canCreate)
+        {
+            <div class="ad-drop">
+                <div class="ad-drop-ico">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
                 </div>
-            }
-        </div>
-    }
+                <div class="ad-drop-txt">
+                    <strong>Subir archivos PDF</strong>
+                    <span class="ad-muted">Solo PDF &#183; hasta @MaxMb MB por archivo &#183; varios a la vez</span>
+                </div>
+                <label class="ad-btn primary @(_subiendo ? "disabled" : "")">
+                    @(_subiendo ? "Subiendo..." : "Elegir archivos")
+                    <InputFile class="ad-file-hidden" accept="application/pdf,.pdf" multiple
+                               OnChange="OnFilesSelectedAsync" disabled="@_subiendo" />
+                </label>
+            </div>
+        }
 
-    <div class="ad-grid-wrap">
-        <table class="ad-grid">
-            <thead>
-                <tr>
-                    <th>Documento</th>
-                    <th style="width:120px;">Tamano</th>
-                    <th style="width:120px;">Estado</th>
-                    <th style="width:180px;">Cargado</th>
-                    <th style="width:150px;" class="ad-right">Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (_docs.Count == 0)
+        @if (_cola.Count > 0)
+        {
+            <div class="ad-cola">
+                <div class="ad-cola-head">Lote actual &#183; @_cola.Count archivo(s)</div>
+                @foreach (var c in _cola)
                 {
-                    <tr>
-                        <td colspan="5" class="ad-empty">Aun no hay documentos. Sube uno o varios PDF para empezar.</td>
-                    </tr>
+                    <div class="ad-cola-row">
+                        <span class="ad-cola-name" title="@c.Nombre">@c.Nombre</span>
+                        <span class="ad-cola-size">@FormatoTamano(c.Bytes)</span>
+                        <span class="ad-chip @ChipClase(c.Estado)">@EstadoTexto(c.Estado)</span>
+                        @if (c.Estado == ColaEstado.Error && c.Error is not null)
+                        {
+                            <span class="ad-cola-err" title="@c.Error">@c.Error</span>
+                        }
+                    </div>
                 }
-                else
-                {
-                    @foreach (var d in _docs)
+            </div>
+        }
+
+        @if (_canEdit && _seleccion.Count > 0)
+        {
+            <div class="ad-bulk">
+                <span class="ad-muted">@_seleccion.Count seleccionado(s)</span>
+                <button class="ad-btn primary sm" @onclick="ProcesarSeleccionAsync" disabled="@_subiendo">
+                    Procesar seleccionados
+                </button>
+                <button class="ad-btn sm" @onclick="() => _seleccion.Clear()">Limpiar</button>
+            </div>
+        }
+
+        <div class="ad-grid-wrap">
+            <table class="ad-grid">
+                <thead>
+                    <tr>
+                        @if (_canEdit) { <th style="width:36px;"></th> }
+                        <th>Documento</th>
+                        <th style="width:110px;">Tamano</th>
+                        <th style="width:130px;">Estado</th>
+                        <th style="width:160px;">Cargado</th>
+                        <th style="width:210px;" class="ad-right">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_docs.Count == 0)
                     {
                         <tr>
-                            <td class="ad-doc-name">
-                                <svg class="ad-doc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-                                <span title="@d.FileName">@d.FileName</span>
-                            </td>
-                            <td>@FormatoTamano(d.SizeBytes)</td>
-                            <td><span class="ad-chip @ChipClaseDoc(d.Estado)">@EstadoDocTexto(d.Estado)</span></td>
-                            <td>@d.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
-                            <td class="ad-right">
-                                <a class="ad-btn sm" href="@d.Url" target="_blank" rel="noopener">Ver</a>
-                                @if (_canDelete)
-                                {
-                                    <button class="ad-btn sm danger" @onclick="() => EliminarAsync(d)" disabled="@_subiendo">Eliminar</button>
-                                }
-                            </td>
+                            <td colspan="@(_canEdit ? 6 : 5)" class="ad-empty">Aun no hay documentos. Sube uno o varios PDF para empezar.</td>
                         </tr>
                     }
-                }
-            </tbody>
-        </table>
-    </div>
+                    else
+                    {
+                        @foreach (var d in _docs)
+                        {
+                            var doc = d;
+                            <tr>
+                                @if (_canEdit)
+                                {
+                                    <td>
+                                        @if (doc.Estado == DocumentoAnalisisEstado.Cargado)
+                                        {
+                                            <input type="checkbox" checked="@_seleccion.Contains(doc.Id)"
+                                                   @onchange="e => AlternarSeleccion(doc.Id, e.Value)" />
+                                        }
+                                    </td>
+                                }
+                                <td class="ad-doc-name">
+                                    <svg class="ad-doc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                                    <span title="@doc.FileName">@doc.FileName</span>
+                                </td>
+                                <td>@FormatoTamano(doc.SizeBytes)</td>
+                                <td>
+                                    @if (doc.Estado == DocumentoAnalisisEstado.EnAnalisis)
+                                    {
+                                        <span class="ad-chip run"><span class="ad-spin"></span> En analisis</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="ad-chip @ChipClaseDoc(doc.Estado)" title="@doc.MotivoError">@EstadoDocTexto(doc.Estado)</span>
+                                    }
+                                </td>
+                                <td>@doc.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="ad-right">
+                                    @if (_canEdit && doc.Estado == DocumentoAnalisisEstado.Cargado)
+                                    {
+                                        <button class="ad-btn sm primary" @onclick="() => ProcesarUnoAsync(doc)" disabled="@_subiendo">Procesar</button>
+                                    }
+                                    @if (_canEdit && doc.Estado == DocumentoAnalisisEstado.Error)
+                                    {
+                                        <button class="ad-btn sm" @onclick="() => ProcesarUnoAsync(doc)" disabled="@_subiendo">Reintentar</button>
+                                    }
+                                    @if (_canEdit && doc.Estado == DocumentoAnalisisEstado.Analizado)
+                                    {
+                                        <button class="ad-btn sm" @onclick="() => ProcesarUnoAsync(doc)" disabled="@_subiendo">Reprocesar</button>
+                                    }
+                                    @if (doc.Estado == DocumentoAnalisisEstado.Analizado || doc.Estado == DocumentoAnalisisEstado.Error)
+                                    {
+                                        <button class="ad-btn sm" @onclick="() => AbrirTrazaAsync(doc.Id)">Traza</button>
+                                    }
+                                    <a class="ad-btn sm" href="@doc.Url" target="_blank" rel="noopener">Ver</a>
+                                    @if (_canDelete)
+                                    {
+                                        <button class="ad-btn sm danger" @onclick="() => EliminarAsync(doc)" disabled="@_subiendo">Eliminar</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="ad-grid-wrap">
+            <table class="ad-grid">
+                <thead>
+                    <tr>
+                        <th>Documento</th>
+                        <th style="width:100px;">Paquetes</th>
+                        <th style="width:150px;">Agente</th>
+                        <th style="width:130px;">Motor</th>
+                        <th style="width:110px;">Tokens</th>
+                        <th style="width:90px;">Tiempo</th>
+                        <th style="width:160px;">Procesado</th>
+                        <th style="width:130px;" class="ad-right">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_procesados.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="8" class="ad-empty">Aun no hay documentos procesados. Envia un PDF a analisis desde la pestana Cargados.</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var p in _procesados)
+                        {
+                            var proc = p;
+                            <tr>
+                                <td class="ad-doc-name">
+                                    <svg class="ad-doc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                                    <span title="@proc.FileName">@proc.FileName</span>
+                                </td>
+                                <td>
+                                    @if (proc.Estado == DocumentoAnalisisEstado.EnAnalisis)
+                                    {
+                                        <span class="ad-chip run"><span class="ad-spin"></span></span>
+                                    }
+                                    else if (proc.Estado == DocumentoAnalisisEstado.Error)
+                                    {
+                                        <span class="ad-chip err" title="@proc.MotivoError">Error</span>
+                                    }
+                                    else
+                                    {
+                                        @(proc.PaquetesCount?.ToString() ?? "-")
+                                    }
+                                </td>
+                                <td title="@FechaVersion(proc.AgenteVersionAt)">@(proc.AgenteNombre ?? "-")</td>
+                                <td>@MotorTexto(proc.Proveedor, proc.Modelo)</td>
+                                <td>@TokensTexto(proc.InputTokens, proc.OutputTokens)</td>
+                                <td>@TiempoTexto(proc.ProcesamientoMs)</td>
+                                <td>@(proc.ProcesadoAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
+                                <td class="ad-right">
+                                    @if (proc.Estado == DocumentoAnalisisEstado.Analizado && (proc.PaquetesCount ?? 0) > 0)
+                                    {
+                                        <button class="ad-btn sm primary" @onclick="() => AbrirResultadosAsync(proc)">Ver resultados</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
 }
 
 @if (_configOpen)
 {
     <div class="modal-overlay" @onclick="() => _configOpen = false">
-        <div class="modal-dialog" style="max-width:720px;" @onclick:stopPropagation="true">
+        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
             <div class="modal-head">
                 <h3>Configuracion del Analizador</h3>
                 <button class="modal-close" @onclick="() => _configOpen = false">&times;</button>
             </div>
             <div class="modal-body">
+                @if (_configMsg is not null)
+                {
+                    <div class="ad-alert @(_configMsgErr ? "err" : "ok")">@_configMsg</div>
+                }
+
+                <h4 class="ad-cfg-section">Agente de analisis</h4>
                 <p class="ad-muted" style="margin-top:0;">
                     Selecciona agentes de tu modulo de Agentes y define, para cada uno, su <strong>prompt principal
                     de analisis</strong> (vive aqui, no cambia el prompt global del agente). Marca cual es el
-                    <strong>agente activo</strong> del Analizador.
+                    <strong>agente activo</strong> del Analizador. Los campos de metadata de abajo se inyectan en el prompt.
                 </p>
 
                 <div class="ad-add-row">
@@ -169,11 +307,6 @@ else
                 @if (_agentesDisponibles.Count == 0 && _agentesConfig.Count == 0)
                 {
                     <p class="ad-muted">No hay agentes en tu tenant todavia. Crealos en el modulo de Agentes y vuelve aqui a seleccionarlos.</p>
-                }
-
-                @if (_configMsg is not null)
-                {
-                    <div class="ad-alert @(_configMsgErr ? "err" : "ok")">@_configMsg</div>
                 }
 
                 <div class="ad-cfg-list">
@@ -203,6 +336,65 @@ else
                         </div>
                     }
                 </div>
+
+                <h4 class="ad-cfg-section" style="margin-top:22px;">Campos de metadata</h4>
+                <p class="ad-muted" style="margin-top:0;">
+                    Define que datos debe extraer el agente de cada soporte de pago. Cada campo se inyecta en el prompt
+                    y se muestra como columna en el modal de resultados. La <strong>clave</strong> es el identificador
+                    tecnico (sin espacios); la <strong>etiqueta</strong> es lo que ve el usuario.
+                </p>
+
+                <div class="ad-meta-grid-wrap">
+                    <table class="ad-meta-grid">
+                        <thead>
+                            <tr>
+                                <th>Etiqueta</th>
+                                <th style="width:150px;">Clave</th>
+                                <th style="width:110px;">Tipo</th>
+                                <th style="width:70px;">Orden</th>
+                                <th style="width:70px;">Activo</th>
+                                <th style="width:150px;" class="ad-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var c in _campos)
+                            {
+                                var campo = c;
+                                var m = _campoEdit[campo.Id];
+                                <tr>
+                                    <td><input class="ad-input sm" @bind="m.Etiqueta" /></td>
+                                    <td><input class="ad-input sm" @bind="m.Clave" /></td>
+                                    <td>
+                                        <select class="ad-input sm" @bind="m.Tipo">
+                                            @foreach (var t in Tipos) { <option value="@t">@t</option> }
+                                        </select>
+                                    </td>
+                                    <td><input class="ad-input sm" type="number" @bind="m.Orden" /></td>
+                                    <td style="text-align:center;"><input type="checkbox" @bind="m.Activo" /></td>
+                                    <td class="ad-right">
+                                        <button class="ad-btn sm" @onclick="() => GuardarCampoAsync(campo.Id)" disabled="@_ocupadoCfg">Guardar</button>
+                                        <button class="ad-btn sm danger" @onclick="() => EliminarCampoAsync(campo.Id)" disabled="@_ocupadoCfg">Eliminar</button>
+                                    </td>
+                                </tr>
+                            }
+                            <tr class="ad-meta-new">
+                                <td><input class="ad-input sm" placeholder="Beneficiario" @bind="_nuevoCampo.Etiqueta" /></td>
+                                <td><input class="ad-input sm" placeholder="beneficiario" @bind="_nuevoCampo.Clave" /></td>
+                                <td>
+                                    <select class="ad-input sm" @bind="_nuevoCampo.Tipo">
+                                        @foreach (var t in Tipos) { <option value="@t">@t</option> }
+                                    </select>
+                                </td>
+                                <td><input class="ad-input sm" type="number" @bind="_nuevoCampo.Orden" /></td>
+                                <td style="text-align:center;"><input type="checkbox" @bind="_nuevoCampo.Activo" /></td>
+                                <td class="ad-right">
+                                    <button class="ad-btn sm primary" @onclick="AgregarCampoAsync" disabled="@_ocupadoCfg">Agregar</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="ad-muted" style="margin-top:8px;">Tipos: <strong>texto</strong>, <strong>numero</strong>, <strong>fecha</strong>, <strong>lista</strong>. La descripcion de cada campo puede ampliarse editando su etiqueta.</p>
             </div>
             <div class="modal-foot">
                 <button class="ad-btn" @onclick="() => _configOpen = false">Cerrar</button>
@@ -211,13 +403,175 @@ else
     </div>
 }
 
+@if (_resultOpen && _resultDoc is not null)
+{
+    <div class="modal-overlay" @onclick="CerrarResultados">
+        <div class="modal-dialog" style="max-width:900px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Soportes separados &#183; @_resultDoc.FileName</h3>
+                <button class="modal-close" @onclick="CerrarResultados">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="ad-muted" style="margin-top:0;">
+                    @_resultPaquetes.Count paquete(s) generado(s) a partir del PDF combinado.
+                    Cada fila es un soporte de pago nuevo: a la izquierda el archivo, a la derecha su metadata.
+                </p>
+                <div class="ad-res-wrap">
+                    <table class="ad-res-grid">
+                        <thead>
+                            <tr>
+                                <th style="width:42%;">Archivo</th>
+                                <th>Metadatos</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pq in _resultPaquetes)
+                            {
+                                var paq = pq;
+                                <tr>
+                                    <td>
+                                        <div class="ad-res-file">
+                                            <div class="ad-res-fname">
+                                                <svg class="ad-doc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                                                <span title="@paq.NombreSugerido">@paq.NombreSugerido</span>
+                                            </div>
+                                            <div class="ad-res-meta-mini">
+                                                Paginas @paq.PaginaInicio&#8211;@paq.PaginaFin (@paq.Paginas) &#183; @FormatoTamano(paq.SizeBytes)
+                                                @if (paq.Confianza is double cf) { <span> &#183; confianza @((cf * 100).ToString("0")) %</span> }
+                                            </div>
+                                            <div class="ad-res-actions">
+                                                <button class="ad-btn sm" @onclick="() => TogglePdf(paq.Id)">
+                                                    @(_pdfVisible.Contains(paq.Id) ? "Ocultar" : "Visualizar")
+                                                </button>
+                                                <a class="ad-btn sm" href="@paq.Url" target="_blank" rel="noopener">Ver</a>
+                                                <a class="ad-btn sm" href="@paq.Url" download>Descargar</a>
+                                            </div>
+                                            <div class="ad-res-rev">
+                                                <span class="ad-chip @ChipRevision(paq.RevisionEstado)">@TextoRevision(paq.RevisionEstado)</span>
+                                                @if (_canEdit)
+                                                {
+                                                    <button class="ad-btn xs ok @(paq.RevisionEstado == PaqueteRevisionEstado.Correcto ? "on" : "")"
+                                                            @onclick="() => MarcarAsync(paq.Id, PaqueteRevisionEstado.Correcto)" disabled="@_marcando">Correcto</button>
+                                                    <button class="ad-btn xs bad @(paq.RevisionEstado == PaqueteRevisionEstado.Incorrecto ? "on" : "")"
+                                                            @onclick="() => MarcarAsync(paq.Id, PaqueteRevisionEstado.Incorrecto)" disabled="@_marcando">Incorrecto</button>
+                                                    @if (paq.RevisionEstado != PaqueteRevisionEstado.Pendiente)
+                                                    {
+                                                        <button class="ad-btn xs" @onclick="() => MarcarAsync(paq.Id, PaqueteRevisionEstado.Pendiente)" disabled="@_marcando">Limpiar</button>
+                                                    }
+                                                }
+                                                @if (paq.RevisadoAt is not null && !string.IsNullOrWhiteSpace(paq.RevisadoPor))
+                                                {
+                                                    <span class="ad-res-revby" title="@FechaRevision(paq.RevisadoAt)">por @paq.RevisadoPor</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @{
+                                            var datos = ParsearMetadata(paq.MetadataJson);
+                                        }
+                                        @if (_camposActivos.Count == 0 && datos.Count == 0)
+                                        {
+                                            <span class="ad-muted">Sin metadata.</span>
+                                        }
+                                        else
+                                        {
+                                            <dl class="ad-res-dl">
+                                                @foreach (var campo in _camposActivos)
+                                                {
+                                                    <dt>@campo.Etiqueta</dt>
+                                                    <dd>@(datos.TryGetValue(campo.Clave, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "-")</dd>
+                                                }
+                                                @foreach (var extra in datos.Where(kv => !_camposActivos.Any(c => string.Equals(c.Clave, kv.Key, StringComparison.OrdinalIgnoreCase))))
+                                                {
+                                                    <dt>@extra.Key</dt>
+                                                    <dd>@extra.Value</dd>
+                                                }
+                                            </dl>
+                                        }
+                                    </td>
+                                </tr>
+                                @if (_pdfVisible.Contains(paq.Id))
+                                {
+                                    <tr class="ad-res-pdf-row">
+                                        <td colspan="2">
+                                            <iframe class="ad-res-pdf" src="@paq.Url" title="@paq.NombreSugerido"></iframe>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="ad-btn" @onclick="CerrarResultados">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_trazaOpen && _traza is not null)
+{
+    <div class="modal-overlay" @onclick="() => _trazaOpen = false">
+        <div class="modal-dialog" style="max-width:860px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Traza del analisis &#183; @_traza.FileName</h3>
+                <button class="modal-close" @onclick="() => _trazaOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                @if (_traza.Estado == DocumentoAnalisisEstado.Error)
+                {
+                    <div class="ad-alert err"><strong>Fallo:</strong> @(_traza.MotivoError ?? "sin motivo registrado")</div>
+                }
+                <div class="ad-traza-grid">
+                    <div><span class="ad-traza-k">Estado</span><span class="ad-chip @ChipClaseDoc(_traza.Estado)">@EstadoDocTexto(_traza.Estado)</span></div>
+                    <div><span class="ad-traza-k">Agente</span>@(_traza.AgenteNombre ?? "-")</div>
+                    <div><span class="ad-traza-k">Version agente</span>@(_traza.AgenteVersionAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</div>
+                    <div><span class="ad-traza-k">Motor</span>@MotorTexto(_traza.Proveedor, _traza.Modelo)</div>
+                    <div><span class="ad-traza-k">Tokens (in / out)</span>@TokensTexto(_traza.InputTokens, _traza.OutputTokens)</div>
+                    <div><span class="ad-traza-k">Tiempo</span>@TiempoTexto(_traza.ProcesamientoMs)</div>
+                    <div><span class="ad-traza-k">Paginas enviadas</span>@(_traza.PaginasEnviadas?.ToString() ?? "-")</div>
+                    <div><span class="ad-traza-k">Paquetes</span>@(_traza.PaquetesCount?.ToString() ?? "-")</div>
+                    <div><span class="ad-traza-k">Procesado</span>@(_traza.ProcesadoAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "-")</div>
+                </div>
+
+                <h4 class="ad-cfg-section" style="margin-top:18px;">Lo que recibio el agente (prompt)</h4>
+                <p class="ad-muted" style="margin-top:0;">Prompt efectivo (system + campos de metadata). No incluye las imagenes de las paginas.</p>
+                <pre class="ad-traza-pre">@(_traza.PromptEnviado ?? "(sin registro)")</pre>
+
+                <h4 class="ad-cfg-section" style="margin-top:18px;">Lo que devolvio el agente (respuesta cruda)</h4>
+                <p class="ad-muted" style="margin-top:0;">Respuesta tal cual la entrego el modelo; es lo que se parsea para separar el PDF.</p>
+                <pre class="ad-traza-pre">@(_traza.ResultadoJson ?? "(sin respuesta)")</pre>
+            </div>
+            <div class="modal-foot">
+                <button class="ad-btn" @onclick="() => _trazaOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .ad-muted { color: var(--ink-2); font-size: 13px; }
     .ad-head-actions { display: flex; align-items: flex-start; gap: 8px; }
+
+    .ad-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 4px 0 18px; }
+    .ad-tab { background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer;
+        padding: 10px 14px; font-size: 13px; font-weight: 600; color: var(--ink-2); display: inline-flex; align-items: center; gap: 8px; }
+    .ad-tab:hover { color: var(--ink); }
+    .ad-tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+    .ad-tab-count { background: var(--surface-3); color: var(--ink-2); border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
+    .ad-tab.active .ad-tab-count { background: var(--brand-soft); color: var(--brand); }
+
+    .ad-bulk { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 8px 12px;
+        background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
+
+    .ad-cfg-section { font-size: 13px; font-weight: 700; color: var(--ink); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 6px; }
     .ad-add-row { display: flex; gap: 8px; align-items: center; margin: 4px 0 14px; }
     .ad-add-row .ad-input { flex: 1 1 auto; }
     .ad-input { width: 100%; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink);
         border-radius: 9px; padding: 9px 12px; font-size: 13px; font-family: inherit; }
+    .ad-input.sm { padding: 6px 9px; font-size: 12px; border-radius: 7px; }
     .ad-input:focus { outline: none; border-color: var(--brand); }
     .ad-prompt { resize: vertical; min-height: 90px; }
     .ad-cfg-list { display: flex; flex-direction: column; gap: 12px; }
@@ -228,6 +582,14 @@ else
     .ad-cfg-top-actions { display: flex; align-items: center; gap: 12px; }
     .ad-radio { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
     .ad-cfg-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+    .ad-meta-grid-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .ad-meta-grid { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .ad-meta-grid thead th { text-align: left; padding: 9px 12px; font-size: 11px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .03em; color: var(--ink-2); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    .ad-meta-grid tbody td { padding: 7px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    .ad-meta-grid tbody tr:last-child td { border-bottom: 0; }
+    .ad-meta-new td { background: var(--surface-2); }
 
     .ad-drop {
         display: flex; align-items: center; gap: 16px;
@@ -269,12 +631,16 @@ else
     .ad-cola-size { flex: 0 0 auto; font-size: 12px; color: var(--ink-2); }
     .ad-cola-err { flex: 1 1 100%; font-size: 12px; color: #b91c1c; }
 
-    .ad-chip { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 10px;
+    .ad-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px;
         font-size: 11px; font-weight: 700; letter-spacing: .02em; }
     .ad-chip.wait { background: var(--surface-3); color: var(--ink-2); }
     .ad-chip.run { background: #e6eefc; color: #1d4ed8; }
     .ad-chip.ok { background: #e8f5ee; color: #166534; }
     .ad-chip.err { background: #fde8e8; color: #b91c1c; }
+
+    .ad-spin { width: 12px; height: 12px; border-radius: 50%; display: inline-block;
+        border: 2px solid rgba(29,78,216,.25); border-top-color: #1d4ed8; animation: ad-spin .7s linear infinite; }
+    @@keyframes ad-spin { to { transform: rotate(360deg); } }
 
     .ad-grid-wrap { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
     .ad-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -290,6 +656,39 @@ else
     .ad-doc-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
     .ad-doc-ico { width: 18px; height: 18px; flex: 0 0 18px; color: var(--ink-3); }
     .ad-empty { text-align: center; color: var(--ink-2); padding: 40px 16px; }
+
+    .ad-res-wrap { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .ad-res-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ad-res-grid thead th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    .ad-res-grid tbody td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .ad-res-grid tbody tr:last-child td { border-bottom: 0; }
+    .ad-res-file { display: flex; flex-direction: column; gap: 6px; }
+    .ad-res-fname { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); }
+    .ad-res-fname span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+    .ad-res-meta-mini { font-size: 12px; color: var(--ink-2); }
+    .ad-res-actions { display: flex; gap: 6px; margin-top: 2px; }
+    .ad-res-dl { display: grid; grid-template-columns: minmax(120px, 34%) 1fr; gap: 4px 14px; margin: 0; }
+    .ad-res-dl dt { font-size: 11px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .03em; }
+    .ad-res-dl dd { margin: 0; font-size: 13px; color: var(--ink); }
+
+    .ad-btn.xs { padding: 4px 9px; font-size: 11px; border-radius: 7px; }
+    .ad-btn.xs.ok.on { background: #166534; color: #fff; border-color: #166534; }
+    .ad-btn.xs.bad.on { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+    .ad-chip.rev-pend { background: var(--surface-3); color: var(--ink-2); }
+    .ad-chip.rev-ok { background: #e8f5ee; color: #166534; }
+    .ad-chip.rev-bad { background: #fde8e8; color: #b91c1c; }
+    .ad-res-rev { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .ad-res-revby { font-size: 11px; color: var(--ink-3); }
+    .ad-res-pdf-row td { padding: 0 14px 14px !important; background: var(--surface); }
+    .ad-res-pdf { width: 100%; height: 520px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+
+    .ad-traza-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 16px; }
+    .ad-traza-grid > div { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--ink); }
+    .ad-traza-k { font-size: 10px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+    .ad-traza-pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
+        color: var(--ink); white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto; margin: 0; }
 </style>
 
 @code {
@@ -299,6 +698,9 @@ else
     /// <summary>Tope de archivos por lote (defensa; cada uno ademas limitado por tamano).</summary>
     private const int MaxArchivosLote = 200;
 
+    /// <summary>Tipos de campo de metadata admitidos (mismos valores que valida el servicio).</summary>
+    private static readonly string[] Tipos = ["texto", "numero", "fecha", "lista"];
+
     private static int MaxMb => (int)(DocumentoAnalisisService.MaxUploadBytes / (1024 * 1024));
 
     private bool _cargando = true;
@@ -306,6 +708,8 @@ else
     private bool _canDelete;
     private bool _canEdit;
     private bool _subiendo;
+
+    private Tab _tab = Tab.Cargados;
 
     // ---- Configuracion (agentes del modulo) ----
     private bool _configOpen;
@@ -317,11 +721,33 @@ else
     private List<DocumentoAnalisisAgenteOpcionDto> _agentesDisponibles = new();
     private readonly Dictionary<Guid, string> _promptEdit = new();
 
+    // ---- Configuracion (campos de metadata) ----
+    private List<DocumentoAnalisisMetadataCampoDto> _campos = new();
+    private readonly Dictionary<Guid, CampoEdit> _campoEdit = new();
+    private CampoEdit _nuevoCampo = new() { Tipo = "texto", Activo = true, Orden = 0 };
+
     private string? _mensaje;
     private bool _mensajeEsError;
 
     private List<DocumentoAnalisisDto> _docs = new();
+    private List<DocumentoAnalisisProcesadoDto> _procesados = new();
     private readonly List<ColaItem> _cola = new();
+    private readonly HashSet<Guid> _seleccion = new();
+
+    // ---- Modal de resultados ----
+    private bool _resultOpen;
+    private DocumentoAnalisisProcesadoDto? _resultDoc;
+    private List<DocumentoAnalisisPaqueteDto> _resultPaquetes = new();
+    private List<DocumentoAnalisisMetadataCampoDto> _camposActivos = new();
+    private readonly HashSet<Guid> _pdfVisible = new();
+    private bool _marcando;
+
+    // ---- Modal de traza ----
+    private bool _trazaOpen;
+    private DocumentoAnalisisTrazaDto? _traza;
+
+    /// <summary>Usuario actual (para dejar trazado quien marco cada paquete en la revision QA).</summary>
+    private string? _usuarioActual;
 
     protected override async Task OnInitializedAsync()
     {
@@ -329,13 +755,45 @@ else
         _canCreate = eff.Can(ModuleKey, PermissionAction.Create);
         _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
         _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        _usuarioActual = auth.User.Identity?.Name;
+        Notifier.DocumentoCambiado += OnDocumentoCambiado;
         await RecargarAsync();
         _cargando = false;
+    }
+
+    public void Dispose() => Notifier.DocumentoCambiado -= OnDocumentoCambiado;
+
+    /// <summary>
+    /// El worker aviso que un documento cambio de estado (termino o fallo). Como varios archivos corren a la
+    /// vez y el aviso llega en un hilo del worker, refrescamos las listas del tenant en el contexto del
+    /// circuito de Blazor (InvokeAsync) y volvemos a pintar para mover el spinner.
+    /// </summary>
+    private async void OnDocumentoCambiado(Guid _)
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await RecargarAsync();
+                StateHasChanged();
+            });
+        }
+        catch { /* el circuito pudo cerrarse; sin ruido */ }
     }
 
     private async Task RecargarAsync()
     {
         _docs = (await Docs.ListarAsync()).ToList();
+        _procesados = (await Docs.ListarProcesadosAsync()).ToList();
+        // Limpia de la seleccion lo que ya no este "Cargado" (encolado, procesado o borrado).
+        _seleccion.RemoveWhere(id => !_docs.Any(d => d.Id == id && d.Estado == DocumentoAnalisisEstado.Cargado));
+    }
+
+    private async Task CambiarAProcesadosAsync()
+    {
+        _tab = Tab.Procesados;
+        await RecargarAsync();
     }
 
     private async Task OnFilesSelectedAsync(InputFileChangeEventArgs e)
@@ -437,8 +895,127 @@ else
     {
         if (!_canDelete || _subiendo) { return; }
         await Docs.EliminarAsync(d.Id);
+        _seleccion.Remove(d.Id);
         await RecargarAsync();
         Avisar($"Documento '{d.FileName}' eliminado.", false);
+    }
+
+    // ---- Procesamiento: encolar para el worker ----
+
+    private void AlternarSeleccion(Guid id, object? valor)
+    {
+        if (valor is bool b && b) { _seleccion.Add(id); } else { _seleccion.Remove(id); }
+    }
+
+    private async Task ProcesarUnoAsync(DocumentoAnalisisDto d)
+    {
+        if (!_canEdit) { return; }
+        await EncolarAsync(new[] { d.Id });
+    }
+
+    private async Task ProcesarSeleccionAsync()
+    {
+        if (!_canEdit || _seleccion.Count == 0) { return; }
+        await EncolarAsync(_seleccion.ToArray());
+    }
+
+    private async Task EncolarAsync(IReadOnlyList<Guid> ids)
+    {
+        _mensaje = null;
+        try
+        {
+            var n = await Docs.EncolarAsync(ids);
+            _seleccion.Clear();
+            await RecargarAsync();
+            Avisar(n == 1 ? "1 documento enviado a analisis." : $"{n} documentos enviados a analisis.", false);
+        }
+        catch (Exception ex)
+        {
+            Avisar(ex.Message, true);
+        }
+    }
+
+    // ---- Modal de resultados ----
+
+    private async Task AbrirResultadosAsync(DocumentoAnalisisProcesadoDto d)
+    {
+        _resultDoc = d;
+        _resultPaquetes = (await Docs.ListarPaquetesAsync(d.Id)).ToList();
+        _camposActivos = (await Docs.ListarMetadataCamposAsync()).Where(c => c.Activo).ToList();
+        _resultOpen = true;
+    }
+
+    private void CerrarResultados()
+    {
+        _resultOpen = false;
+        _resultDoc = null;
+        _resultPaquetes = new();
+        _pdfVisible.Clear();
+    }
+
+    private void TogglePdf(Guid paqueteId)
+    {
+        if (!_pdfVisible.Add(paqueteId)) { _pdfVisible.Remove(paqueteId); }
+    }
+
+    private async Task MarcarAsync(Guid paqueteId, PaqueteRevisionEstado estado)
+    {
+        if (!_canEdit || _marcando || _resultDoc is null) { return; }
+        _marcando = true;
+        try
+        {
+            await Docs.MarcarPaqueteAsync(paqueteId, estado, _usuarioActual);
+            _resultPaquetes = (await Docs.ListarPaquetesAsync(_resultDoc.Id)).ToList();
+        }
+        catch (Exception ex) { Avisar(ex.Message, true); }
+        finally { _marcando = false; }
+    }
+
+    // ---- Traza del analisis ----
+
+    private async Task AbrirTrazaAsync(Guid documentoId)
+    {
+        _traza = await Docs.ObtenerTrazaAsync(documentoId);
+        _trazaOpen = _traza is not null;
+    }
+
+    private static string ChipRevision(PaqueteRevisionEstado e) => e switch
+    {
+        PaqueteRevisionEstado.Correcto => "rev-ok",
+        PaqueteRevisionEstado.Incorrecto => "rev-bad",
+        _ => "rev-pend"
+    };
+
+    private static string TextoRevision(PaqueteRevisionEstado e) => e switch
+    {
+        PaqueteRevisionEstado.Correcto => "Correcto",
+        PaqueteRevisionEstado.Incorrecto => "Incorrecto",
+        _ => "Pendiente"
+    };
+
+    private static string FechaRevision(DateTimeOffset? at)
+        => at is null ? "" : $"Revisado: {at.Value.ToLocalTime():yyyy-MM-dd HH:mm}";
+
+    private static Dictionary<string, string> ParsearMetadata(string? json)
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json)) { return dict; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { return dict; }
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                dict[prop.Name] = prop.Value.ValueKind switch
+                {
+                    JsonValueKind.String => prop.Value.GetString() ?? "",
+                    JsonValueKind.Null => "",
+                    _ => prop.Value.ToString()
+                };
+            }
+        }
+        catch { /* metadata malformada: se muestra vacia */ }
+        return dict;
     }
 
     // ---- Configuracion: agentes del modulo (solo seleccion de agentes existentes + prompt) ----
@@ -458,6 +1035,13 @@ else
         _agentesDisponibles = (await Docs.ListarAgentesDisponiblesAsync()).ToList();
         _promptEdit.Clear();
         foreach (var a in _agentesConfig) { _promptEdit[a.AgentId] = a.PromptPrincipal; }
+
+        _campos = (await Docs.ListarMetadataCamposAsync()).ToList();
+        _campoEdit.Clear();
+        foreach (var c in _campos)
+        {
+            _campoEdit[c.Id] = new CampoEdit { Clave = c.Clave, Etiqueta = c.Etiqueta, Tipo = c.Tipo, Orden = c.Orden, Activo = c.Activo };
+        }
     }
 
     private async Task AgregarAgenteAsync()
@@ -501,6 +1085,46 @@ else
         finally { _ocupadoCfg = false; }
     }
 
+    // ---- Configuracion: campos de metadata ----
+
+    private async Task AgregarCampoAsync()
+    {
+        if (_ocupadoCfg) { return; }
+        _ocupadoCfg = true;
+        try
+        {
+            await Docs.GuardarMetadataCampoAsync(null, _nuevoCampo.Clave, _nuevoCampo.Etiqueta, _nuevoCampo.Tipo, null, _nuevoCampo.Orden, _nuevoCampo.Activo);
+            _nuevoCampo = new CampoEdit { Tipo = "texto", Activo = true, Orden = _campos.Count };
+            await RecargarConfigAsync();
+            AvisarCfg("Campo agregado.", false);
+        }
+        catch (Exception ex) { AvisarCfg(ex.Message, true); }
+        finally { _ocupadoCfg = false; }
+    }
+
+    private async Task GuardarCampoAsync(Guid id)
+    {
+        if (_ocupadoCfg || !_campoEdit.TryGetValue(id, out var m)) { return; }
+        _ocupadoCfg = true;
+        try
+        {
+            await Docs.GuardarMetadataCampoAsync(id, m.Clave, m.Etiqueta, m.Tipo, null, m.Orden, m.Activo);
+            await RecargarConfigAsync();
+            AvisarCfg("Campo guardado.", false);
+        }
+        catch (Exception ex) { AvisarCfg(ex.Message, true); }
+        finally { _ocupadoCfg = false; }
+    }
+
+    private async Task EliminarCampoAsync(Guid id)
+    {
+        if (_ocupadoCfg) { return; }
+        _ocupadoCfg = true;
+        try { await Docs.EliminarMetadataCampoAsync(id); await RecargarConfigAsync(); AvisarCfg("Campo eliminado.", false); }
+        catch (Exception ex) { AvisarCfg(ex.Message, true); }
+        finally { _ocupadoCfg = false; }
+    }
+
     private void AvisarCfg(string texto, bool esError) { _configMsg = texto; _configMsgErr = esError; }
 
     private void Avisar(string texto, bool esError)
@@ -518,6 +1142,27 @@ else
         while (valor >= 1024 && i < unidades.Length - 1) { valor /= 1024; i++; }
         return $"{valor:0.#} {unidades[i]}";
     }
+
+    private static string MotorTexto(AiProvider? p, string? modelo)
+    {
+        if (p is null) { return "-"; }
+        return string.IsNullOrWhiteSpace(modelo) ? p.ToString()! : $"{p} / {modelo}";
+    }
+
+    private static string TokensTexto(int? inTok, int? outTok)
+    {
+        if (inTok is null && outTok is null) { return "-"; }
+        return $"{inTok ?? 0} / {outTok ?? 0}";
+    }
+
+    private static string TiempoTexto(long? ms)
+    {
+        if (ms is not long v) { return "-"; }
+        return v < 1000 ? $"{v} ms" : $"{v / 1000.0:0.0} s";
+    }
+
+    private static string FechaVersion(DateTimeOffset? at)
+        => at is null ? "" : $"Version del agente: {at.Value.ToLocalTime():yyyy-MM-dd HH:mm}";
 
     private static string ChipClase(ColaEstado e) => e switch
     {
@@ -537,7 +1182,7 @@ else
 
     private static string ChipClaseDoc(DocumentoAnalisisEstado e) => e switch
     {
-        DocumentoAnalisisEstado.Cargado => "ok",
+        DocumentoAnalisisEstado.Cargado => "wait",
         DocumentoAnalisisEstado.EnAnalisis => "run",
         DocumentoAnalisisEstado.Analizado => "ok",
         _ => "err"
@@ -551,6 +1196,8 @@ else
         _ => "Error"
     };
 
+    private enum Tab { Cargados, Procesados }
+
     private enum ColaEstado { EnCola, Subiendo, Ok, Error }
 
     private sealed class ColaItem
@@ -559,5 +1206,14 @@ else
         public long Bytes { get; set; }
         public ColaEstado Estado { get; set; }
         public string? Error { get; set; }
+    }
+
+    private sealed class CampoEdit
+    {
+        public string Clave { get; set; } = "";
+        public string Etiqueta { get; set; } = "";
+        public string Tipo { get; set; } = "texto";
+        public int Orden { get; set; }
+        public bool Activo { get; set; } = true;
     }
 }

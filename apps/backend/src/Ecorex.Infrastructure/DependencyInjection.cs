@@ -125,6 +125,9 @@ public static class DependencyInjection
         services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>(
                 static client => client.Timeout = TimeSpan.FromSeconds(60));
         services.AddHttpClient<Ecorex.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();
+        // Analizador de documentos: rasterizar (PDFium/PDFtoImage) y separar (PdfSharp) PDFs. Sin estado -> singleton.
+        services.AddSingleton<Ecorex.Application.Pdf.IPdfRasterizer, Pdf.PdfRasterizer>();
+        services.AddSingleton<Ecorex.Application.Pdf.IPdfSplitter, Pdf.PdfSplitter>();
         // Importacion manual desde API REST del Contenedor de datos (disparo por el usuario).
         services.AddHttpClient<Ecorex.Application.DataContainers.IApiImportService, Ecorex.Application.DataContainers.ApiImportService>(
                 static client => client.Timeout = TimeSpan.FromSeconds(35));

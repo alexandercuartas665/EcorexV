@@ -4737,6 +4737,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<DateTimeOffset?>("AgenteVersionAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("agente_version_at");
+
                     b.Property<string>("ContentType")
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)")
@@ -4774,6 +4778,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(260)")
                         .HasColumnName("file_name");
 
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("int")
+                        .HasColumnName("input_tokens");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit")
                         .HasColumnName("is_deleted");
@@ -4782,10 +4790,52 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("lote_id");
 
+                    b.Property<string>("Modelo")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("modelo");
+
                     b.Property<string>("MotivoError")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)")
                         .HasColumnName("motivo_error");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("int")
+                        .HasColumnName("output_tokens");
+
+                    b.Property<int?>("PaginasEnviadas")
+                        .HasColumnType("int")
+                        .HasColumnName("paginas_enviadas");
+
+                    b.Property<int?>("PaquetesCount")
+                        .HasColumnType("int")
+                        .HasColumnName("paquetes_count");
+
+                    b.Property<DateTimeOffset?>("ProcesadoAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("procesado_at");
+
+                    b.Property<Guid?>("ProcesadoPorAgentId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("procesado_por_agent_id");
+
+                    b.Property<long?>("ProcesamientoMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("procesamiento_ms");
+
+                    b.Property<string>("PromptEnviado")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("prompt_enviado");
+
+                    b.Property<int?>("Proveedor")
+                        .HasMaxLength(40)
+                        .HasColumnType("int")
+                        .HasColumnName("proveedor");
+
+                    b.Property<string>("ResultadoJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("resultado_json");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint")
@@ -4867,6 +4917,181 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_documentos_analisis_agente_prompts_tenant_id_agent_id");
 
                     b.ToTable("documentos_analisis_agente_prompts", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DocumentoAnalisisMetadataCampo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit")
+                        .HasColumnName("activo");
+
+                    b.Property<string>("Clave")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("clave");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<string>("Etiqueta")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("etiqueta");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int")
+                        .HasColumnName("orden");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("tipo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_documentos_analisis_metadata_campos");
+
+                    b.HasIndex("TenantId", "Clave")
+                        .IsUnique()
+                        .HasDatabaseName("ix_documentos_analisis_metadata_campos_tenant_id_clave");
+
+                    b.ToTable("documentos_analisis_metadata_campos", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.DocumentoAnalisisPaquete", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<double?>("Confianza")
+                        .HasColumnType("float")
+                        .HasColumnName("confianza");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<Guid>("DocumentoAnalisisId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("documento_analisis_id");
+
+                    b.Property<string>("DocumentosJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("documentos_json");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("metadata_json");
+
+                    b.Property<string>("NombreSugerido")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)")
+                        .HasColumnName("nombre_sugerido");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int")
+                        .HasColumnName("orden");
+
+                    b.Property<int>("PaginaFin")
+                        .HasColumnType("int")
+                        .HasColumnName("pagina_fin");
+
+                    b.Property<int>("PaginaInicio")
+                        .HasColumnType("int")
+                        .HasColumnName("pagina_inicio");
+
+                    b.Property<int>("Paginas")
+                        .HasColumnType("int")
+                        .HasColumnName("paginas");
+
+                    b.Property<DateTimeOffset?>("RevisadoAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("revisado_at");
+
+                    b.Property<string>("RevisadoPor")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("revisado_por");
+
+                    b.Property<int>("RevisionEstado")
+                        .HasColumnType("int")
+                        .HasColumnName("revision_estado");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<Guid>("StoredFileId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("stored_file_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_documentos_analisis_paquetes");
+
+                    b.HasIndex("TenantId", "DocumentoAnalisisId", "Orden")
+                        .HasDatabaseName("ix_documentos_analisis_paquetes_tenant_id_documento_analisis_id_orden");
+
+                    b.ToTable("documentos_analisis_paquetes", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DocumentoAuditoria", b =>

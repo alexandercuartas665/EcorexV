@@ -2,6 +2,107 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-01 - Analizador: traza del analisis + visor PDF embebido + marcado por paquete (Correcto/Incorrecto)
+
+- AGENTE: Claude Opus 4.8. Worktree pdf-file-upload-module-8af632. SIN DEPLOY. Continuacion de la seccion siguiente.
+  Build en verde; validado E2E en dev (preview 5258, copia de prod BITCODE, DeepSeek vision real).
+- PEDIDO (usuario): (1) en "Ver" poder ver el LOG/traza de lo que paso con el agente -que recibio, que penso/devolvio-
+  para analizar fallos; (2) en el resultado, un VISUALIZADOR del PDF separado; (3) una opcion para MARCAR el resultado;
+  (4) evaluar el resultado vs. los archivos cargados. Decision del usuario sobre marcar: POR PAQUETE (cada soporte
+  separado se marca Correcto/Incorrecto; por defecto Pendiente), con chip + quien/cuando.
+- SOLUCION: (a) Traza: columnas nuevas en DocumentoAnalisis PromptEnviado (longtext) y PaginasEnviadas; el pipeline
+  guarda el system_prompt real enviado y el numero de paginas tanto en exito como en error (hoisted antes del try, se
+  escriben en el catch tambien). DTO DocumentoAnalisisTrazaDto + ObtenerTrazaAsync (resuelve nombre de agente); modal
+  "Traza" en la UI (boton visible cuando Estado Analizado o Error) con agente/version, proveedor/modelo, tokens in/out,
+  ms, paginas enviadas, # paquetes, el PROMPT enviado y el ResultadoJson/crudo del modelo. (b) Marcado por paquete:
+  enum PaqueteRevisionEstado (Pendiente/Correcto/Incorrecto) + columnas RevisionEstado/RevisadoAt/RevisadoPor en
+  DocumentoAnalisisPaquete; MarcarPaqueteAsync(paqueteId, estado, revisadoPor); UI con botones Correcto/Incorrecto/Limpiar
+  por paquete, chip de estado + "por {usuario}" (usuario = identidad autenticada via AuthenticationStateProvider).
+  (c) Visor PDF embebido: iframe .ad-res-pdf apuntando a /archivo/{id} del paquete, toggle Visualizar/Ocultar por paquete.
+  (d) Robustez del gateway: OpenAiCompatibleVision (la variante VISION) ahora lee finish_reason, cae a message.reasoning_content
+  si content viene null, y si el texto queda vacio devuelve un AiChatResult.Error con finish_reason + tokens + snippet
+  de 600 chars del cuerpo crudo -> ese detalle aparece en la Traza (antes se reportaba "El agente no devolvio contenido"
+  a secas). (e) Boton Reprocesar/Reintentar en la UI para re-encolar un doc Analizado o en Error.
+- ARCHIVOS: nuevo Domain/Enums/PaqueteRevisionEstado.cs; migraciones nuevas AddDocumentoAnalisisTrazaRevision
+  (PG en Infrastructure/Persistence/Migrations, SQL en Infrastructure.SqlServer/Migrations) + snapshots. Modificados:
+  Domain/Entities/DocumentoAnalisis.cs (PromptEnviado, PaginasEnviadas), Domain/Entities/DocumentoAnalisisPaquete.cs
+  (RevisionEstado/RevisadoAt/RevisadoPor), Infrastructure/Persistence/EcorexDbContext.cs (configs de las columnas nuevas),
+  Application/DocumentosAnalisis/IDocumentoAnalisisService.cs (DTO traza + campos de revision + metodos),
+  SuperAdmin/Services/DocumentoAnalisisService.cs (persistir prompt/paginas, ObtenerTrazaAsync, MarcarPaqueteAsync),
+  Infrastructure/Ai/AiProviderClient.cs (extraccion robusta de la respuesta de vision),
+  SuperAdmin/Components/Pages/AnalizadorDocumentos.razor (modal Traza, visor PDF, marcado por paquete, Reprocesar),
+  SuperAdmin/Program.cs (gate ECOREX_ENABLE_DOCANALISIS_WORKER para el worker del Analizador).
+- VALIDADO E2E (2026-11-01, preview 5258): Traza muestra prompt + paginas enviadas tras reproceso. Marcado persiste en
+  BD (paq1=Correcto, paq2=Incorrecto, paq3=Pendiente, todos con RevisadoPor=ALEXANDER CUARTAS BEJARANO). Visor: el
+  endpoint /archivo/{id} sirve application/pdf real (482.747 bytes = 471,4 KB del paquete, firma %PDF-) en un iframe
+  visible 811x520 con src correcto (el plugin PDF del panel del navegador no pinta en las capturas, pero el visor esta
+  bien cableado y el archivo se sirve). EVALUACION del resultado vs. cargados: la separacion coincide con los 3 soportes
+  originales (1-11 / 12-23 / 24-49), 100% de cobertura de paginas, sin huecos ni solapes.
+- NOTA runtime (no es bug): en un reproceso DeepSeek devolvio HTTP 200 con content:null (varianza con el payload de 49
+  imagenes); el mismo doc habia salido bien en ~36 s. El fix (d) hace que la Traza lo muestre en vez de un mensaje opaco.
+- PENDIENTE DEPLOY: SkiaSharp 2.88 (via PDFtoImage) necesita el asset nativo de Linux en la imagen Docker de prod.
+
+## 2026-10-31 - Analizador: motor de separacion por IA de vision (soportes de pago) + metadata + Procesados
+
+- AGENTE: Claude Opus 4.8. Worktree pdf-file-upload-module-8af632 (rama claude/pdf-file-upload-module-8af632).
+  SIN DEPLOY. Continuacion directa del modulo de carga del mismo dia (ver seccion siguiente). Build de la solucion
+  en verde (0 errores); validacion E2E en dev pendiente de correr la app.
+- PEDIDO: los PDF que llegan son la CONCATENACION de varios "soportes de pago" (notas de pago). La IA debe recibir
+  el lote de imagenes de TODAS las paginas, deducir como se separa en sus N paquetes originales y devolver el agrupador
+  + los documentos en orden para regenerar cada PDF. Ademas llenar una metadata (que ayuda a decidir el corte),
+  configurable self-serve. Cada archivo debe registrar tiempo de proceso, agente + version usada, consumo de tokens
+  y motor de IA. Tab "Procesados" con un registro por archivo; click -> modal a 2 columnas (archivo | metadatos),
+  visualizar y descargar los PDF separados. Procesamiento en BACKGROUND con spinner por archivo y varios en paralelo.
+- DECISIONES (del usuario): motor = DeepSeek V4 Vision (DeepSeek SI soporta imagenes; lo que NO acepta es PDF directo,
+  por eso se rasteriza cada pagina a imagen y se envia + prompt). Procesamiento en background con spinner por archivo;
+  varios archivos a la vez (worker con concurrencia 3). El prompt del agente se dedujo de forma generica (clasifica
+  paginas, detecta portada "PREVISUALIZAR PAGO DE PROVEEDORES", confirma corte con beneficiario+valor), con marcador
+  {CAMPOS_METADATA} para inyectar los campos configurados; NO literal al ejemplo de los 3 PDF.
+- SOLUCION: (a) Entidades nuevas DocumentoAnalisisPaquete (PDF separado + paginas + metadata/documentos JSON + confianza)
+  y DocumentoAnalisisMetadataCampo (clave/etiqueta/tipo/orden/activo, unico por tenant); columnas de traza en
+  DocumentoAnalisis (ProcesadoPorAgentId, AgenteVersionAt, Proveedor, Modelo, InputTokens, OutputTokens, ProcesamientoMs,
+  ProcesadoAt, PaquetesCount, ResultadoJson). (b) Gateway: AiProviderClient.CompleteVisionAsync enruta DeepSeek (y
+  cualquier proveedor OpenAI-compatible) por OpenAiCompatibleVision (image_url data: base64, max_tokens 8192, retry).
+  (c) PDF: IPdfRasterizer (PDFtoImage 4.1.1, PDFium+SkiaSharp -> JPEG por pagina a 150 DPI, tope 60 pags) e IPdfSplitter
+  (PdfSharp 6.1.1, import de paginas), DI singletons. (d) Servicio: EncolarAsync (pasa a EnAnalisis, valida agente
+  activo), ProcesarAsync (rasteriza -> vision -> ParsearPlan JSON -> separa -> guarda cada PDF en blob -> trazas +
+  AiUsageLog via IAiUsageService -> Analizado/Error; marca Error limpio con ChangeTracker.Clear), CRUD de metadata,
+  ListarProcesadosAsync, ListarPaquetesAsync. (e) Background: DocumentoAnalisisProcesadorWorker (BackgroundService en
+  SuperAdmin, no en Workers, igual que WorkflowAgentStepWorker porque prod solo levanta ecorex-app; barrido 10s,
+  concurrencia 3 via SemaphoreSlim, reclamo en memoria, cross-tenant con IgnoreQueryFilters + AmbientTenantContext.Begin;
+  gated por ECOREX_DISABLE_WORKERS). (f) Spinner EN VIVO: IDocumentoAnalisisNotifier (singleton en proceso, no SignalR
+  porque worker y UI comparten SuperAdmin); la pagina se suscribe y recarga (InvokeAsync + StateHasChanged). (g) UI
+  AnalizadorDocumentos.razor: tabs Cargados/Procesados, Procesar por fila + en lote con checkboxes, chip "En analisis"
+  con spinner, config gana seccion "Campos de metadata" (tabla editable + alta), tab Procesados con trazas y modal de
+  resultados a 2 columnas (archivo con ver/descargar | metadatos por campo). (h) HttpClient nombrado "docanalisis-vision"
+  con timeout 5 min (la vision con muchas imagenes excede los 60s del cliente del chat).
+- ARCHIVOS: nuevos Domain/Entities/DocumentoAnalisisPaquete.cs, DocumentoAnalisisMetadataCampo.cs;
+  Application/Pdf/ (IPdfRasterizer, IPdfSplitter); Infrastructure/Pdf/ (PdfRasterizer, PdfSplitter);
+  SuperAdmin/RealTime/ (DocumentoAnalisisNotifier, DocumentoAnalisisProcesadorWorker); 4 migraciones nuevas
+  (2 PG, 2 SQL Server) AddDocumentoAnalisisProceso + snapshots. Modificados: Domain/Entities/DocumentoAnalisis.cs
+  (trazas), Application/DocumentosAnalisis/IDocumentoAnalisisService.cs (DTOs + metodos), Infrastructure/Ai/
+  AiProviderClient.cs (vision OpenAI-compatible), Infrastructure/Ecorex.Infrastructure.csproj (PDFtoImage + PdfSharp),
+  Infrastructure/DependencyInjection.cs (DI PDF), Infrastructure/Persistence/EcorexDbContext.cs (2 DbSet + configs +
+  trazas), SuperAdmin/Services/DocumentoAnalisisService.cs (pipeline), SuperAdmin/Program.cs (notifier + HttpClient
+  vision + hosted worker), SuperAdmin/Components/Pages/AnalizadorDocumentos.razor (UI completa).
+- VALIDADO E2E (2026-11-01, preview 5258 BITCODE, agente DeepSeek vision real con API key del tenant): el PDF
+  "COMP merged.pdf" (49 pags) se separo en los 3 soportes correctos -> COMP merged_01 (pags 1-11, Angie Hernandez),
+  _02 (12-23, Ninfa Prado), _03 (24-49, Diego Moreno), cada uno con su metadata (beneficiario, identificacion,
+  concepto, valor, fecha_pago). Trazas: 48.467 tok in / 5.293 out, ~36,5 s, motor DeepSeek. Modal a 2 columnas OK
+  (Ver/Descargar por paquete + metadata formateada). Worker tomo el doc en background con spinner por archivo.
+- FIX durante la validacion: el agente (con el prompt del usuario) devolvio el array bajo la clave "documentos" con
+  "pagina_inicio"/"pagina_fin", no bajo "paquetes"/"paginas" como esperaba ParsearPlan -> daba "El agente no devolvio
+  paquetes validos". Se hizo ParsearPlan TOLERANTE: acepta el array raiz o bajo paquetes/documentos/grupos/soportes/...,
+  lee paginas de un array "paginas" o del rango pagina_inicio..pagina_fin (numeros o texto), con alias para nombre.
+  Asi el corte no depende de que el prompt use nombres exactos. Reconstruido y revalidado en verde.
+- DEV: worker del Analizador gateado aparte con ECOREX_ENABLE_DOCANALISIS_WORKER=true (Program.cs) para poder probar
+  SOLO este worker contra la copia de prod sin encender los que disparan acciones externas (WhatsApp, flujos). Launch
+  config "analizador-5258" agregada a .claude/launch.json.
+- SIGUIENTE: afinar el prompt final del agente separador si se quiere (borrador en scratchpad); merge a tronco + OK de
+  deploy (pendientes de senal del usuario). Reflejar en vault (INVENTARIO GENERAL) al cerrar el modulo.
+- BLOQUEOS / TODO DEPLOY: SkiaSharp 2.88 (via PDFtoImage) necesita el ASSET NATIVO de Linux en la imagen Docker de prod
+  (hoy el dev es Windows); verificar SkiaSharp.NativeAssets.Linux / libfontconfig en el contenedor antes de desplegar.
+
 ## 2026-10-31 - Modulo "Analizador de documentos" (carga PDF a blob + config de prompt por agente)
 
 - AGENTE: Claude Opus 4.8. Worktree pdf-file-upload-module-8af632 (rama claude/pdf-file-upload-module-8af632).

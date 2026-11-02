@@ -243,6 +243,12 @@ builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.
 builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
 // Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.
 builder.Services.AddScoped<Ecorex.Application.DocumentosAnalisis.IDocumentoAnalisisService, Ecorex.SuperAdmin.Services.DocumentoAnalisisService>();
+// Aviso en proceso para el spinner por archivo (worker -> parrilla Blazor, mismo proceso).
+builder.Services.AddSingleton<Ecorex.SuperAdmin.RealTime.IDocumentoAnalisisNotifier, Ecorex.SuperAdmin.RealTime.DocumentoAnalisisNotifier>();
+// HttpClient dedicado para la llamada de VISION del Analizador (lotes de imagenes): timeout largo, aparte del
+// de 60s del chat de agentes, porque el pipeline corre en background y una pagina de muchas imagenes tarda mas.
+builder.Services.AddHttpClient(Ecorex.SuperAdmin.Services.DocumentoAnalisisService.VisionHttpClientName,
+    static c => c.Timeout = TimeSpan.FromMinutes(5));
 
 // Atencion automatica del agente de IA por lineas de WhatsApp: lector de recursos (wwwroot) +
 // despachador en background con debounce (reemplaza la cola no-op de Application).
@@ -279,6 +285,17 @@ if (!disableWorkers)
     // Auto-archivado de tareas cerradas por tablero (ADR-0123): archiva lo que lleva N dias cerrado en
     // una columna de cierre. Mismo motivo para vivir aqui que los workers de arriba (prod solo levanta ecorex-app).
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.TaskAutoArchiveWorker>();
+}
+
+// Analizador de documentos: procesa los PDFs encolados (rasterizar -> IA de vision -> separar), varios a la vez.
+// En prod corre con los demas workers. En DESARROLLO contra la BD de prod (ECOREX_DISABLE_WORKERS=true) se puede
+// habilitar SOLO este worker con ECOREX_ENABLE_DOCANALISIS_WORKER=true para probar el Analizador sin encender los
+// motores que disparan acciones externas (mensajes de WhatsApp, pasos de agente, programaciones).
+var enableDocAnalisisWorker = !disableWorkers || string.Equals(
+    Environment.GetEnvironmentVariable("ECOREX_ENABLE_DOCANALISIS_WORKER"), "true", StringComparison.OrdinalIgnoreCase);
+if (enableDocAnalisisWorker)
+{
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.DocumentoAnalisisProcesadorWorker>();
 }
 // Tunel de desarrollo real (cloudflared); reemplaza el no-op de Application.
 builder.Services.AddSingleton<Ecorex.Application.Tenancy.IDevTunnel, Ecorex.SuperAdmin.RealTime.CloudflaredTunnel>();

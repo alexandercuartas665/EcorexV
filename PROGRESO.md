@@ -16764,3 +16764,17 @@ fase-0/clon-backbone. Pedido del usuario: mas inteligencia al editor de la matri
   RequerimientosConfig.razor, CotizacionesComparador.razor. Validado E2E en 5265/SKY. Pusheado a origin.
 - FALTA (a senal del usuario): PROMPT de integracion a dev central (acumula 06f84d9d/681f0164/f784db0b/
   ef5bffd1) + deploy.
+
+## 2026-11-02 - requerimiento_compras: proceso de cotizacion gobernado (RFQ) - Ola A (commit 777e4619)
+
+Rama `requerimiento_compras` (worktree, 5265, SKY SYSTEM). SIN deploy, SIN push a fase-0/clon-backbone.
+Diseno acordado con el usuario: la cotizacion pasa a ser un RFQ gobernado sobre el motor de flujos YA
+existente (no motor nuevo). 4 decisiones: RFQ por proveedor, multi-candidato por linea, mapeo de inyeccion
+en el nodo-formulario del flujo (+override por proveedor), entidad RFQ. La adjudicacion NO vive en el flujo:
+el jefe de compras arma la compra en planeacion cuando llegan los valores.
+
+Ola A (hecha): entidad RequerimientoRfq + RequerimientoRfqLinea + enum RfqEstado; migracion dual
+AddRequerimientoRfq (PG+SQL, 2 tablas aditivas, aplicada a dev al arrancar); servicio CotizarPorProveedorAsync
+(agrupa por proveedor, crea 1 RFQ/proveedor con su tarea portadora que dispara el flujo, idempotente) +
+ListRfqAsync; UI boton "Cotizar por proveedor (RFQ)" en Planificar. 10 fakes de tests + 2 DbSets.
+Validado E2E 5265/SKY: RFQ-0001 (Produvarios, 1 linea, tarea T00216). Siguientes: Olas B-F.

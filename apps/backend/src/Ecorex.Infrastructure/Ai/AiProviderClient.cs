@@ -44,7 +44,9 @@ public sealed class AiProviderClient : IAiProviderClient
             {
                 AiProvider.Gemini => await GeminiVision(apiKey, baseUrl, model, systemPrompt, content, cancellationToken),
                 AiProvider.Claude => await ClaudeVision(apiKey, baseUrl, model, systemPrompt, content, cancellationToken),
-                _ => new AiChatResult(false, null, $"El proveedor {provider} no soporta vision en ECOREX.tareas (usa Gemini o Claude).")
+                // DeepSeek y OpenAI/ChatGPT: formato chat/completions multimodal (image_url). DeepSeek requiere
+                // un MODELO de vision (p. ej. deepseek-v4-flash-vision-*) y las imagenes solo en mensaje de usuario.
+                _ => await OpenAiCompatibleVision(provider, apiKey, baseUrl, model, systemPrompt, content, cancellationToken)
             };
         }
         catch (Exception ex)
@@ -117,6 +119,79 @@ public sealed class AiProviderClient : IAiProviderClient
         {
             inTok = u.TryGetProperty("input_tokens", out var p) ? p.GetInt32() : 0;
             outTok = u.TryGetProperty("output_tokens", out var c) ? c.GetInt32() : 0;
+        }
+        return new AiChatResult(true, text, null, inTok, outTok);
+    }
+
+    // ===== OpenAI / ChatGPT / DeepSeek (vision, formato chat/completions multimodal) =====
+    // Un unico turno de usuario con texto + imagenes (content: [{type:text},{type:image_url,...}]). Pensado para
+    // clasificacion/separacion por vision. DeepSeek acepta imagenes SOLO en mensajes de usuario y exige un modelo
+    // de vision; aqui las paginas del PDF ya vienen rasterizadas como imagenes. Audio/PDF nativo no van por aqui.
+    private async Task<AiChatResult> OpenAiCompatibleVision(AiProvider provider, string apiKey, string? baseUrl, string model,
+        string systemPrompt, IReadOnlyList<AiVisionPart> content, CancellationToken ct)
+    {
+        var fallback = provider == AiProvider.DeepSeek ? "https://api.deepseek.com" : "https://api.openai.com/v1";
+        var url = $"{Base(baseUrl, fallback)}/chat/completions";
+
+        var parts = new List<object>();
+        foreach (var p in content)
+        {
+            if (p.ImageBase64 is not null)
+            {
+                parts.Add(new { type = "image_url", image_url = new { url = $"data:{p.ImageMime ?? "image/jpeg"};base64,{p.ImageBase64}" } });
+            }
+            else if (!string.IsNullOrWhiteSpace(p.Text))
+            {
+                parts.Add(new { type = "text", text = p.Text });
+            }
+        }
+
+        var messages = new List<object>();
+        if (!string.IsNullOrWhiteSpace(systemPrompt)) { messages.Add(new { role = "system", content = systemPrompt }); }
+        messages.Add(new { role = "user", content = parts.ToArray() });
+
+        // max_tokens holgado: el JSON de separacion de un lote con muchos paquetes puede ser grande.
+        object body = new { model, messages, max_tokens = 8192 };
+
+        using var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            return req;
+        }, ct);
+        var raw = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode) { return Fail((int)resp.StatusCode, raw); }
+
+        using var doc = JsonDocument.Parse(raw);
+        var (inTok, outTok) = (0, 0);
+        if (doc.RootElement.TryGetProperty("usage", out var u))
+        {
+            inTok = u.TryGetProperty("prompt_tokens", out var p) ? p.GetInt32() : 0;
+            outTok = u.TryGetProperty("completion_tokens", out var c) ? c.GetInt32() : 0;
+        }
+
+        // Extraccion robusta del contenido: el choice puede traer content vacio/null (los modelos de razonamiento
+        // dejan el texto en reasoning_content, o finish_reason="length" corta la salida). Si no hay contenido se
+        // devuelve el cuerpo crudo en el error para que la TRAZA del Analizador explique que paso.
+        string? text = null;
+        string? finish = null;
+        if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
+        {
+            var choice = choices[0];
+            if (choice.TryGetProperty("finish_reason", out var fr) && fr.ValueKind == JsonValueKind.String) { finish = fr.GetString(); }
+            if (choice.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.Object)
+            {
+                if (msg.TryGetProperty("content", out var mc) && mc.ValueKind == JsonValueKind.String) { text = mc.GetString(); }
+                if (string.IsNullOrWhiteSpace(text) && msg.TryGetProperty("reasoning_content", out var rc) && rc.ValueKind == JsonValueKind.String) { text = rc.GetString(); }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            var snippet = raw.Length > 600 ? raw[..600] : raw;
+            return new AiChatResult(false, null,
+                $"El modelo respondio HTTP 200 pero sin contenido (finish_reason={finish ?? "desconocido"}; tokens in/out={inTok}/{outTok}). Respuesta cruda: {snippet}",
+                inTok, outTok);
         }
         return new AiChatResult(true, text, null, inTok, outTok);
     }

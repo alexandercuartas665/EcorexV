@@ -4154,6 +4154,114 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         }
     }
 
+    // =======================================================================
+    // Analizador de documentos (carga de lotes de PDF al almacenamiento unificado)
+    // =======================================================================
+
+    /// <summary>Slug de la seccion de menu del Analizador. Clave por la que se busca/crea.</summary>
+    private const string AnaDocSectionSlug = "analizador-grp";
+
+    /// <summary>Ruta del modulo. Es tambien su CLAVE en la matriz de roles (ADR-0033).</summary>
+    private const string AnaDocRoute = "analizador-documentos";
+
+    /// <summary>Codigo del modulo. Modulo NUEVO de ECOREX (sin origen en el legacy); correlativo libre.</summary>
+    private const string AnaDocLegacyCode = "000895";
+
+    /// <summary>
+    /// Registra la definicion del modulo Analizador de documentos (000895) en el catalogo GLOBAL
+    /// (module_definitions), una sola vez (no por tenant), para que el permiso
+    /// <c>analizador-documentos</c> sea asignable en la matriz de roles.
+    /// </summary>
+    public async Task EnsureAnalizadorDocumentosModuleAsync(CancellationToken cancellationToken = default)
+    {
+        if (await _db.ModuleDefinitions.AnyAsync(d => d.LegacyCode == AnaDocLegacyCode, cancellationToken))
+        {
+            return;
+        }
+        _db.ModuleDefinitions.Add(new ModuleDefinition
+        {
+            LegacyCode = AnaDocLegacyCode,
+            Name = "Analizador de documentos",
+            Description = "Analizador de documentos: recibe lotes de PDF y los sube al almacenamiento del sistema.",
+            Route = "/" + AnaDocRoute,
+            Area = ModuleArea.Sistema,
+            IsCore = false
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Analizador de documentos: definicion de modulo {Code} registrada en el catalogo global.", AnaDocLegacyCode);
+    }
+
+    /// <summary>
+    /// Crea (idempotente) la seccion "Analizador" con su item "Analizador de documentos" en TODAS las
+    /// vistas de menu del tenant. La ruta manda: si el item ya existe en la vista, no se duplica.
+    /// </summary>
+    public async Task EnsureAnalizadorDocumentosMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        var views = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenantId)
+            .Select(v => v.Id)
+            .ToListAsync(cancellationToken);
+
+        var added = 0;
+        foreach (var viewId in views)
+        {
+            var itemExiste = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == viewId && n.Route == AnaDocRoute, cancellationToken);
+            if (itemExiste) { continue; }
+
+            var section = await _db.MenuNodes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.MenuViewId == viewId
+                    && n.Kind == MenuNodeKind.Section && n.Route == AnaDocSectionSlug, cancellationToken);
+
+            if (section is null)
+            {
+                var ultimoOrden = await _db.MenuNodes.IgnoreQueryFilters()
+                    .Where(n => n.MenuViewId == viewId && n.ParentId == null)
+                    .Select(n => (int?)n.SortOrder)
+                    .MaxAsync(cancellationToken);
+
+                section = new MenuNode
+                {
+                    TenantId = tenantId,
+                    MenuViewId = viewId,
+                    ParentId = null,
+                    Kind = MenuNodeKind.Section,
+                    Name = "Analizador",
+                    Route = AnaDocSectionSlug,
+                    IconKey = "file-text",
+                    State = MenuNodeState.Ready,
+                    IsVisible = true,
+                    SortOrder = (ultimoOrden ?? -1) + 1
+                };
+                _db.MenuNodes.Add(section);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = viewId,
+                ParentId = section.Id,
+                Kind = MenuNodeKind.Item,
+                Name = "Analizador de documentos",
+                Route = AnaDocRoute,
+                LegacyCode = AnaDocLegacyCode,
+                State = MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = 0
+            });
+            added++;
+        }
+
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "Analizador de documentos: item de menu agregado a {Count} vista(s) del tenant {Tenant}.",
+                added, tenantId);
+        }
+    }
+
     /// <summary>
     /// Siembra las categorias y etiquetas base del Gestor Documental para un tenant.
     ///

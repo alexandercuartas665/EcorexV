@@ -289,6 +289,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<ConciliacionFieldValue> ConciliacionFieldValues => Set<ConciliacionFieldValue>();
     public DbSet<ConciliacionDianAsignacion> ConciliacionDianAsignaciones => Set<ConciliacionDianAsignacion>();
     public DbSet<StoredFile> StoredFiles => Set<StoredFile>();
+    // Analizador de documentos (carga de lotes de PDF al almacenamiento unificado).
+    public DbSet<DocumentoAnalisis> DocumentosAnalisis => Set<DocumentoAnalisis>();
+    // Config del Analizador: prompt principal por agente seleccionado (seleccion, no creacion, de agentes).
+    public DbSet<DocumentoAnalisisAgentePrompt> DocumentosAnalisisAgentePrompts => Set<DocumentoAnalisisAgentePrompt>();
+    // Paquetes resultantes de separar un documento unido (un PDF nuevo por soporte de pago).
+    public DbSet<DocumentoAnalisisPaquete> DocumentosAnalisisPaquetes => Set<DocumentoAnalisisPaquete>();
+    // Config del Analizador: campos de metadata que extrae el agente y columnas del modal (self-serve).
+    public DbSet<DocumentoAnalisisMetadataCampo> DocumentosAnalisisMetadataCampos => Set<DocumentoAnalisisMetadataCampo>();
     // Requerimientos y Compras (Capa 10).
     public DbSet<RequerimientoOrigen> RequerimientoOrigenes => Set<RequerimientoOrigen>();
     public DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas => Set<RequerimientoProveedorRegla>();
@@ -2876,6 +2884,56 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1 });
             // Idempotencia: no duplicar el mismo archivo logico (modulo + ref1 + ref2 + nombre) por tenant.
             b.HasIndex(x => new { x.TenantId, x.Module, x.Ref1, x.Ref2, x.FileName }).IsUnique();
+        });
+
+        // Analizador de documentos: una fila por PDF recibido. El binario vive en StoredFile (blob/disco);
+        // aqui solo metadatos + estado. Tenant-scoped + soft-delete por el filtro global (reflexion).
+        modelBuilder.Entity<DocumentoAnalisis>(b =>
+        {
+            b.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+            b.Property(x => x.Extension).HasMaxLength(16).IsRequired();
+            b.Property(x => x.ContentType).HasMaxLength(160);
+            b.Property(x => x.Estado).HasConversion<int>();
+            b.Property(x => x.MotivoError).HasMaxLength(1000);
+            // Resultado del analisis (fase 2).
+            b.Property(x => x.Proveedor).HasConversion<int>();
+            b.Property(x => x.Modelo).HasMaxLength(120);
+            b.Property(x => x.ResultadoJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.PromptEnviado).HasColumnType(longTextColumnType);
+            // Parrilla tipica: los documentos del tenant por lote, mas reciente primero.
+            b.HasIndex(x => new { x.TenantId, x.LoteId });
+            b.HasIndex(x => new { x.TenantId, x.StoredFileId });
+        });
+
+        // Config del Analizador: un prompt por (tenant, agente). Tenant-scoped; borrado real (no soft-delete).
+        modelBuilder.Entity<DocumentoAnalisisAgentePrompt>(b =>
+        {
+            b.Property(x => x.PromptPrincipal).HasColumnType(longTextColumnType);
+            // Un unico prompt de config por agente dentro del tenant.
+            b.HasIndex(x => new { x.TenantId, x.AgentId }).IsUnique();
+        });
+
+        // Paquetes de un documento separado. Tenant-scoped + soft-delete por el filtro global (reflexion).
+        modelBuilder.Entity<DocumentoAnalisisPaquete>(b =>
+        {
+            b.Property(x => x.NombreSugerido).HasMaxLength(260).IsRequired();
+            b.Property(x => x.MetadataJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.DocumentosJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.RevisionEstado).HasConversion<int>();
+            b.Property(x => x.RevisadoPor).HasMaxLength(200);
+            // Listar los paquetes de un documento, en orden.
+            b.HasIndex(x => new { x.TenantId, x.DocumentoAnalisisId, x.Orden });
+        });
+
+        // Config del Analizador: campos de metadata por tenant. Borrado real (no soft-delete), como el prompt.
+        modelBuilder.Entity<DocumentoAnalisisMetadataCampo>(b =>
+        {
+            b.Property(x => x.Clave).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Etiqueta).HasMaxLength(160).IsRequired();
+            b.Property(x => x.Tipo).HasMaxLength(20).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(500);
+            // Una clave unica de campo por tenant.
+            b.HasIndex(x => new { x.TenantId, x.Clave }).IsUnique();
         });
 
         // ---- Requerimientos y Compras (Capa 10) ----

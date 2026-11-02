@@ -546,3 +546,14 @@
 .cd-extrun-chip:hover { background: #e0e7ff; }
 .cd-extrun-chip-dot { width: 9px; height: 9px; border-radius: 50%; background: #2563eb; animation: cd-extrun-pulse 1s infinite; }
 .cd-extrun-chip-ver { margin-left: 2px; padding: 1px 8px; border-radius: 999px; background: #4f46e5; color: #fff; font-size: 11.5px; }
+
+/* Tabla de resultado del envio a la integracion contable (progreso + LOTs) */
+.cd-ig-res { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cd-ig-res th { text-align: left; font-weight: 600; color: #64748b; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #fff; }
+.cd-ig-res td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+.cd-ig-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.cd-ig-enviado { background: #dcfce7; color: #166534; }
+.cd-ig-ya_enviado { background: #e0e7ff; color: #3730a3; }
+.cd-ig-sin_datos { background: #fef9c3; color: #854d0e; }
+.cd-ig-sin_archivos { background: #fee2e2; color: #991b1b; }
+.cd-ig-error { background: #fee2e2; color: #991b1b; }

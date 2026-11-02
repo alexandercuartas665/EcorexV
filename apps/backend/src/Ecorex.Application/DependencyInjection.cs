@@ -59,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionRuleService, Automatizaciones.ConciliacionDian.ConciliacionRuleService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionFieldService, Automatizaciones.ConciliacionDian.ConciliacionFieldService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IAutorizacionComprasConfigService, Automatizaciones.ConciliacionDian.AutorizacionComprasConfigService>();
+        services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionIntegracionService, Automatizaciones.ConciliacionDian.ConciliacionIntegracionService>();
         services.AddScoped<Automatizaciones.ConciliacionDian.IConciliacionAsignacionHistorialService, Automatizaciones.ConciliacionDian.ConciliacionAsignacionHistorialService>();
         services.AddScoped<Preferences.IUserTablePrefsService, Preferences.UserTablePrefsService>();
         services.AddScoped<Preferences.ISavedFilterService, Preferences.SavedFilterService>();

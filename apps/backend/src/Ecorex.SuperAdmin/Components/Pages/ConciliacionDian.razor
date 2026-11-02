@@ -19,6 +19,7 @@
 @inject IHttpClientFactory HttpFactory
 @inject IConciliacionDianService Svc
 @inject IConciliacionRuleService Reglas
+@inject IConciliacionIntegracionService Integ
 @inject IConciliacionFieldService Fields
 @inject IDataLookupService Lookups
 @inject IUserTablePrefsService Prefs
@@ -93,8 +94,8 @@ else
         <span class="cd-doc-meta">Creado: @(_selectedDoc?.FechaCreacion.ToString("dd/MM/yyyy") ?? "-")</span>
         <div style="flex:1"></div>
         <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
-        <button class="btn btn-outline-secondary btn-sm" @onclick="CruzarAsync" disabled="@_busy" title="Empareja contra el ERP y auto-aprueba">Cruzar</button>
-        <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones, incluido el cruce ERP/Newton) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="EjecutarIntegracionDryRunAsync" disabled="@_busy" title="Envia los documentos de cada factura al sistema contable (integraciones habilitadas). Solo las pendientes que tienen el dato 'documento' y archivos. Primero muestra una confirmacion.">Ejecutar integracion</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AnalizarConIaAsync" disabled="@(_busy || _iaBusy)" title="El asistente de IA evalua las reglas por proveedor sobre las facturas pendientes y PROPONE a que salida/usuario va cada una (tu confirmas antes de crear las tareas)">@(_iaBusy ? "Analizando..." : "\U0001F916 Analizar con IA")</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirConfigAsync" disabled="@_busy" title="Configurar las salidas al flujo de tareas (concepto+formulario) y las reglas de conciliacion">&#9881; Configuracion</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="SimularEventosAsync" disabled="@_busy" title="SIMULACION: calcula que eventos RADIAN se enviarian a NEWTON, sin radicar nada">Simular eventos</button>
@@ -670,6 +671,99 @@ else
         </div>
     }
 
+    @if (_showIntegConfirm && _integPreview is { } ip)
+    {
+        <div class="cd-confirm-backdrop" @onclick="CancelarInteg"></div>
+        <div class="cd-confirm" @onclick:stopPropagation="true">
+            <div class="cd-confirm-head">Ejecutar integracion contable</div>
+            <div class="cd-confirm-body">
+                <p>Se enviaran los documentos de <strong>@ip.Enviados factura(s)</strong> a las integraciones habilitadas.</p>
+                <p class="cd-muted">
+                    Pendientes con datos y archivos: <strong>@ip.Enviados</strong>.
+                    @if (ip.YaEnviados > 0) { <span>Ya enviadas: @ip.YaEnviados. </span>}
+                    @if (ip.SinDatos > 0) { <span>Sin dato 'documento': @ip.SinDatos. </span>}
+                    @if (ip.SinArchivos > 0) { <span>Sin archivos: @ip.SinArchivos. </span>}
+                </p>
+            </div>
+            <div class="cd-confirm-acts">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CancelarInteg" disabled="@_busy">Cancelar</button>
+                <button class="btn btn-primary btn-sm" @onclick="ConfirmarIntegracionAsync" disabled="@_busy">Enviar @ip.Enviados documento(s)</button>
+            </div>
+        </div>
+    }
+
+    @if (_integPanelOpen)
+    {
+        <div class="cd-doc-backdrop" @onclick="BackdropIntegClick"></div>
+        <div class="cd-doc-modal" @onclick:stopPropagation="true" style="max-width:720px;">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">@(_integRunning ? "Enviando al sistema contable…" : "Resultado del envio")</div>
+                    <div class="cd-doc-title-sub">
+                        @if (_integRunning)
+                        {
+                            <span>Procesando @_integDone de @_integTotal factura(s). Las que suben con exito se marcan al instante.</span>
+                        }
+                        else if (_integFinal is { } rf)
+                        {
+                            <span>@IntegracionMsg(rf, "Listo")</span>
+                        }
+                    </div>
+                </div>
+                @if (!_integRunning)
+                {
+                    <button class="cd-doc-close" title="Cerrar" @onclick="CerrarIntegPanel">&times;</button>
+                }
+            </div>
+            <div class="cd-doc-body" style="padding:12px 16px;">
+                @if (_integRunning)
+                {
+                    var pct = _integTotal > 0 ? (int)(100.0 * _integDone / _integTotal) : 0;
+                    <div style="height:8px;background:#eef0f3;border-radius:4px;overflow:hidden;margin-bottom:10px;">
+                        <div style="height:100%;width:@(pct)%;background:#2f6feb;transition:width .2s;"></div>
+                    </div>
+                    <div class="cd-rule-row" style="margin-bottom:10px;">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="CancelarEnvioIntegracion">Cancelar envio</button>
+                        <span class="cd-muted" style="font-size:12px;">Puedes cancelar: lo ya enviado queda marcado y no se reenvia.</span>
+                    </div>
+                }
+                @{
+                    // En vivo: la lista que va llegando. Al terminar: el detalle final autoritativo del servicio.
+                    var filas = (!_integRunning && _integFinal is { } ff) ? ff.Detalle : (IReadOnlyList<IntegracionRenglonOutcome>)_integResults;
+                }
+                @if (filas.Count == 0)
+                {
+                    <div class="cd-muted" style="padding:16px;">Preparando el envio…</div>
+                }
+                else
+                {
+                    <table class="cd-ig-res">
+                        <thead>
+                            <tr><th>Factura</th><th>Proveedor</th><th>Estado</th><th>LOT / detalle</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var o in Enumerable.Reverse(filas))
+                            {
+                                <tr>
+                                    <td>@o.NumFacturaProveedor</td>
+                                    <td class="cd-muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@o.Proveedor</td>
+                                    <td><span class="cd-ig-badge cd-ig-@o.Estado">@EstadoLabel(o.Estado)</span></td>
+                                    <td>@(string.IsNullOrWhiteSpace(o.Lote) ? (o.Detalle ?? "") : o.Lote)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            @if (!_integRunning)
+            {
+                <div class="cd-confirm-acts" style="padding:10px 16px;">
+                    <button class="btn btn-primary btn-sm" @onclick="CerrarIntegPanel">Cerrar</button>
+                </div>
+            }
+        </div>
+    }
+
     @if (_filesOpen && _filesRenglon is { } fr)
     {
         <div class="cd-doc-backdrop" @onclick="CloseFiles"></div>
@@ -993,6 +1087,7 @@ else
                 <div class="cd-rules-tb">
                     <button class="cd-fb-add" @onclick="AddLookupAsync">+ Busqueda (VLOOKUP)</button>
                     <button class="cd-fb-add" @onclick="AddConditionAsync">+ Condicion (SI)</button>
+                    <button class="cd-fb-add" @onclick="AgregarCruceEstandarAsync" title="Inserta el cruce estandar (ERP -> N° factura SISTEMA, Newton -> plataforma, auto-aprobar). Reemplaza al antiguo boton Cruzar; editable y con simulacion.">+ Cruce estandar (ERP + Newton)</button>
                 </div>
                 @if (_ruleList.Count == 0)
                 {
@@ -1065,6 +1160,20 @@ else
                                     <label><input type="checkbox" checked="@L.Norm.Upper" @onchange="e => SetNorm(ru, 'u', e)" /> mayusculas</label>
                                     <label><input type="checkbox" checked="@L.Norm.StripLeadingZeros" @onchange="e => SetNorm(ru, 'z', e)" /> quitar ceros</label>
                                     <label><input type="checkbox" checked="@L.Norm.DigitsOnly" @onchange="e => SetNorm(ru, 'd', e)" /> solo digitos</label>
+                                    <label><input type="checkbox" checked="@L.Norm.Alnum" @onchange="e => SetNorm(ru, 'a', e)" /> solo letras/numeros</label>
+                                </div>
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Si no encuentra</label>
+                                    <select class="cd-in" @onchange="e => SetOnNotFound(ru, e)">
+                                        <option value="blank" selected="@(L.OnNotFound == "blank")">dejar vacio</option>
+                                        <option value="keep" selected="@(L.OnNotFound == "keep")">conservar lo que haya</option>
+                                    </select>
+                                    <label class="cd-rule-lbl">Si hay varias</label>
+                                    <select class="cd-in" @onchange="e => SetOnMultiple(ru, e)">
+                                        <option value="first" selected="@(L.OnMultiple == "first")">la primera</option>
+                                        <option value="blank" selected="@(L.OnMultiple == "blank")">dejar vacio</option>
+                                        <option value="inconsistencia" selected="@(L.OnMultiple == "inconsistencia")">marcar Inconsistencia!</option>
+                                    </select>
                                 </div>
                             </div>
                         }
@@ -3610,13 +3719,6 @@ else
         _ => "",
     };
 
-    private async Task CruzarAsync()
-    {
-        _busy = true; _msg = null;
-        try { var r = await Svc.CruzarAsync(_selectedDocId); _msg = $"Cruce: {r.Cruzadas} con documento ERP, {r.Inconsistencias} inconsistencia(s), {r.AutoAprobadas} auto-aprobadas."; await ReloadAsync(); }
-        finally { _busy = false; }
-    }
-
     // ---- Motor de reglas (Aplicar reglas) con dry-run ----
     private bool _reglasOpen;
     private ConciliacionReglasResult? _reglasResult;
@@ -3756,8 +3858,18 @@ else
     {
         if (ru.Lookup is not { } L) { return; }
         var v = e.Value is bool b && b;
-        switch (which) { case 't': L.Norm.Trim = v; break; case 'u': L.Norm.Upper = v; break; case 'z': L.Norm.StripLeadingZeros = v; break; case 'd': L.Norm.DigitsOnly = v; break; }
+        switch (which) { case 't': L.Norm.Trim = v; break; case 'u': L.Norm.Upper = v; break; case 'z': L.Norm.StripLeadingZeros = v; break; case 'd': L.Norm.DigitsOnly = v; break; case 'a': L.Norm.Alnum = v; break; }
         DirtyRu(ru);
+    }
+    private void SetOnNotFound(RuleEdit ru, ChangeEventArgs e) { if (ru.Lookup is { } L) { L.OnNotFound = e.Value?.ToString() ?? "blank"; } DirtyRu(ru); }
+    private void SetOnMultiple(RuleEdit ru, ChangeEventArgs e) { if (ru.Lookup is { } L) { L.OnMultiple = e.Value?.ToString() ?? "first"; } DirtyRu(ru); }
+
+    // Inserta las 3 reglas del cruce estandar (reemplazo del boton Cruzar) y recarga la lista.
+    private async Task AgregarCruceEstandarAsync()
+    {
+        var n = await Reglas.AgregarCruceEstandarAsync();
+        await LoadReglasDataAsync();
+        _msg = n > 0 ? $"Cruce estandar agregado: {n} regla(s)." : "El cruce estandar ya estaba configurado.";
     }
 
     // Condition handlers
@@ -3812,6 +3924,98 @@ else
     }
 
     private void CancelarEnvio() { _showEnviarConfirm = false; _envioPreview = null; }
+
+    // ---- "Ejecutar integracion": envia los documentos al sistema contable (manual, sin paso de flujo). ----
+    private bool _showIntegConfirm;
+    private IntegracionRunResult? _integPreview; // dry-run previo a confirmar
+    // Panel de progreso/resultado del envio (en vivo).
+    private bool _integPanelOpen;
+    private bool _integRunning;
+    private int _integDone, _integTotal;
+    private List<IntegracionRenglonOutcome> _integResults = new();
+    private IntegracionRunResult? _integFinal;
+    private CancellationTokenSource? _integCts;
+
+    // Dry-run: cuenta cuantas facturas pendientes tienen el dato 'documento' + archivos, y pide confirmacion.
+    private async Task EjecutarIntegracionDryRunAsync()
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            _integPreview = await Integ.EjecutarAsync(_selectedDocId, simular: true);
+            if (_integPreview.Mensaje is { Length: > 0 } m)
+            {
+                _msg = m; _integPreview = null; return;
+            }
+            if (_integPreview.Enviados == 0)
+            {
+                _msg = IntegracionMsg(_integPreview, "No hay facturas pendientes para enviar");
+                _integPreview = null; return;
+            }
+            _showIntegConfirm = true;
+        }
+        finally { _busy = false; }
+    }
+
+    private void CancelarInteg() { _showIntegConfirm = false; _integPreview = null; }
+
+    private async Task ConfirmarIntegracionAsync()
+    {
+        _showIntegConfirm = false;
+        _busy = true; _msg = null;
+        _integPanelOpen = true; _integRunning = true;
+        _integDone = 0; _integTotal = _integPreview?.Enviados ?? 0;
+        _integResults = new(); _integFinal = null;
+        _integCts = new CancellationTokenSource();
+        // Callback async (no IProgress): corre en el dispatcher de Blazor, asi el StateHasChanged pinta de verdad
+        // el avance factura a factura (IProgress no era fiable sin SynchronizationContext).
+        async Task OnProgress(IntegracionProgress p)
+        {
+            _integDone = p.Done; _integTotal = p.Total;
+            _integResults.Add(p.Last);
+            await InvokeAsync(StateHasChanged);
+        }
+        try
+        {
+            _integFinal = await Integ.EjecutarAsync(_selectedDocId, simular: false, OnProgress, _integCts.Token);
+            _msg = _integFinal.Mensaje is { Length: > 0 } m ? m : IntegracionMsg(_integFinal, "Enviado al sistema contable");
+        }
+        catch (OperationCanceledException)
+        {
+            _msg = "Envio cancelado. Lo ya enviado quedo marcado (no se reenviara al reintentar).";
+        }
+        catch (Exception ex)
+        {
+            _msg = "Error en el envio: " + ex.Message;
+        }
+        finally
+        {
+            _integRunning = false; _busy = false; _integPreview = null;
+            _integCts?.Dispose(); _integCts = null;
+            await ReloadAsync();
+        }
+    }
+
+    private void CancelarEnvioIntegracion() => _integCts?.Cancel();
+    private void CerrarIntegPanel() { _integPanelOpen = false; _integResults = new(); _integFinal = null; }
+    // El backdrop cierra el panel solo cuando el envio ya no esta corriendo (evita cerrarlo a mitad).
+    private void BackdropIntegClick() { if (!_integRunning) { CerrarIntegPanel(); } }
+
+    private static string EstadoLabel(string estado) => estado switch
+    {
+        "enviado" => "Enviado", "ya_enviado" => "Ya enviado", "sin_datos" => "Sin dato 'documento'",
+        "sin_archivos" => "Sin archivos", "error" => "Error", _ => estado,
+    };
+
+    private static string IntegracionMsg(IntegracionRunResult r, string prefijo)
+    {
+        var partes = new List<string> { $"{r.Enviados} enviada(s)" };
+        if (r.YaEnviados > 0) { partes.Add($"{r.YaEnviados} ya enviada(s)"); }
+        if (r.SinDatos > 0) { partes.Add($"{r.SinDatos} sin dato 'documento'"); }
+        if (r.SinArchivos > 0) { partes.Add($"{r.SinArchivos} sin archivos"); }
+        if (r.Errores > 0) { partes.Add($"{r.Errores} con error"); }
+        return $"{prefijo}: " + string.Join(" · ", partes) + ".";
+    }
 
     private async Task ConfirmarEnvioAsync()
     {

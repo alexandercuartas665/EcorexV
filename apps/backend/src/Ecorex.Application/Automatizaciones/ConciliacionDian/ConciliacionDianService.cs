@@ -492,6 +492,20 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         });
         for (var k = 0; k < 6; k++) { Newton(k, conPdf: k < 4); }
 
+        // Reglas del "cruce estandar" (motor configurable): mismo cruce que hace Cruzar, pero editable y con
+        // simulacion. Idempotente por nombre. Sembrarlas deja al tenant demo listo para "Aplicar reglas".
+        var nombresRegla = new HashSet<string>(await _db.ConciliacionRules.Select(r => r.Name).ToListAsync(ct), StringComparer.OrdinalIgnoreCase);
+        var ordenRegla = 0;
+        foreach (var (name, kind, json) in ConciliacionRuleSeed.CruceEstandar())
+        {
+            if (nombresRegla.Contains(name)) { continue; }
+            _db.ConciliacionRules.Add(new ConciliacionRule
+            {
+                TenantId = tenantId, Name = name, Kind = kind, Enabled = true,
+                SortOrder = ordenRegla++, DefinitionJson = json,
+            });
+        }
+
         await _db.SaveChangesAsync(ct);
 
         // Crea el CCD del mes, importa del bot y cruza (deja la logica ya ejercitada al abrir el modulo).

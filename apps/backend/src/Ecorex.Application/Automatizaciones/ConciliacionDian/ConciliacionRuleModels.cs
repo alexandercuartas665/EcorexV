@@ -12,6 +12,9 @@ public sealed class RuleNorm
     public bool Upper { get; set; }
     public bool StripLeadingZeros { get; set; }
     public bool DigitsOnly { get; set; }
+    /// <summary>Deja solo letras y numeros (quita guiones, espacios y puntuacion, conserva letras).
+    /// Replica el Norm() del cruce ERP legacy (IsLetterOrDigit). Si tambien va DigitsOnly, gana DigitsOnly.</summary>
+    public bool Alnum { get; set; }
 }
 
 /// <summary>Una condicion de match del VLOOKUP: columna del contenedor == valor del campo (renglon o scratch).</summary>
@@ -32,6 +35,25 @@ public sealed class RuleLookupSpec
     public string OnNotFound { get; set; } = "blank"; // blank | keep
     public string OnMultiple { get; set; } = "first"; // first | blank
     public RuleNorm Norm { get; set; } = new();
+}
+
+/// <summary>Fuentes INTEGRADAS del VLOOKUP (ademas de los Contenedores de datos del tenant). El ContainerId
+/// de la regla apunta a uno de estos centinelas y el motor lee la tabla interna correspondiente. Hoy leen las
+/// tablas DUMMY de Fase 1; cuando ADR-0084 las reemplace por la conexion externa solo cambia el lector del
+/// motor (BuildIndexAsync), no la regla ni la UI.</summary>
+public static class ConciliacionRuleSources
+{
+    /// <summary>Referencias del ERP (cruce del N° de factura -> documento interno). Columnas: Referencia, DocumentoInterno.</summary>
+    public static readonly Guid ErpSourceId = new("00000000-0000-0000-0000-0000000000e1");
+    /// <summary>Plataforma NEWTON (CUFE con representacion grafica). Columnas: Cufe, TienePdf.</summary>
+    public static readonly Guid NewtonSourceId = new("00000000-0000-0000-0000-0000000000e2");
+
+    public const string ErpColReferencia = "Referencia";
+    public const string ErpColDocInterno = "DocumentoInterno";
+    public const string NewtonColCufe = "Cufe";
+    public const string NewtonColTienePdf = "TienePdf";
+
+    public static bool IsBuiltIn(Guid id) => id == ErpSourceId || id == NewtonSourceId;
 }
 
 /// <summary>Nodo del arbol de condiciones (mismo shape que el constructor de filtros para reuso en la UI).</summary>
@@ -93,8 +115,9 @@ public static class ConciliacionRuleFields
         new("retefuente", "Retefuente", RuleFieldType.Number, false),
         new("ica", "ReteICA", RuleFieldType.Number, false),
         new("total", "Total factura", RuleFieldType.Number, false),
-        new("plataforma", "En Newton (plataforma)", RuleFieldType.Bool, false),
+        new("plataforma", "En Newton (plataforma)", RuleFieldType.Bool, true),
         new("aprobada", "Factura aprobada", RuleFieldType.Bool, true),
+        new("aprobada_manual", "Aprobacion manual (candado)", RuleFieldType.Bool, false),
         new("ev30", "Evento 30 (acuse)", RuleFieldType.Bool, false),
         new("ev31", "Evento 31 (reclamo)", RuleFieldType.Bool, false),
         new("ev32", "Evento 32 (recibo bien/serv)", RuleFieldType.Bool, false),
@@ -138,6 +161,7 @@ public static class ConciliacionRuleEngine
         var s = v ?? "";
         if (n.Trim) { s = s.Trim(); }
         if (n.DigitsOnly) { s = new string(s.Where(char.IsDigit).ToArray()); }
+        else if (n.Alnum) { s = new string(s.Where(char.IsLetterOrDigit).ToArray()); }
         if (n.StripLeadingZeros) { s = s.TrimStart('0'); if (s.Length == 0 && (v ?? "").Any(char.IsDigit)) { s = "0"; } }
         if (n.Upper) { s = s.ToUpperInvariant(); }
         return s;

@@ -131,6 +131,14 @@ public interface IAutorizacionComprasConfigService
     /// null si no existe. El filtro global por tenant aplica.</summary>
     Task<Guid?> ResolveTaskIdByNumberAsync(string number, CancellationToken ct = default);
 
+    // ---- Integracion contable: renglones ya ENVIADOS al sistema contable (anti-reenvio) ----
+    /// <summary>Mapa renglon-&gt;LOT de los ya enviados con exito al contable. "Pendiente" para el envio = NO esta
+    /// como clave. El valor es el/los numero(s) LOT que devolvio el contable (puede venir vacio si no se pudo leer).</summary>
+    Task<IReadOnlyDictionary<Guid, string>> GetEnviadosContableAsync(CancellationToken ct = default);
+    /// <summary>Marca (idempotente, por factura) un renglon como enviado al contable con su LOT. Persiste en un
+    /// unico TenantConfiguration (mapa renglon-&gt;LOT). Se llama apenas cada factura sube con exito (durable).</summary>
+    Task MarkEnviadoContableAsync(Guid renglonId, string lote, CancellationToken ct = default);
+
     // ---- "Direccionar compra": boton del formulario que devuelve datos del form al renglon del conciliador ----
     /// <summary>Config del boton "Direccionar compra" (habilitado + mapeos campo->columna).</summary>
     Task<DireccionarConfigDto> GetDireccionarAsync(CancellationToken ct = default);
@@ -371,6 +379,34 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         if (string.IsNullOrWhiteSpace(raw)) { return new(); }
         try { return JsonSerializer.Deserialize<Dictionary<string, string>>(raw) ?? new(); }
         catch { return new(); }
+    }
+
+    // ---- Facturas ya enviadas al sistema contable (anti-reenvio; mapa renglon->fecha ISO) ----
+    private const string EnviadoContableKey = "conciliacion-dian.enviados-contable";
+
+    public async Task<IReadOnlyDictionary<Guid, string>> GetEnviadosContableAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == EnviadoContableKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        var map = new Dictionary<Guid, string>();
+        foreach (var kv in ParseMap(raw)) { if (Guid.TryParse(kv.Key, out var g)) { map[g] = kv.Value; } }
+        return map;
+    }
+
+    public async Task MarkEnviadoContableAsync(Guid renglonId, string lote, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == EnviadoContableKey, ct);
+        var map = ParseMap(row?.ConfigValue);
+        var k = renglonId.ToString();
+        // Valor = LOT; si no se pudo leer el LOT, guarda la fecha ISO para dejar constancia del envio.
+        var val = string.IsNullOrWhiteSpace(lote) ? DateTimeOffset.UtcNow.ToString("o") : lote;
+        if (map.TryGetValue(k, out var prev) && prev == val) { return; } // idempotente
+        map[k] = val;
+        var json = JsonSerializer.Serialize(map);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = EnviadoContableKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
     }
 
     // ================= "Direccionar compra" (boton del form -> columna del conciliador) =================

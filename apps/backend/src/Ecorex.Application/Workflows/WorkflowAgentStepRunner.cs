@@ -535,7 +535,7 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             PromptExtra: callRequest.Objetivo,
             Objetivo: nameof(ContactCallObjetivo.LlenarFormulario),
             FormulariosPermitidos: formIds,
-            ContactVariables: new Dictionary<string, string?>()), cancellationToken);
+            ContactVariables: BuildContactVariables(context)), cancellationToken);
 
         if (!placed.Placed || string.IsNullOrWhiteSpace(placed.CallId))
         {
@@ -569,6 +569,26 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             nodeAgent.AiAgentId, placed.CallId, step.Id);
         await BroadcastRefreshAsync(step, cancellationToken);   // refresca la tarjeta a "en espera" sin reabrir
         return WorkflowAgentStepOutcome.WaitingForCall;
+    }
+
+    /// <summary>Ola 0 (voz en seguimiento, ADR-0142): arma las variables dinamicas del contacto desde la
+    /// tarea/tercero para que la llamada NO vaya "a ciegas" (hoy iba con el diccionario vacio). Solo pone lo que
+    /// hay; las vacias se omiten aguas abajo (BuildDynamicVariables). El telefono no va aqui (es el ToNumber);
+    /// producto/cotizacion vendran de datos previos en una ola posterior.</summary>
+    private static Dictionary<string, string?> BuildContactVariables(WorkflowAgentContextDto context)
+    {
+        var vars = new Dictionary<string, string?>();
+        var task = context.Task;
+        if (task is null) { return vars; }
+        var tercero = task.Tercero;
+        vars["nombre"] = tercero?.Nombre ?? task.RequesterName;
+        if (tercero is { Tipo: TerceroTipo.Empresa } && !string.IsNullOrWhiteSpace(tercero.Nombre))
+        {
+            vars["empresa"] = tercero.Nombre;
+        }
+        vars["ciudad"] = tercero?.Ciudad;
+        vars["numero_caso"] = task.Number;
+        return vars;
     }
 
     /// <summary>ADR-0092: el agente pidio preguntar por WhatsApp. Se envia el mensaje (plantilla si es contacto

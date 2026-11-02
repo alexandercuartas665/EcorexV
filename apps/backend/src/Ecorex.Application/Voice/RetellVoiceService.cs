@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -26,15 +27,17 @@ public sealed class RetellVoiceService : IRetellVoiceService
     private readonly IRetellApiClient _retell;
     private readonly TimeProvider _clock;
     private readonly ILogger<RetellVoiceService> _log;
+    private readonly INotifyLinkBuilder _links;
 
     public RetellVoiceService(IApplicationDbContext db, ISecretProtector protector, IRetellApiClient retell,
-        TimeProvider clock, ILogger<RetellVoiceService> log)
+        TimeProvider clock, ILogger<RetellVoiceService> log, INotifyLinkBuilder links)
     {
         _db = db;
         _protector = protector;
         _retell = retell;
         _clock = clock;
         _log = log;
+        _links = links;
     }
 
     public async Task<VoicePlaceCallResult> PlaceCallAsync(VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
@@ -120,7 +123,10 @@ public sealed class RetellVoiceService : IRetellVoiceService
             OverrideAgentId: overrideAgentId,
             DynamicVariables: dyn,
             CustomSipHeaders: sipHeaders,
-            Metadata: metadata), cancellationToken);
+            Metadata: metadata,
+            // webhook_url por llamada: el flujo reanuda contra esta instancia. Null en dev (sin URL publica) ->
+            // el modal cae al sondeo get-call. La entrega a prod la valida el usuario (config de infra).
+            WebhookUrl: _links.BuildRetellWebhookUrl()), cancellationToken);
 
         if (!callRes.Ok || string.IsNullOrEmpty(callRes.CallId))
         {
@@ -508,6 +514,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         Put("cargo", Get(contact, "cargo"));
         Put("ciudad", Get(contact, "ciudad"));
         Put("producto", Get(contact, "producto"));
+        Put("numero_caso", Get(contact, "numero_caso"));
         if (!string.IsNullOrWhiteSpace(objetivo)) { d["objetivo"] = objetivo!; }
         return d;
     }

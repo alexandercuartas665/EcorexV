@@ -16,4 +16,8 @@ public interface INotifyLinkBuilder
 
     /// <summary>Enlace absoluto de firma por link (p.ej. https://app.../firmar/{token}); null si no hay URL base.</summary>
     string? BuildSignatureLink(string token);
+
+    /// <summary>URL publica del webhook de Retell (https://app.../api/voice/retell/webhook); null si no hay URL
+    /// base configurada (en dev el flujo cae al sondeo get-call). Se registra por llamada en create-phone-call.</summary>
+    string? BuildRetellWebhookUrl();
 }

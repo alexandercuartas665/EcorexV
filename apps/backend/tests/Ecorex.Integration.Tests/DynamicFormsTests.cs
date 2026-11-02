@@ -962,6 +962,7 @@ public abstract class DynamicFormsTestsBase
         public string? BuildTaskLink(Guid taskId) => null;
         public string? BuildDecisionLink(string token) => null;
         public string? BuildSignatureLink(string token) => $"https://test.local/firmar/{token}";
+        public string? BuildRetellWebhookUrl() => "https://test.local/api/voice/retell/webhook";
     }
 
     /// <summary>Nunca se invoca en estos tests (SendWhatsApp=false); solo cumple el contrato del constructor.</summary>

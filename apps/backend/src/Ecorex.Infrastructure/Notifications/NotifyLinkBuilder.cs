@@ -31,4 +31,7 @@ public sealed class NotifyLinkBuilder : INotifyLinkBuilder
 
     public string? BuildSignatureLink(string token)
         => string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(token) ? null : $"{_baseUrl}/firmar/{token}";
+
+    public string? BuildRetellWebhookUrl()
+        => string.IsNullOrWhiteSpace(_baseUrl) ? null : $"{_baseUrl}/api/voice/retell/webhook";
 }

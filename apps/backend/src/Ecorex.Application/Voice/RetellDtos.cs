@@ -22,7 +22,9 @@ public sealed record RetellCreateAgentRequest(
 
 public sealed record RetellCreateAgentResult(bool Ok, string? AgentId, string? Error, int StatusCode);
 
-/// <summary>POST /v2/create-phone-call. Coloca la llamada saliente.</summary>
+/// <summary>POST /v2/create-phone-call. Coloca la llamada saliente. <see cref="WebhookUrl"/> (opcional) fija el
+/// webhook POR LLAMADA (override del configurado en el dashboard): asi el flujo reanuda contra esta instancia sin
+/// depender de la config manual de Retell. Null = no se envia (cae a lo del dashboard / al sondeo get-call).</summary>
 public sealed record RetellCreateCallRequest(
     string FromNumber,
     string ToNumber,
@@ -30,7 +32,8 @@ public sealed record RetellCreateCallRequest(
     IReadOnlyDictionary<string, string>? DynamicVariables = null,
     IReadOnlyDictionary<string, string>? CustomSipHeaders = null,
     IReadOnlyDictionary<string, string>? Metadata = null,
-    bool IgnoreE164Validation = false);
+    bool IgnoreE164Validation = false,
+    string? WebhookUrl = null);
 
 public sealed record RetellCreateCallResult(bool Ok, string? CallId, string? AgentId, string? CallStatus, string? Error, int StatusCode);
 

@@ -125,9 +125,15 @@
                 </div>
             }
             <div class="dg-form-modal-body">
-                <DynamicFormRenderer DefinitionId="@_formModal.FormDefinitionId"
+                @* KeepEditable=true: el formulario del tercero es un REGISTRO EDITABLE. Autoguarda como
+                   borrador (no se "envia" ni se bloquea), se puede reabrir, editar e imprimir cuantas
+                   veces se quiera. El boton del pie dice "Guardar". Al cerrar el modal se vuelca el
+                   borrador (FlushDraftAsync) para no perder lo escrito entre autosaves. *@
+                <DynamicFormRenderer @ref="_formRenderer"
+                                     DefinitionId="@_formModal.FormDefinitionId"
                                      Reference="@ITerceroFormService.ReferenceFor(_editingId.Value)"
                                      Mode="FormRenderMode.Fill"
+                                     KeepEditable="true"
                                      ShowHeader="false"
                                      OnSubmitted="OnFormModalSubmittedAsync" />
             </div>

@@ -59,6 +59,7 @@ public partial class TerceroModal
     private List<TerceroFormLinkDto> _forms = new();
     private Guid? _formSel;                       // legado (ya no se usa inline; se conserva por los resets)
     private TerceroFormLinkDto? _formModal;        // formulario abierto en MODAL para llenar
+    private DynamicFormRenderer? _formRenderer;    // @ref al renderer, para volcar el borrador al cerrar
     private Guid? _shareBusy;                       // FormDefinitionId mientras se emite el token
     private string? _shareUrl;                      // ultimo enlace publico emitido
     private Guid? _shareForFormId;                  // a que formulario pertenece _shareUrl
@@ -346,8 +347,14 @@ public partial class TerceroModal
         StateHasChanged();
     }
 
-    private void CloseFormModal()
+    private async Task CloseFormModal()
     {
+        // Volcar el borrador antes de cerrar: el autosave corre cada 30s, asi que sin esto se
+        // perderia lo escrito en el ultimo tramo. FlushDraftAsync es idempotente y best-effort.
+        if (_formRenderer is not null)
+        {
+            try { await _formRenderer.FlushDraftAsync(); } catch { /* best-effort */ }
+        }
         _formModal = null;
         StateHasChanged();
     }

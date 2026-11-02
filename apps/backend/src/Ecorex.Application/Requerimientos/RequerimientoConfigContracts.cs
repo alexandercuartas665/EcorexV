@@ -67,6 +67,23 @@ public sealed record SaveReglaRequest(
 /// <summary>Dias de vigencia de cotizacion por proveedor (default del proveedor; una regla puede sobreescribirlo).</summary>
 public sealed record ProveedorVigenciaDto(Guid ProveedorId, int? VigenciaDias);
 
+/// <summary>Mapeo del FORMULARIO de cotizacion (RFQ) para inyectar las lineas al proveedor (Ola B). El flujo de la
+/// subcategoria de cotizacion presenta este formulario; su campo GRILLA (<see cref="GridFieldCode"/>) recibe una
+/// fila por linea, con la CLAVE tecnica por fila en <see cref="ColClave"/> (columna OCULTA) para empatar la
+/// respuesta en la Ola C. <see cref="ColDescripcion"/>/<see cref="ColCantidad"/>/<see cref="ColUnidad"/>/
+/// <see cref="ColFecha"/> reciben el snapshot de la linea (lo que se cotiza). Todo opcional: sin definicion o sin
+/// grilla no se inyecta nada (la RFQ se crea igual). Config por tenant en TenantConfiguration (sin migracion).</summary>
+public sealed record RfqFormMapDto(
+    Guid? FormDefinitionId, string? GridFieldCode,
+    string? ColClave, string? ColDescripcion, string? ColCantidad, string? ColUnidad, string? ColFecha);
+
+/// <summary>Una columna de una grilla (GridDetail), para los selectores del mapeo RFQ. <see cref="Hidden"/> marca
+/// las columnas ocultas (candidatas naturales para la clave tecnica).</summary>
+public sealed record RfqGridColDto(string Id, string Label, bool Hidden);
+
+/// <summary>Un campo GRILLA (GridDetail) de un formulario con sus columnas, para elegir cual recibe las lineas.</summary>
+public sealed record RfqGridFieldDto(string FieldCode, string Label, IReadOnlyList<RfqGridColDto> Columns);
+
 /// <summary>
 /// Configuracion del modulo de Requerimientos (Capa 10): ORIGENES (Ola 1) + MATRIZ de proveedores (Ola 4).
 /// Tenant-scoped por el filtro global.
@@ -118,4 +135,15 @@ public interface IRequerimientoConfigService
     Task<IReadOnlyDictionary<Guid, int>> GetProveedorVigenciaMapAsync(CancellationToken ct = default);
     /// <summary>Fija (o limpia, con null) los dias de vigencia default de un proveedor.</summary>
     Task SetProveedorVigenciaAsync(Guid proveedorId, int? dias, CancellationToken ct = default);
+
+    // ---- Ola B: formulario de cotizacion (RFQ) ----
+
+    /// <summary>Mapeo del formulario de cotizacion (RFQ) del tenant (Ola B). Nunca null: todo vacio si no se ha
+    /// configurado. Config por tenant en TenantConfiguration (sin migracion).</summary>
+    Task<RfqFormMapDto> GetRfqFormMapAsync(CancellationToken ct = default);
+    /// <summary>Guarda el mapeo del formulario de cotizacion (RFQ) del tenant.</summary>
+    Task SetRfqFormMapAsync(RfqFormMapDto map, CancellationToken ct = default);
+    /// <summary>Campos GRILLA (GridDetail) de un formulario con sus columnas, para configurar el mapeo RFQ.
+    /// Vacio si el formulario no existe o no tiene grillas.</summary>
+    Task<IReadOnlyList<RfqGridFieldDto>> ListGridFieldsAsync(Guid definitionId, CancellationToken ct = default);
 }

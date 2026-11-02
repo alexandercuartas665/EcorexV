@@ -629,6 +629,21 @@ public sealed class RequerimientoService : IRequerimientoService
 
         await _seq.EnsureSequenceAsync("RFQ", ct);
 
+        // Ola B: mapeo del FORMULARIO de cotizacion (RFQ). Si esta configurado y la definicion esta activa, al
+        // crear cada RFQ se SIEMBRA el borrador de su formulario con una fila por linea (la clave de producto
+        // viaja en una columna OCULTA para empatar la respuesta del proveedor en la Ola C). Sin mapeo o con el
+        // formulario inactivo, la RFQ se crea igual (sin inyeccion) y se avisa.
+        var rfqMap = await _config.GetRfqFormMapAsync(ct);
+        Guid? rfqFormDefId = null;
+        if (rfqMap.FormDefinitionId is Guid fdid && !string.IsNullOrWhiteSpace(rfqMap.GridFieldCode)
+            && !string.IsNullOrWhiteSpace(rfqMap.ColClave))
+        {
+            var activo = await _db.FormDefinitions.AsNoTracking()
+                .AnyAsync(d => d.Id == fdid && d.Status == FormStatus.Active && !d.IsArchived, ct);
+            if (activo) { rfqFormDefId = fdid; }
+            else { avisos.Add("El formulario de cotizacion (RFQ) configurado no esta activo; las RFQ se crearon sin inyectar las lineas."); }
+        }
+
         var creadas = new List<RfqDto>();
         var totalLineas = 0;
 
@@ -729,6 +744,14 @@ public sealed class RequerimientoService : IRequerimientoService
             }
 
             await _db.SaveChangesAsync(ct);
+
+            // Ola B: sembrar el formulario del proveedor con las lineas (la "ida"). Idempotente por
+            // (definicion, numero de tarea): si el paso del flujo ya materializo el borrador, se reusa.
+            if (rfqFormDefId is Guid rdef)
+            {
+                await SeedRfqFormAsync(rfq, created.Value.Item.Number, lineas, padres, rfqMap, rdef, tid, ct);
+            }
+
             totalLineas += lineas.Count;
             creadas.Add(new RfqDto(rfq.Id, rfq.Numero, provId, provNombre, rfq.Estado,
                 rfq.TaskItemId, created.Value.Item.Number, rfq.FechaEnvio, rfq.CreatedAt, lineas.Count,
@@ -736,6 +759,68 @@ public sealed class RequerimientoService : IRequerimientoService
         }
 
         return new CotizarPorProveedorResultado(true, null, creadas.Count, totalLineas, omitidas, avisos, creadas);
+    }
+
+    // Ola B: siembra (o reusa) el borrador del formulario de cotizacion del proveedor, con una fila por linea.
+    // La fila lleva la CLAVE de producto en la columna oculta configurada (para empatar la respuesta en la Ola C)
+    // y el snapshot (descripcion/cantidad/unidad/fecha) en las columnas mapeadas. El documento se serializa con el
+    // MISMO formato que FormResponseService ({ fieldCode: { value, type } }); el valor de la grilla es el arreglo
+    // JSON de filas. No se usa IFormResponseService a proposito (evita un ciclo de dependencias con el motor de
+    // reglas); se escribe el FormResponse por el contexto, tenant-scoped por el filtro global.
+    private async Task SeedRfqFormAsync(RequerimientoRfq rfq, string taskNumber, List<RequerimientoCompraHijo> lineas,
+        IReadOnlyDictionary<Guid, RequerimientoCompra> padres, RfqFormMapDto map, Guid defId, Guid tid, CancellationToken ct)
+    {
+        var grid = map.GridFieldCode!;
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+        var rows = new List<Dictionary<string, string?>>(lineas.Count);
+        foreach (var h in lineas)
+        {
+            var p = padres.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
+            var row = new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                [map.ColClave!] = ClaveProducto(p?.ItemId, p?.Descripcion),
+            };
+            if (!string.IsNullOrWhiteSpace(map.ColDescripcion)) { row[map.ColDescripcion!] = p?.Descripcion ?? string.Empty; }
+            if (!string.IsNullOrWhiteSpace(map.ColCantidad)) { row[map.ColCantidad!] = h.Cantidad.ToString(inv); }
+            if (!string.IsNullOrWhiteSpace(map.ColUnidad)) { row[map.ColUnidad!] = p?.UnidadMedida ?? string.Empty; }
+            if (!string.IsNullOrWhiteSpace(map.ColFecha) && (h.FechaProgramadaCompra ?? p?.FechaNecesidad) is DateTimeOffset f)
+            {
+                row[map.ColFecha!] = f.ToString("yyyy-MM-dd", inv);
+            }
+            rows.Add(row);
+        }
+
+        // Idempotencia: si ya existe una respuesta para (definicion, numero de tarea) -- p.ej. el paso del flujo
+        // ya la materializo, o una corrida previa la sembro -- se reusa en vez de duplicar.
+        var existing = await _db.FormResponses.AsNoTracking()
+            .Where(r => r.DefinitionId == defId && r.Reference == taskNumber)
+            .OrderBy(r => r.CreatedAt)
+            .Select(r => (Guid?)r.Id).FirstOrDefaultAsync(ct);
+        if (existing is Guid exId)
+        {
+            rfq.FormResponseId = exId;
+            await _db.SaveChangesAsync(ct);
+            return;
+        }
+
+        var rowsJson = JsonSerializer.Serialize(rows, web);
+        var doc = new Dictionary<string, Ecorex.Application.Forms.FormFieldValue>(StringComparer.Ordinal)
+        {
+            [grid] = new(rowsJson, FormControlType.GridDetail.ToString()),
+        };
+        var response = new FormResponse
+        {
+            TenantId = tid,
+            DefinitionId = defId,
+            Reference = taskNumber,
+            Status = FormResponseStatus.Draft,
+            Data = JsonSerializer.Serialize(doc, web),
+        };
+        _db.FormResponses.Add(response);
+        rfq.FormResponseId = response.Id;
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<IReadOnlyList<RfqDto>> ListRfqAsync(int max = 100, CancellationToken ct = default)

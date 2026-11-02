@@ -412,4 +412,45 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
             o.SubcategoriaCotizacionId,
             o.SubcategoriaCotizacionId is Guid sc && subs.TryGetValue(sc, out var scn) ? scn : null,
             o.Activo);
+
+    // ---- Ola B: formulario de cotizacion (RFQ) ----
+    // Mapeo (que formulario, que grilla, que columnas) para inyectar las lineas al proveedor. Un solo JSON por
+    // tenant en TenantConfiguration (sin migracion), igual patron que la matriz extendida.
+    private const string RfqFormKey = "requerimientos.rfq";
+
+    public async Task<RfqFormMapDto> GetRfqFormMapAsync(CancellationToken ct = default)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == RfqFormKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(val)) { return new RfqFormMapDto(null, null, null, null, null, null, null); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<RfqFormMapDto>(val!) ?? new RfqFormMapDto(null, null, null, null, null, null, null); }
+        catch { return new RfqFormMapDto(null, null, null, null, null, null, null); }
+    }
+
+    public async Task SetRfqFormMapAsync(RfqFormMapDto map, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        string? Norm(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        var clean = new RfqFormMapDto(
+            map.FormDefinitionId, Norm(map.GridFieldCode),
+            Norm(map.ColClave), Norm(map.ColDescripcion), Norm(map.ColCantidad), Norm(map.ColUnidad), Norm(map.ColFecha));
+        var json = System.Text.Json.JsonSerializer.Serialize(clean);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == RfqFormKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = RfqFormKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<RfqGridFieldDto>> ListGridFieldsAsync(Guid definitionId, CancellationToken ct = default)
+    {
+        var grids = await _db.FormQuestions.AsNoTracking()
+            .Where(q => q.DefinitionId == definitionId && q.ControlType == FormControlType.GridDetail)
+            .OrderBy(q => q.SortOrder)
+            .Select(q => new { q.FieldCode, q.Label, q.OptionsJson })
+            .ToListAsync(ct);
+        return grids.Select(g => new RfqGridFieldDto(
+            g.FieldCode, g.Label,
+            Forms.Calc.FormGridCalculator.ParseColumns(g.OptionsJson)
+                .Select(c => new RfqGridColDto(c.Id, c.Label, c.Hidden)).ToList())).ToList();
+    }
 }

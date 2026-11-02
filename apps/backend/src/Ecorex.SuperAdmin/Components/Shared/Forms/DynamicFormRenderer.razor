@@ -2807,7 +2807,10 @@ else
 
     private RenderFragment RenderGrid(FormQuestionDto q, string? value) => __builder =>
     {
-        var columns = GridColumnsOf(q);
+        // Las columnas OCULTAS (Hidden) se CONSERVAN en el dato y viajan en cada fila (round-trip al guardar),
+        // pero se excluyen de la VISTA (colgroup/encabezado/celdas/totales): asi una clave tecnica por fila
+        // -p.ej. la clave de producto de una RFQ- queda invisible para quien llena el formulario sin perderse.
+        var columns = GridColumnsOf(q).Where(c => !c.Hidden).ToList();
         var extras = GridExtrasOf(q);
         var rows = FormFieldValidator.ParseGridRows(value).Select(r => new Dictionary<string, string?>(r, StringComparer.Ordinal)).ToList();
         @if (columns.Count == 0)
@@ -4255,7 +4258,8 @@ else
 
     private async Task ExportGridXlsx(FormQuestionDto q)
     {
-        var columns = GridColumnsOf(q);
+        // Las columnas ocultas (clave tecnica por fila) no se exportan: solo las visibles.
+        var columns = GridColumnsOf(q).Where(c => !c.Hidden).ToList();
         if (columns.Count == 0) { return; }
         _gridIoMsg.Remove(q.FieldCode);
         var bytes = FormGridXlsx.Export(columns, GridRowsOf(q), q.Label);
@@ -4265,7 +4269,8 @@ else
 
     private async Task DownloadGridTemplate(FormQuestionDto q)
     {
-        var columns = GridColumnsOf(q);
+        // La plantilla no incluye las columnas ocultas (clave tecnica por fila): solo las capturables visibles.
+        var columns = GridColumnsOf(q).Where(c => !c.Hidden).ToList();
         if (columns.Count == 0) { return; }
         _gridIoMsg.Remove(q.FieldCode);
         var bytes = FormGridXlsx.Template(columns, q.Label);

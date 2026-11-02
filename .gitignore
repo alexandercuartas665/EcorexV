@@ -105,6 +105,9 @@ apps/backend/src/Ecorex.SuperAdmin/wwwroot/lib/jquery/
 
 # Salida de build aislada para dev (NO versionar)
 /apps/backend/appout5263/
+# Cualquier salida de publish con nombre appout-* (actionbtn/bmc/lienzo/wizard/...) y publish anidado
+/apps/backend/appout-*/
+/apps/backend/apps/
 
 # Salida de build aislada dev worktree requerimiento_compras (NO versionar)
 /apps/backend/appout5265/

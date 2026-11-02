@@ -2,6 +2,170 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-02 - Conciliador: panel EN VIVO de "Importar del bot" + tab "Extraccion de datos" + paso "Cerrar navegador" (DEV, commiteado)
+
+- AGENTE: Claude Opus 4.8. Trabajo en dev (server 5263, SOLDARCO). Commiteado al tronco; SIN deploy a prod (a la espera del OK por version).
+- ACLARACION al usuario: "Importar del bot" antes NO corria el dron; solo copiaba a la parrilla lo que el dron dejo en la
+  tabla intermedia ConciliacionDianBotDummies (la llena el paso "Procesar archivos descargados" por CUFE). Si esa
+  tabla esta vacia para el periodo -> "Sin facturas nuevas del bot" (por eso parecia no hacer nada).
+- FEATURE A: nuevo tab "Extraccion de datos" en el modal de Configuracion del conciliador (5o, junto a Salidas/
+  Reglas/Asistente/Integraciones). Lista ordenable de flujos (DRON = scrape_flows) con subir/bajar/quitar;
+  persiste por tenant en TenantConfiguration clave `conciliacion-dian.extraccion` ({"FlowIds":[...]}), sin
+  migracion. Metodos nuevos en IAutorizacionComprasConfigService: GetExtraccionAsync / SetExtraccionAsync /
+  ListFlujosExtraccionAsync (+ DTOs ExtraccionEventoDto / ExtraccionFlujoOptDto).
+- FEATURE A2 (orquestacion + PANEL EN VIVO): "Importar del bot" corre los flujos configurados EN ORDEN, PASO A PASO,
+  con el nuevo IBrowserRunService.RunFlowStepwiseAsync (recorre los pasos del flujo via RunStepNowAsync y reporta
+  progreso por IProgress<FlowStepProgress> antes/despues de cada paso, con la mini-captura PNG que ya devolvia cada
+  paso). Un modal "Extraccion en curso" muestra EN VIVO: lista de flujos + pasos con badges (ok/aviso/...) en una
+  columna y la mini-captura del navegador del agente en otra. El modal se puede CERRAR y la extraccion sigue en
+  segundo plano (no se cancela); un chip flotante "Extraccion en curso - Ver" lo reabre y desaparece al terminar.
+  Al final importa a la parrilla como antes. Sin flujos configurados = comportamiento de antes. (Se descarto el
+  RunFlowAndWaitAsync intermedio en favor del paso a paso, que da el progreso en vivo y conserva una sola sesion.)
+- FEATURE B: paso "Cerrar navegador" (ScrapeStepKind.CerrarNavegador = 21) en /extraccion-datos. Reusa la accion
+  BrowserActionKind.CloseSession que YA existia E2E en el agente; server lo intercepta en RunStepNowAsync ->
+  CloseStepSessionAsync (y el compilador emite CloseSession para el flujo completo). Editor con nota, sin caja de
+  script. El agente NO cambio de codigo.
+- AGENTE MSI: reconstruido e instalado 1.4.0 (estaba 1.3.0); servicio EcorexAgent Running, GUI relanzada. Garantiza
+  que el agente instalado soporte el cierre.
+- GOTCHA Razor: la rama "asistente" del modal era un `else` catch-all; un `else if` no puede ir despues de `else`
+  (se renderiza literal). Fix: `else if (_cfgTab == "asistente")`.
+- GOTCHA deploy dev (CSS scoped): al copiar a mano el bundle `Ecorex.SuperAdmin.styles.css` a appout5263,
+  MapStaticAssets lo sirve TRUNCADO al Content-Length viejo del `staticwebassets.endpoints.json` (las reglas al
+  final del .razor.css desaparecen). Fix: parchar en el manifest Content-Length + ETag + integrity + un fingerprint
+  nuevo (cache immutable) de los 2 endpoints de *.styles.css, y reiniciar. Tambien copiar TODOS los Ecorex.*.dll.
+- VALIDADO E2E (dev 5263, SOLDARCO): corrida real del DRON GESTION DE COMPRAS DIAN desde "Importar del bot" ->
+  panel mostro los 13 pasos con badges + mini-capturas en vivo, login OTP persistio entre pasos, corrida Ok con
+  461 filas en staging; paso "Cerrar navegador" cerro la sesion del agente ("Navegador cerrado"); cerrar el modal
+  dejo la corrida en Running (siguio en 2do plano) y el chip la reabrio con el progreso avanzado.
+- NOTA (deuda menor): correr paso a paso registra UNA fila por paso en scrape_flow_runs ademas de la global (ruido
+  en bitacora; se puede silenciar luego). El paso "Cerrar navegador" en el DRON de SOLDARCO se agrego por SQL para
+  validar (config por tenant; se puede gestionar desde /extraccion-datos).
+- SIGUIENTE: deploy a prod cuando el usuario de el OK por version; decidir si se silencia el ruido por-paso.
+
+## 2026-11-01 - Fix buscador del Directorio: debounce (ya no se "come" las letras) (v0.16.254)
+
+- AGENTE: Claude Opus 4.8. Release v0.16.254. Commit c07f2c94 (solo DirectorioSharedBase.cs + AppVersion.cs,
+  staged por hunks para NO arrastrar el trabajo sin commitear de ADR-0143 que vive en el mismo archivo).
+- BUG: en /directorio-general al teclear en el buscador "se tragaba las letras" (escribes una letra y se borra),
+  como si el evento de filtrado pisara la escritura.
+- CAUSA: el <input value="@_search" @oninput="OnSearch"> recargaba la BD (ListAsync + GetKpisAsync) en CADA
+  tecla. En Blazor Server es un round-trip por letra; al terminar la recarga de la letra 1 el re-render reescribia
+  value="@_search" con el valor viejo y pisaba la letra tecleada mientras la consulta seguia en vuelo.
+- FIX: OnSearch ya no hace await de la recarga. Actualiza _search al instante (el input conserva lo tecleado) y
+  DIFIERE la recarga ~350 ms tras la ultima tecla con CancellationTokenSource (cancela la pasada anterior). La
+  base DirectorioSharedBase pasa a IDisposable para cancelar el debounce al salir. Aplica a DirectorioGeneral y
+  DirectorioEspecializado.
+- VALIDADO: preview 5234 (AGRO). Tecleado rapido de "ACEROS MAPA" -> el input conserva las 11 letras y filtra a
+  1 registro; sin errores de servidor.
+- SIGUIENTE: deploy a prod. La v0.16.254 incluye TAMBIEN el fix de "second operation" (v0.16.253) aun sin
+  desplegar; ambos van juntos en el proximo deploy, a la espera del OK por version.
+
+## 2026-11-01 - Fix "second operation" en Directorio: lecturas del Tercero en contexto EF efimero (v0.16.253)
+
+- AGENTE: Claude Opus 4.8. Release v0.16.253. Commit 434f0588 (solo TerceroService.cs + AppVersion.cs).
+- BUG: "A second operation was started on this context instance before a previous operation completed" en
+  /directorio-general al buscar un contacto existente y abrir su detalle. El usuario reporto que este tipo de
+  error es comun en el sistema en general.
+- CAUSA: TerceroService compartia el DbContext scoped del circuito Blazor Server entre la pagina del Directorio
+  (ListAsync de busqueda) y el TerceroModal hijo (GetAsync/ListContactosAsync/ListNotasAsync/GetKpisAsync). Al
+  solaparse dos operaciones async sobre el MISMO DbContext, EF revienta.
+- FIX: patron ADR-0138. Inyecto IApplicationDbContextFactory y convierto las 6 LECTURAS a
+  "await using var db = _dbFactory.Create()" (contexto efimero por operacion, conserva el query filter de tenant).
+  Las ESCRITURAS (Create/Update/Delete/Assign/AddContacto/AddNota/...) y el helper de validacion de camino de
+  escritura siguen en el _db scoped (unidad de trabajo/transaccion). Sin migracion.
+- VALIDADO: preview 5234 (AGRO, BD local copia de prod). Buscar "ACEROS MAPA" + abrir el detalle -> modal completo
+  (Datos/Relaciones/Contacto Cliente/Actividades) sin crash, sin errores de servidor en logs.
+- SIGUIENTE: deploy a prod v0.16.253 a la espera del OK del usuario (gate por version). El patron se puede extender
+  a otros servicios con el mismo sintoma ("comun en lo general del sistema").
+
+## 2026-10-30 - Fix AiIntake: el agente llenaba grillas pero las columnas calc quedaban en 0 (v0.16.252)
+
+- AGENTE: Claude Opus 4.8. Release v0.16.252, deploy a prod (pedido explicito del usuario).
+- BUG: en el control AiIntake ("Asistente de requerimiento IA -> tabla"), al Aplicar las filas que propone el agente,
+  las columnas CALCULADAS de la grilla y los roll-ups al encabezado quedaban en 0/vacias. El agente llenaba bien las
+  columnas de datos, pero las formulas por fila no se activaban.
+- CAUSA: DynamicFormRenderer.ApplyAiRowsAsync armaba las filas y llamaba SetValue -> RecomputeGrids, que SOLO corre
+  calc + crossGrid (FormGridCalculator.Compute). NO resolvia el LOOKUP de la grilla (la columna lookup, p.ej. 'codigo',
+  que autollena costo/stock/producto desde la fuente Item/DataContainer) ni corria ResolveGridRowAsync (columnas
+  'resolve'). Como las formulas dependen de columnas autollenadas por el lookup (p.ej. precio_base = {costo}/(1-...)),
+  al faltar 'costo' toda la cadena calc y los rollups tot_* daban 0. El humano no lo sufre porque al teclear el codigo
+  corre GridLookupCommitAsync (resuelve + autollena + ResolveGridRowAsync) antes del SetValue; el servidor tambien lo
+  resuelve en FormResponseService.SaveAsync. El camino del agente se saltaba ambos.
+- FIX (cliente, sin guardar antes de confirmar): nuevo helper ResolveRowLookupsAsync(q, rows, rowIndex) que, por cada
+  columna con lookup, toma el valor que el agente puso en la celda clave (o, si viene vacio, el de la columna destino
+  del DisplayField), busca con LookupSvc.SearchAsync, matchea EXACTO por clave (o por texto mostrado), fija la clave y
+  vuelca cfg.Autofill, y al final corre ResolveGridRowAsync (mismo criterio que GridLookupCommitAsync/ChooseAsync). Si
+  no hay match, conserva lo que trajo el agente y avisa en la celda, sin bloquear. ApplyAiRowsAsync lo llama por cada
+  fila NUEVA dentro de un unico _dbGate + BeginAmbient (SearchAsync toca BD) y recien al terminar hace UN SetValue ->
+  RecomputeGrids recalcula calc + rollups con 'costo' ya presente. Corregidos los comentarios enganosos (SetValue
+  recomputa calc, NO el lookup de grilla). AiCompose no toca grillas: sin cambio.
+- ARCHIVOS: DynamicFormRenderer.razor (ApplyAiRowsAsync + nuevo ResolveRowLookupsAsync + comentarios); AppVersion 0.16.252.
+- PRUEBA DE ACEPTACION: form con AiIntake cuyo grid destino tenga lookup + calc (ref: SIMULADOR DE COTIZACIONES, grid
+  'items': lookup 'codigo' -> costo/stock; calc precio_base/p_unitario/subtotal/iva/total con rollups tot_*); cargar
+  imagen/PDF con items que existan en el catalogo -> al Aplicar las filas traen costo autollenado y las columnas calc +
+  totales tot_* calculados (no 0); un item inexistente entra con aviso y sin romper.
+- SIGUIENTE: confirmar en prod con un form real. BLOQUEOS: ninguno.
+
+## 2026-10-30 - Titulos editables de campos duros + Lista dependiente de otro campo (ADR-0143)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev preview 5234, AGRO). v0.16.251. Codigo en tronco.
+- PEDIDO: (A) poder cambiar los TITULOS de los campos duros (Razon social, Identificacion, Ciudad, Sector, Correo,
+  Telefono, Vendedor, Estado); (B) crear un campo dinamico tipo Lista cuyas opciones DEPENDEN de otro campo
+  (p.ej. "Subsector" segun el "Sector / Industria"). Confirmado con el usuario: en (B) el usuario ELIGE el campo padre
+  (Sector u otro Select de la ficha); en (A) el titulo nuevo manda SIEMPRE (slot dual Empresa/Persona).
+- SOLUCION (sin migracion): (A) el layout `directorio.general.layout` gana `Labels` (claveDuro -> titulo); nuevo
+  `SetFixedLabelAsync` (valida ValidAnchors; vacio limpia). En el configurador el lapiz aparece en TODAS las filas
+  duras y su editor en linea gana input "Titulo" (`_fixLabel`); Sector conserva ademas su seccion de lista. El modal
+  pinta cada etiqueta dura con `FixedLabel(key, fallback)` (override si existe, si no el default inteligente).
+  (B) contrato nuevo `DependentSelectOptions(DependsOn, Groups)` que se serializa en el MISMO `Options` del campo
+  (patron Lookup/Table, sin columna). En el form de campo Lista aparece "Depende de" (Sector si es lista + otros Select
+  no dependientes) y, elegido el padre, un textarea de sub-opciones POR CADA valor del padre. El modal resuelve el
+  valor del padre (`sector`->_mSector; si no, GetFicha) y filtra las opciones del hijo; cambia en vivo al cambiar el padre.
+- ARCHIVOS: DirectorioLayoutConfigService.cs (Labels + SetFixedLabelAsync); NUEVO Directorio/DependentSelectOptions.cs;
+  DirectorioSharedBase.cs (editor duro titulo+sector; helpers Select dependiente: DependentParentOptions/Values,
+  OnDependsChanged, BuildSelectOptions; FixedRowLabel); DirectorioGeneral.razor (+.css) (lapiz en todos los duros,
+  input Titulo, UI "Depende de" + sub-opciones por valor); TerceroModal.razor (+.cs) (FixedLabel, DependentOptionsFor,
+  cargar Labels); AppVersion 0.16.251. ADR-0143.
+- VALIDADO E2E (preview 5234, BD local ecorex 5442, AGROMETALICAS): renombrar "Ciudad"->"Municipio" se reflejo en el
+  modal del tercero ("360 Investments S.A.S"); crear Lista "Subsector" dependiente de Sector con sub-opciones por
+  sector -> con Sector=Agroindustria el Subsector ofrecio Ingenio/Destileria/Cogeneracion y al cambiar a Metalmecanica
+  cambio a Fundicion/Soldadura/Mecanizado en vivo. Datos de prueba revertidos (Subsector borrado, titulo Ciudad
+  restaurado; orden de los 8 duros intacto). Build SuperAdmin verde (0 errores).
+- SIGUIENTE: OK de deploy del usuario. BLOQUEOS: ninguno.
+
+## 2026-10-30 - "Datos principales" como lista unica ordenable (fijos + dinamicos) (sigue ADR-0141)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev preview 5234, AGRO). v0.16.250. Codigo en tronco.
+- PEDIDO: en el configurador de la ficha "Datos principales" el usuario quiere VER los 8 campos duros junto a los
+  dinamicos en UNA sola lista, reordenar todo con flechas (incluidos los duros), y poder mover un dinamico ENTRE los
+  duros. Los duros solo se reposicionan (y, si son lista como Sector, editar sus opciones); los dinamicos se crean,
+  editan, borran y mueven libremente. Reemplaza el desplegable "Posicion / ancla" de ADR-0141.
+- SOLUCION (sin migracion): el layout `directorio.general.layout` gana una lista `Order` de TOKENS = duros con prefijo
+  "#" ("#sector") + campos "general" (su clave). Es la fuente de verdad de la posicion (deja de usarse el ancla).
+  Helper puro `DirectorioLayoutConfigService.BuildEffectiveOrder(storedOrder, anchors, customKeys)` reconcilia la lista:
+  si `Order` viene vacio (tenants ADR-0141), reconstruye el layout ACTUAL desde las anclas -> se ve identico; si trae
+  datos, respeta y completa (duros faltantes en orden canonico, dinamicos tras su ancla). Compartido por el modal del
+  tercero y el configurador.
+- UI config (DirectorioGeneral + DirectorioSharedBase): para la ficha general la lista recorre `_genOrder`; fila dura =
+  etiqueta + tag "fijo" + flechas (sin editar/borrar/ancho/mover-ficha), fila dinamica = controles de siempre pero las
+  flechas usan `MoveGeneralOrderAsync` (reordena en `Order` via `SetOrderAsync`). Crear/borrar un dinamico persiste el
+  `Order`. Se quito el selector "Posicion" del form. La config de la lista de Sector (checkbox + opciones + Guardar) ya
+  NO vive en un bloque suelto arriba: ahora es un editor EN LINEA que se abre con el lapiz de la propia fila "Sector"
+  (unico duro configurable; `_cfgFixedEditing`/`FixedIsConfigurable`/`ToggleFixedEdit`). Mas natural y sin cajon "por fuera".
+- UI modal (TerceroModal): la zona principal ya NO es markup plano; se recorre `EffectiveOrder()` y por token se pinta
+  el bloque nativo del duro (Nombre/Identificacion solo al editar; Sector = Sector o Cargo) o `GeneralInline` del
+  dinamico. Cada control conserva markup/clases/bindings exactos -> fidelidad milimetrica; con `Order` vacio el render
+  es identico al clasico.
+- ARCHIVOS: DirectorioLayoutConfigService.cs (DTO+Order, Stored+Order, SetOrderAsync, BuildEffectiveOrder);
+  DirectorioSharedBase.cs (_genOrder, Rebuild/MoveGeneralOrderAsync, create/delete persisten Order);
+  DirectorioGeneral.razor (lista combinada + quitar "Posicion"); TerceroModal.razor (+.cs) (render por EffectiveOrder);
+  AppVersion 0.16.250. ADR-0142.
+- VALIDADO E2E (preview 5234, BD local ecorex 5442, AGROMETALICAS): la lista muestra los 8 duros (FIJO) + "Pais"
+  intercalado tras Ciudad; mover "Identificacion" bajo Ciudad persistio y el modal del tercero ("360 Investments
+  S.A.S", editar) reflejo el nuevo orden (Razon social, Ciudad, Identificacion, Pais, Sector, Correo, Telefono,
+  Vendedor, Estado); reorden revertido al terminar. Build SuperAdmin verde (0 errores).
+- SIGUIENTE: OK de deploy del usuario. BLOQUEOS: ninguno.
+
 ## 2026-10-30 - Campos configurables en la zona principal del tercero + Sector como lista (ADR-0141)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado en dev preview 5234, AGRO). Codigo en tronco, pendiente OK de deploy.
@@ -32,6 +196,27 @@
   ambos SIN deploy). Reflejar en vault (INVENTARIO GENERAL) al cerrar Directorio.
 - BLOQUEOS: ninguno. El modal del tercero NO cierra al Guardar (comportamiento preexistente, no de esta feature);
   el guardado persiste igual.
+
+## 2026-10-30 - Asistente de reglas: DIRECCIONAR_CONCILIADOR editable inline
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY a prod (validado dev 5263). Solo UI (SuperAdmin).
+- PEDIDO: el asistente mostraba "este verbo no tiene parametros configurables" para DIRECCIONAR_CONCILIADOR y el
+  usuario no entendia donde se configura. Ese verbo NO tiene params de regla: su config es el mapeo campo del
+  formulario -> columna del conciliador (oc/numsol/asignado/dyn:*), que vive PER-FORMULARIO en
+  IAutorizacionComprasConfigService (GetDireccionarByFormAsync/SetDireccionarAsync) y se editaba solo en el conciliador.
+  Decision del usuario (AskUserQuestion): "editar el mapeo aqui mismo".
+- SOLUCION: panel especifico en FieldRuleParamsModal para DIRECCIONAR_CONCILIADOR (gated por VerbName + FormDefinitionId):
+  toggle «Direccionar compra» + filas campo->columna (desplegable de campos del form via FieldOptions; desplegable de
+  columnas = fijas Orden de compra/Num Factura SISTEMA/Usuario asignado + dinamicas EAV de IConciliacionFieldService
+  excluyendo sys:). Carga y GUARDA la MISMA config por-formulario -> una sola fuente de verdad, editable aqui o en el
+  conciliador. Se oculta "Restablecer al catalogo" (no hay catalogo para este verbo).
+- VALIDADO E2E dev 5263 (Owner gerenciacomercial), AUT-COMPRA-001 boton "Aprobar Compra" regla DIRECCIONAR_CONCILIADOR:
+  abrio con toggle activo + 4 mapeos existentes (centro_costos->dyn:nuevo_campo_3, toggle_86c60->dyn:camara_comercio,
+  toggle_ce545->dyn:certificacion_bancaria, fecha_compra->asignado); Guardar sin error; reabrio con los 4 mapeos
+  intactos (round-trip). Ya no muestra el mensaje "sin parametros".
+- DESPLIEGUE dev: build Release -> copia SuperAdmin.dll + Application.dll a appout5263 (gotcha: otra sesion toca
+  Application, copiar ambos). Sin esquema de BD.
+- PENDIENTE: commit + (con OK) deploy a prod. No toca prod ni requiere migracion.
 
 ## 2026-10-30 - Asistente de reglas: campos y nodos como DESPLEGABLE (A + B)
 

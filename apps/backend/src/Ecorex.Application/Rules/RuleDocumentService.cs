@@ -574,6 +574,50 @@ public sealed class RuleDocumentService : IRuleDocumentService
             ToSubmitLinkDto(link.Id, link.RuleId, ruleName, link.SortOrder, RuleStatus.Active, paramsJson));
     }
 
+    public async Task<RuleResult<Guid>> EnsureFormSubmitVerbRuleAsync(
+        Guid definitionId, string verbName, string ruleName, string? paramsJson = null,
+        CancellationToken cancellationToken = default)
+    {
+        var definition = await _db.FormDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == definitionId, cancellationToken);
+        if (definition is null) { return RuleResult<Guid>.NotFound("Formulario no encontrado."); }
+
+        var docId = await EnsureFormRuleDocumentAsync(definition.Code, definition.Title, cancellationToken);
+        if (docId is null) { return RuleResult<Guid>.Invalid("No se pudo crear el documento de reglas."); }
+
+        var pj = string.IsNullOrWhiteSpace(paramsJson) ? "{}" : paramsJson!;
+
+        // Idempotente: si ya hay un vinculo al enviar de ESTE verbo sobre el formulario, se reusa (solo se
+        // refresca nombre/params/estado por si el verbo cambio), nunca se duplica.
+        var existing = await _db.FormSubmitRules.AsNoTracking()
+            .Where(l => l.DefinitionId == definitionId)
+            .Join(_db.Rules.AsNoTracking(), l => l.RuleId, r => r.Id, (l, r) => new { l.Id, l.RuleId, r.VerbName, r.SortOrder })
+            .FirstOrDefaultAsync(x => x.VerbName == verbName, cancellationToken);
+        if (existing is not null)
+        {
+            await UpdateRuleAsync(existing.RuleId, new SaveRuleRequest(
+                ruleName, verbName, ParamsJson: pj, SortOrder: existing.SortOrder, Status: RuleStatus.Active), cancellationToken);
+            return RuleResult<Guid>.Ok(existing.Id);
+        }
+
+        var order = await _db.FormSubmitRules.CountAsync(l => l.DefinitionId == definitionId, cancellationToken);
+        var ruleRes = await CreateRuleAsync(docId.Value, new SaveRuleRequest(
+            ruleName, verbName, ParamsJson: pj, Status: RuleStatus.Active), cancellationToken);
+        if (!ruleRes.IsOk || ruleRes.Value is null) { return RuleResult<Guid>.Invalid(ruleRes.Error ?? "No se pudo crear la regla."); }
+
+        var rule = await _db.Rules.AsNoTracking().FirstAsync(r => r.Id == ruleRes.Value.Id, cancellationToken);
+        var link = new FormSubmitRule
+        {
+            TenantId = rule.TenantId,
+            DefinitionId = definitionId,
+            RuleId = rule.Id,
+            SortOrder = order
+        };
+        _db.FormSubmitRules.Add(link);
+        await _db.SaveChangesAsync(cancellationToken);
+        return RuleResult<Guid>.Ok(link.Id);
+    }
+
     public async Task<RuleResult<bool>> UnlinkFormSubmitAsync(
         Guid formSubmitRuleId, CancellationToken cancellationToken = default)
     {

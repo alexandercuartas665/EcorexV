@@ -72,10 +72,15 @@ public sealed record ProveedorVigenciaDto(Guid ProveedorId, int? VigenciaDias);
 /// fila por linea, con la CLAVE tecnica por fila en <see cref="ColClave"/> (columna OCULTA) para empatar la
 /// respuesta en la Ola C. <see cref="ColDescripcion"/>/<see cref="ColCantidad"/>/<see cref="ColUnidad"/>/
 /// <see cref="ColFecha"/> reciben el snapshot de la linea (lo que se cotiza). Todo opcional: sin definicion o sin
-/// grilla no se inyecta nada (la RFQ se crea igual). Config por tenant en TenantConfiguration (sin migracion).</summary>
+/// grilla no se inyecta nada (la RFQ se crea igual). Config por tenant en TenantConfiguration (sin migracion).
+/// Las columnas de RESPUESTA (<see cref="ColPrecio"/>/<see cref="ColVigencia"/>/<see cref="ColLeadTime"/>/
+/// <see cref="ColMarca"/>/<see cref="ColNota"/>) las llena el proveedor y la Ola C las empata por clave para
+/// escribir la linea del RFQ y volcar la oferta al comparador (<see cref="ColPrecio"/> es la unica imprescindible).</summary>
 public sealed record RfqFormMapDto(
     Guid? FormDefinitionId, string? GridFieldCode,
-    string? ColClave, string? ColDescripcion, string? ColCantidad, string? ColUnidad, string? ColFecha);
+    string? ColClave, string? ColDescripcion, string? ColCantidad, string? ColUnidad, string? ColFecha,
+    string? ColPrecio = null, string? ColVigencia = null, string? ColLeadTime = null,
+    string? ColMarca = null, string? ColNota = null);
 
 /// <summary>Una columna de una grilla (GridDetail), para los selectores del mapeo RFQ. <see cref="Hidden"/> marca
 /// las columnas ocultas (candidatas naturales para la clave tecnica).</summary>

@@ -433,7 +433,8 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         string? Norm(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
         var clean = new RfqFormMapDto(
             map.FormDefinitionId, Norm(map.GridFieldCode),
-            Norm(map.ColClave), Norm(map.ColDescripcion), Norm(map.ColCantidad), Norm(map.ColUnidad), Norm(map.ColFecha));
+            Norm(map.ColClave), Norm(map.ColDescripcion), Norm(map.ColCantidad), Norm(map.ColUnidad), Norm(map.ColFecha),
+            Norm(map.ColPrecio), Norm(map.ColVigencia), Norm(map.ColLeadTime), Norm(map.ColMarca), Norm(map.ColNota));
         var json = System.Text.Json.JsonSerializer.Serialize(clean);
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == RfqFormKey, ct);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = RfqFormKey, ConfigValue = json }); }

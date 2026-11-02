@@ -160,7 +160,10 @@ public sealed record SaveCotizacionRequest(
     DateTimeOffset? VigenciaHasta,
     string? Notas,
     Guid? ProveedorContactoId = null,
-    DateTimeOffset? FechaCotizacion = null);
+    DateTimeOffset? FechaCotizacion = null,
+    // Procedencia de la oferta. Default Manual (captura humana); la Ola C pasa Rfq cuando entra por la
+    // respuesta del proveedor a una Solicitud de Cotizacion.
+    RequerimientoCotizacionFuente Fuente = RequerimientoCotizacionFuente.Manual);
 
 /// <summary>Una linea de una Solicitud de Cotizacion (RFQ): la distribucion que se le pide al proveedor, con
 /// su snapshot de lo pedido y (cuando responda) los campos de oferta.</summary>

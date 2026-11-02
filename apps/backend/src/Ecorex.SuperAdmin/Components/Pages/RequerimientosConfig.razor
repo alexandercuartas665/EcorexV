@@ -2,8 +2,10 @@
 @attribute [Authorize(Policy = "Compras.Configurar")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Requerimientos
+@using Ecorex.Application.Rules
 @using Ecorex.Domain.Enums
 @inject IRequerimientoConfigService Svc
+@inject IRuleDocumentService RuleDocs
 
 <PageTitle>Configuracion de Requerimientos - ECOREX.tareas</PageTitle>
 
@@ -202,6 +204,55 @@ else
                 </select>
             </label>
         </div>
+        <div style="margin-top:6px;font-size:12px;font-weight:600;color:var(--ink-2,#4b5563);">Columnas de RESPUESTA del proveedor</div>
+        <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-bottom:-4px;">Las llena el proveedor; al enviar, se empatan por clave y pasan a la linea del RFQ y al comparador. El precio es imprescindible.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Columna Precio unitario (obligatoria)
+                <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rfqColPrecio">
+                    <option value="">(elige)</option>
+                    @foreach (var c in _rfqCols)
+                    {
+                        <option value="@c.Id">@c.Label</option>
+                    }
+                </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Columna Vigencia (dias)
+                <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rfqColVig">
+                    <option value="">(no leer)</option>
+                    @foreach (var c in _rfqCols)
+                    {
+                        <option value="@c.Id">@c.Label</option>
+                    }
+                </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Columna Lead time / entrega
+                <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rfqColLead">
+                    <option value="">(no leer)</option>
+                    @foreach (var c in _rfqCols)
+                    {
+                        <option value="@c.Id">@c.Label</option>
+                    }
+                </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Columna Marca
+                <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rfqColMarca">
+                    <option value="">(no leer)</option>
+                    @foreach (var c in _rfqCols)
+                    {
+                        <option value="@c.Id">@c.Label</option>
+                    }
+                </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Columna Nota / observaciones
+                <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_rfqColNota">
+                    <option value="">(no leer)</option>
+                    @foreach (var c in _rfqCols)
+                    {
+                        <option value="@c.Id">@c.Label</option>
+                    }
+                </select>
+            </label>
+        </div>
     }
     @if (_rfqError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_rfqError</div> }
     <div style="display:flex;justify-content:flex-end;">
@@ -361,6 +412,11 @@ else
     private string _rfqColCant = "";
     private string _rfqColUni = "";
     private string _rfqColFecha = "";
+    private string _rfqColPrecio = "";
+    private string _rfqColVig = "";
+    private string _rfqColLead = "";
+    private string _rfqColMarca = "";
+    private string _rfqColNota = "";
     private List<RfqGridFieldDto> _rfqGridFields = new();
     private IReadOnlyList<RfqGridColDto> _rfqCols = new List<RfqGridColDto>();
     private string? _rfqError;
@@ -387,6 +443,11 @@ else
         _rfqColCant = map.ColCantidad ?? "";
         _rfqColUni = map.ColUnidad ?? "";
         _rfqColFecha = map.ColFecha ?? "";
+        _rfqColPrecio = map.ColPrecio ?? "";
+        _rfqColVig = map.ColVigencia ?? "";
+        _rfqColLead = map.ColLeadTime ?? "";
+        _rfqColMarca = map.ColMarca ?? "";
+        _rfqColNota = map.ColNota ?? "";
         _rfqGridFields = Guid.TryParse(_rfqFormId, out var fid)
             ? (await Svc.ListGridFieldsAsync(fid)).ToList()
             : new List<RfqGridFieldDto>();
@@ -406,6 +467,7 @@ else
     {
         _rfqCols = _rfqGridFields.FirstOrDefault(g => g.FieldCode == _rfqGrid)?.Columns ?? new List<RfqGridColDto>();
         _rfqColClave = ""; _rfqColDesc = ""; _rfqColCant = ""; _rfqColUni = ""; _rfqColFecha = "";
+        _rfqColPrecio = ""; _rfqColVig = ""; _rfqColLead = ""; _rfqColMarca = ""; _rfqColNota = "";
     }
 
     private async Task SaveRfqFormMap()
@@ -425,9 +487,23 @@ else
                 _rfqError = "Elige la columna CLAVE (oculta): es la que empata la respuesta del proveedor.";
                 return;
             }
+            if (defId is not null && string.IsNullOrWhiteSpace(_rfqColPrecio))
+            {
+                _rfqError = "Elige la columna de Precio unitario: es la que recibe la oferta del proveedor.";
+                return;
+            }
             string? S(string s) => string.IsNullOrWhiteSpace(s) ? null : s;
             await Svc.SetRfqFormMapAsync(new RfqFormMapDto(
-                defId, S(_rfqGrid), S(_rfqColClave), S(_rfqColDesc), S(_rfqColCant), S(_rfqColUni), S(_rfqColFecha)));
+                defId, S(_rfqGrid), S(_rfqColClave), S(_rfqColDesc), S(_rfqColCant), S(_rfqColUni), S(_rfqColFecha),
+                S(_rfqColPrecio), S(_rfqColVig), S(_rfqColLead), S(_rfqColMarca), S(_rfqColNota)));
+            // Auto-cablea la regla ON-SUBMIT que empata la respuesta y la lleva al comparador (Ola C). Idempotente:
+            // no duplica. Un fallo aqui no debe tumbar el guardado del mapeo (se avisa pero el mapeo ya quedo).
+            if (defId is Guid wiredDef)
+            {
+                var wire = await RuleDocs.EnsureFormSubmitVerbRuleAsync(
+                    wiredDef, "REGISTRAR_RESPUESTA_RFQ", "Registrar respuesta de cotizacion (RFQ)");
+                if (!wire.IsOk) { _rfqError = "Mapeo guardado, pero no se pudo cablear la regla de respuesta: " + wire.Error; }
+            }
             _msg = defId is null ? "Formulario RFQ desconfigurado (no se inyectaran lineas)." : "Mapeo del formulario RFQ guardado.";
             await LoadRfqMapAsync();
         }

@@ -1107,8 +1107,9 @@ public sealed class RequerimientoService : IRequerimientoService
         entity.Notas = string.IsNullOrWhiteSpace(req.Notas) ? null : req.Notas.Trim();
         // Fecha/hora en que se cotizo: la indicada; si no, conserva la previa; si es nueva, el momento de captura.
         entity.FechaCotizacion = req.FechaCotizacion ?? entity.FechaCotizacion ?? DateTimeOffset.UtcNow;
-        // Guardada a mano = oferta Manual (aunque viniera sembrada, el humano la pacto/ajusto).
-        entity.Fuente = RequerimientoCotizacionFuente.Manual;
+        // Procedencia: por defecto Manual (captura humana, aunque viniera sembrada el humano la pacto/ajusto);
+        // la Ola C pasa Rfq cuando la oferta entra por la respuesta del proveedor al formulario de cotizacion.
+        entity.Fuente = req.Fuente;
         await _db.SaveChangesAsync(ct);
         return await ListCotizacionesAsync(req.ItemId, req.Descripcion, cantidad, ct);
     }

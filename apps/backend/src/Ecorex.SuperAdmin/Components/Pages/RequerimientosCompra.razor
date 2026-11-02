@@ -775,7 +775,7 @@ else
                     <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
                 </div>
 
-                <CotizacionesComparador ItemId="_planItemId" Descripcion="_planDescripcion"
+                <CotizacionesComparador ItemId="_planItemId" Descripcion="@_planDescripcion"
                     Cantidad="@(RestanteActual > 0 ? RestanteActual : TotalPlan)"
                     CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync" />
 

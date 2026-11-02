@@ -2,6 +2,45 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-02 - RFQ Ola C: la "vuelta" (respuesta del proveedor -> linea RFQ + comparador) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores. SIN MIGRACION
+  (enum nuevo + columnas de respuesta en el JSON de TenantConfiguration + regla/vinculo = filas de datos). SIN
+  integrar al tronco (se acumula para el prompt de integracion a dev central).
+- PEDIDO (usuario): "arranca la ola c" -> cuando el proveedor ENVIA el formulario de cotizacion, empatar su
+  respuesta por la clave oculta y volcarla a la linea del RFQ y al comparador/IA.
+- HECHO:
+  * Verbo REGISTRAR_RESPUESTA_RFQ (RegistrarRespuestaRfqVerb): al enviar, lee el mapeo de columnas (config del
+    tenant, unica fuente de verdad), resuelve el RFQ por FormResponseId, empata cada fila por clave oculta y (1)
+    escribe la linea (PrecioUnitario/VigenciaDias/LeadTime/Marca/Nota); (2) upsert de RequerimientoCotizacion por
+    (clave,proveedor) via IRequerimientoService.GuardarCotizacionAsync con Fuente=Rfq; (3) RFQ -> Respondida +
+    FechaRespuesta (+ VigenciaHasta minima). Idempotente (re-enviar re-escribe, no duplica).
+  * SIN ciclo de DI: el motor resuelve los verbos PEREZOSAMENTE (IServiceProvider.GetServices<IRuleVerb>() al
+    ejecutar), nunca en el constructor; FormResponseService solo depende de IRulesEngine. El verbo inyecta
+    IRequerimientoService/IRequerimientoConfigService/IApplicationDbContext igual que GenerarRequerimientosDesdeTabla.
+  * Enum RequerimientoCotizacionFuente.Rfq=3; SaveCotizacionRequest.Fuente (default Manual, preserva callers);
+    GuardarCotizacionAsync deja de forzar Manual (usa req.Fuente).
+  * RfqFormMapDto + columnas de RESPUESTA (ColPrecio/ColVigencia/ColLeadTime/ColMarca/ColNota); UI de config con
+    esos 5 selectores (precio obligatorio) en RequerimientosConfig.razor.
+  * Auto-cableado: IRuleDocumentService.EnsureFormSubmitVerbRuleAsync (generico, idempotente por verbo); al
+    guardar el mapeo RFQ se crea/actualiza el vinculo ON-SUBMIT del verbo sobre el formulario (sin armar la regla
+    a mano). El runtime ya lo corre (FormResponseService.SaveAsync tras commit, incl. /f publico).
+  * FIX pre-existente que BLOQUEABA el resultado visible: en RequerimientosCompra.razor el comparador recibia
+    Descripcion="_planDescripcion" (gotcha Blazor: para un parametro STRING el valor entre comillas sin @ es
+    LITERAL, no la variable; ItemId es Guid? por eso si tomaba la variable). Asi el comparador SIEMPRE consultaba
+    la clave bogus "d:_plandescripcion" (ahi quedaron atrapadas ofertas de prueba del 2026-10-29). Corregido a
+    Descripcion="@_planDescripcion".
+- VALIDADO E2E en 5265 (SKY SYSTEM): se mapeo ColPrecio=precio_unitario y se guardo (auto-cablea la regla; se
+  verifico fsr/rules Active). Se diligencio y ENVIO el "RFQ TEST (Ola B)" de T00217/RFQ-0002 con precio 12.500 ->
+  rule_execution_log Success(1); RfqLinea CABLE UTP CAT 6 precio 12.500; RequerimientoCotizacion
+  (d:cable utp cat 6, Produvarios, 12.500, fuente=3 Rfq); RFQ-0002 estado Respondida + fecha_respuesta. Tras el
+  fix del binding, el comparador del grupo CABLE UTP CAT 6 muestra la oferta Produvarios 12.500 ("Mejor precio",
+  +31.6% vs ult.), ya con la clave correcta.
+- SIGUIENTE: Ola D (precedencia + override de mapeo por proveedor), luego E (multi-candidato) y F (envio
+  automatico/plantillas/rondas). A la senal del usuario.
+- NOTA: quedaron 2 filas basura requerimiento_cotizaciones con clave literal "d:_plandescripcion" (ofertas de
+  prueba viejas); ya son inalcanzables (ningun producto normaliza a eso). No se borraron.
+
 ## 2026-11-02 - RFQ Ola B: formulario inyectado con clave oculta (worktree requerimiento_compras)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores; 1145 tests

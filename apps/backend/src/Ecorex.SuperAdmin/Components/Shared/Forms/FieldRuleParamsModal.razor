@@ -1,0 +1,779 @@
+@* ============================================================
+   Asistente de parametros de UNA regla vinculada a un campo/boton
+   del formulario (ADR-0021). Edita el OVERRIDE POR-VINCULO
+   (form_field_rules.params_override_json): la configuracion VIVE
+   en el formulario, independiente del catalogo global de reglas.
+   Se guia por el RuleVerbDescriptor del verbo (mismo contrato que
+   /reglas), asi sirve para CUALQUIER verbo sin conocer su clase.
+   Precarga el efectivo (params del catalogo + override) y al
+   guardar persiste el set completo -> cada vinculo queda autonomo.
+   ============================================================ *@
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using Ecorex.Application.Rules
+@using Ecorex.Application.Workflows
+@using Ecorex.Application.Automatizaciones.ConciliacionDian
+@using Ecorex.Domain.Enums
+@inject IRuleDocumentService RulesSvc
+@inject IRulesEngine Engine
+@inject IRuleParamOptionsProvider ParamOptions
+@inject IWorkflowDesignService Flows
+@inject IAutorizacionComprasConfigService Dire
+@inject IConciliacionFieldService ConcFields
+
+<div class="modal-overlay" style="z-index:74;" @onclick="CancelAsync">
+  <div class="modal-dialog" style="max-width:560px;" @onclick:stopPropagation="true">
+    <div class="modal-head">
+        <h3>Configurar regla @(string.IsNullOrWhiteSpace(RuleName) ? "" : $"\"{RuleName}\"")</h3>
+        <button class="modal-close" @onclick="CancelAsync">&times;</button>
+    </div>
+    <div class="modal-body">
+        @if (_loading)
+        {
+            <p class="fb-rules-desc">Cargando...</p>
+        }
+        else if (_descriptor is null)
+        {
+            <p class="fb-rules-desc" style="color:#b91c1c;">
+                No se encontro el verbo <strong>@VerbName</strong> en el catalogo; no se puede configurar aqui.
+            </p>
+        }
+        else
+        {
+            <div class="frp-banner">
+                <span class="frp-verb">@_descriptor.DisplayName <span class="frp-verbcode">(@_descriptor.VerbName)</span></span>
+                <p class="frp-desc">@_descriptor.Description</p>
+                <p class="frp-note">Estos parametros son EXCLUSIVOS de este objeto en este formulario; no afectan a otras reglas ni al catalogo.</p>
+            </div>
+
+            @if (_isDireccionar)
+            {
+                <div class="frp-help" style="margin-bottom:8px;">Al pulsar este boton en el formulario de la tarea, cada campo
+                    cae en la columna del conciliador que elijas. Es la MISMA configuracion por-formulario que
+                    "Configuracion de salida" del conciliador; editarla aqui o alla es lo mismo.</div>
+                <label class="frp-toggle" style="margin-bottom:12px;">
+                    <input type="checkbox" checked="@_direEnabled" @onchange="@(e => _direEnabled = (bool)e.Value!)" />
+                    Boton "Direccionar compra" activo en el formulario
+                </label>
+                @if (_direEnabled)
+                {
+                    <div class="frp-map">
+                        @for (var di = 0; di < _direRows.Count; di++)
+                        {
+                            var row = _direRows[di]; var idx = di;
+                            <div class="frp-map-row" style="grid-template-columns:1fr 14px 1fr auto;">
+                                <select class="fb-select" value="@row.FormField" @onchange="@(e => row.FormField = e.Value?.ToString() ?? string.Empty)">
+                                    <option value="">(campo del formulario)</option>
+                                    @foreach (var op in (FieldOptions ?? Array.Empty<RuleParamOption>()))
+                                    {
+                                        <option value="@op.Value" selected="@(op.Value == row.FormField)">@op.Label</option>
+                                    }
+                                    @if (!string.IsNullOrEmpty(row.FormField) && (FieldOptions?.All(o => o.Value != row.FormField) ?? true))
+                                    {
+                                        <option value="@row.FormField" selected="true">@row.FormField (actual)</option>
+                                    }
+                                </select>
+                                <span class="frp-arrow" style="text-align:center;color:#9ca3af;">&rarr;</span>
+                                <select class="fb-select" value="@row.Target" @onchange="@(e => row.Target = e.Value?.ToString() ?? string.Empty)">
+                                    <option value="">(columna del conciliador)</option>
+                                    @foreach (var t in _direTargets)
+                                    {
+                                        <option value="@t.Value" selected="@(t.Value == row.Target)">@t.Label</option>
+                                    }
+                                    @if (!string.IsNullOrEmpty(row.Target) && _direTargets.All(t => t.Value != row.Target))
+                                    {
+                                        <option value="@row.Target" selected="true">@row.Target (actual)</option>
+                                    }
+                                </select>
+                                <button class="frp-mx" title="Quitar" @onclick="@(() => _direRows.RemoveAt(idx))">&times;</button>
+                            </div>
+                        }
+                        <button class="fb-btn-ghost frp-mapadd" @onclick="@(() => _direRows.Add(new DireRow()))">+ Agregar mapeo</button>
+                    </div>
+                }
+            }
+            else
+            {
+
+            @if (_hasFlowNodes)
+            {
+                <div class="fb-field frp-field">
+                    <label>Flujo (para elegir el nodo) <span class="frp-pname">ayuda de diseno</span></label>
+                    <div class="frp-help">Elige el flujo para listar sus nodos por nombre. La regla NO queda amarrada a este flujo:
+                        en ejecucion se resuelve el flujo ACTIVO de la tarea; esto solo sirve para escoger el nodo.</div>
+                    <select class="fb-select" value="@(_selectedFlowId?.ToString() ?? "")" @onchange="OnFlowSelectedAsync">
+                        <option value="">(elige un flujo)</option>
+                        @foreach (var fc in _flowCards)
+                        {
+                            <option value="@fc.Id" selected="@(fc.Id == _selectedFlowId)">@fc.Label</option>
+                        }
+                    </select>
+                    @if (_flowLoading)
+                    {
+                        <div class="frp-help">Cargando nodos...</div>
+                    }
+                </div>
+            }
+
+            @if (_descriptor.Params.Count == 0)
+            {
+                <p class="fb-rules-desc">Este verbo no tiene parametros configurables.</p>
+            }
+            @foreach (var p in _descriptor.Params)
+            {
+                <div class="fb-field frp-field">
+                    <label>@p.Label @(p.Required ? "*" : "") <span class="frp-pname">@p.Name</span></label>
+                    @if (!string.IsNullOrWhiteSpace(p.Description))
+                    {
+                        <div class="frp-help">@p.Description</div>
+                    }
+                    @switch (p.Type)
+                    {
+                        case RuleParamType.Boolean:
+                            <label class="frp-toggle">
+                                <input type="checkbox" checked="@(GetVal(p.Name) == "true")"
+                                       @onchange="@(e => SetVal(p.Name, (bool)e.Value! ? "true" : ""))" />
+                                Si
+                            </label>
+                            break;
+                        case RuleParamType.Number:
+                            <input class="fb-input" type="number" value="@GetVal(p.Name)"
+                                   @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))" />
+                            break;
+                        case RuleParamType.Json:
+                            <textarea class="fb-input" rows="3" value="@GetVal(p.Name)"
+                                      @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))"
+                                      placeholder='["campo1","campo2"]'></textarea>
+                            break;
+                        case RuleParamType.FieldCode:
+                        {
+                            var cur = GetVal(p.Name);
+                            @if (FieldOptions is { Count: > 0 })
+                            {
+                                <select class="fb-select" value="@cur" @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))">
+                                    <option value="" selected="@string.IsNullOrEmpty(cur)">@(p.Required ? "Elige un campo..." : "(sin valor)")</option>
+                                    @foreach (var op in FieldOptions)
+                                    {
+                                        <option value="@op.Value" selected="@(op.Value == cur)">@op.Label</option>
+                                    }
+                                    @if (!string.IsNullOrEmpty(cur) && !FieldOptions.Any(o => o.Value == cur))
+                                    {
+                                        <option value="@cur" selected="true">@cur (actual)</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input class="fb-input" value="@cur" placeholder="codigo del campo (p. ej. text_ca893)"
+                                       @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))" />
+                            }
+                            break;
+                        }
+                        case RuleParamType.FieldCodeList:
+                        {
+                            var list = GetFieldList(p.Name);
+                            <div class="frp-map">
+                                @for (var fi = 0; fi < list.Count; fi++)
+                                {
+                                    var idx = fi; var cur = list[fi];
+                                    <div class="frp-map-row" style="grid-template-columns:1fr auto;">
+                                        @if (FieldOptions is { Count: > 0 })
+                                        {
+                                            <select class="fb-select" value="@cur" @onchange="@(e => FieldListChanged(p.Name, idx, e))">
+                                                <option value="">(elige un campo)</option>
+                                                @foreach (var op in FieldOptions)
+                                                {
+                                                    <option value="@op.Value" selected="@(op.Value == cur)">@op.Label</option>
+                                                }
+                                                @if (!string.IsNullOrEmpty(cur) && !FieldOptions.Any(o => o.Value == cur))
+                                                {
+                                                    <option value="@cur" selected="true">@cur (actual)</option>
+                                                }
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input class="fb-input" value="@cur" placeholder="codigo del campo"
+                                                   @onchange="@(e => FieldListChanged(p.Name, idx, e))" />
+                                        }
+                                        <button class="frp-mx" title="Quitar" @onclick="@(() => RemoveFieldRow(p.Name, idx))">&times;</button>
+                                    </div>
+                                }
+                                <button class="fb-btn-ghost frp-mapadd" @onclick="@(() => AddFieldRow(p.Name))">+ Agregar campo</button>
+                            </div>
+                            break;
+                        }
+                        case RuleParamType.FlowNode:
+                        {
+                            var cur = GetVal(p.Name);
+                            @if (_selectedFlowId is not null && _flowNodes.Count > 0)
+                            {
+                                <select class="fb-select" value="@cur" @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))">
+                                    <option value="" selected="@string.IsNullOrEmpty(cur)">@(p.Required ? "Elige un nodo..." : "(sin valor / inicio del flujo)")</option>
+                                    @foreach (var nd in _flowNodes)
+                                    {
+                                        <option value="@nd.Bpmn" selected="@(nd.Bpmn == cur)">@nd.Label</option>
+                                    }
+                                    @if (!string.IsNullOrEmpty(cur) && !_flowNodes.Any(n => n.Bpmn == cur))
+                                    {
+                                        <option value="@cur" selected="true">@cur (actual)</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <input class="fb-input" value="@cur" placeholder="elige un flujo arriba, o escribe el BpmnElementId"
+                                       @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))" />
+                            }
+                            break;
+                        }
+                        case RuleParamType.Select:
+                        {
+                            var opts = OptionsFor(p);
+                            var cur = GetVal(p.Name);
+                            <select class="fb-select" value="@cur" @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))">
+                                <option value="" selected="@string.IsNullOrEmpty(cur)">@(p.Required ? "Elige..." : "(sin valor)")</option>
+                                @foreach (var op in opts)
+                                {
+                                    <option value="@op.Value" selected="@(op.Value == cur)">@op.Label</option>
+                                }
+                                @if (!string.IsNullOrEmpty(cur) && !opts.Any(o => o.Value == cur))
+                                {
+                                    <option value="@cur" selected="true">@cur (actual)</option>
+                                }
+                            </select>
+                            break;
+                        }
+                        case RuleParamType.Mapping:
+                        {
+                            var rows = GetMapRows(p.Name);
+                            var targets = MappingTargets(p);
+                            <div class="frp-map">
+                                @for (var mi = 0; mi < rows.Count; mi++)
+                                {
+                                    var row = rows[mi]; var idx = mi;
+                                    var ph = row.Kind == "fixed" ? "valor fijo" : (row.Kind == "field" ? "codigo del campo" : "id de columna");
+                                    <div class="frp-map-row">
+                                        <select class="fb-select" value="@row.Target" @onchange="@(e => MapTargetChanged(p.Name, row, e))">
+                                            <option value="">Destino...</option>
+                                            @foreach (var op in targets)
+                                            {
+                                                <option value="@op.Value" selected="@(op.Value == row.Target)">@op.Label</option>
+                                            }
+                                            @if (!string.IsNullOrEmpty(row.Target) && !targets.Any(o => o.Value == row.Target))
+                                            {
+                                                <option value="@row.Target" selected="true">@row.Target</option>
+                                            }
+                                        </select>
+                                        <select class="fb-select" value="@row.Kind" @onchange="@(e => MapKindChanged(p.Name, row, e))">
+                                            <option value="col" selected="@(row.Kind == "col")">Columna del grid</option>
+                                            <option value="field" selected="@(row.Kind == "field")">Campo del formulario</option>
+                                            <option value="fixed" selected="@(row.Kind == "fixed")">Valor fijo</option>
+                                        </select>
+                                        <input class="fb-input" value="@row.Ref" placeholder="@ph" @onchange="@(e => MapRefChanged(p.Name, row, e))" />
+                                        <button class="frp-mx" title="Quitar" @onclick="@(() => RemoveMapRow(p.Name, idx))">&times;</button>
+                                    </div>
+                                }
+                                <button class="fb-btn-ghost frp-mapadd" @onclick="@(() => AddMapRow(p.Name))">+ Agregar destino</button>
+                            </div>
+                            break;
+                        }
+                        default:
+                            <input class="fb-input" value="@GetVal(p.Name)"
+                                   @onchange="@(e => SetVal(p.Name, e.Value?.ToString()))" />
+                            break;
+                    }
+                </div>
+            }
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div class="frp-error">@_error</div>
+            }
+        }
+    </div>
+    <div class="modal-foot" style="display:flex;gap:8px;justify-content:space-between;align-items:center;">
+        @if (!_isDireccionar)
+        {
+            <button class="fb-btn-ghost" style="color:#b91c1c;" disabled="@(_busy || _descriptor is null)"
+                    title="Borra la configuracion de este formulario y vuelve a usar la del catalogo"
+                    @onclick="ResetAsync">Restablecer al catalogo</button>
+        }
+        else
+        {
+            <span></span>
+        }
+        <div style="display:flex;gap:8px;">
+            <button class="fb-btn-ghost" @onclick="CancelAsync">Cancelar</button>
+            <button class="fb-btn-primary" disabled="@(_busy || _descriptor is null)" @onclick="SaveAsync">Guardar</button>
+        </div>
+    </div>
+  </div>
+</div>
+
+@code {
+    /// <summary>Id del vinculo regla->pregunta (form_field_rules.Id) donde vive el override.</summary>
+    [Parameter] public Guid FormFieldRuleId { get; set; }
+    /// <summary>Id de la regla del catalogo (para precargar sus params base).</summary>
+    [Parameter] public Guid RuleId { get; set; }
+    /// <summary>Nombre del verbo de la regla (para hallar su descriptor).</summary>
+    [Parameter] public string VerbName { get; set; } = "";
+    /// <summary>Nombre legible de la regla (solo para el titulo).</summary>
+    [Parameter] public string? RuleName { get; set; }
+    /// <summary>Campos del formulario (para parametros FieldCode: desplegable amigable).</summary>
+    [Parameter] public IReadOnlyList<RuleParamOption>? FieldOptions { get; set; }
+    /// <summary>Definicion del formulario que se edita (para parametros FlowNode: preselecciona el flujo que
+    /// USA este formulario cuando aun no hay un nodo guardado del cual deducirlo).</summary>
+    [Parameter] public Guid? FormDefinitionId { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private RuleVerbDescriptor? _descriptor;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<MapRow>> _mapRows = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<string>> _fieldLists = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<RuleParamOption>> _paramOptions = new(StringComparer.Ordinal);
+
+    // --- Verbo DIRECCIONAR_CONCILIADOR: mapeo campo del formulario -> columna del conciliador (config por-formulario) ---
+    private bool _isDireccionar;
+    private bool _direEnabled;
+    private readonly List<DireRow> _direRows = new();
+    private readonly List<(string Value, string Label)> _direTargets = new();
+
+    // --- Parametros FlowNode (B): elegir un flujo (ayuda de diseno) y uno de sus nodos ---
+    private bool _hasFlowNodes;
+    private bool _flowLoading;
+    private Guid? _selectedFlowId;
+    private readonly List<(Guid Id, string Label)> _flowCards = new();
+    private List<(string Bpmn, string Label)> _flowNodes = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _descriptor = Engine.GetVerbCatalog().FirstOrDefault(v =>
+            string.Equals(v.VerbName, VerbName, StringComparison.Ordinal));
+
+        // Precarga EFECTIVA: primero los params del catalogo (base), luego el override (gana por clave).
+        // Al guardar se persiste el set completo -> el vinculo queda autonomo del catalogo.
+        try
+        {
+            var baseJson = (await RulesSvc.GetRuleAsync(RuleId))?.ParamsJson;
+            LoadInto(baseJson);
+            var overrideJson = await RulesSvc.GetFieldRuleOverrideAsync(FormFieldRuleId);
+            LoadInto(overrideJson);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        await LoadOptionsAsync();
+
+        // Parametros de nodo de flujo (B): carga el catalogo de flujos y, si ya hay un nodo guardado,
+        // detecta a que flujo pertenece para preseleccionarlo y mostrar el nodo por su nombre.
+        _hasFlowNodes = _descriptor?.Params.Any(p => p.Type == RuleParamType.FlowNode) == true;
+        if (_hasFlowNodes) { await LoadFlowCatalogAndDetectAsync(); }
+
+        // Verbo DIRECCIONAR_CONCILIADOR: su "config" es el mapeo campo->columna del conciliador (por-formulario),
+        // no params de regla. Se edita aqui mismo leyendo/guardando la MISMA config que el conciliador.
+        _isDireccionar = string.Equals(VerbName, "DIRECCIONAR_CONCILIADOR", StringComparison.Ordinal)
+            && FormDefinitionId is not null;
+        if (_isDireccionar) { await LoadDireccionarAsync(); }
+
+        _loading = false;
+    }
+
+    private async Task LoadDireccionarAsync()
+    {
+        // Columnas destino del conciliador: fijas + dinamicas (EAV), excluyendo las de sistema (sys:).
+        _direTargets.Clear();
+        _direTargets.Add(("oc", "Orden de compra"));
+        _direTargets.Add(("numsol", "Num Factura SISTEMA"));
+        _direTargets.Add(("asignado", "Usuario asignado (responsable)"));
+        try
+        {
+            var defs = await ConcFields.ListDefsAsync();
+            foreach (var d in defs.Where(d => !d.FieldKey.StartsWith("sys:", StringComparison.Ordinal)))
+            {
+                _direTargets.Add(("dyn:" + d.FieldKey, d.Label));
+            }
+        }
+        catch { /* sin columnas dinamicas: quedan las fijas */ }
+
+        try
+        {
+            var cfg = await Dire.GetDireccionarByFormAsync(FormDefinitionId!.Value);
+            _direEnabled = cfg.Enabled;
+            _direRows.Clear();
+            foreach (var m in cfg.Mappings) { _direRows.Add(new DireRow { FormField = m.FormField, Target = m.Target }); }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+
+        if (_direRows.Count == 0) { _direRows.Add(new DireRow()); }
+    }
+
+    private async Task SaveDireccionarAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var maps = _direRows
+                .Where(r => !string.IsNullOrWhiteSpace(r.FormField) && !string.IsNullOrWhiteSpace(r.Target))
+                .Select(r => new DireccionarMapDto(r.FormField.Trim(), r.Target.Trim()))
+                .ToList();
+            await Dire.SetDireccionarAsync(_direEnabled, maps, FormDefinitionId);
+            await OnSaved.InvokeAsync();
+            await OnClose.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task LoadFlowCatalogAndDetectAsync()
+    {
+        try
+        {
+            var idx = await Flows.ListForIndexAsync();
+            _flowCards.Clear();
+            foreach (var c in idx.Cards) { _flowCards.Add((c.DefinitionId, $"{c.Name} (v{c.Version})")); }
+        }
+        catch { /* sin catalogo: cae a caja de texto por nodo */ }
+
+        // Preselecciona el flujo: 1) el que contiene un nodo YA guardado en un parametro FlowNode (gana).
+        var wanted = _descriptor!.Params
+            .Where(p => p.Type == RuleParamType.FlowNode)
+            .Select(p => GetVal(p.Name))
+            .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+        if (!string.IsNullOrWhiteSpace(wanted))
+        {
+            foreach (var card in _flowCards)
+            {
+                var nodes = await LoadNodesAsync(card.Id);
+                if (nodes.Any(n => string.Equals(n.Bpmn, wanted, StringComparison.Ordinal)))
+                {
+                    _selectedFlowId = card.Id;
+                    _flowNodes = nodes;
+                    return;
+                }
+            }
+        }
+
+        // 2) Sin nodo guardado: preselecciona el flujo que USA este formulario (via la subcategoria de actividad),
+        // asi el desplegable de nodos queda listo sin que el usuario tenga que elegir el flujo a mano.
+        if (FormDefinitionId is Guid fid)
+        {
+            Guid? flowId = null;
+            try { flowId = await Flows.GetFlowDefinitionForFormAsync(fid); }
+            catch { /* sin resolucion: queda el selector manual */ }
+            if (flowId is Guid g)
+            {
+                _selectedFlowId = g;
+                _flowNodes = await LoadNodesAsync(g);
+                if (!_flowCards.Any(c => c.Id == g))
+                {
+                    // El flujo (quiza una version anterior) no estaba en el indice: agrega su tarjeta para que aparezca.
+                    FlowCanvasDto? canvas = null;
+                    try { canvas = await Flows.GetCanvasAsync(g); } catch { }
+                    _flowCards.Insert(0, (g, canvas is null ? "Flujo del formulario" : $"{canvas.Name} (v{canvas.Version})"));
+                }
+            }
+        }
+    }
+
+    private async Task<List<(string Bpmn, string Label)>> LoadNodesAsync(Guid flowId)
+    {
+        try
+        {
+            var canvas = await Flows.GetCanvasAsync(flowId);
+            if (canvas is null) { return new(); }
+            return canvas.Nodes
+                .Where(n => !string.IsNullOrWhiteSpace(n.BpmnElementId))
+                .Select(n => (n.BpmnElementId, FriendlyNode(n)))
+                .ToList();
+        }
+        catch { return new(); }
+    }
+
+    private async Task OnFlowSelectedAsync(ChangeEventArgs e)
+    {
+        _selectedFlowId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null;
+        if (_selectedFlowId is Guid fid)
+        {
+            _flowLoading = true;
+            _flowNodes = await LoadNodesAsync(fid);
+            _flowLoading = false;
+        }
+        else { _flowNodes = new(); }
+    }
+
+    private static string FriendlyNode(FlowCanvasNodeDto n)
+    {
+        var name = string.IsNullOrWhiteSpace(n.Name) ? n.BpmnElementId : n.Name!;
+        return $"{name} - {NodeTypeLabel(n.NodeType)}";
+    }
+
+    private static string NodeTypeLabel(WorkflowNodeType t) => t switch
+    {
+        WorkflowNodeType.StartEvent => "Inicio",
+        WorkflowNodeType.EndEvent => "Fin",
+        WorkflowNodeType.Task => "Tarea",
+        WorkflowNodeType.ExclusiveGateway => "Compuerta",
+        _ => t.ToString(),
+    };
+
+    private async Task LoadOptionsAsync()
+    {
+        if (_descriptor is null) { return; }
+        var sources = _descriptor.Params
+            .Where(p => (p.Type == RuleParamType.Select || p.Type == RuleParamType.Mapping) && !string.IsNullOrWhiteSpace(p.OptionsSource))
+            .Select(p => p.OptionsSource!)
+            .Distinct(StringComparer.Ordinal);
+        foreach (var src in sources)
+        {
+            try { _paramOptions[src] = (await ParamOptions.GetOptionsAsync(src)).ToList(); }
+            catch { _paramOptions[src] = Array.Empty<RuleParamOption>(); }
+        }
+    }
+
+    private void LoadInto(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) { return; }
+            foreach (var pr in doc.RootElement.EnumerateObject())
+            {
+                _values[pr.Name] = pr.Value.ValueKind == JsonValueKind.String
+                    ? pr.Value.GetString() ?? ""
+                    : pr.Value.GetRawText();
+            }
+        }
+        catch (JsonException) { /* corrupto: arranca vacio, el guardado reescribe */ }
+    }
+
+    private string GetVal(string name) => _values.TryGetValue(name, out var v) ? v : "";
+    private void SetVal(string name, string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { _values.Remove(name); }
+        else { _values[name] = raw!; }
+    }
+
+    private IReadOnlyList<RuleParamOption> OptionsFor(RuleVerbParamDescriptor p)
+        => !string.IsNullOrWhiteSpace(p.OptionsSource) && _paramOptions.TryGetValue(p.OptionsSource!, out var opts)
+            ? opts
+            : (p.Options ?? Array.Empty<RuleParamOption>());
+
+    private IReadOnlyList<RuleParamOption> MappingTargets(RuleVerbParamDescriptor p)
+    {
+        var list = new List<RuleParamOption>(p.Options ?? Array.Empty<RuleParamOption>());
+        if (!string.IsNullOrWhiteSpace(p.OptionsSource) && _paramOptions.TryGetValue(p.OptionsSource!, out var dyn))
+        {
+            list.AddRange(dyn);
+        }
+        return list;
+    }
+
+    // ---- Parametros Mapping (destino -> "kind:ref") ----
+    private List<MapRow> GetMapRows(string name)
+    {
+        if (!_mapRows.TryGetValue(name, out var rows))
+        {
+            rows = ParseMapRows(GetVal(name));
+            _mapRows[name] = rows;
+        }
+        return rows;
+    }
+
+    private static List<MapRow> ParseMapRows(string json)
+    {
+        var list = new List<MapRow>();
+        if (string.IsNullOrWhiteSpace(json)) { return list; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var pr in doc.RootElement.EnumerateObject())
+                {
+                    var expr = pr.Value.ValueKind == JsonValueKind.String ? (pr.Value.GetString() ?? "") : pr.Value.GetRawText();
+                    var i = expr.IndexOf(':');
+                    list.Add(new MapRow { Target = pr.Name, Kind = i >= 0 ? expr[..i] : "fixed", Ref = i >= 0 ? expr[(i + 1)..] : expr });
+                }
+            }
+        }
+        catch (JsonException) { }
+        return list;
+    }
+
+    private void ApplyMapRows(string name)
+    {
+        var rows = _mapRows.TryGetValue(name, out var r) ? r : new List<MapRow>();
+        var obj = new JsonObject();
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Target)) { continue; }
+            obj[row.Target] = $"{row.Kind}:{row.Ref ?? ""}";
+        }
+        if (obj.Count == 0) { _values.Remove(name); }
+        else { _values[name] = obj.ToJsonString(); }
+    }
+
+    private void AddMapRow(string name) { GetMapRows(name).Add(new MapRow()); ApplyMapRows(name); }
+    private void RemoveMapRow(string name, int idx) { var rows = GetMapRows(name); if (idx >= 0 && idx < rows.Count) { rows.RemoveAt(idx); ApplyMapRows(name); } }
+    private void MapTargetChanged(string name, MapRow row, ChangeEventArgs e) { row.Target = e.Value?.ToString() ?? ""; ApplyMapRows(name); }
+    private void MapKindChanged(string name, MapRow row, ChangeEventArgs e) { row.Kind = e.Value?.ToString() ?? "col"; ApplyMapRows(name); }
+    private void MapRefChanged(string name, MapRow row, ChangeEventArgs e) { row.Ref = e.Value?.ToString() ?? ""; ApplyMapRows(name); }
+
+    // ---- Parametros FieldCodeList (arreglo JSON de codigos de campo) ----
+    private List<string> GetFieldList(string name)
+    {
+        if (!_fieldLists.TryGetValue(name, out var list))
+        {
+            list = ParseFieldList(GetVal(name));
+            _fieldLists[name] = list;
+        }
+        return list;
+    }
+
+    private static List<string> ParseFieldList(string json)
+    {
+        var list = new List<string>();
+        if (string.IsNullOrWhiteSpace(json)) { return list; }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var it in doc.RootElement.EnumerateArray())
+                {
+                    if (it.ValueKind == JsonValueKind.String)
+                    {
+                        var s = it.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) { list.Add(s!.Trim()); }
+                    }
+                }
+            }
+            else if (doc.RootElement.ValueKind == JsonValueKind.String)
+            {
+                var raw = doc.RootElement.GetString() ?? "";
+                list.AddRange(raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            }
+        }
+        catch (JsonException)
+        {
+            // Valor legacy sin JSON (codigo suelto o lista por comas).
+            list.AddRange(json.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+        return list;
+    }
+
+    private void ApplyFieldList(string name)
+    {
+        var list = _fieldLists.TryGetValue(name, out var l) ? l : new List<string>();
+        var arr = new JsonArray();
+        foreach (var c in list)
+        {
+            if (!string.IsNullOrWhiteSpace(c)) { arr.Add(c.Trim()); }
+        }
+        if (arr.Count == 0) { _values.Remove(name); }
+        else { _values[name] = arr.ToJsonString(); }
+    }
+
+    private void AddFieldRow(string name) { GetFieldList(name).Add(""); ApplyFieldList(name); }
+    private void RemoveFieldRow(string name, int idx) { var l = GetFieldList(name); if (idx >= 0 && idx < l.Count) { l.RemoveAt(idx); ApplyFieldList(name); } }
+    private void FieldListChanged(string name, int idx, ChangeEventArgs e) { var l = GetFieldList(name); if (idx >= 0 && idx < l.Count) { l[idx] = e.Value?.ToString() ?? ""; ApplyFieldList(name); } }
+
+    private string? BuildJson(out string? error)
+    {
+        error = null;
+        if (_descriptor is null || _values.Count == 0) { return _values.Count == 0 ? null : "{}"; }
+        var result = new JsonObject();
+        foreach (var (name, raw) in _values)
+        {
+            var pd = _descriptor.Params.FirstOrDefault(p => p.Name == name);
+            switch (pd?.Type)
+            {
+                case RuleParamType.Boolean:
+                    result[name] = string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+                    break;
+                case RuleParamType.Number:
+                    if (!decimal.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var number))
+                    {
+                        error = $"El parametro '{name}' debe ser numerico.";
+                        return null;
+                    }
+                    result[name] = number;
+                    break;
+                case RuleParamType.Json:
+                case RuleParamType.Mapping:
+                case RuleParamType.FieldCodeList:
+                    try { result[name] = JsonNode.Parse(raw); }
+                    catch (JsonException) { error = $"El parametro '{name}' no es JSON valido."; return null; }
+                    break;
+                default:
+                    result[name] = raw;
+                    break;
+            }
+        }
+        return result.ToJsonString();
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        if (_descriptor is null) { return; }
+        if (_isDireccionar) { await SaveDireccionarAsync(); return; }
+        // Obligatorios del descriptor.
+        var missing = _descriptor.Params
+            .Where(p => p.Required && string.IsNullOrWhiteSpace(GetVal(p.Name)))
+            .Select(p => p.Label)
+            .ToList();
+        if (missing.Count > 0) { _error = $"Falta: {string.Join(", ", missing)}."; return; }
+
+        var json = BuildJson(out var err);
+        if (err is not null) { _error = err; return; }
+
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.SetFieldRuleOverrideAsync(FormFieldRuleId, json);
+            if (!result.IsOk) { _error = result.Error; return; }
+            await OnSaved.InvokeAsync();
+            await OnClose.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ResetAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var result = await RulesSvc.SetFieldRuleOverrideAsync(FormFieldRuleId, null);
+            if (!result.IsOk) { _error = result.Error; return; }
+            await OnSaved.InvokeAsync();
+            await OnClose.InvokeAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private Task CancelAsync() => OnClose.InvokeAsync();
+
+    private sealed class MapRow
+    {
+        public string Target { get; set; } = "";
+        public string Kind { get; set; } = "col";
+        public string Ref { get; set; } = "";
+    }
+
+    private sealed class DireRow
+    {
+        public string FormField { get; set; } = "";
+        public string Target { get; set; } = "";
+    }
+}

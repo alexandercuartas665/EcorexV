@@ -47,11 +47,11 @@ public sealed class ReiniciarFlujoTareaVerb : IRuleVerb
         new[]
         {
             new RuleVerbParamDescriptor("assigneeFieldCode", "Campo del usuario de redireccion",
-                RuleParamType.Text, Required: true,
-                "Codigo del campo-usuario del formulario con el nuevo responsable, p. ej. fecha_compra."),
+                RuleParamType.FieldCode, Required: true,
+                "Campo-usuario del formulario con el nuevo responsable (p. ej. 'Redireccionamiento')."),
             new RuleVerbParamDescriptor("restartNodeBpmnId", "Nodo donde reiniciar (opcional)",
-                RuleParamType.Text, Required: false,
-                "BpmnElementId del nodo donde reiniciar el flujo. Vacio = el inicio del flujo."),
+                RuleParamType.FlowNode, Required: false,
+                "Nodo donde reiniciar el flujo (elige el flujo arriba para listarlo). Vacio = el inicio del flujo."),
             new RuleVerbParamDescriptor("requireMessage", "Mensaje si falta el usuario",
                 RuleParamType.Text, Required: false,
                 "Texto a mostrar cuando el campo del usuario de redireccion esta vacio (si no, uno generico)."),

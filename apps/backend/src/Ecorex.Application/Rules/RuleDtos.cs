@@ -22,7 +22,13 @@ public enum RuleParamType
     /// <summary>Mapeo destino -> fuente: cada destino (de <see cref="RuleVerbParamDescriptor.Options"/> +
     /// <see cref="RuleVerbParamDescriptor.OptionsSource"/>) se llena desde una columna del grid, un campo
     /// del formulario o un valor fijo. Se guarda como objeto JSON { "destino": "kind:ref" } (kind: col|field|fixed).</summary>
-    Mapping
+    Mapping,
+    /// <summary>Lista de FieldCodes de campos del formulario (multi-seleccion). La UI muestra una fila de
+    /// desplegables de campos con agregar/quitar; se guarda como arreglo JSON de codigos, p. ej. ["text_ca893"].</summary>
+    FieldCodeList,
+    /// <summary>Nodo de un flujo: la UI deja ELEGIR un flujo (solo ayuda de diseno; en ejecucion el flujo se
+    /// resuelve de la tarea) y uno de sus nodos; se guarda el BpmnElementId del nodo (texto). Vacio = sin nodo.</summary>
+    FlowNode
 }
 
 /// <summary>Una opcion para un parametro tipo <see cref="RuleParamType.Select"/>: valor guardado + etiqueta visible.</summary>

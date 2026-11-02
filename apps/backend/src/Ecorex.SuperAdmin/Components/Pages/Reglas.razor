@@ -1350,6 +1350,7 @@
                     break;
                 case RuleParamType.Json:
                 case RuleParamType.Mapping:
+                case RuleParamType.FieldCodeList:
                     try
                     {
                         result[name] = JsonNode.Parse(raw);

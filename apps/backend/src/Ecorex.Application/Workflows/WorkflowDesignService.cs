@@ -97,6 +97,16 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         return definition is null ? null : await BuildCanvasAsync(definition, cancellationToken);
     }
 
+    public async Task<Guid?> GetFlowDefinitionForFormAsync(Guid formDefinitionId, CancellationToken cancellationToken = default)
+    {
+        // La subcategoria de actividad que usa este formulario apunta al flujo que lo ejecuta.
+        return await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(s => s.FormDefinitionId == formDefinitionId && s.WorkflowDefinitionId != null)
+            .OrderByDescending(s => s.CreatedAt)
+            .Select(s => s.WorkflowDefinitionId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<string?> GetBpmnXmlAsync(Guid definitionId, CancellationToken cancellationToken = default)
     {
         return await _db.WorkflowDefinitions.AsNoTracking()

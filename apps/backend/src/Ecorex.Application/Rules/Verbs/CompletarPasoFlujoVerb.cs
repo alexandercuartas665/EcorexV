@@ -54,15 +54,16 @@ public sealed class CompletarPasoFlujoVerb : IRuleVerb
         new[]
         {
             new RuleVerbParamDescriptor("requireFields", "Campos obligatorios antes de cerrar",
-                RuleParamType.Json, Required: false,
-                "Arreglo JSON de codigos de campo que deben tener valor, p. ej. [\"text_ca893\"]. Si falta alguno, no cierra el paso."),
+                RuleParamType.FieldCodeList, Required: false,
+                "Campos del formulario que deben tener valor antes de cerrar (p. ej. el 'Aprobador del gasto'). "
+                + "Si falta alguno, no cierra el paso."),
             new RuleVerbParamDescriptor("requireMessage", "Mensaje si falta un campo",
                 RuleParamType.Text, Required: false,
                 "Texto a mostrar cuando falta un campo obligatorio (si se deja vacio, se usa uno generico)."),
             new RuleVerbParamDescriptor("targetNodeBpmnId", "Ruta destino (si el paso es compuerta)",
-                RuleParamType.Text, Required: false,
-                "BpmnElementId del nodo destino a seguir cuando el paso actual es una compuerta atendida, p. ej. "
-                + "Event_0kh7q6v (Contabilizar Factura). Obligatorio si el paso vigente es una compuerta."),
+                RuleParamType.FlowNode, Required: false,
+                "Nodo destino a seguir cuando el paso actual es una compuerta atendida (p. ej. 'Contabilizar "
+                + "Factura'); elige el flujo arriba para listarlo. Obligatorio si el paso vigente es una compuerta."),
             new RuleVerbParamDescriptor("onGatewayNoTarget", "Compuerta sin ruta: que hacer",
                 RuleParamType.Text, Required: false,
                 "Solo cuando el paso es compuerta y NO hay targetNodeBpmnId. 'reassign' = REDIRECCIONAR: "

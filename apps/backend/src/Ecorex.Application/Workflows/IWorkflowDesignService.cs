@@ -27,6 +27,11 @@ public interface IWorkflowDesignService
     /// <summary>Canvas completo (nodos con coordenadas + aristas + vinculos) o null.</summary>
     Task<FlowCanvasDto?> GetCanvasAsync(Guid definitionId, CancellationToken cancellationToken = default);
 
+    /// <summary>Definicion de flujo asociada a un formulario via la subcategoria de actividad que lo usa
+    /// (actividad_subcategorias.form_definition_id -> workflow_definition_id), o null si ninguna lo enlaza.
+    /// Sirve para preseleccionar el flujo en asistentes que configuran nodos sin un nodo ya guardado.</summary>
+    Task<Guid?> GetFlowDefinitionForFormAsync(Guid formDefinitionId, CancellationToken cancellationToken = default);
+
     /// <summary>XML BPMN 2.0 crudo de la definicion (para hidratar bpmn-js), o null.</summary>
     Task<string?> GetBpmnXmlAsync(Guid definitionId, CancellationToken cancellationToken = default);
 

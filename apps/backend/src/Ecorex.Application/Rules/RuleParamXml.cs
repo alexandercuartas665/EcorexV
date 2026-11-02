@@ -192,6 +192,8 @@ public static class RuleParamXml
         RuleParamType.Boolean => "boolean",
         RuleParamType.Json => "json",
         RuleParamType.FieldCode => "fieldcode",
+        RuleParamType.FieldCodeList => "fieldcodelist",
+        RuleParamType.FlowNode => "flownode",
         RuleParamType.Select => "select",
         RuleParamType.Mapping => "mapping",
         _ => "string"
@@ -233,7 +235,7 @@ public static class RuleParamXml
         }
         return type switch
         {
-            RuleParamType.Json or RuleParamType.Mapping => node.ToJsonString(),
+            RuleParamType.Json or RuleParamType.Mapping or RuleParamType.FieldCodeList => node.ToJsonString(),
             _ => node is JsonValue value && value.TryGetValue<string>(out var text)
                 ? text
                 : node.ToJsonString().Trim('"')
@@ -259,6 +261,7 @@ public static class RuleParamXml
                 return (JsonValue.Create(flag), null);
             case RuleParamType.Json:
             case RuleParamType.Mapping:
+            case RuleParamType.FieldCodeList:
                 try
                 {
                     return (JsonNode.Parse(valor), null);

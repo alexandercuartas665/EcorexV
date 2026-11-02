@@ -58,9 +58,9 @@ public sealed class DevolverConciliadorVerb : IRuleVerb
         new[]
         {
             new RuleVerbParamDescriptor("emptyFieldCode", "Campo de redireccion (debe estar vacio)",
-                RuleParamType.Text, Required: true,
-                "Codigo del campo de redireccionamiento; solo devuelve si esta vacio (el mismo de REINICIAR, "
-                + "p. ej. fecha_compra)."),
+                RuleParamType.FieldCode, Required: true,
+                "Campo de redireccionamiento del formulario; solo devuelve si esta vacio (el mismo de REINICIAR, "
+                + "p. ej. 'Redireccionamiento')."),
             new RuleVerbParamDescriptor("confirmMessage", "Mensaje de confirmacion (opcional)",
                 RuleParamType.Text, Required: false,
                 "Texto del modal de confirmacion antes de devolver el documento al conciliador."),

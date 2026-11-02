@@ -883,6 +883,10 @@ else
     };
     private bool _mapeoOpen;
     private Guid _mapeoLinkId;
+    // Asistente GENERICO de parametros por-vinculo (cualquier verbo, guiado por su descriptor).
+    private bool _paramsModalOpen;
+    private QuestionRuleLinkDto? _paramsModalLink;
+    private Node? _paramsModalNode;
     private string _mapeoGrid = "";
     private string _mapeoOrigen = "";
     private string? _mapeoError;
@@ -2318,6 +2322,35 @@ else
             _busy = false;
         }
     }
+
+    // ---- Asistente GENERICO de parametros de UNA regla, por-vinculo (override que vive en el formulario) ----
+    private void OpenParamsAssistant(Node node, QuestionRuleLinkDto link)
+    {
+        _paramsModalNode = node;
+        _paramsModalLink = link;
+        _rulePickerOpen = false;
+        _paramsModalOpen = true;
+    }
+
+    private async Task OnParamsSavedAsync()
+    {
+        // Refresca la lista de reglas del campo (el override cambio); el modal se cierra solo via OnClose.
+        if (_paramsModalNode is Node n)
+        {
+            _rulesLoadedFor = null;
+            await EnsureRulesLoadedAsync(n);
+        }
+    }
+
+    /// <summary>Campos del formulario como opciones (value = FieldCode) para parametros FieldCode del asistente.</summary>
+    private IReadOnlyList<RuleParamOption> FormFieldOptions()
+        => _def?.Questions
+               .Where(q => !FormFieldValidator.IsNonInput(q.ControlType))
+               .OrderBy(q => q.SortOrder)
+               .Select(q => new RuleParamOption(q.FieldCode,
+                   string.IsNullOrWhiteSpace(q.Label) ? q.FieldCode : $"{q.Label} ({q.FieldCode})"))
+               .ToList()
+           ?? (IReadOnlyList<RuleParamOption>)Array.Empty<RuleParamOption>();
 
     // ---- Asistente de mapeo por formulario (GENERAR_REQUERIMIENTOS) ----
     private static readonly RuleParamOption[] _mapeoBaseTargets =
@@ -4495,8 +4528,11 @@ else
                     }
                     else
                     {
-                        <a class="fb-rule-edit" href="@($"/reglas?rule={link.RuleId}")" target="_blank" title="Editar los parametros y el mapeo de esta regla"
-                           style="font-size:11.5px;font-weight:600;color:var(--brand,#4f46e5);text-decoration:none;margin-right:8px;white-space:nowrap;">Editar</a>
+                        <button class="fb-rule-edit" title="Configurar los parametros de ESTA regla para este formulario (viven aqui, no en el catalogo global)"
+                                style="font-size:11.5px;font-weight:600;color:var(--brand,#4f46e5);background:none;border:none;cursor:pointer;margin-right:8px;white-space:nowrap;"
+                                @onclick="@(() => OpenParamsAssistant(node, link))">Editar</button>
+                        <a class="fb-rule-edit" href="@($"/reglas?rule={link.RuleId}")" target="_blank" title="Abrir la regla en el catalogo global (avanzado)"
+                           style="font-size:11px;font-weight:500;color:#9ca3af;text-decoration:none;margin-right:8px;white-space:nowrap;">catalogo &#8599;</a>
                     }
                     <span class="fb-rule-x" @onclick="@(() => UnlinkRuleAsync(node, link.Id))">&times;</span>
                 </div>
@@ -4540,6 +4576,15 @@ else
         else
         {
             <button class="fb-rule-add" @onclick="OpenRulePickerAsync">+ Vincular regla existente</button>
+        }
+
+        @* Asistente GENERICO de parametros por-vinculo: un modal guiado por el descriptor del verbo que
+           guarda el override en form_field_rules (la config vive en ESTE formulario, no en el catalogo). *@
+        @if (_paramsModalOpen && _paramsModalLink is QuestionRuleLinkDto pl)
+        {
+            <FieldRuleParamsModal FormFieldRuleId="pl.Id" RuleId="pl.RuleId" VerbName="@pl.VerbName"
+                                  RuleName="@pl.RuleName" FieldOptions="FormFieldOptions()" FormDefinitionId="_def.Id"
+                                  OnClose="@(() => _paramsModalOpen = false)" OnSaved="OnParamsSavedAsync" />
         }
 
         @* Asistente de MAPEO por formulario (GENERAR_REQUERIMIENTOS): grilla + origen + destinos,

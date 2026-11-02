@@ -28,7 +28,7 @@ namespace Ecorex.SuperAdmin.Components.Pages;
 /// solo difieren en su markup/CSS (el "front"). Cada vista declara su <see cref="ViewVariant"/> y la base
 /// redirige a la otra si el tenant configuro una variante distinta.
 /// </summary>
-public abstract class DirectorioSharedBase : ComponentBase
+public abstract class DirectorioSharedBase : ComponentBase, IDisposable
 {
     [Inject] protected ITerceroService TerceroSvc { get; set; } = default!;
     [Inject] protected ITerceroFieldService FieldSvc { get; set; } = default!;
@@ -399,11 +399,54 @@ public abstract class DirectorioSharedBase : ComponentBase
         await ReloadAsync();
     }
 
-    protected async Task OnSearch(ChangeEventArgs e)
+    // Debounce del buscador. Cada tecla actualiza _search al instante (para que el
+    // input conserve lo tecleado) pero la recarga pesada (ListAsync + KPIs) se difiere
+    // ~350 ms tras la ultima tecla. Sin esto, en Blazor Server cada tecla disparaba un
+    // round-trip y el re-render que seguia reescribia value="@_search" pisando la letra
+    // recien tecleada mientras la consulta estaba en vuelo ("el buscador se come las letras").
+    private CancellationTokenSource? _searchCts;
+
+    protected Task OnSearch(ChangeEventArgs e)
     {
         _search = e.Value?.ToString() ?? "";
         _page = 0;
-        await ReloadAsync();
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
+        _ = DebouncedSearchReloadAsync(cts.Token);
+        // Devolver sin await: el handler termina ya, el re-render mantiene el texto
+        // tecleado y la lista se refresca cuando el usuario deja de escribir.
+        return Task.CompletedTask;
+    }
+
+    private async Task DebouncedSearchReloadAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(350, token);
+            await ReloadAsync();
+            if (!token.IsCancellationRequested)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Llego otra tecla antes de recargar: se descarta esta pasada.
+        }
+        catch
+        {
+            // Fire-and-forget: no dejar escapar excepciones (p.ej. el circuito ya no esta).
+        }
+    }
+
+    public void Dispose()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = null;
+        GC.SuppressFinalize(this);
     }
 
     protected async Task ToggleExpandAsync(TerceroListItemDto row)

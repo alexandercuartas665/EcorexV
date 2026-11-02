@@ -19,7 +19,9 @@ namespace Ecorex.Application.Directorio;
 public sealed record DirectorioLayoutDto(
     bool SectorIsList,
     string? SectorOptions,
-    IReadOnlyDictionary<string, string> Anchors);
+    IReadOnlyDictionary<string, string> Anchors,
+    IReadOnlyList<string> Order,
+    IReadOnlyDictionary<string, string> Labels);
 
 public interface IDirectorioLayoutConfigService
 {
@@ -34,6 +36,14 @@ public interface IDirectorioLayoutConfigService
     Task SetAnchorAsync(string fieldKey, string? anchor, CancellationToken ct = default);
     /// <summary>Quita un campo del mapa de anclas (al eliminar el campo). Idempotente.</summary>
     Task RemoveAnchorAsync(string fieldKey, CancellationToken ct = default);
+    /// <summary>
+    /// Persiste el ORDEN unico de la zona principal: una secuencia de tokens que mezcla campos duros
+    /// (clave con prefijo "#", p.ej. "#sector") y campos "general" (su clave). Es la fuente de verdad de
+    /// la posicion; reemplaza al mapa de anclas. Ver <see cref="DirectorioLayoutConfigService.BuildEffectiveOrder"/>.
+    /// </summary>
+    Task SetOrderAsync(IReadOnlyList<string> order, CancellationToken ct = default);
+    /// <summary>Renombra el titulo de un campo DURO; label vacio/null restaura el titulo por defecto.</summary>
+    Task SetFixedLabelAsync(string fixedKey, string? label, CancellationToken ct = default);
 }
 
 public sealed class DirectorioLayoutConfigService : IDirectorioLayoutConfigService
@@ -48,11 +58,16 @@ public sealed class DirectorioLayoutConfigService : IDirectorioLayoutConfigServi
         _tenant = tenant;
     }
 
+    /// <summary>Prefijo reservado de los tokens de campos DUROS en la lista de orden (p.ej. "#sector").</summary>
+    public const string FixedPrefix = "#";
+
     // Forma serializada en el TenantConfiguration (una sola fila por tenant).
     private sealed record Stored(
         bool SectorIsList = false,
         string? SectorOptions = null,
-        Dictionary<string, string>? Anchors = null);
+        Dictionary<string, string>? Anchors = null,
+        List<string>? Order = null,
+        Dictionary<string, string>? Labels = null);
 
     public async Task<DirectorioLayoutDto> GetAsync(CancellationToken ct = default)
     {
@@ -64,7 +79,9 @@ public sealed class DirectorioLayoutConfigService : IDirectorioLayoutConfigServi
         return new DirectorioLayoutDto(
             s.SectorIsList,
             s.SectorOptions,
-            s.Anchors ?? new Dictionary<string, string>(StringComparer.Ordinal));
+            s.Anchors ?? new Dictionary<string, string>(StringComparer.Ordinal),
+            s.Order ?? new List<string>(),
+            s.Labels ?? new Dictionary<string, string>(StringComparer.Ordinal));
     }
 
     public async Task SetSectorAsync(bool isList, string? options, CancellationToken ct = default)
@@ -100,6 +117,107 @@ public sealed class DirectorioLayoutConfigService : IDirectorioLayoutConfigServi
         if (s.Anchors is null || !s.Anchors.ContainsKey(key)) { return; }
         s.Anchors.Remove(key);
         await SaveAsync(s, ct);
+    }
+
+    public async Task SetOrderAsync(IReadOnlyList<string> order, CancellationToken ct = default)
+    {
+        var s = await LoadAsync(ct);
+        var clean = (order ?? Array.Empty<string>())
+            .Select(t => (t ?? string.Empty).Trim())
+            .Where(t => t.Length > 0)
+            .ToList();
+        await SaveAsync(s with { Order = clean }, ct);
+    }
+
+    public async Task SetFixedLabelAsync(string fixedKey, string? label, CancellationToken ct = default)
+    {
+        var key = (fixedKey ?? string.Empty).Trim().ToLowerInvariant();
+        if (!IDirectorioLayoutConfigService.ValidAnchors.Contains(key)) { return; }
+        var s = await LoadAsync(ct);
+        var labels = s.Labels ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        var clean = (label ?? string.Empty).Trim();
+        if (clean.Length == 0) { labels.Remove(key); } else { labels[key] = clean; }
+        await SaveAsync(s with { Labels = labels }, ct);
+    }
+
+    /// <summary>
+    /// Construye el ORDEN efectivo de la zona principal: la secuencia de tokens (duros "#clave" +
+    /// campos "general") que se debe pintar. Es una funcion pura (sin BD), compartida por el modal del
+    /// tercero y el configurador.
+    /// <para>
+    /// Si <paramref name="storedOrder"/> trae datos, se respeta (quitando tokens que ya no existen) y se
+    /// completan los que falten: los duros en su posicion canonica, los "general" tras su ancla. Si viene
+    /// vacio (tenants ADR-0141 que nunca reordenaron), se reconstruye el layout ACTUAL a partir de las
+    /// anclas, de modo que el resultado es identico al que ya veian.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<string> BuildEffectiveOrder(
+        IReadOnlyList<string>? storedOrder,
+        IReadOnlyDictionary<string, string>? anchors,
+        IEnumerable<string> customFieldKeysInSortOrder)
+    {
+        anchors ??= new Dictionary<string, string>(StringComparer.Ordinal);
+        var customList = customFieldKeysInSortOrder?
+            .Where(k => !string.IsNullOrWhiteSpace(k))
+            .Select(k => k.Trim())
+            .ToList() ?? new List<string>();
+        var customSet = new HashSet<string>(customList, StringComparer.Ordinal);
+
+        bool IsKnown(string tok)
+            => tok.StartsWith(FixedPrefix, StringComparison.Ordinal)
+                ? IDirectorioLayoutConfigService.ValidAnchors.Contains(tok[FixedPrefix.Length..])
+                : customSet.Contains(tok);
+
+        string AnchorOf(string customKey)
+        {
+            var a = anchors!.TryGetValue(customKey, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "sector";
+            return IDirectorioLayoutConfigService.ValidAnchors.Contains(a) ? a : "sector";
+        }
+
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        if (storedOrder is { Count: > 0 })
+        {
+            // 1) Tokens guardados que siguen existiendo (sin duplicados).
+            foreach (var raw in storedOrder)
+            {
+                var tok = (raw ?? string.Empty).Trim();
+                if (tok.Length > 0 && IsKnown(tok) && seen.Add(tok)) { result.Add(tok); }
+            }
+            // 2) Duros faltantes, en su posicion canonica relativa.
+            var insertPos = 0;
+            foreach (var k in IDirectorioLayoutConfigService.ValidAnchors)
+            {
+                var tok = FixedPrefix + k;
+                var idx = result.IndexOf(tok);
+                if (idx >= 0) { insertPos = idx + 1; }
+                else { result.Insert(insertPos, tok); seen.Add(tok); insertPos++; }
+            }
+            // 3) Campos "general" faltantes, tras su ancla (o al final).
+            foreach (var ck in customList)
+            {
+                if (seen.Contains(ck)) { continue; }
+                var anchorTok = FixedPrefix + AnchorOf(ck);
+                var ai = result.IndexOf(anchorTok);
+                if (ai >= 0) { result.Insert(ai + 1, ck); } else { result.Add(ck); }
+                seen.Add(ck);
+            }
+        }
+        else
+        {
+            // Sin orden guardado: reconstruye el layout ACTUAL desde las anclas (resultado identico).
+            foreach (var k in IDirectorioLayoutConfigService.ValidAnchors)
+            {
+                result.Add(FixedPrefix + k);
+                foreach (var ck in customList.Where(c => AnchorOf(c) == k))
+                {
+                    result.Add(ck);
+                }
+            }
+        }
+
+        return result;
     }
 
     // ---- helpers ----

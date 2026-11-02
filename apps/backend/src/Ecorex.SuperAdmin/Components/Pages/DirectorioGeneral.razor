@@ -593,32 +593,108 @@
                     </div>
                 }
 
-                @* --- Config del campo principal Sector / Industria (solo en la ficha "general") --- *@
-                @if (_cfgFicha == GeneralFichaKey)
-                {
-                    <div class="dg-sec-cfg" style="border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--surface-2,var(--surface));">
-                        <label class="dg-sec-lbl">CAMPO SECTOR / INDUSTRIA</label>
-                        <p style="font-size:12px;color:var(--ink-3);margin:4px 0 10px;">Define como se llena el campo principal "Sector / Industria": texto libre o una lista de opciones.</p>
-                        <label class="dg-fm-check" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                            <input type="checkbox" checked="@_secIsList" @onchange="e => { _secIsList = (bool)(e.Value ?? false); _secSaved = false; }" />
-                            Llenar desde una lista de opciones
-                        </label>
-                        @if (_secIsList)
-                        {
-                            <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
-                            <textarea class="dg-input dg-textarea" @bind="_secOptions" @bind:after="() => _secSaved = false" placeholder="Una opcion por linea. Ej: Agropecuario, Industrial, Servicios, Comercio"></textarea>
-                        }
-                        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
-                            <button class="dg-btn-save" disabled="@_busy" @onclick="SaveSectorCfgAsync">Guardar Sector</button>
-                            @if (_secSaved) { <span style="font-size:12px;color:var(--ok,#1D7A4A);">Guardado</span> }
-                        </div>
-                    </div>
-                }
-
                 <div class="dg-cfg-cols">
                 <div class="dg-cfg-left">
                 @* --- Lista de campos --- *@
                 <label class="dg-sec-lbl">CAMPOS DE LA FICHA</label>
+                @if (_cfgFicha == GeneralFichaKey)
+                {
+                    @* "Datos principales": UNA sola lista con los campos duros (reposicionables, con el tag
+                       "fijo") y los dinamicos (editables). Todo se reordena con las flechas; un dinamico puede
+                       quedar entre dos duros. *@
+                    <p style="font-size:12px;color:var(--ink-3);margin:2px 0 10px;">Los campos marcados <b>fijo</b> se reposicionan y se les puede cambiar el titulo (con el lapiz); si son listas, tambien sus opciones. Los dinamicos se editan, borran y se mueven libremente entre los fijos.</p>
+                    @for (var oi = 0; oi < _genOrder.Count; oi++)
+                    {
+                        var token = _genOrder[oi];
+                        var isFixed = IsFixedToken(token);
+                        var fkey = isFixed ? TokenKey(token) : "";
+                        var gf = isFixed ? null : GenFieldByKey(token);
+                        if (!isFixed && gf is null) { continue; }
+                        var pos = oi;
+                        var first = pos == 0;
+                        var last = pos == _genOrder.Count - 1;
+                        <div class="dg-cfg-row">
+                            <div class="dg-cfg-move">
+                                <button class="dg-cfg-mbtn" disabled="@(first || _busy)" @onclick="() => MoveGeneralOrderAsync(pos, -1)" title="Subir">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+                                </button>
+                                <button class="dg-cfg-mbtn" disabled="@(last || _busy)" @onclick="() => MoveGeneralOrderAsync(pos, 1)" title="Bajar">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                                </button>
+                            </div>
+                            @if (isFixed)
+                            {
+                                <div class="dg-cfg-info">
+                                    <div class="dg-cfg-flabel">@FixedRowLabel(fkey) <span class="dg-cfg-tag">fijo</span></div>
+                                    <div class="dg-cfg-fmeta">
+                                        @if (FixedIsConfigurable(fkey)) { <text>Campo del sistema &#183; titulo y lista de opciones</text> }
+                                        else { <text>Campo del sistema &#183; titulo editable</text> }
+                                    </div>
+                                </div>
+                                <button class="dg-cfg-ebtn" disabled="@_busy" @onclick="() => ToggleFixedEdit(fkey)" title="Cambiar el titulo de este campo@(FixedIsConfigurable(fkey) ? " y su lista de opciones" : "")">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="dg-cfg-info">
+                                    <div class="dg-cfg-flabel">
+                                        @gf!.Label
+                                        @if (gf.IsSystem) { <span class="dg-cfg-tag">sistema</span> }
+                                    </div>
+                                    <div class="dg-cfg-fmeta">@TypeLabel(gf.FieldType) &#183; @gf.FieldKey</div>
+                                </div>
+                                <button class="dg-cfg-wbtn" disabled="@_busy" @onclick="() => CycleCfgColumnAsync(gf)" title="Ancho del campo. Clic para pasar de pequena a media a grande.">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4" /></svg>
+                                    @ColumnLabel(gf.Column)
+                                </button>
+                                <select class="dg-cfg-move-sel" disabled="@_busy" title="Mover el campo a otra ficha"
+                                        value=""
+                                        @onchange="e => MoveCfgFieldToFichaAsync(gf, e.Value?.ToString())">
+                                    <option value="">Mover a...</option>
+                                    @foreach (var m in _fichas.Where(x => x.FichaKey != gf.FichaKey))
+                                    {
+                                        <option value="@m.FichaKey">@m.Title</option>
+                                    }
+                                </select>
+                                <button class="dg-cfg-ebtn" disabled="@_busy" @onclick="() => EditCfgFieldAsync(gf)" title="Editar campo">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                </button>
+                                <button class="dg-cfg-dbtn" disabled="@_busy" @onclick="() => DeleteCfgFieldAsync(gf)" title="Eliminar campo">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                </button>
+                            }
+                        </div>
+                        @* Editor EN LINEA del campo duro (titulo para todos; lista de opciones solo Sector), bajo su fila. *@
+                        @if (isFixed && _cfgFixedEditing == fkey)
+                        {
+                            <div class="dg-cfg-fixedcfg">
+                                <label class="dg-flabel">Titulo <span style="color:var(--ink-3);font-weight:400">(vacio = titulo por defecto)</span></label>
+                                <input class="dg-input" @bind="_fixLabel" @bind:after="() => _secSaved = false" placeholder="@FixedFieldLabel(fkey)" maxlength="60" />
+                                @if (FixedIsConfigurable(fkey))
+                                {
+                                    <p style="font-size:12px;color:var(--ink-3);margin:12px 0 8px;">Define como se llena este campo: texto libre o una lista de opciones.</p>
+                                    <label class="dg-fm-check" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                        <input type="checkbox" checked="@_secIsList" @onchange="e => { _secIsList = (bool)(e.Value ?? false); _secSaved = false; }" />
+                                        Llenar desde una lista de opciones
+                                    </label>
+                                    @if (_secIsList)
+                                    {
+                                        <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
+                                        <textarea class="dg-input dg-textarea" @bind="_secOptions" @bind:after="() => _secSaved = false" placeholder="Una opcion por linea. Ej: Agropecuario, Industrial, Servicios, Comercio"></textarea>
+                                    }
+                                }
+                                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+                                    <button class="dg-btn-cfg" disabled="@_busy" @onclick="SaveFixedCfgAsync">Guardar</button>
+                                    <button class="dg-cfg-mbtn" disabled="@_busy" @onclick="CancelFixedEdit">Cerrar</button>
+                                    @if (_secSaved) { <span style="font-size:12px;color:var(--ok,#1D7A4A);">Guardado</span> }
+                                </div>
+                            </div>
+                        }
+                    }
+                }
+                else
+                {
                 @if (_cfgFields.Count == 0)
                 {
                     <div class="dg-empty-note" style="padding:14px 0">Esta ficha no tiene campos todavia. Agrega el primero abajo.</div>
@@ -665,6 +741,7 @@
                         </button>
                     </div>
                 }
+                }
                 </div>
 
                 @* --- Form nuevo / editar (columna derecha) --- *@
@@ -700,30 +777,56 @@
                                 <option value="3">Grande (completo)</option>
                             </select>
                         </div>
-                        @if (_cfgFicha == GeneralFichaKey)
-                        {
-                            @* Solo la ficha "general" se intercala entre los campos principales del tercero:
-                               aqui se elige despues de cual aparece. *@
-                            <div style="min-width:0">
-                                <label class="dg-flabel">Posicion</label>
-                                <select class="dg-input" @bind="_cfgAnchor">
-                                    @foreach (var (key, lbl) in AnchorOptions)
-                                    {
-                                        <option value="@key">@lbl</option>
-                                    }
-                                </select>
-                            </div>
-                        }
+                        @* La posicion ya NO se elige aqui: en "Datos principales" el campo nace al final de la
+                           lista unica y se reordena con las flechas (arriba/abajo), igual que los duros. *@
                         <div style="min-width:0">
                             <label class="dg-flabel">Descripcion <span style="color:var(--ink-3);font-weight:400">(opcional)</span></label>
                             <input class="dg-input" @bind="_cfgDescription" />
                         </div>
                         @if (_cfgType == TerceroFieldType.Select)
                         {
-                            <div style="min-width:0" class="dg-fld-full">
-                                <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
-                                <textarea class="dg-input dg-textarea" @bind="_cfgOptions"></textarea>
-                            </div>
+                            var _parents = DependentParentOptions();
+                            @if (_parents.Count > 0)
+                            {
+                                <div style="min-width:0" class="dg-fld-full">
+                                    <label class="dg-flabel">Depende de <span style="color:var(--ink-3);font-weight:400">(opcional)</span></label>
+                                    <select class="dg-input" value="@_cfgDependsOn" @onchange="e => { _cfgDependsOn = (string?)e.Value ?? string.Empty; OnDependsChanged(); }">
+                                        <option value="">(sin dependencia - lista simple)</option>
+                                        @foreach (var p in _parents)
+                                        {
+                                            <option value="@p.Key">@p.Label</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            @if (string.IsNullOrEmpty(_cfgDependsOn))
+                            {
+                                <div style="min-width:0" class="dg-fld-full">
+                                    <label class="dg-flabel">Opciones <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
+                                    <textarea class="dg-input dg-textarea" @bind="_cfgOptions"></textarea>
+                                </div>
+                            }
+                            else
+                            {
+                                var _parentVals = DependentParentValues();
+                                <div style="min-width:0" class="dg-fld-full">
+                                    <label class="dg-flabel">Opciones por valor del padre <span style="color:var(--ink-3);font-weight:400">(una por linea)</span></label>
+                                    @if (_parentVals.Count == 0)
+                                    {
+                                        <p style="font-size:12px;color:var(--ink-3);margin:4px 0 0;">El campo padre no tiene valores de lista. Definelos primero en ese campo.</p>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var pv in _parentVals)
+                                        {
+                                            <div style="margin-top:8px;">
+                                                <label class="dg-flabel" style="font-weight:600;">@pv</label>
+                                                <textarea class="dg-input dg-textarea" value="@_cfgDepGroups.GetValueOrDefault(pv, string.Empty)" @onchange="e => _cfgDepGroups[pv] = (string?)e.Value ?? string.Empty" placeholder="Sub-opciones para @pv"></textarea>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            }
                         }
                         @if (_cfgType == TerceroFieldType.Lookup)
                         {

@@ -158,6 +158,11 @@ public partial class TerceroModal
     private bool _sectorIsList;
     private string? _sectorOptions;
     private Dictionary<string, string> _generalAnchors = new(StringComparer.Ordinal);
+    // Orden unico de la zona principal (tokens duros "#clave" + campos "general"). Fuente de verdad de
+    // la posicion; vacio => layout por defecto (BuildEffectiveOrder lo reconstruye igual al actual).
+    private IReadOnlyList<string> _generalOrder = Array.Empty<string>();
+    // Titulos personalizados de los campos duros (claveDuro -> titulo); vacio => titulo por defecto.
+    private IReadOnlyDictionary<string, string> _generalLabels = new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>Clave de la ficha reservada que se pinta EN LINEA junto a los campos principales.</summary>
     private const string GeneralFichaKey = "general";
@@ -186,6 +191,8 @@ public partial class TerceroModal
         _sectorIsList = layout.SectorIsList;
         _sectorOptions = layout.SectorOptions;
         _generalAnchors = new Dictionary<string, string>(layout.Anchors, StringComparer.Ordinal);
+        _generalOrder = layout.Order;
+        _generalLabels = layout.Labels;
         // Asesores activos para el selector "Vendedor asignado". Se recarga en cada apertura para
         // reflejar altas recientes del catalogo; es una lista corta por tenant.
         _asesorOptions = (await AsesorSvc.ListOptionsAsync()).ToList();
@@ -206,18 +213,50 @@ public partial class TerceroModal
 
     // ---- Zona principal: campos de la ficha "general" intercalados + Sector como lista ----
 
+    /// <summary>Prefijo de los tokens de campos duros ("#clave") en el orden de la zona principal.</summary>
+    private const string FixedPrefix = DirectorioLayoutConfigService.FixedPrefix;
+
     /// <summary>
-    /// Campos de la ficha reservada "general" anclados DESPUES del campo principal indicado (ya
-    /// ordenados por SortOrder). El ancla por defecto (si no se configuro) es "sector", para que los
-    /// campos nuevos caigan junto a los datos de negocio. Se consulta por cada campo principal al pintar.
+    /// Orden efectivo de la zona principal: secuencia de tokens duros ("#clave") y campos "general"
+    /// (su clave), ya reconciliado con los campos existentes. Fuente unica de la posicion (reemplaza al
+    /// viejo anclado). Con orden guardado vacio reconstruye el layout actual (identico).
     /// </summary>
-    private IEnumerable<TerceroFieldDto> GeneralFieldsAfter(string anchor)
+    private IReadOnlyList<string> EffectiveOrder()
+        => DirectorioLayoutConfigService.BuildEffectiveOrder(
+            _generalOrder,
+            _generalAnchors,
+            FieldsFor(GeneralFichaKey).OrderBy(f => f.SortOrder).Select(f => f.FieldKey));
+
+    /// <summary>Campo "general" por su clave (para pintar su token en la secuencia). Null si no existe.</summary>
+    private TerceroFieldDto? GeneralFieldByKey(string key)
+        => FieldsFor(GeneralFichaKey).FirstOrDefault(f => string.Equals(f.FieldKey, key, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Titulo a mostrar de un campo duro: el personalizado del tenant si existe (manda SIEMPRE), si no el
+    /// <paramref name="fallback"/> inteligente (p.ej. "Razon social"/"Nombre completo" segun Empresa/Persona).
+    /// </summary>
+    private string FixedLabel(string key, string fallback)
+        => _generalLabels.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : fallback;
+
+    /// <summary>
+    /// Opciones de un campo Lista dependiente para el valor ACTUAL de su padre (Sector -> _mSector; otro
+    /// campo general -> su valor en la ficha). Conserva el valor actual del hijo si no esta en el grupo,
+    /// para no perder un dato previo. Si el campo no es dependiente, devuelve null (lista plana).
+    /// </summary>
+    private IReadOnlyList<string>? DependentOptionsFor(TerceroFieldDto f)
     {
-        foreach (var f in FieldsFor(GeneralFichaKey))
+        var cfg = DependentSelectOptions.TryParse(f.Options);
+        if (cfg is null) { return null; }
+        var parentValue = string.Equals(cfg.DependsOn, "sector", StringComparison.Ordinal)
+            ? _mSector
+            : GetFicha(GeneralFichaKey, cfg.DependsOn);
+        var opts = cfg.OptionsFor(parentValue).ToList();
+        var current = GetFicha(GeneralFichaKey, f.FieldKey);
+        if (!string.IsNullOrWhiteSpace(current) && !opts.Contains(current, StringComparer.Ordinal))
         {
-            var a = _generalAnchors.TryGetValue(f.FieldKey, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "sector";
-            if (string.Equals(a, anchor, StringComparison.Ordinal)) { yield return f; }
+            opts.Insert(0, current!);
         }
+        return opts;
     }
 
     /// <summary>

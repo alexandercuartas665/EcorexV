@@ -560,6 +560,72 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
     protected bool _cfgShowInFilter;
     protected string _cfgRepeatWith = "";
 
+    // ---- Campo Lista DEPENDIENTE de otro campo (opciones que cambian segun el valor del padre) ----
+    // _cfgDependsOn: "" = lista plana; "sector" = depende del campo duro Sector; si no, clave de otro
+    // campo Select de la ficha general. _cfgDepGroups: valor del padre -> sus sub-opciones (texto, una por
+    // linea). Se materializa a DependentSelectOptions (JSON en Options) al guardar.
+    protected string _cfgDependsOn = "";
+    protected readonly Dictionary<string, string> _cfgDepGroups = new(StringComparer.Ordinal);
+
+    protected static List<string> SplitOptions(string? options)
+        => string.IsNullOrWhiteSpace(options)
+            ? new List<string>()
+            : options.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    /// <summary>Campos que pueden ser PADRE de una lista dependiente: Sector (si es lista) + los Select NO
+    /// dependientes de la ficha general (distintos del que se edita). Clave + etiqueta.</summary>
+    protected List<(string Key, string Label)> DependentParentOptions()
+    {
+        var list = new List<(string, string)>();
+        if (_secIsList) { list.Add(("sector", "Sector / Industria")); }
+        foreach (var f in _cfgFields.Where(f =>
+                     f.FieldType == TerceroFieldType.Select
+                     && f.Id != _cfgEditingId
+                     && DependentSelectOptions.TryParse(f.Options) is null))
+        {
+            list.Add((f.FieldKey, f.Label));
+        }
+        return list;
+    }
+
+    /// <summary>Valores posibles del padre elegido (para pintar un editor de sub-opciones por valor).</summary>
+    protected List<string> DependentParentValues()
+    {
+        if (string.IsNullOrEmpty(_cfgDependsOn)) { return new List<string>(); }
+        if (_cfgDependsOn == "sector") { return SplitOptions(_secOptions); }
+        var parent = _cfgFields.FirstOrDefault(f => f.FieldKey == _cfgDependsOn);
+        return parent is null ? new List<string>() : SplitOptions(parent.Options);
+    }
+
+    /// <summary>Al cambiar el campo padre, recalcula las filas de sub-opciones (conserva lo ya escrito).</summary>
+    protected void OnDependsChanged()
+    {
+        var values = DependentParentValues().ToHashSet(StringComparer.Ordinal);
+        foreach (var k in _cfgDepGroups.Keys.Where(k => !values.Contains(k)).ToList())
+        {
+            _cfgDepGroups.Remove(k);
+        }
+        foreach (var v in values)
+        {
+            if (!_cfgDepGroups.ContainsKey(v)) { _cfgDepGroups[v] = ""; }
+        }
+    }
+
+    /// <summary>Opciones de un campo Select: lista plana (texto) o dependiente (JSON) segun _cfgDependsOn.</summary>
+    protected string? BuildSelectOptions()
+    {
+        if (!string.IsNullOrEmpty(_cfgDependsOn))
+        {
+            var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var v in DependentParentValues())
+            {
+                groups[v] = SplitOptions(_cfgDepGroups.GetValueOrDefault(v, ""));
+            }
+            return new DependentSelectOptions(_cfgDependsOn, groups).ToJson();
+        }
+        return string.IsNullOrWhiteSpace(_cfgOptions) ? null : _cfgOptions.Trim();
+    }
+
     // ---- Zona principal "general": posicion (ancla) del campo + config del Sector / Industria ----
     // Solo aplica cuando la ficha seleccionada es "general": donde se intercala el campo entre los
     // principales (DirectorioLayoutConfigService) y si Sector es lista o texto libre.
@@ -569,6 +635,120 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
     protected bool _secIsList;
     protected string _secOptions = "";
     protected bool _secSaved;
+
+    /// <summary>
+    /// Orden unico de la ficha "Datos principales": tokens duros ("#clave") + campos "general" (su
+    /// clave), en una sola lista reordenable. Fuente de verdad de la posicion (reemplaza al ancla).
+    /// </summary>
+    protected List<string> _genOrder = new();
+
+    /// <summary>Campo duro cuya config (lista de opciones) se edita en linea bajo su fila; null = ninguno.</summary>
+    protected string? _cfgFixedEditing;
+
+    /// <summary>Un campo duro es "configurable" si puede llenarse desde una lista: hoy solo Sector.</summary>
+    protected static bool FixedIsConfigurable(string key) => key == "sector";
+
+    /// <summary>Titulos personalizados de los campos duros (claveDuro -> titulo). Vacio = default.</summary>
+    protected Dictionary<string, string> _cfgLabels = new(StringComparer.Ordinal);
+
+    /// <summary>Titulo en edicion en el editor en linea de un campo duro (vacio = restaurar default).</summary>
+    protected string _fixLabel = "";
+
+    /// <summary>Todos los campos duros se pueden renombrar; solo algunos (Sector) tienen lista editable.</summary>
+    protected static bool FixedIsRenamable(string key)
+        => IDirectorioLayoutConfigService.ValidAnchors.Contains(key);
+
+    /// <summary>Etiqueta de una fila dura en la lista del configurador: override del tenant o la amistosa.</summary>
+    protected string FixedRowLabel(string key)
+        => _cfgLabels.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : FixedFieldLabel(key);
+
+    /// <summary>Abre/cierra el editor en linea de un campo duro (titulo + lista si aplica).</summary>
+    protected void ToggleFixedEdit(string key)
+    {
+        if (string.Equals(_cfgFixedEditing, key, StringComparison.Ordinal))
+        {
+            _cfgFixedEditing = null;
+            return;
+        }
+        _cfgFixedEditing = key;
+        _fixLabel = _cfgLabels.TryGetValue(key, out var v) ? v : "";
+        _secSaved = false;
+    }
+
+    protected void CancelFixedEdit() => _cfgFixedEditing = null;
+
+    /// <summary>Guarda la config de un campo duro: su titulo y, si es Sector, su lista de opciones.</summary>
+    protected async Task SaveFixedCfgAsync()
+    {
+        if (_cfgFixedEditing is not string key) { return; }
+        _busy = true;
+        try
+        {
+            await LayoutSvc.SetFixedLabelAsync(key, _fixLabel);
+            if (key == "sector")
+            {
+                await LayoutSvc.SetSectorAsync(_secIsList, _secIsList ? _secOptions : null);
+            }
+            // Refresca los titulos para que la lista muestre el nuevo nombre al instante.
+            var layout = await LayoutSvc.GetAsync();
+            _cfgLabels = new Dictionary<string, string>(layout.Labels, StringComparer.Ordinal);
+            _secSaved = true;
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>true si el token es un campo DURO ("#clave"); false si es un campo "general".</summary>
+    protected static bool IsFixedToken(string token)
+        => token.StartsWith(DirectorioLayoutConfigService.FixedPrefix, StringComparison.Ordinal);
+
+    /// <summary>Clave "pelada" de un token (sin el prefijo "#" si es duro).</summary>
+    protected static string TokenKey(string token)
+        => IsFixedToken(token) ? token[DirectorioLayoutConfigService.FixedPrefix.Length..] : token;
+
+    /// <summary>Etiqueta amistosa de un campo duro para la lista del configurador.</summary>
+    protected static string FixedFieldLabel(string key) => key switch
+    {
+        "nombre" => "Razon social / Nombre",
+        "identificacion" => "Identificacion",
+        "ciudad" => "Ciudad",
+        "sector" => "Sector / Industria (o Cargo)",
+        "correo" => "Correo",
+        "telefono" => "Telefono",
+        "vendedor" => "Vendedor asignado",
+        "estado" => "Estado",
+        _ => key
+    };
+
+    /// <summary>Recalcula el orden combinado (duros + "general") desde el layout persistido + los campos.</summary>
+    protected async Task RebuildGenOrderAsync()
+    {
+        if (_cfgFicha != GeneralFichaKey) { _genOrder = new(); return; }
+        var layout = await LayoutSvc.GetAsync();
+        _cfgAnchors = new Dictionary<string, string>(layout.Anchors, StringComparer.Ordinal);
+        var customKeys = _cfgFields.OrderBy(f => f.SortOrder).Select(f => f.FieldKey);
+        _genOrder = DirectorioLayoutConfigService
+            .BuildEffectiveOrder(layout.Order, _cfgAnchors, customKeys)
+            .ToList();
+    }
+
+    /// <summary>Campo "general" por su clave (para pintar su fila en la lista combinada).</summary>
+    protected TerceroFieldDto? GenFieldByKey(string key)
+        => _cfgFields.FirstOrDefault(f => string.Equals(f.FieldKey, key, StringComparison.Ordinal));
+
+    /// <summary>Mueve un token una posicion arriba (dir=-1) o abajo (dir=+1) en el orden combinado.</summary>
+    protected async Task MoveGeneralOrderAsync(int idx, int dir)
+    {
+        var to = idx + dir;
+        if (idx < 0 || idx >= _genOrder.Count || to < 0 || to >= _genOrder.Count) { return; }
+        (_genOrder[idx], _genOrder[to]) = (_genOrder[to], _genOrder[idx]);
+        _busy = true;
+        try
+        {
+            await LayoutSvc.SetOrderAsync(_genOrder);
+            await LoadCfgFieldsAsync();
+        }
+        finally { _busy = false; }
+    }
 
     /// <summary>Anclas (campo principal -> etiqueta) para el selector "Posicion" de los campos "general".</summary>
     protected static readonly (string Key, string Label)[] AnchorOptions =
@@ -735,6 +915,7 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         _secIsList = layout.SectorIsList;
         _secOptions = layout.SectorOptions ?? "";
         _cfgAnchors = new Dictionary<string, string>(layout.Anchors, StringComparer.Ordinal);
+        _cfgLabels = new Dictionary<string, string>(layout.Labels, StringComparer.Ordinal);
         _secSaved = false;
         ResetCfgForm();
         await FieldSvc.EnsureDefaultsAsync();
@@ -757,6 +938,8 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         // Todas las fichas: una formula puede referenciar campos de cualquiera (los valores del
         // tercero viven juntos), asi que el selector de claves los necesita todos.
         _cfgAllFields = (await FieldSvc.ListFieldsAsync()).ToList();
+        // Ficha "Datos principales": la lista mezcla duros + "general" en un unico orden.
+        await RebuildGenOrderAsync();
     }
 
     protected async Task SelectCfgFichaAsync(string ficha)
@@ -931,10 +1114,14 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         _cfgShowInFilter = false;
         _cfgRepeatWith = "";
         _cfgAnchor = "sector";
+        _cfgFixedEditing = null;
+        _cfgDependsOn = "";
+        _cfgDepGroups.Clear();
     }
 
     protected async Task EditCfgFieldAsync(TerceroFieldDto f)
     {
+        _cfgFixedEditing = null;
         _cfgEditingId = f.Id;
         _cfgLabel = f.Label;
         _cfgType = f.FieldType;
@@ -947,6 +1134,15 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         _cfgShowInFilter = f.ShowInFilter;
         _cfgRepeatWith = f.RepeatWithFieldKey ?? "";
         _cfgAnchor = _cfgAnchors.TryGetValue(f.FieldKey, out var anc) && !string.IsNullOrWhiteSpace(anc) ? anc : "sector";
+        // Lista dependiente: si el Options es JSON de dependencia, cargar padre + sub-opciones por valor.
+        _cfgDependsOn = "";
+        _cfgDepGroups.Clear();
+        if (f.FieldType == TerceroFieldType.Select && DependentSelectOptions.TryParse(f.Options) is { } dep)
+        {
+            _cfgDependsOn = dep.DependsOn;
+            foreach (var kv in dep.Groups) { _cfgDepGroups[kv.Key] = string.Join("\n", kv.Value); }
+            _cfgOptions = "";   // el JSON no va en el textarea de lista plana
+        }
         if (f.FieldType == TerceroFieldType.Lookup) { await LoadLookupCfgAsync(f.Options); }
         else { ResetLookupCfg(); }
     }
@@ -964,7 +1160,7 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         }
         var options = _cfgType switch
         {
-            TerceroFieldType.Select => string.IsNullOrWhiteSpace(_cfgOptions) ? null : _cfgOptions.Trim(),
+            TerceroFieldType.Select => BuildSelectOptions(),
             TerceroFieldType.Lookup => BuildLookupOptions(),
             _ => null
         };
@@ -997,12 +1193,6 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
                     _cfgError = "No se pudo guardar el campo.";
                     return;
                 }
-                // Posicion (ancla) del campo "general" entre los principales.
-                if (_cfgFicha == GeneralFichaKey)
-                {
-                    await LayoutSvc.SetAnchorAsync(upd.FieldKey, _cfgAnchor);
-                    _cfgAnchors[upd.FieldKey] = _cfgAnchor;
-                }
             }
             else
             {
@@ -1013,14 +1203,15 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
                     _cfgError = "No se pudo crear el campo. Revisa la ficha seleccionada.";
                     return;
                 }
-                if (_cfgFicha == GeneralFichaKey)
-                {
-                    await LayoutSvc.SetAnchorAsync(created.FieldKey, _cfgAnchor);
-                    _cfgAnchors[created.FieldKey] = _cfgAnchor;
-                }
             }
             ResetCfgForm();
             await LoadCfgFieldsAsync();
+            // Ficha "Datos principales": la posicion la gobierna el orden unico. Al crear un campo,
+            // RebuildGenOrderAsync ya lo incluyo (tras su ancla o al final); se persiste para fijarlo.
+            if (_cfgFicha == GeneralFichaKey)
+            {
+                await LayoutSvc.SetOrderAsync(_genOrder);
+            }
         }
         finally { _busy = false; }
     }
@@ -1102,6 +1293,11 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
             _cfgAnchors.Remove(f.FieldKey);
             if (_cfgEditingId == f.Id) { ResetCfgForm(); }
             await LoadCfgFieldsAsync();
+            // El token del campo borrado ya salio del orden combinado; persistirlo evita dejarlo huerfano.
+            if (_cfgFicha == GeneralFichaKey)
+            {
+                await LayoutSvc.SetOrderAsync(_genOrder);
+            }
         }
         finally { _busy = false; }
     }

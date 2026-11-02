@@ -243,6 +243,8 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-cfg-fchip.active { border-color: var(--brand); background: var(--brand); color: var(--on-brand); }
 .dg-cfg-fchip:disabled { opacity: .55; cursor: not-allowed; }
 .dg-cfg-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); margin-bottom: 8px; }
+/* Editor en linea de la lista de un campo duro (Sector): colgado bajo su fila, ligeramente indentado. */
+.dg-cfg-fixedcfg { margin: -4px 0 10px 34px; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface-2, var(--surface)); }
 .dg-cfg-move { display: flex; flex-direction: column; gap: 3px; flex: none; }
 .dg-cfg-mbtn { width: 24px; height: 20px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 6px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); }
 .dg-cfg-mbtn:hover:not(:disabled) { background: var(--surface-3); }

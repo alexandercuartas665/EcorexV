@@ -175,9 +175,12 @@
                                                 @switch (f.FieldType)
                                                 {
                                                     case TerceroFieldType.Select:
+                                                        @* Lista: plana (SplitOptions) o DEPENDIENTE de otro campo (DependentOptionsFor != null,
+                                                           opciones filtradas por el valor actual del padre). *@
+                                                        var selOpts = DependentOptionsFor(f) ?? SplitOptions(f.Options);
                                                         <select class="dg-input" value="@GetFicha(GeneralFichaKey, f.FieldKey)" @onchange="e => SetFicha(GeneralFichaKey, f.FieldKey, e.Value?.ToString())">
                                                             <option value="">-</option>
-                                                            @foreach (var o in SplitOptions(f.Options)) { <option value="@o">@o</option> }
+                                                            @foreach (var o in selOpts) { <option value="@o">@o</option> }
                                                         </select>
                                                         break;
                                                     case TerceroFieldType.TextArea:
@@ -275,140 +278,152 @@
                                 }
 
                                 <div class="dg-fields" style="margin-top:16px;">
-                                    @* En modo crear, el nombre y el documento los capturan el Buscador + el mini-menu de arriba.
-                                       Al editar un existente, van aqui como campos normales (sin los indicadores de creacion). *@
-                                    @if (_editingId is not null)
+                                    @* Zona principal guiada por el ORDEN unico (EffectiveOrder): cada token es un campo
+                                       duro ("#clave") o un campo "general" (su clave). El usuario ordena duros y dinamicos
+                                       en una sola lista desde el configurador. Con orden vacio el resultado es identico al
+                                       layout clasico. En modo crear, Nombre/Identificacion viven en el buscador de arriba,
+                                       asi que sus tokens no pintan nada aqui. *@
+                                    @foreach (var _tok in EffectiveOrder())
                                     {
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">@(_mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
-                                            <input class="dg-input" @bind="_mNombre" />
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("nombre")) { @GeneralInline(gf) }
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Identificacion</label>
-                                            <div class="dg-doc-row">
-                                                <select class="dg-input" value="@_mIdTipo" @onchange="e => _mIdTipo = Enum.Parse<TerceroIdTipo>(e.Value!.ToString()!)">
-                                                    <option value="@TerceroIdTipo.Nit">NIT</option>
-                                                    <option value="@TerceroIdTipo.Identificacion">Cedula</option>
-                                                    <option value="@TerceroIdTipo.Correo">Correo</option>
-                                                    <option value="@TerceroIdTipo.Telefono">Telefono</option>
-                                                    <option value="@TerceroIdTipo.Ninguno">No se identifica</option>
-                                                </select>
-                                                @if (_mIdTipo != TerceroIdTipo.Ninguno)
-                                                {
-                                                    <input class="dg-input" placeholder="@IdPlaceholder()" @bind="_mIdValor" />
-                                                }
-                                            </div>
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("identificacion")) { @GeneralInline(gf) }
-                                    }
-                                    else
-                                    {
-                                        @* Modo crear: Razon social / Identificacion viven en el buscador de arriba; los
-                                           campos "general" anclados a ellos se pintan aqui para que no desaparezcan. *@
-                                        @foreach (var gf in GeneralFieldsAfter("nombre")) { @GeneralInline(gf) }
-                                        @foreach (var gf in GeneralFieldsAfter("identificacion")) { @GeneralInline(gf) }
-                                    }
-                                    @* Ciudad: autocomplete contra el catalogo GLOBAL de ciudades (municipios de
-                                       Colombia). Restringe la entrada a ciudades reales (se escribe para filtrar y se
-                                       elige de la lista); se sigue guardando el NOMBRE en Tercero.Ciudad (string). *@
-                                    <div style="min-width:0;position:relative" @onfocusout="OnCiudadBlur">
-                                        <label class="dg-flabel">Ciudad</label>
-                                        <input class="dg-input" placeholder="Buscar ciudad..." autocomplete="off"
-                                               value="@_ciudadQuery"
-                                               @oninput="OnCiudadInput"
-                                               @onfocus="OnCiudadFocus" />
-                                        @if (_ciudadOpen && _ciudadMatches.Count > 0)
+                                        var token = _tok;
+                                        if (token.StartsWith(FixedPrefix, StringComparison.Ordinal))
                                         {
-                                            <div class="dg-ciudad-menu">
-                                                @foreach (var c in _ciudadMatches)
-                                                {
-                                                    var cc = c;
-                                                    <button type="button" class="dg-ciudad-opt"
-                                                            @onmousedown:preventDefault="true"
-                                                            @onclick="() => SelectCiudad(cc)">
-                                                        <span class="dg-ciudad-opt-name">@cc.Nombre</span>
-                                                        @if (!string.IsNullOrWhiteSpace(cc.Departamento))
+                                            var key = token.Substring(FixedPrefix.Length);
+                                            switch (key)
+                                            {
+                                                case "nombre":
+                                                    @if (_editingId is not null)
+                                                    {
+                                                        <div style="min-width:0">
+                                                            <label class="dg-flabel">@FixedLabel("nombre", _mTipo == TerceroTipo.Empresa ? "Razon social" : "Nombre completo") <span class="dg-req">*</span></label>
+                                                            <input class="dg-input" @bind="_mNombre" />
+                                                        </div>
+                                                    }
+                                                    break;
+                                                case "identificacion":
+                                                    @if (_editingId is not null)
+                                                    {
+                                                        <div style="min-width:0">
+                                                            <label class="dg-flabel">@FixedLabel("identificacion", "Identificacion")</label>
+                                                            <div class="dg-doc-row">
+                                                                <select class="dg-input" value="@_mIdTipo" @onchange="e => _mIdTipo = Enum.Parse<TerceroIdTipo>(e.Value!.ToString()!)">
+                                                                    <option value="@TerceroIdTipo.Nit">NIT</option>
+                                                                    <option value="@TerceroIdTipo.Identificacion">Cedula</option>
+                                                                    <option value="@TerceroIdTipo.Correo">Correo</option>
+                                                                    <option value="@TerceroIdTipo.Telefono">Telefono</option>
+                                                                    <option value="@TerceroIdTipo.Ninguno">No se identifica</option>
+                                                                </select>
+                                                                @if (_mIdTipo != TerceroIdTipo.Ninguno)
+                                                                {
+                                                                    <input class="dg-input" placeholder="@IdPlaceholder()" @bind="_mIdValor" />
+                                                                }
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    break;
+                                                case "ciudad":
+                                                    @* Ciudad: autocomplete contra el catalogo GLOBAL de ciudades (municipios de
+                                                       Colombia). Restringe la entrada a ciudades reales (se escribe para filtrar y se
+                                                       elige de la lista); se sigue guardando el NOMBRE en Tercero.Ciudad (string). *@
+                                                    <div style="min-width:0;position:relative" @onfocusout="OnCiudadBlur">
+                                                        <label class="dg-flabel">@FixedLabel("ciudad", "Ciudad")</label>
+                                                        <input class="dg-input" placeholder="Buscar ciudad..." autocomplete="off"
+                                                               value="@_ciudadQuery"
+                                                               @oninput="OnCiudadInput"
+                                                               @onfocus="OnCiudadFocus" />
+                                                        @if (_ciudadOpen && _ciudadMatches.Count > 0)
                                                         {
-                                                            <span class="dg-ciudad-opt-dep">@cc.Departamento</span>
+                                                            <div class="dg-ciudad-menu">
+                                                                @foreach (var c in _ciudadMatches)
+                                                                {
+                                                                    var cc = c;
+                                                                    <button type="button" class="dg-ciudad-opt"
+                                                                            @onmousedown:preventDefault="true"
+                                                                            @onclick="() => SelectCiudad(cc)">
+                                                                        <span class="dg-ciudad-opt-name">@cc.Nombre</span>
+                                                                        @if (!string.IsNullOrWhiteSpace(cc.Departamento))
+                                                                        {
+                                                                            <span class="dg-ciudad-opt-dep">@cc.Departamento</span>
+                                                                        }
+                                                                    </button>
+                                                                }
+                                                            </div>
                                                         }
-                                                    </button>
-                                                }
-                                            </div>
+                                                    </div>
+                                                    break;
+                                                case "sector":
+                                                    @if (_mTipo == TerceroTipo.Empresa)
+                                                    {
+                                                        <div style="min-width:0">
+                                                            <label class="dg-flabel">@FixedLabel("sector", "Sector / Industria")</label>
+                                                            @if (_sectorIsList)
+                                                            {
+                                                                @* Lista configurable (DirectorioLayoutConfigService). Conserva el valor actual
+                                                                   aunque no este entre las opciones, para no perder un dato previo de texto libre. *@
+                                                                <select class="dg-input" value="@_mSector" @onchange="e => _mSector = e.Value?.ToString() ?? string.Empty">
+                                                                    <option value="">-</option>
+                                                                    @foreach (var o in SectorOptionList()) { <option value="@o">@o</option> }
+                                                                </select>
+                                                            }
+                                                            else
+                                                            {
+                                                                <input class="dg-input" @bind="_mSector" />
+                                                            }
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div style="min-width:0">
+                                                            <label class="dg-flabel">@FixedLabel("sector", "Cargo")</label>
+                                                            <input class="dg-input" @bind="_mCargo" />
+                                                        </div>
+                                                    }
+                                                    break;
+                                                case "correo":
+                                                    <div style="min-width:0">
+                                                        <label class="dg-flabel">@FixedLabel("correo", "Correo")</label>
+                                                        <input class="dg-input" @bind="_mEmail" />
+                                                    </div>
+                                                    break;
+                                                case "telefono":
+                                                    <div style="min-width:0">
+                                                        <label class="dg-flabel">@FixedLabel("telefono", "Telefono")</label>
+                                                        <PhoneField @bind-Value="_mTelefono" ValidChanged="@(v => { _mTelValid = v; })" />
+                                                    </div>
+                                                    break;
+                                                case "vendedor":
+                                                    <div style="min-width:0">
+                                                        <label class="dg-flabel">@FixedLabel("vendedor", "Vendedor asignado")</label>
+                                                        <select class="dg-input" @bind="MVendedorAsesorIdStr">
+                                                            <option value="">-- Sin asesor --</option>
+                                                            @foreach (var a in _asesorOptions)
+                                                            {
+                                                                <option value="@a.Id">@a.Nombre</option>
+                                                            }
+                                                        </select>
+                                                        @if (_mVendedorAsesorId is null && !string.IsNullOrWhiteSpace(_mVendedor))
+                                                        {
+                                                            <div style="font-size:11px;color:var(--ink-3);margin-top:3px;">Texto anterior: @_mVendedor</div>
+                                                        }
+                                                    </div>
+                                                    break;
+                                                case "estado":
+                                                    <div style="min-width:0">
+                                                        <label class="dg-flabel">@FixedLabel("estado", "Estado")</label>
+                                                        <select class="dg-input" value="@_mEstado" @onchange="e => _mEstado = Enum.Parse<TerceroEstado>(e.Value!.ToString()!)">
+                                                            <option value="@TerceroEstado.Activo">Activo</option>
+                                                            <option value="@TerceroEstado.Prospecto">Prospecto</option>
+                                                        </select>
+                                                    </div>
+                                                    break;
+                                            }
                                         }
-                                    </div>
-                                    @foreach (var gf in GeneralFieldsAfter("ciudad")) { @GeneralInline(gf) }
-                                    @if (_mTipo == TerceroTipo.Empresa)
-                                    {
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Sector / Industria</label>
-                                            @if (_sectorIsList)
-                                            {
-                                                @* Lista configurable (DirectorioLayoutConfigService). Conserva el valor actual
-                                                   aunque no este entre las opciones, para no perder un dato previo de texto libre. *@
-                                                <select class="dg-input" value="@_mSector" @onchange="e => _mSector = e.Value?.ToString() ?? string.Empty">
-                                                    <option value="">-</option>
-                                                    @foreach (var o in SectorOptionList()) { <option value="@o">@o</option> }
-                                                </select>
-                                            }
-                                            else
-                                            {
-                                                <input class="dg-input" @bind="_mSector" />
-                                            }
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("sector")) { @GeneralInline(gf) }
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Correo</label>
-                                            <input class="dg-input" @bind="_mEmail" />
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("correo")) { @GeneralInline(gf) }
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Telefono</label>
-                                            <PhoneField @bind-Value="_mTelefono" ValidChanged="@(v => { _mTelValid = v; })" />
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("telefono")) { @GeneralInline(gf) }
-                                    }
-                                    else
-                                    {
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Cargo</label>
-                                            <input class="dg-input" @bind="_mCargo" />
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("sector")) { @GeneralInline(gf) }
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Correo</label>
-                                            <input class="dg-input" @bind="_mEmail" />
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("correo")) { @GeneralInline(gf) }
-                                        <div style="min-width:0">
-                                            <label class="dg-flabel">Telefono</label>
-                                            <PhoneField @bind-Value="_mTelefono" ValidChanged="@(v => { _mTelValid = v; })" />
-                                        </div>
-                                        @foreach (var gf in GeneralFieldsAfter("telefono")) { @GeneralInline(gf) }
-                                    }
-                                    <div style="min-width:0">
-                                        <label class="dg-flabel">Vendedor asignado</label>
-                                        <select class="dg-input" @bind="MVendedorAsesorIdStr">
-                                            <option value="">-- Sin asesor --</option>
-                                            @foreach (var a in _asesorOptions)
-                                            {
-                                                <option value="@a.Id">@a.Nombre</option>
-                                            }
-                                        </select>
-                                        @if (_mVendedorAsesorId is null && !string.IsNullOrWhiteSpace(_mVendedor))
+                                        else
                                         {
-                                            <div style="font-size:11px;color:var(--ink-3);margin-top:3px;">Texto anterior: @_mVendedor</div>
+                                            var gf = GeneralFieldByKey(token);
+                                            if (gf is not null) { @GeneralInline(gf) }
                                         }
-                                    </div>
-                                    @foreach (var gf in GeneralFieldsAfter("vendedor")) { @GeneralInline(gf) }
-                                    <div style="min-width:0">
-                                        <label class="dg-flabel">Estado</label>
-                                        <select class="dg-input" value="@_mEstado" @onchange="e => _mEstado = Enum.Parse<TerceroEstado>(e.Value!.ToString()!)">
-                                            <option value="@TerceroEstado.Activo">Activo</option>
-                                            <option value="@TerceroEstado.Prospecto">Prospecto</option>
-                                        </select>
-                                    </div>
-                                    @foreach (var gf in GeneralFieldsAfter("estado")) { @GeneralInline(gf) }
+                                    }
                                 </div>
 
                             </div>

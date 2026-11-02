@@ -296,6 +296,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<RequerimientoCotizacion> RequerimientoCotizaciones => Set<RequerimientoCotizacion>();
     public DbSet<RequerimientoFieldDefinition> RequerimientoFieldDefinitions => Set<RequerimientoFieldDefinition>();
     public DbSet<RequerimientoFieldValue> RequerimientoFieldValues => Set<RequerimientoFieldValue>();
+    public DbSet<RequerimientoRfq> RequerimientoRfqs => Set<RequerimientoRfq>();
+    public DbSet<RequerimientoRfqLinea> RequerimientoRfqLineas => Set<RequerimientoRfqLinea>();
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con el filtro.
     public DbSet<ContactWorkflow> ContactWorkflows => Set<ContactWorkflow>();
     public DbSet<ContactWorkflowStep> ContactWorkflowSteps => Set<ContactWorkflowStep>();
@@ -2922,6 +2924,36 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             // Busqueda tipica: las ofertas de un producto. Y una oferta por (tenant, producto, proveedor).
             b.HasIndex(x => new { x.TenantId, x.ClaveProducto });
             b.HasIndex(x => new { x.TenantId, x.ClaveProducto, x.ProveedorId }).IsUnique();
+        });
+
+        // ---- Solicitudes de Cotizacion (RFQ) (Ola A del proceso de cotizacion gobernado) ----
+
+        modelBuilder.Entity<RequerimientoRfq>(b =>
+        {
+            b.Property(x => x.Numero).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Estado).HasConversion<int>();
+            b.Property(x => x.SolicitanteNombre).HasMaxLength(200);
+            b.Property(x => x.Notas).HasMaxLength(1000);
+            b.HasIndex(x => new { x.TenantId, x.Numero }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.ProveedorId });
+            b.HasIndex(x => new { x.TenantId, x.Estado });
+        });
+
+        modelBuilder.Entity<RequerimientoRfqLinea>(b =>
+        {
+            b.Property(x => x.ClaveProducto).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(400);
+            b.Property(x => x.UnidadMedida).HasMaxLength(40);
+            b.Property(x => x.LeadTime).HasMaxLength(120);
+            b.Property(x => x.Marca).HasMaxLength(160);
+            b.Property(x => x.Nota).HasMaxLength(1000);
+            b.Property(x => x.Cantidad).HasPrecision(18, 4);
+            b.Property(x => x.PrecioUnitario).HasPrecision(18, 4);
+            // Borrar la RFQ arrastra sus lineas (agregado). El vinculo al hijo es por Id (sin FK con cascada).
+            b.HasOne(x => x.Rfq).WithMany(r => r.Lineas)
+                .HasForeignKey(x => x.RfqId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.RfqId });
+            b.HasIndex(x => new { x.TenantId, x.RequerimientoCompraHijoId });
         });
 
         // ---- Disenador de acciones por filtro de contactos (ADR-0056, Fase 1) ----

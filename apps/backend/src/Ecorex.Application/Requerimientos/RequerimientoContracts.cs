@@ -162,6 +162,49 @@ public sealed record SaveCotizacionRequest(
     Guid? ProveedorContactoId = null,
     DateTimeOffset? FechaCotizacion = null);
 
+/// <summary>Una linea de una Solicitud de Cotizacion (RFQ): la distribucion que se le pide al proveedor, con
+/// su snapshot de lo pedido y (cuando responda) los campos de oferta.</summary>
+public sealed record RfqLineaDto(
+    Guid Id,
+    Guid HijoId,
+    string Descripcion,
+    decimal Cantidad,
+    string UnidadMedida,
+    DateTimeOffset? FechaRequerida,
+    decimal? PrecioUnitario,
+    int? VigenciaDias,
+    string? LeadTime,
+    string? Marca,
+    string? Nota);
+
+/// <summary>Una Solicitud de Cotizacion (RFQ) a un proveedor, con su numero, estado, tarea portadora y lineas.</summary>
+public sealed record RfqDto(
+    Guid Id,
+    string Numero,
+    Guid ProveedorId,
+    string? ProveedorNombre,
+    RfqEstado Estado,
+    Guid? TaskItemId,
+    string? TaskNumber,
+    DateTimeOffset? FechaEnvio,
+    DateTimeOffset CreatedAt,
+    int LineasCount,
+    IReadOnlyList<RfqLineaDto> Lineas);
+
+/// <summary>Pide cotizar un conjunto de distribuciones (hijos) AGRUPANDOLAS por proveedor: crea una RFQ por
+/// proveedor con todas sus lineas y su tarea portadora (que dispara el flujo). Idempotente por hijo.</summary>
+public sealed record CotizarPorProveedorRequest(IReadOnlyList<Guid> HijoIds);
+
+/// <summary>Resultado de cotizar por proveedor: cuantas RFQ se crearon, lineas incluidas, omitidas y avisos.</summary>
+public sealed record CotizarPorProveedorResultado(
+    bool Ok,
+    string? Error,
+    int RfqCreados,
+    int LineasIncluidas,
+    int Omitidas,
+    IReadOnlyList<string> Avisos,
+    IReadOnlyList<RfqDto> Rfqs);
+
 /// <summary>Una entrada del ranking que devuelve el agente evaluador.</summary>
 public sealed record CotizacionRankItem(Guid ProveedorId, int Posicion, string Motivo);
 
@@ -248,6 +291,17 @@ public interface IRequerimientoService
     /// COTIZACION del origen, enlaza el CotizacionTaskItemId al hijo. No cambia el estado de la compra.
     /// Idempotente: si el hijo ya tiene actividad de cotizacion, no crea otra.</summary>
     Task<EjecutarCompraResultado> CotizarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    // ---- Cotizacion gobernada por flujo (RFQ): Ola A ----
+    /// <summary>Cotiza por PROVEEDOR: toma las distribuciones (hijos) indicadas, las AGRUPA por su proveedor y
+    /// crea una Solicitud de Cotizacion (RFQ) por proveedor con todas sus lineas y una tarea portadora (cuya
+    /// subcategoria de cotizacion dispara el flujo). Idempotente: salta hijos que ya esten en una RFQ abierta
+    /// y los que no tengan proveedor. Devuelve el resumen + las RFQ creadas.</summary>
+    Task<CotizarPorProveedorResultado> CotizarPorProveedorAsync(CotizarPorProveedorRequest req, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    /// <summary>Lista las Solicitudes de Cotizacion (RFQ) recientes del tenant (numero, proveedor, estado,
+    /// tarea portadora y lineas). Para ver lo cotizado desde el modulo.</summary>
+    Task<IReadOnlyList<RfqDto>> ListRfqAsync(int max = 100, CancellationToken ct = default);
 
     /// <summary>Datos de contacto de un proveedor (nombre del contacto + correo + telefono) para el autocompletado.
     /// Si <paramref name="contactoId"/> es null usa el primer contacto; si no, usa ese contacto especifico.</summary>

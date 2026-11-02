@@ -236,6 +236,8 @@ public class ActividadesToolsetTests
         public DbSet<Ecorex.Domain.Entities.RequerimientoCotizacion> RequerimientoCotizaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldDefinition> RequerimientoFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldValue> RequerimientoFieldValues => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfq> RequerimientoRfqs => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfqLinea> RequerimientoRfqLineas => throw new NotSupportedException();
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => inner.ActividadSubcategorias;
 
         public DbSet<PlatformUser> PlatformUsers => throw new NotSupportedException();

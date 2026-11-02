@@ -11408,6 +11408,214 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("requerimiento_proveedor_reglas", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfq", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("integer")
+                        .HasColumnName("estado");
+
+                    b.Property<DateTimeOffset?>("FechaEnvio")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fecha_envio");
+
+                    b.Property<DateTimeOffset?>("FechaRespuesta")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fecha_respuesta");
+
+                    b.Property<Guid?>("FormResponseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("form_response_id");
+
+                    b.Property<string>("Notas")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("notas");
+
+                    b.Property<string>("Numero")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("numero");
+
+                    b.Property<Guid?>("ProveedorContactoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("proveedor_contacto_id");
+
+                    b.Property<Guid>("ProveedorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("proveedor_id");
+
+                    b.Property<string>("SolicitanteNombre")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("solicitante_nombre");
+
+                    b.Property<Guid?>("SolicitanteUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("solicitante_user_id");
+
+                    b.Property<Guid?>("TaskItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("VigenciaHasta")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("vigencia_hasta");
+
+                    b.Property<Guid?>("WorkflowInstanceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workflow_instance_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_rfqs");
+
+                    b.HasIndex("TenantId", "Estado")
+                        .HasDatabaseName("ix_requerimiento_rfqs_tenant_id_estado");
+
+                    b.HasIndex("TenantId", "Numero")
+                        .IsUnique()
+                        .HasDatabaseName("ix_requerimiento_rfqs_tenant_id_numero");
+
+                    b.HasIndex("TenantId", "ProveedorId")
+                        .HasDatabaseName("ix_requerimiento_rfqs_tenant_id_proveedor_id");
+
+                    b.ToTable("requerimiento_rfqs", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfqLinea", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Cantidad")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("cantidad");
+
+                    b.Property<string>("ClaveProducto")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("clave_producto");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Descripcion")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<DateTimeOffset?>("FechaRequerida")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fecha_requerida");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("LeadTime")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("lead_time");
+
+                    b.Property<string>("Marca")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("marca");
+
+                    b.Property<string>("Nota")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("nota");
+
+                    b.Property<decimal?>("PrecioUnitario")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("precio_unitario");
+
+                    b.Property<Guid>("RequerimientoCompraHijoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requerimiento_compra_hijo_id");
+
+                    b.Property<Guid>("RequerimientoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requerimiento_id");
+
+                    b.Property<Guid>("RfqId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rfq_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("UnidadMedida")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("unidad_medida");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<int?>("VigenciaDias")
+                        .HasColumnType("integer")
+                        .HasColumnName("vigencia_dias");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_rfq_lineas");
+
+                    b.HasIndex("RfqId")
+                        .HasDatabaseName("ix_requerimiento_rfq_lineas_rfq_id");
+
+                    b.HasIndex("TenantId", "RequerimientoCompraHijoId")
+                        .HasDatabaseName("ix_requerimiento_rfq_lineas_tenant_id_requerimiento_compra_hij");
+
+                    b.HasIndex("TenantId", "RfqId")
+                        .HasDatabaseName("ix_requerimiento_rfq_lineas_tenant_id_rfq_id");
+
+                    b.ToTable("requerimiento_rfq_lineas", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RetellAgentMap", b =>
                 {
                     b.Property<Guid>("Id")
@@ -19820,6 +20028,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("FieldDefinition");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfqLinea", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.RequerimientoRfq", "Rfq")
+                        .WithMany("Lineas")
+                        .HasForeignKey("RfqId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_requerimiento_rfq_lineas_requerimiento_rfqs_rfq_id");
+
+                    b.Navigation("Rfq");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RolPermiso", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Rol", "Rol")
@@ -20865,6 +21085,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoCompra", b =>
                 {
                     b.Navigation("Hijos");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfq", b =>
+                {
+                    b.Navigation("Lineas");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SaasPlan", b =>

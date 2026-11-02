@@ -22,6 +22,30 @@ public enum RequerimientoDimension
     Categoria = 4
 }
 
+/// <summary>Estado de una Solicitud de Cotizacion (RFQ) a lo largo de su ciclo: nace en Borrador, sale al
+/// proveedor (Enviada), este contesta (Respondida), se lleva al comparador (Comparada) y, cuando el jefe de
+/// compras arma la compra en planeacion, queda Adjudicada; Cerrada al terminar. Vencida/Cancelada son salidas.
+/// El flujo de proceso solo mueve Borrador->Enviada->Respondida; comparar y adjudicar ocurren en planeacion.</summary>
+public enum RfqEstado
+{
+    /// <summary>Creada; el formulario a enviar aun no sale al proveedor (Ola A crea la tarea portadora).</summary>
+    Borrador = 0,
+    /// <summary>El RFQ salio al proveedor (actividad/flujo en curso; en Ola B, el formulario /f enviado).</summary>
+    Enviada = 1,
+    /// <summary>El proveedor respondio (sus precios ya entraron al comparador).</summary>
+    Respondida = 2,
+    /// <summary>La oferta se esta comparando en planeacion.</summary>
+    Comparada = 3,
+    /// <summary>El jefe de compras adjudico (asigno la linea a este proveedor en planeacion).</summary>
+    Adjudicada = 4,
+    /// <summary>Cerrada.</summary>
+    Cerrada = 5,
+    /// <summary>La oferta vencio sin usarse.</summary>
+    Vencida = 6,
+    /// <summary>Cancelada.</summary>
+    Cancelada = 7
+}
+
 /// <summary>Estado de un requerimiento (y de sus registros hijos) a lo largo del ciclo de compra.</summary>
 public enum RequerimientoEstado
 {

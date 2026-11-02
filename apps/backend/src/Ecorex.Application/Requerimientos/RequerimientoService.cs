@@ -15,15 +15,17 @@ public sealed class RequerimientoService : IRequerimientoService
     private readonly ITaskItemService _tasks;
     private readonly IRequerimientoConfigService _config;
     private readonly IAiInferenceService _ai;
+    private readonly ISequenceService _seq;
 
     public RequerimientoService(IApplicationDbContext db, ITenantContext tenant, ITaskItemService tasks,
-        IRequerimientoConfigService config, IAiInferenceService ai)
+        IRequerimientoConfigService config, IAiInferenceService ai, ISequenceService seq)
     {
         _db = db;
         _tenant = tenant;
         _tasks = tasks;
         _config = config;
         _ai = ai;
+        _seq = seq;
     }
 
     public async Task<IReadOnlyList<RequerimientoDto>> ListAsync(RequerimientoFiltro filtro, CancellationToken ct = default)
@@ -568,6 +570,207 @@ public sealed class RequerimientoService : IRequerimientoService
         hijo.CotizacionTaskItemId = created.Value.Item.Id;
         await _db.SaveChangesAsync(ct);
         return new EjecutarCompraResultado(true, null, created.Value.Item.Id, created.Value.Item.Number, await GetPlanificacionAsync(padre.Id, ct));
+    }
+
+    // ---- Cotizacion gobernada por flujo (RFQ): Ola A ----
+    // Estados de RFQ que cuentan como "abierta" (una linea ahi NO se vuelve a cotizar).
+    private static readonly RfqEstado[] RfqAbiertas =
+        { RfqEstado.Borrador, RfqEstado.Enviada, RfqEstado.Respondida, RfqEstado.Comparada, RfqEstado.Adjudicada };
+
+    public async Task<CotizarPorProveedorResultado> CotizarPorProveedorAsync(
+        CotizarPorProveedorRequest req, Guid actorUserId, string actorName, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid)
+        {
+            return new CotizarPorProveedorResultado(false, "Sin tenant en contexto.", 0, 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
+        }
+        var ids = (req.HijoIds ?? Array.Empty<Guid>()).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return new CotizarPorProveedorResultado(false, "No hay distribuciones seleccionadas para cotizar.", 0, 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
+        }
+
+        var hijos = await _db.RequerimientoCompraHijos.Where(h => ids.Contains(h.Id)).ToListAsync(ct);
+        var avisos = new List<string>();
+        var omitidas = 0;
+
+        // Hijos que ya estan en una RFQ ABIERTA (idempotencia): no se vuelven a cotizar.
+        var yaEnRfq = await (from l in _db.RequerimientoRfqLineas
+                             join r in _db.RequerimientoRfqs on l.RfqId equals r.Id
+                             where ids.Contains(l.RequerimientoCompraHijoId) && RfqAbiertas.Contains(r.Estado)
+                             select l.RequerimientoCompraHijoId).Distinct().ToListAsync(ct);
+
+        // Candidatos: con proveedor y no en RFQ abierta.
+        var candidatos = new List<RequerimientoCompraHijo>();
+        foreach (var h in hijos)
+        {
+            if (h.ProveedorId is null) { omitidas++; avisos.Add("Una distribucion no tiene proveedor asignado; se omitio."); continue; }
+            if (yaEnRfq.Contains(h.Id)) { omitidas++; avisos.Add("Una distribucion ya estaba en una RFQ abierta; se omitio."); continue; }
+            candidatos.Add(h);
+        }
+        if (candidatos.Count == 0)
+        {
+            return new CotizarPorProveedorResultado(true, null, 0, 0, omitidas, avisos, Array.Empty<RfqDto>());
+        }
+
+        // Padres (descripcion/item/unidad/origen/fecha) de las distribuciones candidatas.
+        var reqIds = candidatos.Select(h => h.RequerimientoId).Distinct().ToList();
+        var padres = await _db.RequerimientosCompra.AsNoTracking()
+            .Where(r => reqIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, ct);
+        // Subcategoria de COTIZACION por origen (el proceso/flujo que corre la tarea portadora).
+        var origenIds = padres.Values.Where(p => p.OrigenId != null).Select(p => p.OrigenId!.Value).Distinct().ToList();
+        var subcatPorOrigen = await _db.RequerimientoOrigenes.AsNoTracking()
+            .Where(o => origenIds.Contains(o.Id))
+            .ToDictionaryAsync(o => o.Id, o => o.SubcategoriaCotizacionId, ct);
+        // Nombres de proveedor.
+        var provIds = candidatos.Select(h => h.ProveedorId!.Value).Distinct().ToList();
+        var provNombres = await _db.Terceros.AsNoTracking()
+            .Where(t => provIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+
+        await _seq.EnsureSequenceAsync("RFQ", ct);
+
+        var creadas = new List<RfqDto>();
+        var totalLineas = 0;
+
+        foreach (var grupo in candidatos.GroupBy(h => h.ProveedorId!.Value))
+        {
+            var provId = grupo.Key;
+            var provNombre = provNombres.TryGetValue(provId, out var pn) ? pn : null;
+            var lineas = grupo.ToList();
+
+            // Resolver la subcategoria de cotizacion: la del primer origen (de las lineas) que la tenga.
+            Guid? subcategoriaId = null;
+            foreach (var h in lineas)
+            {
+                if (padres.TryGetValue(h.RequerimientoId, out var p) && p.OrigenId is Guid oid
+                    && subcatPorOrigen.TryGetValue(oid, out var sc) && sc is Guid scId)
+                {
+                    subcategoriaId = scId; break;
+                }
+            }
+            if (subcategoriaId is null)
+            {
+                omitidas += lineas.Count;
+                avisos.Add($"{provNombre ?? "Proveedor"}: ningun origen de sus lineas tiene proceso de COTIZACION configurado; se omitio.");
+                continue;
+            }
+
+            var contactoId = lineas.Select(h => h.ProveedorContactoId).FirstOrDefault(c => c is not null);
+            var contacto = await GetProveedorContactoAsync(provId, contactoId, ct);
+            var numero = await _seq.NextAsync("RFQ", "RFQ-", 4, ct);
+
+            // Descripcion de la tarea portadora: el listado de lineas que se le piden al proveedor.
+            var desc = new StringBuilder();
+            desc.Append($"Solicitud de cotizacion {numero} generada desde Requerimientos de Compra.\n");
+            desc.Append($"Proveedor: {provNombre ?? provId.ToString()}\n");
+            if (contacto?.Contacto is { Length: > 0 } cn) { desc.Append($"Contacto: {cn}\n"); }
+            desc.Append($"Lineas ({lineas.Count}):\n");
+            foreach (var h in lineas)
+            {
+                var p = padres.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
+                desc.Append($"  - {p?.Descripcion ?? "(producto)"} x {h.Cantidad:#,##0.##} {p?.UnidadMedida}");
+                if (h.FechaProgramadaCompra is { } fp) { desc.Append($" (req. {fp:yyyy-MM-dd})"); }
+                desc.Append('\n');
+            }
+
+            var titulo = $"{numero} Cotizacion a {provNombre ?? "proveedor"} ({lineas.Count} items)";
+            if (titulo.Length > 200) { titulo = titulo[..200]; }
+
+            var taskReq = new CreateTaskItemRequest(
+                Title: titulo,
+                ActivityTypeId: null,
+                SubcategoriaId: subcategoriaId,
+                BoardId: null,
+                Description: desc.ToString().TrimEnd(),
+                RequesterName: contacto?.Contacto ?? contacto?.Nombre ?? provNombre,
+                RequesterEmail: contacto?.Email,
+                RequesterPhone: contacto?.Telefono,
+                TerceroId: provId,
+                DueDate: lineas.Select(h => h.FechaProgramadaCompra).Where(f => f != null).OrderBy(f => f).FirstOrDefault());
+
+            var created = await _tasks.CreateAsync(taskReq, actorUserId, actorName, ct);
+            if (!created.IsOk || created.Value is null)
+            {
+                avisos.Add($"{provNombre ?? "Proveedor"}: no se pudo crear la tarea de cotizacion ({created.Error}).");
+                continue;
+            }
+
+            var rfq = new RequerimientoRfq
+            {
+                TenantId = tid,
+                Numero = numero,
+                ProveedorId = provId,
+                ProveedorContactoId = contactoId,
+                TaskItemId = created.Value.Item.Id,
+                Estado = RfqEstado.Enviada,
+                FechaEnvio = DateTimeOffset.UtcNow,
+                SolicitanteNombre = actorName,
+            };
+            _db.RequerimientoRfqs.Add(rfq);
+
+            foreach (var h in lineas)
+            {
+                var p = padres.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
+                _db.RequerimientoRfqLineas.Add(new RequerimientoRfqLinea
+                {
+                    TenantId = tid,
+                    RfqId = rfq.Id,
+                    RequerimientoCompraHijoId = h.Id,
+                    RequerimientoId = h.RequerimientoId,
+                    ClaveProducto = ClaveProducto(p?.ItemId, p?.Descripcion),
+                    ItemId = p?.ItemId,
+                    Descripcion = p?.Descripcion ?? string.Empty,
+                    Cantidad = h.Cantidad,
+                    UnidadMedida = p?.UnidadMedida ?? string.Empty,
+                    FechaRequerida = h.FechaProgramadaCompra ?? p?.FechaNecesidad,
+                });
+                // La distribucion queda enlazada a la tarea de cotizacion (badge "Cotizada" + idempotencia).
+                h.CotizacionTaskItemId = created.Value.Item.Id;
+            }
+
+            await _db.SaveChangesAsync(ct);
+            totalLineas += lineas.Count;
+            creadas.Add(new RfqDto(rfq.Id, rfq.Numero, provId, provNombre, rfq.Estado,
+                rfq.TaskItemId, created.Value.Item.Number, rfq.FechaEnvio, rfq.CreatedAt, lineas.Count,
+                Array.Empty<RfqLineaDto>()));
+        }
+
+        return new CotizarPorProveedorResultado(true, null, creadas.Count, totalLineas, omitidas, avisos, creadas);
+    }
+
+    public async Task<IReadOnlyList<RfqDto>> ListRfqAsync(int max = 100, CancellationToken ct = default)
+    {
+        if (max <= 0) { max = 100; }
+        var rfqs = await _db.RequerimientoRfqs.AsNoTracking()
+            .OrderByDescending(r => r.CreatedAt).Take(max).ToListAsync(ct);
+        if (rfqs.Count == 0) { return Array.Empty<RfqDto>(); }
+
+        var rfqIds = rfqs.Select(r => r.Id).ToList();
+        var lineas = await _db.RequerimientoRfqLineas.AsNoTracking()
+            .Where(l => rfqIds.Contains(l.RfqId)).ToListAsync(ct);
+        var lineasPorRfq = lineas.GroupBy(l => l.RfqId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<RfqLineaDto>)g.Select(l => new RfqLineaDto(
+                l.Id, l.RequerimientoCompraHijoId, l.Descripcion, l.Cantidad, l.UnidadMedida, l.FechaRequerida,
+                l.PrecioUnitario, l.VigenciaDias, l.LeadTime, l.Marca, l.Nota)).ToList());
+
+        var provIds = rfqs.Select(r => r.ProveedorId).Distinct().ToList();
+        var provNombres = await _db.Terceros.AsNoTracking()
+            .Where(t => provIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+        var taskIds = rfqs.Where(r => r.TaskItemId != null).Select(r => r.TaskItemId!.Value).Distinct().ToList();
+        var taskNums = taskIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.TaskItems.AsNoTracking().Where(t => taskIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Number, ct);
+
+        return rfqs.Select(r =>
+        {
+            var ls = lineasPorRfq.TryGetValue(r.Id, out var x) ? x : Array.Empty<RfqLineaDto>();
+            return new RfqDto(r.Id, r.Numero, r.ProveedorId,
+                provNombres.TryGetValue(r.ProveedorId, out var pn) ? pn : null,
+                r.Estado, r.TaskItemId,
+                r.TaskItemId is Guid tiid && taskNums.TryGetValue(tiid, out var tn) ? tn : null,
+                r.FechaEnvio, r.CreatedAt, ls.Count, ls);
+        }).ToList();
     }
 
     public Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default)

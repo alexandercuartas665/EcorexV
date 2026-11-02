@@ -158,6 +158,8 @@ public class ContactWorkflowDispatcherTests
         public DbSet<Ecorex.Domain.Entities.RequerimientoCotizacion> RequerimientoCotizaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldDefinition> RequerimientoFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldValue> RequerimientoFieldValues => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfq> RequerimientoRfqs => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfqLinea> RequerimientoRfqLineas => throw new NotSupportedException();
         public DbSet<Tenant> Tenants => inner.Tenants;
         public DbSet<Tercero> Terceros => inner.Terceros;
         public DbSet<TerceroFiltro> TerceroFiltros => inner.TerceroFiltros;

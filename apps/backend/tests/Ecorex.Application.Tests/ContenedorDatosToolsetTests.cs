@@ -53,6 +53,8 @@ public class ContenedorDatosToolsetTests
         public DbSet<Ecorex.Domain.Entities.RequerimientoCotizacion> RequerimientoCotizaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldDefinition> RequerimientoFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldValue> RequerimientoFieldValues => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfq> RequerimientoRfqs => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfqLinea> RequerimientoRfqLineas => throw new NotSupportedException();
         public DbSet<PlatformUser> PlatformUsers => throw new NotSupportedException();
         public DbSet<TenantUser> TenantUsers => throw new NotSupportedException();
         public DbSet<Tenant> Tenants => throw new NotSupportedException();

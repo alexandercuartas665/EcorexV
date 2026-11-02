@@ -51,6 +51,8 @@ public class ScheduledUpsertRunTests
         public DbSet<Ecorex.Domain.Entities.RequerimientoCotizacion> RequerimientoCotizaciones => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldDefinition> RequerimientoFieldDefinitions => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RequerimientoFieldValue> RequerimientoFieldValues => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfq> RequerimientoRfqs => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.RequerimientoRfqLinea> RequerimientoRfqLineas => throw new NotSupportedException();
         public DbSet<DataContainerRow> DataContainerRows => inner.DataContainerRows;
         public DbSet<DataContainerCell> DataContainerCells => inner.DataContainerCells;
         public DbSet<DataContainerLink> DataContainerLinks => inner.DataContainerLinks;

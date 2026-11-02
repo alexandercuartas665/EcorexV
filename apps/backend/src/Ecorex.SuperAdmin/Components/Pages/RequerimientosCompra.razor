@@ -957,6 +957,7 @@ else
                     @if (_canConfig)
                     {
                         <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
+                        <button class="btn btn-primary btn-sm" title="Agrupa las lineas marcadas POR PROVEEDOR y crea una Solicitud de Cotizacion (RFQ) por proveedor, con su tarea de flujo. Idempotente." @onclick="CotizarPorProveedorAsync" disabled="@(_busy || SelCount == 0)">Cotizar por proveedor (RFQ)@(SelCount > 0 ? $" ({SelCount})" : "")</button>
                     }
                     <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
                 }
@@ -3220,6 +3221,53 @@ else
             {
                 _msg = $"Cotizacion creada para {ids.Count} linea(s){(nums.Count > 0 ? ": " + string.Join(", ", nums) : "")}.";
             }
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Cotiza por PROVEEDOR (RFQ, Ola A): agrupa las lineas marcadas por proveedor y crea una Solicitud de
+    // Cotizacion por proveedor (con su tarea portadora/flujo). Reusa la misma seleccion que "Cotizar seleccionadas".
+    private async Task CotizarPorProveedorAsync()
+    {
+        var ids = _pHijos.Where(h => h.Sel && h.Id is Guid && h.CotizacionTaskItemId is null).Select(h => h.Id!.Value).ToList();
+        if (ids.Count == 0) { _planError = "Marca al menos una linea para cotizar."; return; }
+        _planError = null; _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.CotizarPorProveedorAsync(new CotizarPorProveedorRequest(ids), actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo cotizar por proveedor."; return; }
+
+            // Refresca el estado de la planificacion (las lineas quedan enlazadas a su RFQ).
+            if (_planIsGroup)
+            {
+                await BuildGroupHijosAsync(_planRegs);
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+            else
+            {
+                var plan = await Svc.GetPlanificacionAsync(_planReqId);
+                if (plan is not null)
+                {
+                    _planProducto = plan.Producto;
+                    _planCantidadPadre = plan.CantidadPadre;
+                    _pHijos = plan.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
+                    foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                    await LoadHijoDynValuesAsync();
+                }
+            }
+
+            var nums = string.Join(", ", res.Rfqs.Select(r => $"{r.Numero} ({r.ProveedorNombre}, {r.LineasCount})"));
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"{res.RfqCreados} RFQ creada(s) con {res.LineasIncluidas} linea(s)");
+            if (!string.IsNullOrEmpty(nums)) { sb.Append(": " + nums); }
+            if (res.Omitidas > 0) { sb.Append($". {res.Omitidas} omitida(s)"); }
+            _msg = sb.ToString();
+            if (res.Avisos.Count > 0) { _planError = string.Join(" | ", res.Avisos); }
             await ReloadAsync();
         }
         catch (Exception ex) { _planError = ex.Message; }

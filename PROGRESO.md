@@ -2,6 +2,41 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-02 - RFQ Ola E: multi-candidato (1 producto -> N proveedores) + panel de estado RFQ (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario.
+- CONTEXTO: en Planificar, cotizar el MISMO producto a VARIOS proveedores a la vez (1 RFQ por proveedor,
+  sin comprometer una distribucion) y ver el estado de todas las RFQ de ese producto sin salir del modal.
+  Las respuestas siguen cayendo en el comparador (Ola C); la adjudicacion (asignar proveedor/precio ganador
+  al hijo) se hace despues alli mismo.
+- HECHO:
+  - Dominio: `RequerimientoRfqLinea.RequerimientoCompraHijoId` ahora es `Guid?` (NULL en una RFQ de
+    CANDIDATO). Migracion dual `AddRfqLineaHijoNullable` (PG + SQL Server): `ALTER COLUMN ... DROP NOT NULL`.
+    Sin cambios de modelo mas alla de la nulabilidad.
+  - Contratos: `RfqLineaDto.HijoId` -> `Guid?`; nuevos `CotizarCandidatosRequest`/`CotizarCandidatosResultado`
+    y metodos `IRequerimientoService.CotizarCandidatosAsync` + `ListRfqPorProductoAsync(itemId, desc)`.
+  - Servicio: `CotizarCandidatosAsync` crea 1 RFQ (tarea portadora + 1 linea con hijo NULL) por proveedor,
+    reutiliza la precedencia de la Ola D para la subcategoria (producto > matriz > origen > default) y
+    siembra el formulario /f (Ola B) si esta activo; `ListRfqPorProductoAsync` lista las RFQ por clave.
+    Refactor compartido: `BuildRfqRow`/`PersistRfqSeedAsync` (siembra) y `MapRfqsAsync` (listado) para no
+    tocar el camino probado por-hijo.
+  - IDEMPOTENCIA (decidido aqui, mas estricto que el borrador): se omite un proveedor que YA tenga una RFQ
+    ABIERTA para esta necesidad+producto, sea candidata o de distribucion (hijo). "No mandar dos veces":
+    evita dos RFQ vivas al mismo proveedor por el mismo producto y no ensucia el comparador.
+  - UI (`RequerimientosCompra.razor`, pestana Planificacion): bloque "Cotizar a varios proveedores
+    (candidatos)" con datalist del directorio + chips + cantidad (pendiente por defecto) + "Enviar N RFQ";
+    y panel "Solicitudes de cotizacion (RFQ) de este producto" (RFQ, Proveedor, Estado, Oferta, Tarea).
+    Se refresca al abrir el modal y tras cotizar (candidatos o por-proveedor).
+- VALIDADO E2E en 5265 (SKY, BD local copia de prod 5442/ecorex):
+  - Producto "CABLE UTP CAT 6A": candidatos Produvarios + INGETEL -> RFQ-0006 (Produvarios) y RFQ-0007
+    (INGETEL) creadas (Enviada), con su tarea portadora; el panel lista RFQ-0003/0006/0007.
+  - Reenvio de los mismos dos -> "Se crearon 0 RFQ (2 omitidas, ya existian)" con el motivo por proveedor.
+  - BD: lineas de RFQ-0006/0007 con `requerimiento_compra_hijo_id = NULL`; RFQ-0003 (por-hijo) con hijo set.
+  - Build Ecorex.sln 0 errores; 1145 tests de Application verdes (antes de ampliar idempotencia).
+- SIGUIENTE: Ola F (envio auto/plantillas/rondas de cotizacion) y la adjudicacion del candidato (asignar el
+  ganador al hijo) a senal del usuario. El PROMPT de integracion a dev central ahora acumula tambien la Ola E.
+- SIN deploy a prod (regla: OK por version del usuario). Push a `requerimiento_compras` (no al tronco).
+
 ## 2026-11-02 - RFQ Ola D: precedencia del proceso de cotizacion (producto > matriz > origen > default) (worktree requerimiento_compras)
 
 - AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Ecorex.sln 0 errores, 1145

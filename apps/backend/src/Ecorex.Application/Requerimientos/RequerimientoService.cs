@@ -597,8 +597,9 @@ public sealed class RequerimientoService : IRequerimientoService
         // Hijos que ya estan en una RFQ ABIERTA (idempotencia): no se vuelven a cotizar.
         var yaEnRfq = await (from l in _db.RequerimientoRfqLineas
                              join r in _db.RequerimientoRfqs on l.RfqId equals r.Id
-                             where ids.Contains(l.RequerimientoCompraHijoId) && RfqAbiertas.Contains(r.Estado)
-                             select l.RequerimientoCompraHijoId).Distinct().ToListAsync(ct);
+                             where l.RequerimientoCompraHijoId != null
+                                   && ids.Contains(l.RequerimientoCompraHijoId.Value) && RfqAbiertas.Contains(r.Estado)
+                             select l.RequerimientoCompraHijoId!.Value).Distinct().ToListAsync(ct);
 
         // Candidatos: con proveedor y no en RFQ abierta.
         var candidatos = new List<RequerimientoCompraHijo>();
@@ -781,6 +782,169 @@ public sealed class RequerimientoService : IRequerimientoService
         return new CotizarPorProveedorResultado(true, null, creadas.Count, totalLineas, omitidas, avisos, creadas);
     }
 
+    public async Task<CotizarCandidatosResultado> CotizarCandidatosAsync(
+        CotizarCandidatosRequest req, Guid actorUserId, string actorName, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid)
+        {
+            return new CotizarCandidatosResultado(false, "Sin tenant en contexto.", 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
+        }
+        var provIds = (req.ProveedorIds ?? Array.Empty<Guid>()).Where(p => p != Guid.Empty).Distinct().ToList();
+        if (provIds.Count == 0)
+        {
+            return new CotizarCandidatosResultado(false, "Elige al menos un proveedor candidato.", 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
+        }
+
+        var padre = await _db.RequerimientosCompra.AsNoTracking().FirstOrDefaultAsync(r => r.Id == req.RequerimientoId, ct);
+        if (padre is null)
+        {
+            return new CotizarCandidatosResultado(false, "La necesidad no existe.", 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
+        }
+
+        var clave = ClaveProducto(padre.ItemId, padre.Descripcion);
+        // Cantidad a cotizar: la indicada, o la pendiente (sin planificar); si ya esta todo planificado, la total.
+        var planificado = await _db.RequerimientoCompraHijos.Where(h => h.RequerimientoId == padre.Id)
+            .SumAsync(h => (decimal?)h.Cantidad, ct) ?? 0m;
+        var pendiente = padre.Cantidad - planificado;
+        var cantidad = req.Cantidad is decimal c && c > 0 ? c : (pendiente > 0 ? pendiente : padre.Cantidad);
+
+        // Proceso de cotizacion del ORIGEN de la necesidad (capa 3 de la precedencia de la Ola D).
+        Guid? origenSubcat = null;
+        if (padre.OrigenId is Guid oid)
+        {
+            origenSubcat = await _db.RequerimientoOrigenes.AsNoTracking()
+                .Where(o => o.Id == oid).Select(o => o.SubcategoriaCotizacionId).FirstOrDefaultAsync(ct);
+        }
+        // Capas de precedencia (Ola D): producto > matriz(proveedor) > origen > default del modulo.
+        var cotDefault = await _config.GetCotizacionDefaultAsync(ct);
+        var provProceso = await _config.GetProveedorProcesoMapAsync(ct);
+        var prodProceso = await _config.GetProductoProcesoMapAsync(ct);
+
+        var avisos = new List<string>();
+        var omitidas = 0;
+
+        // Idempotencia: proveedores que ya tienen una RFQ ABIERTA (candidata o de distribucion) para esta
+        // necesidad. No mandamos dos veces el mismo producto al mismo proveedor: si ya hay una RFQ viva
+        // (candidato o hijo), se omite para no confundir al proveedor ni al comparador.
+        var yaConRfq = await (from l in _db.RequerimientoRfqLineas
+                              join r in _db.RequerimientoRfqs on l.RfqId equals r.Id
+                              where l.RequerimientoId == padre.Id && RfqAbiertas.Contains(r.Estado)
+                              select r.ProveedorId).Distinct().ToListAsync(ct);
+
+        var provNombres = await _db.Terceros.AsNoTracking()
+            .Where(t => provIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+
+        // Ola B: mapeo del formulario (si esta configurado y activo, se siembra el borrador por candidato).
+        var rfqMap = await _config.GetRfqFormMapAsync(ct);
+        Guid? rfqFormDefId = null;
+        if (rfqMap.FormDefinitionId is Guid fdid && !string.IsNullOrWhiteSpace(rfqMap.GridFieldCode)
+            && !string.IsNullOrWhiteSpace(rfqMap.ColClave))
+        {
+            var activo = await _db.FormDefinitions.AsNoTracking()
+                .AnyAsync(d => d.Id == fdid && d.Status == FormStatus.Active && !d.IsArchived, ct);
+            if (activo) { rfqFormDefId = fdid; }
+            else { avisos.Add("El formulario de cotizacion (RFQ) configurado no esta activo; las RFQ se crearon sin inyectar las lineas."); }
+        }
+
+        await _seq.EnsureSequenceAsync("RFQ", ct);
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var creadas = new List<RfqDto>();
+
+        foreach (var provId in provIds)
+        {
+            var provNombre = provNombres.TryGetValue(provId, out var pn) ? pn : null;
+            if (yaConRfq.Contains(provId))
+            {
+                omitidas++;
+                avisos.Add($"{provNombre ?? "Proveedor"}: ya tiene una RFQ abierta para este producto; se omitio.");
+                continue;
+            }
+
+            // Precedencia (Ola D): producto > matriz(proveedor) > origen > default del modulo.
+            Guid? subcategoriaId =
+                (prodProceso.TryGetValue(clave, out var pc) ? pc : (Guid?)null)
+                ?? (provProceso.TryGetValue(provId, out var mp) ? mp : (Guid?)null)
+                ?? origenSubcat
+                ?? cotDefault;
+            if (subcategoriaId is null)
+            {
+                omitidas++;
+                avisos.Add($"{provNombre ?? "Proveedor"}: no hay proceso de COTIZACION (ni por producto, ni por proveedor, ni en el origen, ni default del modulo); se omitio.");
+                continue;
+            }
+
+            var contacto = await GetProveedorContactoAsync(provId, null, ct);
+            var numero = await _seq.NextAsync("RFQ", "RFQ-", 4, ct);
+
+            var desc = new StringBuilder();
+            desc.Append($"Solicitud de cotizacion {numero} (candidato) generada desde Requerimientos de Compra.\n");
+            desc.Append($"Proveedor: {provNombre ?? provId.ToString()}\n");
+            if (contacto?.Contacto is { Length: > 0 } cn) { desc.Append($"Contacto: {cn}\n"); }
+            desc.Append($"Producto: {padre.Descripcion} x {cantidad:#,##0.##} {padre.UnidadMedida}");
+            if (padre.FechaNecesidad is { } fn) { desc.Append($" (req. {fn:yyyy-MM-dd})"); }
+
+            var titulo = $"{numero} Cotizacion (candidato) a {provNombre ?? "proveedor"}: {padre.Descripcion}";
+            if (titulo.Length > 200) { titulo = titulo[..200]; }
+
+            var taskReq = new CreateTaskItemRequest(
+                Title: titulo,
+                ActivityTypeId: null,
+                SubcategoriaId: subcategoriaId,
+                BoardId: null,
+                Description: desc.ToString().TrimEnd(),
+                RequesterName: contacto?.Contacto ?? contacto?.Nombre ?? provNombre,
+                RequesterEmail: contacto?.Email,
+                RequesterPhone: contacto?.Telefono,
+                TerceroId: provId,
+                DueDate: padre.FechaNecesidad);
+
+            var created = await _tasks.CreateAsync(taskReq, actorUserId, actorName, ct);
+            if (!created.IsOk || created.Value is null)
+            {
+                avisos.Add($"{provNombre ?? "Proveedor"}: no se pudo crear la tarea de cotizacion ({created.Error}).");
+                continue;
+            }
+
+            var rfq = new RequerimientoRfq
+            {
+                TenantId = tid,
+                Numero = numero,
+                ProveedorId = provId,
+                ProveedorContactoId = null,            // candidato: contacto por defecto del proveedor
+                TaskItemId = created.Value.Item.Id,
+                Estado = RfqEstado.Enviada,
+                FechaEnvio = DateTimeOffset.UtcNow,
+                SolicitanteNombre = actorName,
+            };
+            _db.RequerimientoRfqs.Add(rfq);
+            _db.RequerimientoRfqLineas.Add(new RequerimientoRfqLinea
+            {
+                TenantId = tid,
+                RfqId = rfq.Id,
+                RequerimientoCompraHijoId = null,      // candidato: sin distribucion comprometida
+                RequerimientoId = padre.Id,
+                ClaveProducto = clave,
+                ItemId = padre.ItemId,
+                Descripcion = padre.Descripcion,
+                Cantidad = cantidad,
+                UnidadMedida = padre.UnidadMedida,
+                FechaRequerida = padre.FechaNecesidad,
+            });
+            await _db.SaveChangesAsync(ct);
+
+            if (rfqFormDefId is Guid rdef)
+            {
+                var row = BuildRfqRow(rfqMap, padre.ItemId, padre.Descripcion, cantidad, padre.UnidadMedida, padre.FechaNecesidad, inv);
+                await PersistRfqSeedAsync(rfq, created.Value.Item.Number, new List<Dictionary<string, string?>> { row }, rfqMap.GridFieldCode!, rdef, tid, ct);
+            }
+
+            creadas.Add(new RfqDto(rfq.Id, rfq.Numero, provId, provNombre, rfq.Estado,
+                rfq.TaskItemId, created.Value.Item.Number, rfq.FechaEnvio, rfq.CreatedAt, 1, Array.Empty<RfqLineaDto>()));
+        }
+
+        return new CotizarCandidatosResultado(true, null, creadas.Count, omitidas, avisos, creadas);
+    }
+
     // Ola B: siembra (o reusa) el borrador del formulario de cotizacion del proveedor, con una fila por linea.
     // La fila lleva la CLAVE de producto en la columna oculta configurada (para empatar la respuesta en la Ola C)
     // y el snapshot (descripcion/cantidad/unidad/fecha) en las columnas mapeadas. El documento se serializa con el
@@ -790,28 +954,38 @@ public sealed class RequerimientoService : IRequerimientoService
     private async Task SeedRfqFormAsync(RequerimientoRfq rfq, string taskNumber, List<RequerimientoCompraHijo> lineas,
         IReadOnlyDictionary<Guid, RequerimientoCompra> padres, RfqFormMapDto map, Guid defId, Guid tid, CancellationToken ct)
     {
-        var grid = map.GridFieldCode!;
-        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var inv = System.Globalization.CultureInfo.InvariantCulture;
-
         var rows = new List<Dictionary<string, string?>>(lineas.Count);
         foreach (var h in lineas)
         {
             var p = padres.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
-            var row = new Dictionary<string, string?>(StringComparer.Ordinal)
-            {
-                [map.ColClave!] = ClaveProducto(p?.ItemId, p?.Descripcion),
-            };
-            if (!string.IsNullOrWhiteSpace(map.ColDescripcion)) { row[map.ColDescripcion!] = p?.Descripcion ?? string.Empty; }
-            if (!string.IsNullOrWhiteSpace(map.ColCantidad)) { row[map.ColCantidad!] = h.Cantidad.ToString(inv); }
-            if (!string.IsNullOrWhiteSpace(map.ColUnidad)) { row[map.ColUnidad!] = p?.UnidadMedida ?? string.Empty; }
-            if (!string.IsNullOrWhiteSpace(map.ColFecha) && (h.FechaProgramadaCompra ?? p?.FechaNecesidad) is DateTimeOffset f)
-            {
-                row[map.ColFecha!] = f.ToString("yyyy-MM-dd", inv);
-            }
-            rows.Add(row);
+            rows.Add(BuildRfqRow(map, p?.ItemId, p?.Descripcion, h.Cantidad, p?.UnidadMedida,
+                h.FechaProgramadaCompra ?? p?.FechaNecesidad, inv));
         }
+        await PersistRfqSeedAsync(rfq, taskNumber, rows, map.GridFieldCode!, defId, tid, ct);
+    }
 
+    // Arma una fila del formulario RFQ (clave oculta + snapshot segun el mapeo). Fuente unica para la "ida".
+    private static Dictionary<string, string?> BuildRfqRow(RfqFormMapDto map, Guid? itemId, string? descripcion,
+        decimal cantidad, string? unidad, DateTimeOffset? fecha, System.Globalization.CultureInfo inv)
+    {
+        var row = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [map.ColClave!] = ClaveProducto(itemId, descripcion),
+        };
+        if (!string.IsNullOrWhiteSpace(map.ColDescripcion)) { row[map.ColDescripcion!] = descripcion ?? string.Empty; }
+        if (!string.IsNullOrWhiteSpace(map.ColCantidad)) { row[map.ColCantidad!] = cantidad.ToString(inv); }
+        if (!string.IsNullOrWhiteSpace(map.ColUnidad)) { row[map.ColUnidad!] = unidad ?? string.Empty; }
+        if (!string.IsNullOrWhiteSpace(map.ColFecha) && fecha is DateTimeOffset f) { row[map.ColFecha!] = f.ToString("yyyy-MM-dd", inv); }
+        return row;
+    }
+
+    // Escribe (o reusa, por idempotencia) el borrador del formulario RFQ con las filas dadas. Comun a la
+    // cotizacion por proveedor (Ola B) y a la multi-candidato (Ola E).
+    private async Task PersistRfqSeedAsync(RequerimientoRfq rfq, string taskNumber,
+        List<Dictionary<string, string?>> rows, string grid, Guid defId, Guid tid, CancellationToken ct)
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         // Idempotencia: si ya existe una respuesta para (definicion, numero de tarea) -- p.ej. el paso del flujo
         // ya la materializo, o una corrida previa la sembro -- se reusa en vez de duplicar.
         var existing = await _db.FormResponses.AsNoTracking()
@@ -848,6 +1022,23 @@ public sealed class RequerimientoService : IRequerimientoService
         if (max <= 0) { max = 100; }
         var rfqs = await _db.RequerimientoRfqs.AsNoTracking()
             .OrderByDescending(r => r.CreatedAt).Take(max).ToListAsync(ct);
+        return await MapRfqsAsync(rfqs, ct);
+    }
+
+    public async Task<IReadOnlyList<RfqDto>> ListRfqPorProductoAsync(Guid? itemId, string? descripcion, CancellationToken ct = default)
+    {
+        var clave = ClaveProducto(itemId, descripcion);
+        var rfqIds = await _db.RequerimientoRfqLineas.AsNoTracking()
+            .Where(l => l.ClaveProducto == clave).Select(l => l.RfqId).Distinct().ToListAsync(ct);
+        if (rfqIds.Count == 0) { return Array.Empty<RfqDto>(); }
+        var rfqs = await _db.RequerimientoRfqs.AsNoTracking()
+            .Where(r => rfqIds.Contains(r.Id)).OrderByDescending(r => r.CreatedAt).ToListAsync(ct);
+        return await MapRfqsAsync(rfqs, ct);
+    }
+
+    // Proyecta RFQ -> RfqDto (lineas, nombre de proveedor, numero de la tarea portadora). Comun a los listados.
+    private async Task<IReadOnlyList<RfqDto>> MapRfqsAsync(List<RequerimientoRfq> rfqs, CancellationToken ct)
+    {
         if (rfqs.Count == 0) { return Array.Empty<RfqDto>(); }
 
         var rfqIds = rfqs.Select(r => r.Id).ToList();

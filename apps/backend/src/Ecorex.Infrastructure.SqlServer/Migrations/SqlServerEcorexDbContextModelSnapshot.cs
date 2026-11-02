@@ -11570,7 +11570,7 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("decimal(18,4)")
                         .HasColumnName("precio_unitario");
 
-                    b.Property<Guid>("RequerimientoCompraHijoId")
+                    b.Property<Guid?>("RequerimientoCompraHijoId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("requerimiento_compra_hijo_id");
 

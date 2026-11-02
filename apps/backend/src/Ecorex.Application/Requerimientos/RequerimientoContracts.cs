@@ -169,7 +169,7 @@ public sealed record SaveCotizacionRequest(
 /// su snapshot de lo pedido y (cuando responda) los campos de oferta.</summary>
 public sealed record RfqLineaDto(
     Guid Id,
-    Guid HijoId,
+    Guid? HijoId,
     string Descripcion,
     decimal Cantidad,
     string UnidadMedida,
@@ -204,6 +204,24 @@ public sealed record CotizarPorProveedorResultado(
     string? Error,
     int RfqCreados,
     int LineasIncluidas,
+    int Omitidas,
+    IReadOnlyList<string> Avisos,
+    IReadOnlyList<RfqDto> Rfqs);
+
+/// <summary>Ola E - multi-candidato: cotiza el MISMO producto (el de la necesidad <see cref="RequerimientoId"/>) a
+/// VARIOS proveedores a la vez. Crea 1 RFQ por proveedor, cada una con una sola linea del producto (SIN
+/// distribucion: la adjudicacion se hace despues en el planificador). <see cref="Cantidad"/> null = cantidad
+/// pendiente (sin planificar) de la necesidad.</summary>
+public sealed record CotizarCandidatosRequest(
+    Guid RequerimientoId,
+    IReadOnlyList<Guid> ProveedorIds,
+    decimal? Cantidad = null);
+
+/// <summary>Resultado de cotizar a varios candidatos.</summary>
+public sealed record CotizarCandidatosResultado(
+    bool Ok,
+    string? Error,
+    int RfqCreados,
     int Omitidas,
     IReadOnlyList<string> Avisos,
     IReadOnlyList<RfqDto> Rfqs);
@@ -302,9 +320,20 @@ public interface IRequerimientoService
     /// y los que no tengan proveedor. Devuelve el resumen + las RFQ creadas.</summary>
     Task<CotizarPorProveedorResultado> CotizarPorProveedorAsync(CotizarPorProveedorRequest req, Guid actorUserId, string actorName, CancellationToken ct = default);
 
+    /// <summary>Ola E - multi-candidato: cotiza el MISMO producto de una necesidad a VARIOS proveedores a la vez.
+    /// Crea 1 RFQ por proveedor con una sola linea del producto, SIN comprometer distribucion (la adjudicacion se
+    /// hace despues en el planificador). Reusa la precedencia de proceso (Ola D) y la inyeccion del formulario
+    /// (Ola B); las respuestas caen todas en el MISMO comparador por clave de producto. Idempotente por
+    /// (necesidad, proveedor) con RFQ abierta.</summary>
+    Task<CotizarCandidatosResultado> CotizarCandidatosAsync(CotizarCandidatosRequest req, Guid actorUserId, string actorName, CancellationToken ct = default);
+
     /// <summary>Lista las Solicitudes de Cotizacion (RFQ) recientes del tenant (numero, proveedor, estado,
     /// tarea portadora y lineas). Para ver lo cotizado desde el modulo.</summary>
     Task<IReadOnlyList<RfqDto>> ListRfqAsync(int max = 100, CancellationToken ct = default);
+
+    /// <summary>Lista las RFQ que incluyen el PRODUCTO indicado (por su item/descripcion, empatado por la clave
+    /// del comparador), con su estado y oferta. Para el panel "estado RFQ" del planificador (Ola E).</summary>
+    Task<IReadOnlyList<RfqDto>> ListRfqPorProductoAsync(Guid? itemId, string? descripcion, CancellationToken ct = default);
 
     /// <summary>Datos de contacto de un proveedor (nombre del contacto + correo + telefono) para el autocompletado.
     /// Si <paramref name="contactoId"/> es null usa el primer contacto; si no, usa ese contacto especifico.</summary>

@@ -967,6 +967,63 @@ else
                         }
                     </div>
                 }
+                @if (_canConfig)
+                {
+                    <div style="margin-top:14px;border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                            <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);">Cotizar a varios proveedores (candidatos)</div>
+                            <button class="btn btn-outline-primary btn-sm" @onclick="ToggleCandidatos" disabled="@_busy">@(_showCandidatos ? "Ocultar" : "Elegir candidatos")</button>
+                        </div>
+                        <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin:4px 0 8px;">Pide el MISMO producto a varios proveedores a la vez (1 RFQ por proveedor, sin comprometer distribucion). Las respuestas caen en el comparador de arriba; al final adjudicas aqui asignando el proveedor/precio ganador al hijo.</div>
+                        @if (_showCandidatos)
+                        {
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                                <input list="req-cand-prov" class="form-control form-control-sm" style="max-width:260px;" placeholder="Proveedor del directorio..." @bind="_candProvInput" @bind:event="oninput" />
+                                <datalist id="req-cand-prov">
+                                    @foreach (var p in _proveedores) { <option value="@p.Nombre"></option> }
+                                </datalist>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="AddCandidato" disabled="@_busy">+ Agregar</button>
+                                <span style="font-size:12px;color:var(--ink-3,#6b7280);">Cantidad</span>
+                                <input type="number" min="0" step="any" class="form-control form-control-sm" style="width:110px;" placeholder="pendiente" @bind="_candCantidad" />
+                            </div>
+                            @if (_candSel.Count > 0)
+                            {
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                                    @foreach (var cand in _candSel)
+                                    {
+                                        var cc = cand;
+                                        <span style="display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft,#eef2ff);color:var(--brand,#4f46e5);border-radius:999px;padding:3px 10px;font-size:12px;">@cc.Nombre <button class="btn btn-link btn-sm" style="padding:0;color:inherit;line-height:1;" @onclick="() => RemoveCandidato(cc.Id)">&times;</button></span>
+                                    }
+                                </div>
+                                <button class="btn btn-primary btn-sm" @onclick="EnviarCandidatosAsync" disabled="@_busy">Enviar @_candSel.Count RFQ de cotizacion</button>
+                            }
+                        }
+                        @if (_rfqsProducto.Count > 0)
+                        {
+                            <div style="margin-top:12px;">
+                                <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Solicitudes de cotizacion (RFQ) de este producto (@_rfqsProducto.Count)</div>
+                                <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
+                                    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                                        <thead><tr style="text-align:left;color:var(--ink-3,#6b7280);background:var(--surface-2,#f8fafc);"><th style="padding:6px 10px;">RFQ</th><th style="padding:6px 10px;">Proveedor</th><th style="padding:6px 10px;">Estado</th><th style="padding:6px 10px;">Oferta</th><th style="padding:6px 10px;">Tarea</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var rq in _rfqsProducto)
+                                            {
+                                                var oferta = rq.Lineas.FirstOrDefault()?.PrecioUnitario;
+                                                <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                                    <td style="padding:6px 10px;font-weight:600;">@rq.Numero</td>
+                                                    <td style="padding:6px 10px;">@(rq.ProveedorNombre ?? "-")</td>
+                                                    <td style="padding:6px 10px;">@RfqEstadoLabel(rq.Estado)</td>
+                                                    <td style="padding:6px 10px;">@(oferta is decimal pv ? pv.ToString("#,##0.##") : "-")</td>
+                                                    <td style="padding:6px 10px;">@(rq.TaskNumber ?? "-")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
                 @if (_planError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_planError</div> }
             </div>
             }
@@ -1569,6 +1626,12 @@ else
     // Ola D: proceso de cotizacion por PRODUCTO (lo fija el comprador en Planificar). Mapa clave -> subcat.
     private IReadOnlyDictionary<string, Guid> _planProcMap = new Dictionary<string, Guid>();
     private Dictionary<string, string> _planProcEdit = new();
+    // Ola E: multi-candidato (cotizar el mismo producto a varios proveedores) + panel de estado RFQ.
+    private bool _showCandidatos;
+    private string _candProvInput = "";
+    private string _candCantidad = "";
+    private List<(Guid Id, string Nombre)> _candSel = new();
+    private List<RfqDto> _rfqsProducto = new();
 
     // Clave de consolidacion del grupo abierto (para recalcular el grupo tras un "Dividir").
     private string _pgKey = "";
@@ -2296,6 +2359,81 @@ else
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
     }
+
+    // ==================== Ola E: multi-candidato + panel de estado RFQ ====================
+    // Cotizar el MISMO producto a VARIOS proveedores (1 RFQ por proveedor, sin comprometer distribucion).
+    // Las respuestas caen en el comparador; la adjudicacion (asignar proveedor/precio ganador al hijo) se
+    // hace despues aqui mismo. El panel lista las RFQ ya existentes de este producto con su estado.
+    private void ToggleCandidatos() => _showCandidatos = !_showCandidatos;
+
+    private void AddCandidato()
+    {
+        var nombre = (_candProvInput ?? "").Trim();
+        if (nombre.Length == 0) { return; }
+        var prov = _proveedores.FirstOrDefault(p =>
+            string.Equals(p.Nombre, nombre, StringComparison.OrdinalIgnoreCase));
+        if (prov is null) { _planError = $"No encuentro el proveedor '{nombre}' en el directorio."; return; }
+        if (_candSel.Any(c => c.Id == prov.Id)) { _candProvInput = ""; return; }
+        _candSel.Add((prov.Id, prov.Nombre));
+        _candProvInput = "";
+        _planError = null;
+    }
+
+    private void RemoveCandidato(Guid id) => _candSel.RemoveAll(c => c.Id == id);
+
+    private void ResetCandidatos()
+    {
+        _showCandidatos = false;
+        _candProvInput = "";
+        _candCantidad = "";
+        _candSel = new();
+        _rfqsProducto = new();
+    }
+
+    private async Task EnviarCandidatosAsync()
+    {
+        if (_candSel.Count == 0) { return; }
+        _busy = true;
+        _planError = null;
+        try
+        {
+            decimal? qty = decimal.TryParse(_candCantidad, out var q) && q > 0 ? q : null;
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.CotizarCandidatosAsync(
+                new CotizarCandidatosRequest(_planReqId, _candSel.Select(c => c.Id).ToList(), qty),
+                actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo cotizar a los candidatos."; return; }
+            _candSel.Clear();
+            _candCantidad = "";
+            _showCandidatos = false;
+            var avisos = res.Avisos.Count > 0 ? " | " + string.Join(" | ", res.Avisos) : "";
+            _msg = $"Se crearon {res.RfqCreados} RFQ de cotizacion" +
+                   (res.Omitidas > 0 ? $" ({res.Omitidas} omitidas, ya existian)." : ".") + avisos;
+            await LoadRfqsProductoAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task LoadRfqsProductoAsync()
+    {
+        try { _rfqsProducto = (await Svc.ListRfqPorProductoAsync(_planItemId, _planDescripcion)).ToList(); }
+        catch { _rfqsProducto = new(); }
+    }
+
+    private static string RfqEstadoLabel(RfqEstado e) => e switch
+    {
+        RfqEstado.Borrador => "Borrador",
+        RfqEstado.Enviada => "Enviada",
+        RfqEstado.Respondida => "Respondida",
+        RfqEstado.Comparada => "Comparada",
+        RfqEstado.Adjudicada => "Adjudicada",
+        RfqEstado.Cerrada => "Cerrada",
+        RfqEstado.Vencida => "Vencida",
+        RfqEstado.Cancelada => "Cancelada",
+        _ => e.ToString()
+    };
 
     private async Task DeleteCfgReglaAsync(Guid id)
     {
@@ -3038,6 +3176,8 @@ else
         // Valores de los campos dinamicos de las lineas (hijas) ya guardadas.
         await LoadHijoDynValuesAsync();
         await LoadPlanProcesosAsync();
+        ResetCandidatos();
+        await LoadRfqsProductoAsync();
     }
 
     // Abre el MISMO modal de plan (rico) para una linea agrupada: una fila por necesidad/origen.
@@ -3058,6 +3198,8 @@ else
         foreach (var h in _pHijos) { await FillContactoAsync(h); }
         await LoadHijoDynValuesAsync();
         await LoadPlanProcesosAsync();
+        ResetCandidatos();
+        await LoadRfqsProductoAsync();
     }
 
     // Construye las filas del plan en modo grupo: trae las divisiones guardadas de cada necesidad,
@@ -3381,6 +3523,7 @@ else
             if (res.Omitidas > 0) { sb.Append($". {res.Omitidas} omitida(s)"); }
             _msg = sb.ToString();
             if (res.Avisos.Count > 0) { _planError = string.Join(" | ", res.Avisos); }
+            await LoadRfqsProductoAsync();
             await ReloadAsync();
         }
         catch (Exception ex) { _planError = ex.Message; }

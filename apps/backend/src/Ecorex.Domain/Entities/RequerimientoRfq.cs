@@ -53,8 +53,10 @@ public sealed class RequerimientoRfqLinea : TenantEntity
 {
     public Guid RfqId { get; set; }
     public RequerimientoRfq? Rfq { get; set; }
-    /// <summary>Distribucion (RequerimientoCompraHijo) de origen que se esta cotizando.</summary>
-    public Guid RequerimientoCompraHijoId { get; set; }
+    /// <summary>Distribucion (RequerimientoCompraHijo) de origen que se esta cotizando. NULL en una RFQ de
+    /// CANDIDATO (Ola E): se cotiza el PRODUCTO a varios proveedores sin comprometer una distribucion; la
+    /// adjudicacion se hace despues en el planificador asignando el proveedor/precio ganador al hijo.</summary>
+    public Guid? RequerimientoCompraHijoId { get; set; }
     /// <summary>Necesidad padre (RequerimientoCompra) de la distribucion, para navegar sin join adicional.</summary>
     public Guid RequerimientoId { get; set; }
     /// <summary>Clave del producto: "i:{ItemId}" o "d:{descripcion normalizada}". IGUAL que RequerimientoCotizacion.</summary>

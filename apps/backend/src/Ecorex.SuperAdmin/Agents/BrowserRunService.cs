@@ -20,6 +20,15 @@ namespace Ecorex.SuperAdmin.Agents;
 /// esperando al agente o fallo antes de salir.</summary>
 public sealed record BrowserRunResult(bool Dispatched, Guid? RunId, string? CorrelationId, bool Offline, string? Error);
 
+/// <summary>Un tic de progreso de un flujo corrido paso a paso (para mostrar EN VIVO lo que hace la extraccion).
+/// <see cref="Done"/>=false lo reporta justo ANTES de correr el paso (el UI lo pinta "en curso"); =true DESPUES,
+/// con el resultado y la mini-captura. <see cref="FlowIndex"/>/<see cref="FlowCount"/> situan el flujo en la tanda;
+/// <see cref="StepIndex"/>/<see cref="StepCount"/>, el paso en el flujo.</summary>
+public sealed record FlowStepProgress(
+    int FlowIndex, int FlowCount, string FlowName,
+    int StepIndex, int StepCount, string StepName,
+    bool Done, bool Ok, string? ScreenshotBase64, string? Detail);
+
 /// <summary>Resultado SINCRONO de ejecutar UN paso en modo "paso a paso" (sesion viva): si salio bien, si
 /// el agente estaba offline, el error, una captura de la pagina (base64 PNG), el valor devuelto por el paso
 /// (texto/JSON del Eval, o el token leido en un paso OTP), cuantas filas se ingirieron, y el resumen.</summary>
@@ -43,6 +52,15 @@ public sealed record StepRunResult(
 public interface IBrowserRunService
 {
     Task<BrowserRunResult> RunFlowNowAsync(Guid flowId, Guid tenantId, ImportRunTrigger trigger, CancellationToken ct = default);
+
+    /// <summary>Corre el flujo PASO A PASO de forma sincrona (misma via que el modo paso a paso: una sola sesion
+    /// viva, intercepta OTP, etc.) y REPORTA el progreso por <paramref name="progress"/> antes y despues de cada
+    /// paso (nombre, indice, ok, captura PNG del paso). Pensado para que el conciliador muestre EN VIVO que esta
+    /// haciendo la extraccion (como el modulo de Extraccion de datos) con mini-capturas. <paramref name="flowIndex"/>
+    /// / <paramref name="flowCount"/> situan este flujo dentro de una tanda de varios. Nota: el paso de descarga del
+    /// dron arranca descargas en 2do plano (sigue bajando tras cerrar el paso).</summary>
+    Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
+        IProgress<FlowStepProgress>? progress, CancellationToken ct = default);
 
     /// <summary>Ejecuta UN solo paso del flujo contra la SESION VIVA del agente (modo "paso a paso"), de forma
     /// SINCRONA: despacha el paso con la clave de sesion del flujo (el agente mantiene el navegador abierto y
@@ -155,6 +173,83 @@ public sealed class BrowserRunService(
         }
     }
 
+    public async Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
+        IProgress<FlowStepProgress>? progress, CancellationToken ct = default)
+    {
+        var runCorr = NewCorr();
+        var firedAt = _clock.GetUtcNow();
+        using var scope = scopeFactory.CreateScope();
+        using (AmbientTenantContext.Begin(tenantId))
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+            var runLog = scope.ServiceProvider.GetRequiredService<IScrapeFlowRunLog>();
+
+            var flow = await db.ScrapeFlows.Include(f => f.Steps).FirstOrDefaultAsync(f => f.Id == flowId, ct);
+            if (flow is null) { return new BrowserRunResult(false, null, runCorr, false, "El flujo no existe o no es de este tenant."); }
+            var flowName = flow.Name;
+            var steps = flow.Steps.OrderBy(s => s.Order).ToList();
+            var runId = await runLog.OpenAsync(flowId, ImportRunTrigger.Manual, firedAt, runCorr, steps.Count, ct);
+
+            if (flow.ClientId is not Guid clientPk)
+            {
+                await runLog.FailAsync(runId, "El flujo no tiene un agente asignado.", ct);
+                return new BrowserRunResult(false, runId, runCorr, false, "El flujo no tiene un agente asignado.");
+            }
+            var client = await db.DataClients.FirstOrDefaultAsync(c => c.Id == clientPk && c.IsActive, ct);
+            if (client is null)
+            {
+                await runLog.FailAsync(runId, "El agente asignado no existe o esta inactivo.", ct);
+                return new BrowserRunResult(false, runId, runCorr, false, "El agente asignado no existe o esta inactivo.");
+            }
+            if (steps.Count == 0)
+            {
+                await runLog.FailAsync(runId, "El flujo no tiene pasos que ejecutar.", ct);
+                return new BrowserRunResult(false, runId, runCorr, false, "El flujo no tiene pasos que ejecutar.");
+            }
+            if (!registry.IsOnline(client.ClientId))
+            {
+                await runLog.MarkOfflineAsync(runId, "El agente asignado no estaba en linea.", ct);
+                return new BrowserRunResult(false, runId, runCorr, true, "El agente no esta en linea.");
+            }
+
+            int ins = 0, upd = 0, del = 0;
+            var notas = new List<string>();
+            for (var i = 0; i < steps.Count; i++)
+            {
+                var paso = steps[i];
+                progress?.Report(new FlowStepProgress(flowIndex, flowCount, flowName, i, steps.Count, paso.Name, false, false, null, null));
+
+                StepRunResult r;
+                try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct); }
+                catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
+                ins += r.Inserted; upd += r.Updated; del += r.Deleted;
+
+                progress?.Report(new FlowStepProgress(flowIndex, flowCount, flowName, i, steps.Count, paso.Name, true, r.Ok, r.ScreenshotBase64, r.Error ?? r.Detail));
+
+                if (r.Offline)
+                {
+                    await runLog.CloseAsync(runCorr, false, ins, upd, del, $"El agente quedo offline en el paso '{paso.Name}'.", ct);
+                    return new BrowserRunResult(false, runId, runCorr, true, "El agente quedo offline durante la extraccion.");
+                }
+                // El OTP es duro: sin token lo que sigue es inutil -> abortar el flujo.
+                if (paso.Kind == ScrapeStepKind.LeerCorreoOtp && !r.Ok)
+                {
+                    var err = r.Error ?? r.Detail ?? "no se obtuvo el token";
+                    await runLog.CloseAsync(runCorr, false, ins, upd, del, $"Paso '{paso.Name}': {err}.", ct);
+                    return new BrowserRunResult(false, runId, runCorr, false, $"{paso.Name}: {err}");
+                }
+                // Pasos guarda/driver (Exploracion/Variable sin filas) devuelven Ok=false de forma benigna: se anota y sigue.
+                if (!r.Ok) { notas.Add(paso.Name); }
+            }
+
+            var det = $"Flujo ejecutado paso a paso ({steps.Count} pasos)"
+                + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
+            await runLog.CloseAsync(runCorr, true, ins, upd, del, det, ct);
+            log.LogInformation("[NAV-RUN] stepwise OK corr={Corr} flow={Flow} pasos={N}", runCorr, flowId, steps.Count);
+            return new BrowserRunResult(true, runId, runCorr, false, det);
+        }
+    }
+
     // ---- Modo "paso a paso" (sesion viva): un paso a la vez, sincrono, sobre la MISMA ventana del agente ----
 
     public async Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default)
@@ -218,6 +313,15 @@ public sealed class BrowserRunService(
             if (step.Kind == ScrapeStepKind.IngestaNewton)
             {
                 return await RunIngestaNewtonStepAsync(db, flowId, tenantId, step, vars, ct);
+            }
+
+            // Paso "Cerrar navegador": NO compila JS. Cierra la sesion viva del flujo (CloseSession) reusando
+            // el mismo camino que el boton de cerrar sesion. Util como ultimo paso para no dejar el WebView2 abierto.
+            if (step.Kind == ScrapeStepKind.CerrarNavegador)
+            {
+                var closed = await CloseStepSessionAsync(flowId, tenantId, ct);
+                await RecordStepRunAsync(db, flowId, step.Name, closed.Ok, 0, 0, 0, closed.Detail, ct);
+                return closed;
             }
 
             if (step.Kind == ScrapeStepKind.Ai)

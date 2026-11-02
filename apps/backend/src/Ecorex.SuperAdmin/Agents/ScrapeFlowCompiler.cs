@@ -138,6 +138,13 @@ public static class ScrapeFlowCompiler
                     actions.Add(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true));
                     break;
 
+                case ScrapeStepKind.CerrarNavegador:
+                    // Cierra la sesion viva del navegador. En el paso a paso / flujos con OTP lo intercepta el
+                    // runtime (RunStepNowAsync -> CloseStepSessionAsync) antes de compilar; si llega aqui (flujo
+                    // completo sin sesion viva) la accion es un no-op benigno del agente. Nunca lanza.
+                    actions.Add(new BrowserAction(BrowserActionKind.CloseSession));
+                    break;
+
                 case ScrapeStepKind.Ai:
                     // La orquestacion del paso de IA es Ola 4 (doc 03 s2): no es una accion tipada, es un
                     // bucle agente<->navegador por el MCP local. Aqui NO se compila; se rechaza claro.

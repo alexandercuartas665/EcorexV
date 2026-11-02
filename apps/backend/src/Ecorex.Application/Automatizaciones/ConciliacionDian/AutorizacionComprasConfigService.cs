@@ -55,6 +55,50 @@ public sealed record AsistenteProveedorReglaDto(
     Guid? AssignUserId = null, Guid? SalidaId = null);
 
 /// <summary>
+/// Config de las integraciones con el sistema contable (core VB.NET): al habilitarse, el conciliador puede ENVIAR
+/// los documentos de la factura a la API <c>sweb_cargar_documentos.ashx</c>. Se admiten VARIAS integraciones
+/// (<see cref="IntegracionContableConfigDto.Integraciones"/>), cada una con su propia URL, concepto, usuario,
+/// archivos a enviar y el mapeo de parametros de la API a columnas de la parrilla. Por-tenant. Esto es
+/// configuracion; el disparo del envio (al conciliar/aprobar o manual) se cablea aparte.
+/// </summary>
+public sealed record IntegracionContableConfigDto(
+    IReadOnlyList<IntegracionContableItemDto> Integraciones);
+
+/// <summary>
+/// Una integracion con el sistema contable. <see cref="Concepto"/> es un codigo FIJO que el contable asigna
+/// al documento (se escribe aqui). Los flags eligen que archivos se envian: PDF/XML de la DIAN y PDF/XML del
+/// "Proveedor de facturacion" (antes "Newton"). <see cref="Mappings"/> enlaza cada parametro de la API
+/// (documento, tipo, observacion, empresa, cedula, contrato) con una columna de la parrilla del conciliador,
+/// de donde se toma el valor por renglon al enviar.
+/// </summary>
+public sealed record IntegracionContableItemDto(
+    Guid Id,
+    string Nombre,
+    bool Enabled,
+    string ApiUrl,
+    string Concepto,
+    string Usuario,
+    bool SendPdfProveedor,
+    bool SendPdfDian,
+    bool SendXmlProveedor,
+    bool SendXmlDian,
+    IReadOnlyList<IntegracionFieldMapDto> Mappings);
+
+/// <summary>Mapeo de un parametro de la API (<see cref="ApiField"/>: documento/tipo/observacion/empresa/cedula/contrato).
+/// <see cref="Source"/> indica el origen del valor: <c>"column"</c> toma el valor de la columna de la parrilla cuya
+/// clave esta en <see cref="Value"/> (incluye columnas calculadas/dinamicas <c>dyn:*</c>); <c>"text"</c> envia el
+/// literal de <see cref="Value"/> tal cual en todos los renglones. Si no hay mapeo, el parametro no se envia.</summary>
+public sealed record IntegracionFieldMapDto(string ApiField, string Source, string Value);
+
+/// <summary>Un "evento de extraccion" configurado en el conciliador: un flujo (DRON) del modulo de Extraccion de
+/// datos que "Importar del bot" ejecuta, en el <see cref="Orden"/> dado, ANTES de importar las facturas a la
+/// parrilla. <see cref="FlowName"/> se resuelve al leer (si el flujo ya no existe, el evento se omite).</summary>
+public sealed record ExtraccionEventoDto(Guid FlowId, string FlowName, int Orden);
+
+/// <summary>Un flujo de extraccion disponible para elegir en el tab (id + nombre + codigo opcional).</summary>
+public sealed record ExtraccionFlujoOptDto(Guid FlowId, string Nombre, string? Codigo);
+
+/// <summary>
 /// Configuracion POR TENANT del modulo de autorizacion. Guarda en TenantConfiguration (clave/valor, JSON) la
 /// subcategoria de actividad (000270) y el formulario a asociar. El formulario se elige APARTE (no se hereda).
 /// NO dispara la accion de autorizacion (crear la actividad): eso va en otra fase.
@@ -134,6 +178,22 @@ public interface IAutorizacionComprasConfigService
     Task<IReadOnlyList<AsistenteProveedorReglaDto>> GetAsistenteReglasAsync(CancellationToken ct = default);
     /// <summary>Guarda las reglas del asistente por proveedor (descarta las vacias).</summary>
     Task SaveAsistenteReglasAsync(IReadOnlyList<AsistenteProveedorReglaDto> reglas, CancellationToken ct = default);
+
+    // ---- Integracion con el sistema contable (envio de documentos via API del core VB.NET) ----
+    /// <summary>Config de la integracion contable (habilitado, URL de la API, concepto fijo, tipo, usuario y
+    /// que documentos enviar). Por-tenant.</summary>
+    Task<IntegracionContableConfigDto> GetIntegracionAsync(CancellationToken ct = default);
+    /// <summary>Guarda la config de la integracion contable.</summary>
+    Task SetIntegracionAsync(IntegracionContableConfigDto cfg, CancellationToken ct = default);
+
+    // ---- Eventos de extraccion (flujos del modulo "Extraccion de datos" que "Importar del bot" corre en orden) ----
+    /// <summary>Flujos de extraccion configurados, EN ORDEN. Resuelve el nombre de cada uno y descarta los ids
+    /// cuyo flujo ya no existe. Por-tenant.</summary>
+    Task<IReadOnlyList<ExtraccionEventoDto>> GetExtraccionAsync(CancellationToken ct = default);
+    /// <summary>Guarda la lista ORDENADA de flujos de extraccion (por id, dedup). Vacio = ninguno.</summary>
+    Task SetExtraccionAsync(IReadOnlyList<Guid> flowIdsEnOrden, CancellationToken ct = default);
+    /// <summary>Todos los flujos de extraccion del tenant (id + nombre + codigo) para el desplegable del tab.</summary>
+    Task<IReadOnlyList<ExtraccionFlujoOptDto>> ListFlujosExtraccionAsync(CancellationToken ct = default);
 }
 
 public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfigService
@@ -631,5 +691,131 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsistenteReglasKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
         await _db.SaveChangesAsync(ct);
+    }
+
+    // ================= Integracion con el sistema contable (API del core VB.NET) =================
+    private const string IntegracionKey = "conciliacion-dian.integracion-contable";
+    // URL local para pruebas (el handler sweb_cargar_documentos.ashx del core).
+    public const string IntegracionUrlDefault = "http://localhost:47640/GestionMovil/Servicios/Soldarco/sweb_cargar_documentos.ashx";
+
+    // Source: "column" -> Value = clave de columna de la parrilla ; "text" -> Value = literal.
+    // Column se conserva por compatibilidad con el JSON viejo (solo clave de columna).
+    private sealed record IntegracionMapStored(string? ApiField, string? Source, string? Value, string? Column);
+    private sealed record IntegracionItemStored(Guid Id, string? Nombre, bool Enabled, string? ApiUrl, string? Concepto, string? Usuario,
+        bool SendPdfProveedor, bool SendPdfDian, bool SendXmlProveedor, bool SendXmlDian, List<IntegracionMapStored>? Mappings);
+    // Contenedor de la lista. Mantiene compatibilidad: si el JSON viejo era un objeto plano (una sola
+    // integracion sin Items), Items queda null y GetIntegracionAsync devuelve lista vacia sin romper.
+    private sealed record IntegracionStored(List<IntegracionItemStored>? Items);
+
+    public async Task<IntegracionContableConfigDto> GetIntegracionAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == IntegracionKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(raw)) { return new IntegracionContableConfigDto(Array.Empty<IntegracionContableItemDto>()); }
+        try
+        {
+            var s = JsonSerializer.Deserialize<IntegracionStored>(raw);
+            var items = (s?.Items ?? new List<IntegracionItemStored>()).Select(i => new IntegracionContableItemDto(
+                i.Id == Guid.Empty ? Guid.CreateVersion7() : i.Id,
+                string.IsNullOrWhiteSpace(i.Nombre) ? "Integracion" : i.Nombre!,
+                i.Enabled,
+                string.IsNullOrWhiteSpace(i.ApiUrl) ? IntegracionUrlDefault : i.ApiUrl!,
+                i.Concepto ?? "",
+                string.IsNullOrWhiteSpace(i.Usuario) ? "ECOREX" : i.Usuario!,
+                i.SendPdfProveedor, i.SendPdfDian, i.SendXmlProveedor, i.SendXmlDian,
+                (i.Mappings ?? new List<IntegracionMapStored>())
+                    .Select(m => NormalizeMap(m))
+                    .Where(m => m is not null).Select(m => m!).ToList()))
+                .ToList();
+            return new IntegracionContableConfigDto(items);
+        }
+        catch { return new IntegracionContableConfigDto(Array.Empty<IntegracionContableItemDto>()); }
+    }
+
+    public async Task SetIntegracionAsync(IntegracionContableConfigDto cfg, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var items = (cfg.Integraciones ?? Array.Empty<IntegracionContableItemDto>()).Select(i => new IntegracionItemStored(
+            i.Id == Guid.Empty ? Guid.CreateVersion7() : i.Id,
+            string.IsNullOrWhiteSpace(i.Nombre) ? "Integracion" : i.Nombre.Trim(),
+            i.Enabled,
+            string.IsNullOrWhiteSpace(i.ApiUrl) ? IntegracionUrlDefault : i.ApiUrl.Trim(),
+            (i.Concepto ?? "").Trim(),
+            string.IsNullOrWhiteSpace(i.Usuario) ? "ECOREX" : i.Usuario.Trim(),
+            i.SendPdfProveedor, i.SendPdfDian, i.SendXmlProveedor, i.SendXmlDian,
+            (i.Mappings ?? Array.Empty<IntegracionFieldMapDto>())
+                .Where(m => !string.IsNullOrWhiteSpace(m.ApiField) && !string.IsNullOrWhiteSpace(m.Value))
+                .Select(m => new IntegracionMapStored(m.ApiField.Trim(),
+                    string.Equals(m.Source, "text", StringComparison.OrdinalIgnoreCase) ? "text" : "column",
+                    m.Value.Trim(), null)).ToList())).ToList();
+        var json = JsonSerializer.Serialize(new IntegracionStored(items));
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == IntegracionKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = IntegracionKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // ---- Eventos de extraccion ----
+    private const string ExtraccionKey = "conciliacion-dian.extraccion";
+    private sealed record ExtraccionStored(List<Guid>? FlowIds);
+
+    public async Task<IReadOnlyList<ExtraccionEventoDto>> GetExtraccionAsync(CancellationToken ct = default)
+    {
+        var raw = await _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == ExtraccionKey).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(raw)) { return Array.Empty<ExtraccionEventoDto>(); }
+        List<Guid> ids;
+        try { ids = JsonSerializer.Deserialize<ExtraccionStored>(raw)?.FlowIds ?? new List<Guid>(); }
+        catch { return Array.Empty<ExtraccionEventoDto>(); }
+        if (ids.Count == 0) { return Array.Empty<ExtraccionEventoDto>(); }
+        // Nombres de los flujos que aun existen (el query filter global acota al tenant).
+        var flows = await _db.ScrapeFlows.AsNoTracking()
+            .Where(f => ids.Contains(f.Id)).Select(f => new { f.Id, f.Name }).ToListAsync(ct);
+        var byId = flows.ToDictionary(f => f.Id, f => f.Name);
+        var list = new List<ExtraccionEventoDto>();
+        var orden = 0;
+        foreach (var id in ids)
+        {
+            if (!byId.TryGetValue(id, out var name)) { continue; } // flujo borrado -> se omite
+            list.Add(new ExtraccionEventoDto(id, name, orden++));
+        }
+        return list;
+    }
+
+    public async Task SetExtraccionAsync(IReadOnlyList<Guid> flowIdsEnOrden, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        // Dedup conservando el orden; descarta Guid.Empty.
+        var seen = new HashSet<Guid>();
+        var ids = new List<Guid>();
+        foreach (var id in flowIdsEnOrden ?? Array.Empty<Guid>())
+        {
+            if (id == Guid.Empty || !seen.Add(id)) { continue; }
+            ids.Add(id);
+        }
+        var json = JsonSerializer.Serialize(new ExtraccionStored(ids));
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == ExtraccionKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = ExtraccionKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ExtraccionFlujoOptDto>> ListFlujosExtraccionAsync(CancellationToken ct = default)
+    {
+        return await _db.ScrapeFlows.AsNoTracking()
+            .OrderBy(f => f.Name)
+            .Select(f => new ExtraccionFlujoOptDto(f.Id, f.Name, f.Codigo))
+            .ToListAsync(ct);
+    }
+
+    // Normaliza un mapeo almacenado al DTO. Acepta el formato nuevo (Source/Value) y el viejo (Column).
+    private static IntegracionFieldMapDto? NormalizeMap(IntegracionMapStored m)
+    {
+        if (string.IsNullOrWhiteSpace(m.ApiField)) { return null; }
+        var source = string.Equals(m.Source, "text", StringComparison.OrdinalIgnoreCase) ? "text" : "column";
+        var value = !string.IsNullOrWhiteSpace(m.Value) ? m.Value!
+                  : (source == "column" ? m.Column : null);   // compat: Column solo aplica a columna
+        if (string.IsNullOrWhiteSpace(value)) { return null; }
+        return new IntegracionFieldMapDto(m.ApiField!.Trim(), source, value!.Trim());
     }
 }

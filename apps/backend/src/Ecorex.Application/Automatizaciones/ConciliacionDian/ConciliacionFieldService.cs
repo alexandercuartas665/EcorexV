@@ -173,7 +173,7 @@ public sealed class ConciliacionFieldService : IConciliacionFieldService
 
     private static string NormalizeType(string? t) => t switch
     {
-        "Number" or "Date" or "Bool" or "Select" or "MultiSelect" or "Url" or "Lookup" or "Calculated" => t,
+        "Number" or "Date" or "Bool" or "Select" or "MultiSelect" or "Url" or "Lookup" or "Calculated" or "ReadOnly" => t,
         _ => "Text",
     };
 

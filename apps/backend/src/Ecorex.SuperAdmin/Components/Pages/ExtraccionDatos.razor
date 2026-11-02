@@ -401,8 +401,12 @@
                                     <label class="xd-check"><input type="checkbox" @bind="_nwReflejarEventos" /> Reflejar eventos RADIAN (Ev.30/32/33/31/34) del listado de NEWTON sobre el renglon por CUFE (solo marca Si)</label>
                                     <label class="xd-check"><input type="checkbox" @bind="_nwSubirBlob" /> Subir los xml/pdf al blob por CUFE (para verlos desde el modulo de conciliacion)</label>
                                 }
+                                else if (_sKind == ScrapeStepKind.CerrarNavegador)
+                                {
+                                    <div class="xd-help">Cierra el navegador: el agente cierra la ventana viva (WebView2) que el flujo mantiene abierta para conservar el login y la saca de su cache. No navega ni inyecta y no lleva configuracion. Util como ULTIMO paso del flujo para no dejar la ventana abierta.</div>
+                                }
 
-                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton)
+                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador)
                                 {
                                     <div class="xd-prop">
                                         <label>Guardar salida como (motor: variable del flujo)</label>
@@ -476,7 +480,7 @@
                                     }
                                 }
 
-                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton)
+                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador)
                                 {
                                     <div class="xd-two">
                                         <div class="xd-prop"><label>Advertencia: etiqueta a vigilar (opcional)</label>
@@ -1340,6 +1344,7 @@
         ScrapeStepKind.LeerCorreoOtp => "Leer token de correo",
         ScrapeStepKind.ProcesarArchivos => "Procesar archivos descargados",
         ScrapeStepKind.IngestaNewton => "Ingesta NEWTON (API)",
+        ScrapeStepKind.CerrarNavegador => "Cerrar navegador",
         _ => k.ToString()
     };
 
@@ -1360,6 +1365,7 @@
     {
         ScrapeStepKind.Navigate => "nav",
         ScrapeStepKind.Wait => "wait",
+        ScrapeStepKind.CerrarNavegador => "wait",
         ScrapeStepKind.Ai => "ai",
         _ when IsExtractKind(k) => "extract",
         _ => "script"
@@ -1376,6 +1382,7 @@
         ScrapeStepKind.LeerCorreoOtp => "Lee un OTP/token de un buzon por correo (IMAP) y lo pone en una variable del flujo.",
         ScrapeStepKind.ProcesarArchivos => "Parsea (server-side) los archivos ya descargados y los vuelca al modulo destino, sin duplicar.",
         ScrapeStepKind.IngestaNewton => "Baja por la API de NEWTON los documentos recibidos como {CUFE}.xml y {CUFE}_newton.pdf a una carpeta propia.",
+        ScrapeStepKind.CerrarNavegador => "Cierra la ventana viva del navegador (WebView2) y la saca de la cache del agente.",
         _ when IsExtractKind(s.Kind) => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
         _ => "Inyecta/ejecuta JavaScript (firmado por el servidor)."
     };

@@ -84,7 +84,13 @@ public enum ScrapeStepKind
     /// {CUFE}.xml y {CUFE}_newton.pdf en una carpeta propia (configurable). No aterriza en el modulo por si
     /// solo (de eso se encarga ProcesarArchivos / una fase posterior). La config (variables de URL y token,
     /// carpeta, dias atras, bajar xml/pdf, tope, solo nuevos) va en MappingJson.</summary>
-    IngestaNewton = 20
+    IngestaNewton = 20,
+
+    /// <summary>Cerrar el navegador (server-side): cierra la SESION VIVA del navegador que el modo paso a paso
+    /// mantiene abierta para conservar el login, y la saca de la cache del agente. Se cablea a la accion ya
+    /// existente <c>BrowserActionKind.CloseSession</c>. Util como ultimo paso de un flujo para no dejar la
+    /// ventana WebView2 abierta. No navega ni inyecta; no lleva configuracion.</summary>
+    CerrarNavegador = 21
 }
 
 /// <summary>

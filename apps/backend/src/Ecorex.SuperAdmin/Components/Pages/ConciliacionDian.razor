@@ -15,6 +15,8 @@
 @using Ecorex.SuperAdmin.Components.Shared.Lookups
 @using Ecorex.SuperAdmin.Components.Shared.Tasks
 @using ClosedXML.Excel
+@using System.Net.Http
+@inject IHttpClientFactory HttpFactory
 @inject IConciliacionDianService Svc
 @inject IConciliacionRuleService Reglas
 @inject IConciliacionFieldService Fields
@@ -25,6 +27,8 @@
 @inject ITenantUserService Users
 @inject IAutorizacionComprasConfigService TaskCfg
 @inject IConciliacionAsignacionHistorialService Hist
+@inject Ecorex.SuperAdmin.Agents.IBrowserRunService BrowserRun
+@inject Ecorex.Application.Common.ITenantContext Tenant
 @inject IAiAgentService AiAgents
 @inject IAiInferenceService AiInfer
 @inject ITaskItemService Tasks
@@ -386,6 +390,12 @@ else
                                                     {
                                                         <div class="cd-dyn-lk" @onclick:stopPropagation="true">
                                                             <DataLookupField Config="nsCfg" Value="" ValueChanged="@(v => SetSysLookup(r, "numsol", v))" ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                            @if (!string.IsNullOrEmpty(r.NumFacturaSoldarco))
+                                                            {
+                                                                <button type="button" class="cd-lk-clear" title="Vaciar" @onclick="@(() => SetSysLookup(r, "numsol", null))">
+                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6" /><path d="M10 11v6M14 11v6" /></svg>
+                                                                </button>
+                                                            }
                                                             <button type="button" class="cd-lk-x" title="Cancelar" @onclick="CancelSysEdit">&times;</button>
                                                         </div>
                                                     }
@@ -407,6 +417,12 @@ else
                                                     {
                                                         <div class="cd-dyn-lk" @onclick:stopPropagation="true">
                                                             <DataLookupField Config="ocCfg" Value="" ValueChanged="@(v => SetSysLookup(r, "oc", v))" ActorUserId="_actorId" Placeholder="Buscar en el contenedor..." />
+                                                            @if (!string.IsNullOrEmpty(r.OrdenCompraSoldarco))
+                                                            {
+                                                                <button type="button" class="cd-lk-clear" title="Vaciar" @onclick="@(() => SetSysLookup(r, "oc", null))">
+                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6" /><path d="M10 11v6M14 11v6" /></svg>
+                                                                </button>
+                                                            }
                                                             <button type="button" class="cd-lk-x" title="Cancelar" @onclick="CancelSysEdit">&times;</button>
                                                         </div>
                                                     }
@@ -545,6 +561,11 @@ else
                                                     else if (dd.Type == "Calculated")
                                                     {
                                                         <span class="cd-dyn-calc">@DynDisplay(r, dd)</span>
+                                                    }
+                                                    else if (dd.Type == "ReadOnly")
+                                                    {
+                                                        @* Solo lectura: muestra el valor (lo llena una regla o un import), no editable a mano. *@
+                                                        <span class="cd-dyn-ro">@(string.IsNullOrEmpty(val) ? "—" : val)</span>
                                                     }
                                                     else if (dd.Type == "Select")
                                                     {
@@ -847,6 +868,8 @@ else
                 <button class="cd-tab @(_cfgTab == "salidas" ? "on" : "")" @onclick='() => _cfgTab = "salidas"'>Salidas de tarea</button>
                 <button class="cd-tab @(_cfgTab == "reglas" ? "on" : "")" @onclick='() => _cfgTab = "reglas"'>Reglas</button>
                 <button class="cd-tab @(_cfgTab == "asistente" ? "on" : "")" @onclick='() => _cfgTab = "asistente"'>Asistente de IA</button>
+                <button class="cd-tab @(_cfgTab == "integraciones" ? "on" : "")" @onclick='() => _cfgTab = "integraciones"'>Integraciones</button>
+                <button class="cd-tab @(_cfgTab == "extraccion" ? "on" : "")" @onclick='() => _cfgTab = "extraccion"'>Extraccion de datos</button>
             </div>
             @if (_cfgTab == "salidas")
             {
@@ -1104,7 +1127,95 @@ else
                 <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
             </div>
             }
-            else
+            else if (_cfgTab == "integraciones")
+            {
+                <div class="cd-rules-body">
+                    <div class="cd-muted" style="margin-bottom:4px;">Envia los documentos de cada factura al sistema contable (core VB.NET) consumiendo su API <code>sweb_cargar_documentos.ashx</code>. Puedes configurar <strong>varias integraciones</strong>; cada parametro de la API toma su valor de una <strong>columna de la parrilla</strong> del conciliador. El concepto y el usuario son codigos fijos.</div>
+
+                    @if (_integs.Count == 0)
+                    {
+                        <div class="cd-muted" style="padding:14px 2px;">No hay integraciones configuradas. Agrega una con el boton de abajo.</div>
+                    }
+
+                    @foreach (var ig in _integs)
+                    {
+                        <div class="cd-rule-card" @key="ig.Id">
+                            <div class="cd-rule-head">
+                                <input class="cd-in cd-ig-name" value="@ig.Nombre" @onchange="e => ig.Nombre = e.Value?.ToString() ?? string.Empty" placeholder="Nombre de la integracion" />
+                                <label class="cd-rule-lbl" style="margin-left:auto;">Habilitada</label>
+                                <label class="cd-switch"><input type="checkbox" checked="@ig.Enabled" @onchange="e => ig.Enabled = (e.Value is bool b && b)" /><span></span></label>
+                                <button class="cd-ic cd-ic-del" title="Eliminar integracion" @onclick="() => QuitarIntegracion(ig)">&times;</button>
+                            </div>
+                            <div class="cd-rule-grid">
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">URL de la API</label>
+                                    <input class="cd-in" style="flex:1" value="@ig.ApiUrl" @onchange="e => ig.ApiUrl = e.Value?.ToString() ?? string.Empty" placeholder="@IntegracionUrlDefault" />
+                                </div>
+                                <div class="cd-rule-row">
+                                    <label class="cd-rule-lbl">Concepto (codigo fijo)</label>
+                                    <input class="cd-in" style="flex:1" value="@ig.Concepto" @onchange="e => ig.Concepto = e.Value?.ToString() ?? string.Empty" placeholder="Codigo de concepto del contable" />
+                                    <label class="cd-rule-lbl">Usuario</label>
+                                    <input class="cd-in" value="@ig.Usuario" @onchange="e => ig.Usuario = e.Value?.ToString() ?? string.Empty" placeholder="ECOREX" />
+                                </div>
+
+                                <div class="cd-rule-sub">Parametros de la API (columna de la parrilla o texto fijo)</div>
+                                @foreach (var af in IntegracionApiFields)
+                                {
+                                    var me = ig.Map.TryGetValue(af.Field, out var meVal) ? meVal : null;
+                                    var isText = me is { Source: "text" };
+                                    <div class="cd-rule-row">
+                                        <label class="cd-rule-lbl" style="min-width:150px;">@af.Label</label>
+                                        <span class="cd-rule-eq">&larr;</span>
+                                        <select class="cd-in" style="flex:1" value="@MapSelectValue(me)"
+                                                @onchange="e => SetIntegracionMapSource(ig, af.Field, e.Value?.ToString())">
+                                            <option value="">&mdash; no enviar &mdash;</option>
+                                            <option value="@MapTextSentinel" selected="@isText">Texto fijo&hellip;</option>
+                                            @foreach (var col in IntegracionColumnas())
+                                            {
+                                                <option value="@col.Key" selected="@(me is { Source: "column" } && me.Value == col.Key)">@LabelOf(col)</option>
+                                            }
+                                        </select>
+                                        @if (isText)
+                                        {
+                                            <input class="cd-in" style="flex:1" value="@me!.Value" @onchange="e => me.Value = e.Value?.ToString() ?? string.Empty" placeholder="Valor fijo a enviar" />
+                                        }
+                                    </div>
+                                }
+
+                                <div class="cd-rule-sub">Documentos a enviar</div>
+                                <div class="cd-rule-row" style="gap:16px;">
+                                    <label class="cd-chk-row"><input type="checkbox" checked="@ig.SendPdfProveedor" @onchange="e => ig.SendPdfProveedor = (e.Value is bool b && b)" /> PDF proveedor facturacion</label>
+                                    <label class="cd-chk-row"><input type="checkbox" checked="@ig.SendPdfDian" @onchange="e => ig.SendPdfDian = (e.Value is bool b && b)" /> PDF DIAN</label>
+                                    <label class="cd-chk-row"><input type="checkbox" checked="@ig.SendXmlProveedor" @onchange="e => ig.SendXmlProveedor = (e.Value is bool b && b)" /> XML proveedor facturacion</label>
+                                    <label class="cd-chk-row"><input type="checkbox" checked="@ig.SendXmlDian" @onchange="e => ig.SendXmlDian = (e.Value is bool b && b)" /> XML DIAN</label>
+                                </div>
+
+                                <div class="cd-rule-row">
+                                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => ProbarIntegracionAsync(ig)" disabled="@(ig.Testing || _busy)">@(ig.Testing ? "Probando..." : "Probar conexion")</button>
+                                    @if (!string.IsNullOrEmpty(ig.TestResult))
+                                    {
+                                        <span class="cd-muted" style="font-size:12px; white-space:pre-wrap; word-break:break-word;">@ig.TestResult</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <button class="cd-fb-add" @onclick="AddIntegracion">+ Agregar integracion</button>
+
+                    @if (_integMsg is { Length: > 0 })
+                    {
+                        <div class="cd-muted" style="margin-top:6px;">@_integMsg</div>
+                    }
+                </div>
+                <div class="cd-rules-foot">
+                    <span class="cd-muted">La API del contable recibe los documentos y responde el numero generado (LOTxxxxxxxxxxxx).</span>
+                    <div style="flex:1"></div>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
+                    <button class="btn btn-primary btn-sm" @onclick="GuardarIntegracionAsync" disabled="@_busy">Guardar</button>
+                </div>
+            }
+            else if (_cfgTab == "asistente")
             {
                 <div class="cd-rules-body">
                     <div class="cd-muted" style="margin-bottom:4px;">Elegi el agente de IA que asistira la gestion del conciliador (clasificar, sugerir el direccionamiento de compras, etc.). Se configura aqui; su uso se ira habilitando por paso.</div>
@@ -1189,6 +1300,57 @@ else
                     <div style="flex:1"></div>
                     <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
                     <button class="btn btn-primary btn-sm" @onclick="GuardarAsistenteAsync" disabled="@_busy">Guardar</button>
+                </div>
+            }
+            else if (_cfgTab == "extraccion")
+            {
+                <div class="cd-rules-body">
+                    <div class="cd-ext-note">
+                        Elige que flujos del modulo <strong>Extraccion de datos</strong> (drones) corre el boton
+                        <strong>Importar del bot</strong>, y en que orden. Se ejecutan uno tras otro (de arriba a abajo) y,
+                        al terminar, se importan al tablero las facturas del periodo. Si no agregas ninguno,
+                        "Importar del bot" solo importa lo que el dron ya haya dejado (como hasta ahora).
+                    </div>
+
+                    @if (_extEventos.Count == 0)
+                    {
+                        <div class="cd-muted" style="padding:8px 0">Sin flujos configurados.</div>
+                    }
+                    else
+                    {
+                        <div class="cd-ext-list">
+                            @for (var i = 0; i < _extEventos.Count; i++)
+                            {
+                                var idx = i;
+                                var ev = _extEventos[idx];
+                                <div class="cd-ext-row">
+                                    <span class="cd-ext-ord">@(idx + 1)</span>
+                                    <span class="cd-ext-name">@ev.FlowName</span>
+                                    <div style="flex:1"></div>
+                                    <button class="btn btn-outline-secondary btn-sm" title="Subir" disabled="@(idx == 0)" @onclick="() => MoverExtraccion(idx, -1)">&uarr;</button>
+                                    <button class="btn btn-outline-secondary btn-sm" title="Bajar" disabled="@(idx == _extEventos.Count - 1)" @onclick="() => MoverExtraccion(idx, 1)">&darr;</button>
+                                    <button class="btn btn-outline-danger btn-sm" title="Quitar" @onclick="() => QuitarExtraccion(idx)">&times;</button>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="cd-ext-add">
+                        <select class="form-select form-select-sm" @bind="_extAddSel">
+                            <option value="">(elige un flujo para agregar)</option>
+                            @foreach (var f in _extDisponibles.Where(f => !_extEventos.Any(e => e.FlowId == f.FlowId)))
+                            {
+                                <option value="@f.FlowId">@f.Nombre</option>
+                            }
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm" disabled="@string.IsNullOrEmpty(_extAddSel)" @onclick="AgregarExtraccion">+ Agregar flujo</button>
+                    </div>
+                </div>
+                <div class="cd-rules-foot">
+                    <span class="cd-muted">Requiere el agente Colmena en linea; la descarga del dron puede tardar varios minutos.</span>
+                    <div style="flex:1"></div>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarConfig">Cerrar</button>
+                    <button class="btn btn-primary btn-sm" @onclick="GuardarExtraccionAsync" disabled="@_busy">Guardar</button>
                 </div>
             }
         </div>
@@ -1509,6 +1671,84 @@ else
         </div>
     }
 
+    @* Panel EN VIVO del "Importar del bot": muestra que flujo/paso corre la extraccion + mini-captura. *@
+    @if (_extRunOpen)
+    {
+        <div class="cd-doc-backdrop"></div>
+        <div class="cd-rules-modal cd-extrun-modal" @onclick:stopPropagation="true">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">Extraccion en curso</div>
+                    <div class="cd-doc-title-sub">El bot esta trabajando. Puedes cerrar esta ventana: la extraccion sigue en segundo plano.</div>
+                </div>
+                <button class="cd-doc-close" title="@(_extRunBusy ? "Cerrar (sigue en segundo plano)" : "Cerrar")" @onclick="CerrarExtRun">&times;</button>
+            </div>
+            <div class="cd-extrun-body">
+                <div class="cd-extrun-flows">
+                    @foreach (var f in _extRunFlows)
+                    {
+                        <div class="cd-extrun-flow">
+                            <div class="cd-extrun-flow-head">
+                                <span class="cd-extrun-dot @("st-" + f.Status)"></span>
+                                <span class="cd-extrun-flow-name">@f.Name</span>
+                                <span class="cd-extrun-flow-badge @("st-" + f.Status)">@FlowStatusLabel(f.Status)</span>
+                            </div>
+                            @if (f.Steps.Count > 0)
+                            {
+                                <div class="cd-extrun-steps">
+                                    @foreach (var st in f.Steps)
+                                    {
+                                        <div class="cd-extrun-step">
+                                            <span class="cd-extrun-step-badge @("st-" + st.Status)">@StepStatusLabel(st.Status)</span>
+                                            <span class="cd-extrun-step-name">@st.Name</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="cd-extrun-shot">
+                    @if (!string.IsNullOrEmpty(_extRunShot))
+                    {
+                        <div class="cd-extrun-shot-cap">@(_extRunShotStep ?? "Captura")</div>
+                        <img class="cd-extrun-shot-img" src="data:image/png;base64,@_extRunShot" alt="Captura de la extraccion" />
+                    }
+                    else
+                    {
+                        <div class="cd-extrun-shot-empty">@(_extRunBusy ? "Esperando la primera captura..." : "Sin capturas.")</div>
+                    }
+                </div>
+            </div>
+            @if (!string.IsNullOrEmpty(_extRunFinal))
+            {
+                <div class="cd-extrun-final">@_extRunFinal</div>
+            }
+            <div class="cd-rules-foot">
+                @if (_extRunBusy)
+                {
+                    <span class="cd-muted">Trabajando...</span>
+                    <span style="flex:1;"></span>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarExtRun">Cerrar (seguir en segundo plano)</button>
+                }
+                else
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="CerrarExtRun">Cerrar</button>
+                }
+            </div>
+        </div>
+    }
+
+    @* Chip flotante para reabrir el panel cuando la extraccion sigue corriendo con la ventana cerrada. *@
+    @if (_extRunBusy && !_extRunOpen)
+    {
+        <button class="cd-extrun-chip" @onclick="() => _extRunOpen = true" title="Ver el progreso de la extraccion">
+            <span class="cd-extrun-chip-dot"></span>
+            Extraccion en curso
+            <span class="cd-extrun-chip-ver">Ver</span>
+        </button>
+    }
+
     @* Detalle de la tarea creada desde una fila (se abre al hacer clic en el badge con el numero). *@
     <TaskDetailModal @ref="_taskDetail" OnChanged="ReloadAsync" />
 }
@@ -1645,6 +1885,64 @@ else
     private sealed class AsisReglaEdit { public Guid Id { get; set; } public string Proveedor { get; set; } = string.Empty; public string Prompt { get; set; } = string.Empty; public Guid? AssignUserId { get; set; } public Guid? SalidaId { get; set; } }
     private List<AsisReglaEdit> _asisReglas = new();
 
+    // ---- Extraccion de datos: flujos (drones) que "Importar del bot" corre, en orden ----
+    private List<ExtraccionEventoDto> _extEventos = new();                  // flujos elegidos, en orden
+    private IReadOnlyList<ExtraccionFlujoOptDto> _extDisponibles = Array.Empty<ExtraccionFlujoOptDto>(); // todos los flujos del tenant
+    private string _extAddSel = "";                                          // flujo elegido en el desplegable para agregar
+
+    // Panel EN VIVO de la corrida de extraccion (al pulsar "Importar del bot" con flujos configurados):
+    // muestra, como el modulo de Extraccion de datos, que flujo/paso va y una mini-captura del navegador.
+    private bool _extRunOpen;
+    private bool _extRunBusy;
+    private string? _extRunFinal;                     // resumen final (extraccion + import)
+    private string? _extRunShot;                      // ultima captura (base64 PNG)
+    private string? _extRunShotStep;                  // nombre del paso de esa captura
+    private List<ExtRunFlowView> _extRunFlows = new();
+    private sealed class ExtRunFlowView { public string Name = ""; public string Status = "pend"; public List<ExtRunStepView> Steps = new(); }
+    private sealed class ExtRunStepView { public string Name = ""; public string Status = "run"; }
+
+    // ---- Integraciones con el sistema contable (envio de documentos via API del core VB.NET) ----
+    // Se admiten VARIAS integraciones. Cada una mapea los parametros de la API a columnas de la parrilla.
+    private sealed class IntegracionEdit
+    {
+        public Guid Id { get; set; } = Guid.CreateVersion7();
+        public string Nombre { get; set; } = string.Empty;
+        public bool Enabled { get; set; }
+        public string ApiUrl { get; set; } = IntegracionUrlDefault;
+        public string Concepto { get; set; } = string.Empty;
+        public string Usuario { get; set; } = "ECOREX";
+        public bool SendPdfProveedor { get; set; } = true;
+        public bool SendPdfDian { get; set; } = true;
+        public bool SendXmlProveedor { get; set; } = true;
+        public bool SendXmlDian { get; set; } = true;
+        // Parametro de la API (documento/tipo/observacion/empresa/cedula/contrato) -> origen del valor
+        // (columna de la parrilla o texto fijo).
+        public Dictionary<string, MapEdit> Map { get; set; } = new();
+        // Resultado de "Probar conexion" de ESTA integracion.
+        public string? TestResult { get; set; }
+        public bool Testing { get; set; }
+    }
+    // Origen de un parametro: Source "column" (Value = clave de columna, incluye calculadas dyn:*) o "text" (Value = literal).
+    private sealed class MapEdit { public string Source { get; set; } = "column"; public string Value { get; set; } = string.Empty; }
+    // Valor-sentinela del desplegable para "texto fijo".
+    private const string MapTextSentinel = "__text__";
+    // URL local de pruebas (misma que el default del servicio de config).
+    private const string IntegracionUrlDefault = AutorizacionComprasConfigService.IntegracionUrlDefault;
+    // Parametros de la API que se toman de la parrilla (concepto y usuario son codigos fijos, no van aqui).
+    private static readonly (string Field, string Label)[] IntegracionApiFields =
+    {
+        ("documento",   "Documento (num. ERP)"),
+        ("tipo",        "Tipo de referencia"),
+        ("observacion", "Observacion"),
+        ("empresa",     "Empresa"),
+        ("cedula",      "Cedula"),
+        ("contrato",    "Contrato"),
+    };
+    private List<IntegracionEdit> _integs = new();
+    private string? _integMsg;
+    // Columnas de la parrilla (estaticas + dinamicas) para los desplegables del mapeo.
+    private IEnumerable<GridCol> IntegracionColumnas() => _allCols.Concat(_dynCols);
+
     // Un mapeo "Direccionar compra": campo del formulario -> columna del conciliador.
     private sealed class DireEdit { public string FormField { get; set; } = string.Empty; public string Target { get; set; } = string.Empty; }
     // Una salida al flujo en edicion: concepto (trae su flujo) + formulario + su propio Direccionar.
@@ -1709,6 +2007,19 @@ else
             _asistenteSel = await TaskCfg.GetAsistenteAgentIdAsync();
             _asisReglas = (await TaskCfg.GetAsistenteReglasAsync())
                 .Select(r => new AsisReglaEdit { Id = r.Id, Proveedor = r.Proveedor, Prompt = r.Prompt, AssignUserId = r.AssignUserId, SalidaId = r.SalidaId }).ToList();
+            var integ = await TaskCfg.GetIntegracionAsync();   // pestaña Integraciones (API del sistema contable)
+            _integs = integ.Integraciones.Select(i => new IntegracionEdit
+            {
+                Id = i.Id, Nombre = i.Nombre, Enabled = i.Enabled, ApiUrl = i.ApiUrl, Concepto = i.Concepto, Usuario = i.Usuario,
+                SendPdfProveedor = i.SendPdfProveedor, SendPdfDian = i.SendPdfDian,
+                SendXmlProveedor = i.SendXmlProveedor, SendXmlDian = i.SendXmlDian,
+                Map = i.Mappings.ToDictionary(m => m.ApiField, m => new MapEdit { Source = m.Source, Value = m.Value }),
+            }).ToList();
+            _integMsg = null;
+            // pestaña Extraccion de datos: flujos disponibles + los configurados (en orden)
+            _extDisponibles = await TaskCfg.ListFlujosExtraccionAsync();
+            _extEventos = (await TaskCfg.GetExtraccionAsync()).ToList();
+            _extAddSel = "";
             _cfgTab = "salidas";
             _cfgOpen = true;
         }
@@ -1737,6 +2048,109 @@ else
         }
         catch (Exception ex) { _cfgMsg = "Error al guardar el asistente: " + ex.Message; }
         finally { _busy = false; }
+    }
+
+    // ---- Extraccion de datos (flujos que corre "Importar del bot", en orden) ----
+    private void AgregarExtraccion()
+    {
+        if (Guid.TryParse(_extAddSel, out var id) && !_extEventos.Any(e => e.FlowId == id))
+        {
+            var f = _extDisponibles.FirstOrDefault(x => x.FlowId == id);
+            if (f is not null) { _extEventos.Add(new ExtraccionEventoDto(id, f.Nombre, _extEventos.Count)); }
+        }
+        _extAddSel = "";
+    }
+    private void QuitarExtraccion(int idx)
+    {
+        if (idx >= 0 && idx < _extEventos.Count) { _extEventos.RemoveAt(idx); }
+    }
+    private void MoverExtraccion(int idx, int delta)
+    {
+        var j = idx + delta;
+        if (idx < 0 || idx >= _extEventos.Count || j < 0 || j >= _extEventos.Count) { return; }
+        (_extEventos[idx], _extEventos[j]) = (_extEventos[j], _extEventos[idx]);
+    }
+    private async Task GuardarExtraccionAsync()
+    {
+        _busy = true; _cfgMsg = null;
+        try
+        {
+            await TaskCfg.SetExtraccionAsync(_extEventos.Select(e => e.FlowId).ToList());
+            _cfgMsg = _extEventos.Count == 0
+                ? "Sin flujos de extraccion: \"Importar del bot\" solo importara lo ya procesado."
+                : $"{_extEventos.Count} flujo(s) de extraccion configurado(s) para \"Importar del bot\".";
+        }
+        catch (Exception ex) { _cfgMsg = "Error al guardar la extraccion: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // ---- Integraciones con el sistema contable ----
+    private void AddIntegracion()
+        => _integs.Add(new IntegracionEdit { Id = Guid.CreateVersion7(), Nombre = $"Integracion {_integs.Count + 1}" });
+    private void QuitarIntegracion(IntegracionEdit ig) => _integs.Remove(ig);
+    // Valor seleccionado en el desplegable: sentinela de texto, clave de columna, o vacio.
+    private static string MapSelectValue(MapEdit? me)
+        => me is null ? "" : (me.Source == "text" ? MapTextSentinel : me.Value);
+    // Cambio de origen en el desplegable: vacio = no enviar; sentinela = texto fijo; otro = columna.
+    private void SetIntegracionMapSource(IntegracionEdit ig, string apiField, string? sel)
+    {
+        if (string.IsNullOrWhiteSpace(sel)) { ig.Map.Remove(apiField); }
+        else if (sel == MapTextSentinel)
+        {
+            // Conserva el literal ya escrito si se estaba en modo texto; si venia de columna, arranca vacio.
+            var prev = ig.Map.TryGetValue(apiField, out var m) && m.Source == "text" ? m.Value : string.Empty;
+            ig.Map[apiField] = new MapEdit { Source = "text", Value = prev };
+        }
+        else { ig.Map[apiField] = new MapEdit { Source = "column", Value = sel! }; }
+    }
+
+    private async Task GuardarIntegracionAsync()
+    {
+        _busy = true; _integMsg = null;
+        try
+        {
+            var dto = new IntegracionContableConfigDto(_integs.Select(ig => new IntegracionContableItemDto(
+                ig.Id == Guid.Empty ? Guid.CreateVersion7() : ig.Id,
+                string.IsNullOrWhiteSpace(ig.Nombre) ? "Integracion" : ig.Nombre.Trim(),
+                ig.Enabled, (ig.ApiUrl ?? string.Empty).Trim(), (ig.Concepto ?? string.Empty).Trim(),
+                string.IsNullOrWhiteSpace(ig.Usuario) ? "ECOREX" : ig.Usuario.Trim(),
+                ig.SendPdfProveedor, ig.SendPdfDian, ig.SendXmlProveedor, ig.SendXmlDian,
+                ig.Map.Where(kv => !string.IsNullOrWhiteSpace(kv.Value.Value))
+                      .Select(kv => new IntegracionFieldMapDto(kv.Key, kv.Value.Source, kv.Value.Value)).ToList())).ToList());
+            await TaskCfg.SetIntegracionAsync(dto);
+            var act = _integs.Count(i => i.Enabled);
+            _integMsg = $"{_integs.Count} integracion(es) guardada(s), {act} habilitada(s).";
+        }
+        catch (Exception ex) { _integMsg = "Error al guardar las integraciones: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Prueba de conexion: POST sin archivo. La API responde error ("No se recibio ningun archivo")
+    // SIN crear ningun documento, asi comprobamos que el endpoint es alcanzable.
+    private async Task ProbarIntegracionAsync(IntegracionEdit ig)
+    {
+        ig.Testing = true; ig.TestResult = null; _integMsg = null;
+        try
+        {
+            var url = (ig.ApiUrl ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(url)) { ig.TestResult = "Indica primero la URL de la API."; return; }
+            using var client = HttpFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(15);
+            using var form = new MultipartFormDataContent
+            {
+                { new StringContent(string.IsNullOrWhiteSpace(ig.Concepto) ? "TEST" : ig.Concepto.Trim()), "concepto" },
+                { new StringContent("TEST-CONEXION"), "documento" },
+                { new StringContent(string.IsNullOrWhiteSpace(ig.Usuario) ? "ECOREX" : ig.Usuario.Trim()), "usuario" },
+            };
+            using var resp = await client.PostAsync(url, form);
+            var body = await resp.Content.ReadAsStringAsync();
+            if (body.Length > 400) body = body[..400] + "...";
+            ig.TestResult = resp.IsSuccessStatusCode
+                ? $"Alcanzable (HTTP {(int)resp.StatusCode}). Respuesta: {body}"
+                : $"HTTP {(int)resp.StatusCode}. Respuesta: {body}";
+        }
+        catch (Exception ex) { ig.TestResult = "No se pudo conectar: " + ex.Message; }
+        finally { ig.Testing = false; }
     }
 
     private void AddSalida() => _salidas.Add(new SalidaEdit { Id = Guid.CreateVersion7(), Nombre = $"Salida {_salidas.Count + 1}" });
@@ -2432,6 +2846,7 @@ else
         ("Text", "Texto"), ("Number", "Número"), ("Date", "Fecha"), ("Bool", "Sí/No"),
         ("Select", "Lista (a mano)"), ("MultiSelect", "Multi-selección"),
         ("Url", "Enlace (URL)"), ("Lookup", "Lista del Contenedor"), ("Calculated", "Calculado (fórmula)"),
+        ("ReadOnly", "Solo lectura (no editable)"),
     };
 
     private async Task AbrirConfigCamposAsync()
@@ -3106,9 +3521,94 @@ else
     private async Task ImportarAsync()
     {
         _busy = true; _msg = null;
-        try { var n = await Svc.ImportarDesdeBotAsync(_selectedDocId); _msg = n > 0 ? $"Importadas {n} facturas del bot DIAN." : "Sin facturas nuevas del bot para el periodo."; await ReloadAsync(); }
-        finally { _busy = false; }
+        try
+        {
+            // 1) Correr primero los flujos de extraccion configurados (en orden), si hay. Se corren PASO A PASO
+            // y un panel EN VIVO muestra que flujo/paso va + una mini-captura. Sin flujos configurados = como antes.
+            var prefijo = "";
+            var eventos = await TaskCfg.GetExtraccionAsync();
+            if (eventos.Count > 0)
+            {
+                if (Tenant.TenantId is not Guid tid)
+                {
+                    prefijo = "No se pudo resolver el tenant para correr la extraccion. ";
+                }
+                else
+                {
+                    _extRunFlows = eventos.Select(e => new ExtRunFlowView { Name = e.FlowName }).ToList();
+                    _extRunShot = null; _extRunShotStep = null; _extRunFinal = null; _extRunBusy = true; _extRunOpen = true;
+                    StateHasChanged();
+
+                    var progress = new Progress<Ecorex.SuperAdmin.Agents.FlowStepProgress>(p =>
+                    {
+                        if (p.FlowIndex < 0 || p.FlowIndex >= _extRunFlows.Count) { return; }
+                        var f = _extRunFlows[p.FlowIndex];
+                        f.Status = "run";
+                        while (f.Steps.Count <= p.StepIndex) { f.Steps.Add(new ExtRunStepView()); }
+                        var st = f.Steps[p.StepIndex];
+                        st.Name = p.StepName;
+                        if (!p.Done) { st.Status = "run"; }
+                        else
+                        {
+                            st.Status = p.Ok ? "ok" : "warn";
+                            if (!string.IsNullOrEmpty(p.ScreenshotBase64)) { _extRunShot = p.ScreenshotBase64; _extRunShotStep = p.StepName; }
+                        }
+                        InvokeAsync(StateHasChanged);
+                    });
+
+                    var okFlujos = 0;
+                    var avisos = new List<string>();
+                    for (var fi = 0; fi < eventos.Count; fi++)
+                    {
+                        var ev = eventos[fi];
+                        _extRunFlows[fi].Status = "run"; StateHasChanged();
+                        Ecorex.SuperAdmin.Agents.BrowserRunResult r;
+                        try { r = await BrowserRun.RunFlowStepwiseAsync(ev.FlowId, tid, fi, eventos.Count, progress); }
+                        catch (Exception ex) { r = new Ecorex.SuperAdmin.Agents.BrowserRunResult(false, null, null, false, ex.Message); }
+
+                        if (r.Offline)
+                        {
+                            _extRunFlows[fi].Status = "fail";
+                            avisos.Add($"{ev.FlowName}: el agente no esta en linea");
+                            break; // sin agente no tiene sentido seguir con los demas flujos
+                        }
+                        _extRunFlows[fi].Status = r.Dispatched ? "ok" : "fail";
+                        if (r.Dispatched) { okFlujos++; } else { avisos.Add($"{ev.FlowName}: {r.Error ?? "no termino bien"}"); }
+                        StateHasChanged();
+                    }
+                    prefijo = avisos.Count == 0
+                        ? $"Extraccion OK ({okFlujos}/{eventos.Count} flujos). "
+                        : $"Extraccion: {okFlujos}/{eventos.Count} ok; avisos: {string.Join("; ", avisos)}. ";
+                }
+            }
+
+            // 2) Importar a la parrilla lo que el bot haya dejado para el periodo del CCD.
+            var n = await Svc.ImportarDesdeBotAsync(_selectedDocId);
+            var impMsg = n > 0 ? $"Importadas {n} facturas del bot DIAN." : "Sin facturas nuevas del bot para el periodo.";
+            _msg = prefijo + impMsg;
+            if (_extRunOpen) { _extRunFinal = _msg; _extRunBusy = false; }
+            await ReloadAsync();
+        }
+        finally { _busy = false; _extRunBusy = false; }
     }
+
+    private void CerrarExtRun() => _extRunOpen = false;
+
+    private static string FlowStatusLabel(string s) => s switch
+    {
+        "run" => "en curso",
+        "ok" => "listo",
+        "fail" => "fallo",
+        _ => "pendiente",
+    };
+
+    private static string StepStatusLabel(string s) => s switch
+    {
+        "run" => "...",
+        "ok" => "ok",
+        "warn" => "aviso",
+        _ => "",
+    };
 
     private async Task CruzarAsync()
     {

@@ -1,0 +1,70 @@
+@namespace Ecorex.SuperAdmin.Components.Shared
+
+@* Selector reutilizable para VINCULAR terceros existentes (modulo 000232). Dos modos:
+   - Empresas: elegir la empresa a la que pertenece una persona.
+   - Personas: elegir una persona/contacto existente para colgarla de una empresa.
+   Busca en servidor con debounce (reusa ITerceroService.ListAsync, sin paginar en memoria).
+   El padre abre con OpenAsync() via @@ref y recibe la fila elegida en OnPick. *@
+@if (_open)
+{
+    <div class="tp-overlay" @onclick="Close">
+        <div class="tp-modal" @onclick:stopPropagation="true">
+            <div class="tp-head">
+                <div style="min-width:0">
+                    <div class="tp-kicker">@(string.IsNullOrWhiteSpace(_title) ? DefaultTitle : _title)</div>
+                    @if (!string.IsNullOrWhiteSpace(_subtitle))
+                    {
+                        <div class="tp-sub">@_subtitle</div>
+                    }
+                </div>
+                <button class="tp-close" type="button" @onclick="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div class="tp-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+                <input class="tp-input" placeholder="@SearchPlaceholder" value="@_term" @oninput="OnInput" autocomplete="off" />
+            </div>
+            <div class="tp-list">
+                @if (_loading)
+                {
+                    <div class="tp-empty">Buscando...</div>
+                }
+                else if (_rows.Count == 0)
+                {
+                    <div class="tp-empty">@EmptyNote</div>
+                }
+                else
+                {
+                    @foreach (var r in _rows)
+                    {
+                        <div class="tp-row">
+                            <button class="tp-item" type="button" @onclick="() => Choose(r)" disabled="@_busy">
+                                <span class="tp-av" style="background:@AvatarColor(r.Nombre)">@Initials(r.Nombre)</span>
+                                <span class="tp-txt">
+                                    <span class="tp-name">@r.Nombre</span>
+                                    <span class="tp-isub">@RowSub(r)</span>
+                                </span>
+                                @if (_mode == TerceroPickerMode.Personas && r.EmpresaId is not null && !string.IsNullOrWhiteSpace(r.EmpresaNombre))
+                                {
+                                    <span class="tp-badge" title="Ya vinculada a otra empresa">@r.EmpresaNombre</span>
+                                }
+                                <svg class="tp-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+                            </button>
+                            @if (_confirmId == r.Id)
+                            {
+                                <div class="tp-confirm">
+                                    <span>Ya esta en <strong>@r.EmpresaNombre</strong>. Moverla a esta empresa?</span>
+                                    <span class="tp-confirm-acts">
+                                        <button class="tp-btn primary" type="button" @onclick="() => Commit(r)" disabled="@_busy">Si, mover</button>
+                                        <button class="tp-btn" type="button" @onclick="() => _confirmId = null" disabled="@_busy">Cancelar</button>
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}

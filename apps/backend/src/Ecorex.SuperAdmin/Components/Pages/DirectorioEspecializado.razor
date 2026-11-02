@@ -312,44 +312,9 @@
     }
 </div>
 
-@* ===================== MODAL ASIGNAR A EMPRESA ===================== *@
-@if (_assignOpen && _assignPersona is not null)
-{
-    <div class="dg-overlay sm" @onclick="CloseAssign">
-        <div class="dg-modal sm" @onclick:stopPropagation="true">
-            <div class="dg-as-head">
-                <div>
-                    <div class="dg-as-kicker">ASIGNAR A EMPRESA</div>
-                    <div class="dg-as-title">@_assignPersona.Nombre</div>
-                    <div class="dg-as-sub">Dejara de aparecer como cliente individual y pasara dentro de la empresa.</div>
-                </div>
-                <button class="dg-close" @onclick="CloseAssign">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
-            </div>
-            <div class="dg-as-list">
-                @{
-                    var empresas = _allRows.Where(x => x.EsEmpresa).ToList();
-                }
-                @if (empresas.Count == 0)
-                {
-                    <div class="dg-as-empty">No hay empresas registradas. Crea una empresa primero.</div>
-                }
-                @foreach (var e in empresas)
-                {
-                    <button class="dg-as-item" @onclick="() => AssignToAsync(e.Id)" disabled="@_busy">
-                        <span class="dg-as-av" style="background:@AvatarColor(e.Nombre)">@Initials(e.Nombre)</span>
-                        <span style="flex:1;min-width:0">
-                            <span class="dg-as-name">@e.Nombre</span>
-                            <span class="dg-as-isub">@(string.IsNullOrWhiteSpace(e.Sub) ? e.Identificacion : e.Sub)</span>
-                        </span>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-                    </button>
-                }
-            </div>
-        </div>
-    </div>
-}
+@* ===================== SELECTOR ASIGNAR A EMPRESA ===================== *@
+@* Busca en servidor TODAS las empresas (no solo la pagina cargada); al elegir, mueve la persona. *@
+<TerceroPickerModal @ref="_assignPicker" OnPick="OnAssignPickedAsync" />
 
 
 @* Editor de tercero (crear / editar) compartido con el Cargador de contactos (000740): un

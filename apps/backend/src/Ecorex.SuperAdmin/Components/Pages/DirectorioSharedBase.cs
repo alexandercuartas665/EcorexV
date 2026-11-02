@@ -70,9 +70,10 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
     protected bool _canDelete = true;
     protected bool CanCreateAny => _canCrearEmpresa || _canCrearCliente || _canCrearSospechoso;
 
-    // ---- Modal asignar ----
+    // ---- Modal asignar (selector reutilizable de empresa, con busqueda en servidor) ----
     protected bool _assignOpen;
     protected TerceroListItemDto? _assignPersona;
+    protected TerceroPickerModal? _assignPicker;
 
     // ---- Editor de tercero compartido (crear/editar/contacto). Invocado por @ref. ----
     protected TerceroModal? _terceroModal;
@@ -463,17 +464,32 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         }
     }
 
-    // ---- Asignar ----
-    protected void OpenAssign(TerceroListItemDto persona)
+    // ---- Asignar (persona -> empresa) ----
+    protected async Task OpenAssign(TerceroListItemDto persona)
     {
         _assignPersona = persona;
         _assignOpen = true;
+        _pageError = null;
+        if (_assignPicker is not null)
+        {
+            await _assignPicker.OpenAsync(
+                TerceroPickerMode.Empresas,
+                title: $"Asignar a empresa: {persona.Nombre}",
+                subtitle: "Dejara de aparecer como cliente individual y pasara dentro de la empresa.",
+                excludeId: persona.Id);
+        }
     }
 
     protected void CloseAssign()
     {
         _assignOpen = false;
         _assignPersona = null;
+    }
+
+    // El selector devuelve la empresa elegida; se reusa AssignToAsync (valida + recarga).
+    protected async Task OnAssignPickedAsync(TerceroListItemDto empresa)
+    {
+        await AssignToAsync(empresa.Id);
     }
 
     protected async Task AssignToAsync(Guid empresaId)

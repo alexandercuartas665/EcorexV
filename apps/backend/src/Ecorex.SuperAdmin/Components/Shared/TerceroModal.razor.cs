@@ -80,6 +80,8 @@ public partial class TerceroModal
     // empresa padre; al EDITAR se carga la existente para PRESERVARLA (antes se mandaba null y editar
     // una persona la desvinculaba de su empresa). null para empresas y personas individuales.
     private Guid? _empresaId;
+    // Nombre de esa empresa (solo para mostrarlo en la pestana Relaciones de una Persona). null si no esta vinculada.
+    private string? _empresaNombre;
     // Cuando se crea/edita un contacto DESDE la pestana Relaciones de una empresa, se recuerda esa
     // empresa para VOLVER a ella (a su pestana Relaciones) al guardar o cancelar. Con una sola
     // instancia de modal evitamos anidar dos TerceroModal sobre el mismo DbContext scoped.
@@ -387,6 +389,7 @@ public partial class TerceroModal
         _webCorreos = Array.Empty<string>();
         _webTelefonos = Array.Empty<string>();
         _empresaId = null;
+        _empresaNombre = null;
         _returnToParentId = null;
         _mTab = "datos";
         _mTipo = _canCrearEmpresa ? TerceroTipo.Empresa : TerceroTipo.Persona;
@@ -516,6 +519,7 @@ public partial class TerceroModal
         _prospectoId = null;
         _prospectoFuente = null;
         _empresaId = d.EmpresaId;
+        _empresaNombre = d.EmpresaNombre;
         _returnToParentId = returnToParent;
         _mTab = "datos";
         _mTipo = d.Tipo;
@@ -576,6 +580,7 @@ public partial class TerceroModal
         _modalOpen = false;
         _editingId = null;
         _empresaId = null;
+        _empresaNombre = null;
         _returnToParentId = null;
     }
 
@@ -1134,6 +1139,82 @@ public partial class TerceroModal
         _busy = false;
         if (!res.IsOk) { return; }
         _relContactos = _relContactos.Where(c => c.Id != personaId).ToList();
+        await OnChanged.InvokeAsync();
+        StateHasChanged();
+    }
+
+    // ---- Vincular terceros existentes (selector reutilizable TerceroPickerModal) ----
+    private TerceroPickerModal? _relPicker;
+    // Modo de la apertura en curso: OnRelPickAsync lo usa para saber en que sentido vincular.
+    private TerceroPickerMode _relPickerMode = TerceroPickerMode.Personas;
+
+    // Empresa en edicion -> colgar una PERSONA/contacto existente como contacto de relacion.
+    private async Task OpenVincularPersonaAsync()
+    {
+        if (_editingId is not Guid id || _relPicker is null) { return; }
+        _relPickerMode = TerceroPickerMode.Personas;
+        await _relPicker.OpenAsync(
+            TerceroPickerMode.Personas,
+            title: "Vincular persona existente",
+            subtitle: "Busca una persona ya registrada para sumarla como contacto de relacion.",
+            excludeId: id,              // la empresa no puede colgarse de si misma
+            currentEmpresaId: id);       // oculta las que YA son contactos de esta empresa
+    }
+
+    // Persona en edicion -> asociarla a una EMPRESA existente.
+    private async Task OpenAsociarEmpresaAsync()
+    {
+        if (_editingId is not Guid id || _relPicker is null) { return; }
+        _relPickerMode = TerceroPickerMode.Empresas;
+        await _relPicker.OpenAsync(
+            TerceroPickerMode.Empresas,
+            title: "Asociar a una empresa",
+            subtitle: "Busca la empresa a la que pertenece esta persona.",
+            excludeId: id);
+    }
+
+    // El selector devolvio la fila elegida. Segun el modo, se vincula en un sentido o el otro.
+    private async Task OnRelPickAsync(TerceroListItemDto picked)
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        TerceroResult<bool> res;
+        if (_relPickerMode == TerceroPickerMode.Personas)
+        {
+            // id = empresa en edicion; picked = persona que se cuelga de ella.
+            res = await TerceroSvc.AssignToEmpresaAsync(picked.Id, id);
+        }
+        else
+        {
+            // id = persona en edicion; picked = empresa a la que se asocia.
+            res = await TerceroSvc.AssignToEmpresaAsync(id, picked.Id);
+        }
+        _busy = false;
+        if (!res.IsOk) { _modalError = res.Error; StateHasChanged(); return; }
+
+        if (_relPickerMode == TerceroPickerMode.Empresas)
+        {
+            _empresaId = picked.Id;
+            _empresaNombre = picked.Nombre;
+        }
+        else
+        {
+            _relContactos = await TerceroSvc.ListContactosAsync(id);
+        }
+        await OnChanged.InvokeAsync();
+        StateHasChanged();
+    }
+
+    // Persona en edicion -> quitarla de su empresa (desvincula, no elimina).
+    private async Task UnassignSelfEmpresaAsync()
+    {
+        if (_editingId is not Guid id) { return; }
+        _busy = true;
+        var res = await TerceroSvc.UnassignFromEmpresaAsync(id);
+        _busy = false;
+        if (!res.IsOk) { _modalError = res.Error; StateHasChanged(); return; }
+        _empresaId = null;
+        _empresaNombre = null;
         await OnChanged.InvokeAsync();
         StateHasChanged();
     }

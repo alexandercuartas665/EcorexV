@@ -350,7 +350,12 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-kids-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .dg-kids-add { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
 .dg-kids-add:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+.dg-kids-add:disabled { opacity: .55; cursor: default; }
 .dg-kids-add svg { width: 13px; height: 13px; }
+/* Dos acciones en la cabecera de Relaciones (vincular existente + agregar). */
+.dg-rel-actions { display: flex; gap: 8px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+.dg-kids-add.ghost { color: var(--ink-3); }
+.dg-kids-add.ghost:hover { color: var(--brand); }
 .dg-kid-acts { display: flex; gap: 4px; flex: none; align-items: center; }
 .dg-kid-confirm { font-size: 11.5px; font-weight: 700; color: var(--danger); }
 .dg-btn-mini { height: 26px; padding: 0 9px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); border-radius: 7px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }

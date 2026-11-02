@@ -634,7 +634,7 @@
                                 </div>
                             </div>
                         }
-                        else
+                        else if (_mTipo == TerceroTipo.Empresa)
                         {
                             <div class="dg-rel">
                                 <div class="dg-rel-head">
@@ -642,10 +642,16 @@
                                         <div class="dg-sec-lbl">CONTACTOS DE RELACION</div>
                                         <p class="dg-rel-note">Personas de contacto vinculadas a este tercero (reportan, gestionan o representan).</p>
                                     </div>
-                                    <button class="dg-kids-add" @onclick="() => OpenCreateContactAsync(_editingId!.Value, _editingId)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                                        Agregar contacto
-                                    </button>
+                                    <div class="dg-rel-actions">
+                                        <button class="dg-kids-add ghost" @onclick="OpenVincularPersonaAsync" disabled="@_busy" title="Colgar una persona o contacto que ya existe">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+                                            Vincular persona existente
+                                        </button>
+                                        <button class="dg-kids-add" @onclick="() => OpenCreateContactAsync(_editingId!.Value, _editingId)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                                            Agregar contacto
+                                        </button>
+                                    </div>
                                 </div>
                                 @if (_relContactos.Count == 0)
                                 {
@@ -701,6 +707,46 @@
                                             </div>
                                         }
                                     </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            @* Persona en edicion: su EMPRESA (asociar una existente / quitarla). *@
+                            <div class="dg-rel">
+                                <div class="dg-rel-head">
+                                    <div>
+                                        <div class="dg-sec-lbl">EMPRESA</div>
+                                        <p class="dg-rel-note">Empresa a la que pertenece esta persona.</p>
+                                    </div>
+                                    @if (_empresaId is null)
+                                    {
+                                        <button class="dg-kids-add" @onclick="OpenAsociarEmpresaAsync" disabled="@_busy">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M12 12h.01" /><path d="M9 21v-4h6v4" /></svg>
+                                            Asociar a empresa
+                                        </button>
+                                    }
+                                </div>
+                                @if (_empresaId is not null)
+                                {
+                                    <div class="dg-rel-list">
+                                        <div class="dg-kid">
+                                            <span class="dg-kid-av" style="background:@AvatarColor(_empresaNombre ?? "?")">@Initials(_empresaNombre ?? "?")</span>
+                                            <div style="flex:1;min-width:0">
+                                                <div class="dg-kid-name">@(_empresaNombre ?? "Empresa")</div>
+                                                <div class="dg-kid-cargo">Vinculada</div>
+                                            </div>
+                                            <div class="dg-kid-acts">
+                                                <button class="dg-act del" title="Quitar de la empresa" @onclick="UnassignSelfEmpresaAsync" disabled="@_busy">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="dg-empty-note">Esta persona no esta vinculada a ninguna empresa.</div>
                                 }
                             </div>
                         }
@@ -1022,4 +1068,7 @@
         </div>
     </div>
 }
+
+@* Selector para VINCULAR terceros existentes (empresa <-> persona). Flota sobre el modal. *@
+<TerceroPickerModal @ref="_relPicker" OnPick="OnRelPickAsync" />
 

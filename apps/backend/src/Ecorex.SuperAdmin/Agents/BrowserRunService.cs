@@ -66,7 +66,8 @@ public interface IBrowserRunService
     /// SINCRONA: despacha el paso con la clave de sesion del flujo (el agente mantiene el navegador abierto y
     /// reusa la pagina del paso anterior), ingiere lo que extraiga, lo registra en la bitacora y devuelve el
     /// resultado para pintarlo en la UI. Pensado para encadenar pasos a mano (login -> OTP -> continuar).</summary>
-    Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default);
+    Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default,
+        Action<string>? live = null);
 
     /// <summary>Ejecuta un BUCLE ForEach (motor del dron, Ola 2): recorre el array del contexto que indica el
     /// paso <paramref name="loopStepId"/> (su LoopOverVar, p.ej. LISTADO.compras) y, por cada fila, corre el
@@ -86,6 +87,7 @@ public interface IBrowserRunService
 public sealed class BrowserRunService(
     IAgentRegistry registry,
     IBrowserActionChannel channel,
+    IFileActionChannel fileChannel,
     IServiceScopeFactory scopeFactory,
     IAgentActivityLog activity,
     ILogger<BrowserRunService> log,
@@ -219,8 +221,15 @@ public sealed class BrowserRunService(
                 var paso = steps[i];
                 progress?.Report(new FlowStepProgress(flowIndex, flowCount, flowName, i, steps.Count, paso.Name, false, false, null, null));
 
+                // Progreso EN VIVO dentro del paso (p.ej. "procesando 3/15"): los pasos largos (Procesar
+                // archivos / Ingesta NEWTON) lo llaman por documento; se reenvia como FlowStepProgress no-Done
+                // con el texto en Detail, para que el modal del conciliador muestre el contador.
+                var stepIdx = i;
+                Action<string> stepLive = txt => progress?.Report(new FlowStepProgress(
+                    flowIndex, flowCount, flowName, stepIdx, steps.Count, paso.Name, false, false, null, txt));
+
                 StepRunResult r;
-                try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct); }
+                try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct, stepLive); }
                 catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
                 ins += r.Inserted; upd += r.Updated; del += r.Deleted;
 
@@ -252,7 +261,8 @@ public sealed class BrowserRunService(
 
     // ---- Modo "paso a paso" (sesion viva): un paso a la vez, sincrono, sobre la MISMA ventana del agente ----
 
-    public async Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default)
+    public async Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default,
+        Action<string>? live = null)
     {
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
@@ -304,7 +314,7 @@ public sealed class BrowserRunService(
             // cada archivo (DIAN UBL) y vuelca a la fuente Bot sin duplicar (CUFE); opcional auto-importar.
             if (step.Kind == ScrapeStepKind.ProcesarArchivos)
             {
-                return await RunProcesarArchivosStepAsync(scope, db, flowId, tenantId, step, vars, ct);
+                return await RunProcesarArchivosStepAsync(scope, db, flowId, tenantId, step, vars, ct, live);
             }
 
             // Paso "Ingesta NEWTON" (API del proveedor de facturacion electronica): NO va al navegador.
@@ -312,7 +322,7 @@ public sealed class BrowserRunService(
             // a su carpeta propia. Fase 1: solo descarga (ProcesarArchivos / fase posterior aterriza en el modulo).
             if (step.Kind == ScrapeStepKind.IngestaNewton)
             {
-                return await RunIngestaNewtonStepAsync(db, flowId, tenantId, step, vars, ct);
+                return await RunIngestaNewtonStepAsync(db, flowId, tenantId, step, vars, ct, live);
             }
 
             // Paso "Cerrar navegador": NO compila JS. Cierra la sesion viva del flujo (CloseSession) reusando
@@ -495,14 +505,19 @@ public sealed class BrowserRunService(
         int EsperarAsentarSegundos = 30, int GraciaInicialSegundos = 150, int MaxEsperaSegundos = 900,
         // Sube el PDF (representacion grafica) y el XML de cada ZIP al gestor unificado (Azure Blob) por CUFE,
         // para poder verlos desde el modulo. Idempotente (no re-sube lo ya registrado).
-        bool SubirABlob = true);
+        bool SubirABlob = true,
+        // Fuerza el camino "via agente" (sub-agente Archivos) aunque el server VEA la carpeta en su propio
+        // filesystem. Util para PROBAR en dev con una sola maquina (app y agente en la misma PC): sin esto el
+        // server tomaria el camino directo porque la carpeta existe. En prod no hace falta (el server Linux no
+        // ve la carpeta del agente Windows y el camino via agente se elige solo).
+        bool ForzarViaAgente = false);
 
     /// <summary>Procesa (server-side) los archivos ya descargados: parsea cada ZIP (DIAN UBL), hace UPSERT por
     /// CUFE en la fuente Bot (sin duplicar), mueve los procesados y -si AutoImportar- los lleva al CCD del mes.
     /// La carpeta sale de la config o, por defecto, de la variable RutaDescargaBot del flujo.</summary>
     private async Task<StepRunResult> RunProcesarArchivosStepAsync(
         IServiceScope scope, IApplicationDbContext db, Guid flowId, Guid tenantId, ScrapeStep step,
-        IReadOnlyDictionary<string, string> vars, CancellationToken ct)
+        IReadOnlyDictionary<string, string> vars, CancellationToken ct, Action<string>? live = null)
     {
         ProcesarArchivosConfig cfg = new();
         if (!string.IsNullOrWhiteSpace(step.MappingJson))
@@ -517,14 +532,24 @@ public sealed class BrowserRunService(
 
         var carpeta = !string.IsNullOrWhiteSpace(cfg.Carpeta) ? ResolveVars(cfg.Carpeta!, vars)
             : (vars.TryGetValue("RutaDescargaBot", out var rd) && !string.IsNullOrWhiteSpace(rd) ? rd : null);
-        if (string.IsNullOrWhiteSpace(carpeta) || !Directory.Exists(carpeta))
+        if (string.IsNullOrWhiteSpace(carpeta))
         {
-            var m = $"No existe la carpeta de descargas: {carpeta ?? "(sin configurar; define RutaDescargaBot o Carpeta)"}";
+            var m = "No existe la carpeta de descargas: (sin configurar; define RutaDescargaBot o Carpeta).";
             await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, m, ct);
             return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
         }
         var patron = string.IsNullOrWhiteSpace(cfg.Patron) ? "*.zip" : cfg.Patron!;
         var nuestroNit = vars.TryGetValue("NIT_EMPRESA", out var ne) ? ne.Trim() : "";
+
+        // La carpeta de descargas puede vivir en la maquina del AGENTE (Windows) y no en el servidor
+        // (Linux en prod). Discriminador robusto por construccion: si el servidor NO ve la carpeta en su
+        // propio filesystem, fetchea los ZIP a traves del sub-agente Archivos (mismo parseo + upsert por
+        // CUFE + blob). En local (app y agente en la misma PC) la carpeta SI existe -> camino directo de abajo,
+        // salvo que ForzarViaAgente obligue el camino remoto (para probar en dev con una sola maquina).
+        if (cfg.ForzarViaAgente || !Directory.Exists(carpeta))
+        {
+            return await RunProcesarArchivosViaAgenteAsync(db, flowId, tenantId, step, cfg, carpeta!, patron, nuestroNit, ct, live);
+        }
 
         // Esperar a que las descargas se ASIENTEN: encuesta la carpeta hasta que el conteo no cambie durante
         // EsperarAsentarSegundos (y haya >=1), con una gracia inicial para que empiecen a llegar y un tope.
@@ -563,8 +588,10 @@ public sealed class BrowserRunService(
         var okFiles = new List<string>(); // archivos parseados OK: se mueven SOLO si SaveChanges confirma
         var cufePorZip = new List<(string Cufe, string Archivo)>(); // para subir el PDF/XML del zip por CUFE
 
+        var procIdx = 0;
         foreach (var archivo in archivos)
         {
+            live?.Invoke($"procesando {++procIdx}/{archivos.Length}");
             DianDoc? doc;
             try { doc = DianUblParser.ParseZip(archivo, nuestroNit); }
             catch { doc = null; }
@@ -685,6 +712,272 @@ public sealed class BrowserRunService(
         return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
     }
 
+    /// <summary>Camino "via agente" de ProcesarArchivos: la carpeta de descargas vive en la maquina del
+    /// AGENTE (Windows) y NO en el servidor. Lista y lee los ZIP a traves del sub-agente Archivos
+    /// (List + ReadBytes -> base64), parsea DESDE LOS BYTES (DianUblParser.ParseZipBytes), hace el MISMO
+    /// upsert por CUFE y sube PDF/XML al blob, todo server-side. "Mover procesados" aqui se traduce a
+    /// BORRAR el ZIP de origen tras confirmar (el blob ya conserva PDF+XML); si la raiz no es de escritura
+    /// (sin 'rw:') no borra y el dedup por CUFE evita reprocesar en vano. Requiere que el operador habilite
+    /// "Archivos" y agregue la carpeta a la allow-list de la colmena.</summary>
+    private async Task<StepRunResult> RunProcesarArchivosViaAgenteAsync(
+        IApplicationDbContext db, Guid flowId, Guid tenantId, ScrapeStep step, ProcesarArchivosConfig cfg,
+        string carpeta, string patron, string nuestroNit, CancellationToken ct, Action<string>? live = null)
+    {
+        // Resolver el agente asignado al flujo (mismo patron que RunStepNowAsync) y exigir que este en linea.
+        var flow = await db.ScrapeFlows.FirstOrDefaultAsync(f => f.Id == flowId, ct);
+        if (flow?.ClientId is not Guid clientPk)
+        {
+            var m = "El flujo no tiene un agente asignado (necesario para leer la carpeta de descargas remota).";
+            await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, m, ct);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+        var client = await db.DataClients.FirstOrDefaultAsync(c => c.Id == clientPk && c.IsActive, ct);
+        if (client is null)
+        {
+            var m = "El agente asignado no existe o esta inactivo.";
+            await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, m, ct);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+        if (!registry.IsOnline(client.ClientId))
+        {
+            var m = "El agente asignado no esta en linea (no se puede leer la carpeta de descargas remota).";
+            await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, m, ct);
+            return new StepRunResult(false, true, m, null, null, 0, 0, 0, m);
+        }
+        var clientId = client.ClientId;
+        var tenantStr = tenantId.ToString();
+
+        // Esperar a que las descargas se ASIENTEN: encuesta la carpeta (List remoto) hasta que el conteo de
+        // archivos que casan con el patron no cambie durante EsperarAsentarSegundos (y haya >=1), con gracia
+        // inicial y tope. Robusto por construccion: mira el filesystem del agente, no la señal del bucle.
+        if (cfg.EsperarAsentarSegundos > 0)
+        {
+            const int intervalo = 5;
+            int lastCount = -1, estableSeg = 0, total = 0;
+            while (total < cfg.MaxEsperaSegundos)
+            {
+                int n;
+                try { n = (await AgentListMatchingAsync(clientId, tenantStr, carpeta, patron, ct)).Count; }
+                catch { n = lastCount; } // un List fallido no aborta la espera; reintenta al siguiente tick.
+                if (n == lastCount) { estableSeg += intervalo; } else { estableSeg = 0; lastCount = n; }
+                if (n > 0 && estableSeg >= cfg.EsperarAsentarSegundos) { break; }
+                if (n == 0 && total >= cfg.GraciaInicialSegundos) { break; }
+                await Task.Delay(TimeSpan.FromSeconds(intervalo), ct);
+                total += intervalo;
+            }
+        }
+
+        // DbContext fresco tras la espera (la conexion del scope original puede quedar stale en una espera larga).
+        using var dbScope = scopeFactory.CreateScope();
+        var fdb = dbScope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+
+        List<string> archivos;
+        try { archivos = await AgentListMatchingAsync(clientId, tenantStr, carpeta, patron, ct); }
+        catch (Exception ex)
+        {
+            var m = $"No se pudo listar la carpeta del agente: {ex.Message}";
+            await RecordStepRunAsync(fdb, flowId, step.Name, false, 0, 0, 0, m, ct);
+            return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+        }
+        if (archivos.Count == 0)
+        {
+            var m = "No hay archivos para procesar en la carpeta del agente.";
+            await RecordStepRunAsync(fdb, flowId, step.Name, true, 0, 0, 0, m, ct);
+            return new StepRunResult(true, false, null, null, null, 0, 0, 0, m);
+        }
+
+        var sep = carpeta.Contains('\\') ? '\\' : '/'; // la ruta remota es de la maquina del agente (Windows).
+        var procDir = carpeta.TrimEnd(sep) + sep + "procesados";
+        int nuevos = 0, actualizados = 0, fallidos = 0;
+        var periodos = new HashSet<(int Anio, int Mes)>();
+        var okBytes = new Dictionary<string, byte[]>(); // nombre -> bytes del ZIP (para blob + borrado), solo los OK
+        var cufePorZip = new List<(string Cufe, string Archivo)>();
+
+        var procIdx = 0;
+        foreach (var nombre in archivos)
+        {
+            live?.Invoke($"leyendo del agente {++procIdx}/{archivos.Count}");
+            var rutaRemota = carpeta.TrimEnd(sep) + sep + nombre;
+            byte[]? zipBytes;
+            try { zipBytes = await AgentReadBytesAsync(clientId, tenantStr, rutaRemota, ct); }
+            catch { zipBytes = null; }
+            if (zipBytes is null) { fallidos++; continue; }
+
+            DianDoc? doc;
+            try { doc = DianUblParser.ParseZipBytes(zipBytes, nuestroNit); }
+            catch { doc = null; }
+            if (doc is null || string.IsNullOrWhiteSpace(doc.Cufe)) { fallidos++; continue; }
+
+            var existente = await fdb.ConciliacionDianBotDummies.FirstOrDefaultAsync(b => b.Cufe == doc.Cufe, ct);
+            if (existente is null)
+            {
+                fdb.ConciliacionDianBotDummies.Add(new ConciliacionDianBotDummy
+                {
+                    TenantId = tenantId,
+                    Cufe = doc.Cufe,
+                    TipoDoc = doc.TipoDoc,
+                    FechaDoc = doc.Fecha,
+                    NombreEmisor = doc.NombreEmisor,
+                    NitEmisor = doc.NitEmisor,
+                    PrefijoFolio = doc.NumFactura,
+                    IdCompra = "",
+                    SubtotalBruto = doc.SubtotalBruto,
+                    DescuentoComercial = doc.Descuento,
+                    Subtotal = doc.SubtotalNeto,
+                    Iva = doc.Iva,
+                    TotalAntesRet = doc.TotalAntesRet,
+                    RetencionFuente = doc.Retefuente,
+                    RetencionIca = doc.ReteIca,
+                    Total = doc.Total,
+                    TipoPago = doc.TipoPago,
+                    ProveedorTecnologico = "",
+                });
+                nuevos++;
+            }
+            else
+            {
+                existente.TipoDoc = doc.TipoDoc; existente.FechaDoc = doc.Fecha;
+                existente.NombreEmisor = doc.NombreEmisor; existente.NitEmisor = doc.NitEmisor;
+                existente.PrefijoFolio = doc.NumFactura; existente.SubtotalBruto = doc.SubtotalBruto;
+                existente.DescuentoComercial = doc.Descuento; existente.Subtotal = doc.SubtotalNeto;
+                existente.Iva = doc.Iva; existente.TotalAntesRet = doc.TotalAntesRet;
+                existente.RetencionFuente = doc.Retefuente; existente.RetencionIca = doc.ReteIca;
+                existente.Total = doc.Total; existente.TipoPago = doc.TipoPago;
+                actualizados++;
+            }
+            periodos.Add((doc.Fecha.Year, doc.Fecha.Month));
+            okBytes[nombre] = zipBytes;
+            cufePorZip.Add((doc.Cufe, nombre));
+        }
+        await fdb.SaveChangesAsync(ct);
+
+        // Sube al gestor unificado (blob) el PDF y el XML de cada ZIP, por CUFE, DESDE LOS BYTES en memoria. Idempotente.
+        int subidos = 0;
+        if (cfg.SubirABlob && cufePorZip.Count > 0)
+        {
+            var files = dbScope.ServiceProvider.GetRequiredService<IFileStorageService>();
+            foreach (var (cufe, nombre) in cufePorZip)
+            {
+                if (!okBytes.TryGetValue(nombre, out var bytes)) { continue; }
+                var baseName = SafeName(cufe);
+                var faltaPdf = await files.FindAsync("ConciliacionDian", cufe, "DIAN_PDF", baseName + "_dian.pdf", ct) is null;
+                var faltaXml = await files.FindAsync("ConciliacionDian", cufe, "DIAN_XML", baseName + "_dian.xml", ct) is null;
+                if (!faltaPdf && !faltaXml) { continue; }
+                try
+                {
+                    using var ms = new MemoryStream(bytes, writable: false);
+                    using var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+                    var pdfEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
+                    var xmlEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+                    if (faltaPdf && pdfEntry is not null)
+                    {
+                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_PDF",
+                            baseName + "_dian.pdf", "application/pdf", ReadEntry(pdfEntry)), ct);
+                        subidos++;
+                    }
+                    if (faltaXml && xmlEntry is not null)
+                    {
+                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_XML",
+                            baseName + "_dian.xml", "text/xml", ReadEntry(xmlEntry)), ct);
+                        subidos++;
+                    }
+                }
+                catch { /* best-effort: no romper el paso por un zip corrupto */ }
+            }
+        }
+
+        // "Mover procesados" en remoto = BORRAR el ZIP de origen tras confirmar (el blob ya conserva PDF+XML).
+        // Si la carpeta no es de escritura (sin 'rw:' en la allow-list) el borrado falla y no pasa nada: el
+        // dedup por CUFE evita duplicar en la proxima corrida (solo se re-leeran los bytes en vano).
+        int movidos = 0; bool borradoBloqueado = false;
+        if (cfg.MoverProcesados && okBytes.Count > 0)
+        {
+            try
+            {
+                var acciones = okBytes.Keys
+                    .Select(nombre => new FileAction(FileActionKind.Delete, carpeta.TrimEnd(sep) + sep + nombre))
+                    .ToList();
+                var corr = NewCorr();
+                var res = await fileChannel.ExecuteFilesAsync(clientId,
+                    new FileRequestMsg(corr, tenantStr, acciones), TimeSpan.FromSeconds(60), ct);
+                movidos = res.Results.Count(r => r.Ok);
+                if (res.Results.Any(r => !r.Ok)) { borradoBloqueado = true; }
+            }
+            catch { borradoBloqueado = true; }
+        }
+
+        int importados = 0;
+        if (cfg.AutoImportar)
+        {
+            var svc = dbScope.ServiceProvider.GetRequiredService<IConciliacionDianService>();
+            foreach (var (anio, mes) in periodos)
+            {
+                var ccd = await fdb.ConciliacionDianDocumentos.FirstOrDefaultAsync(d => d.Anio == anio && d.Mes == mes, ct);
+                Guid? docId = ccd?.Id;
+                if (docId is null)
+                {
+                    var (nuevo, _) = await svc.CrearDocumentoAsync(anio, mes, ct);
+                    docId = nuevo?.Id;
+                }
+                if (docId is Guid id) { importados += await svc.ImportarDesdeBotAsync(id, ct); }
+            }
+        }
+
+        var detalle = $"(via agente) Procesados {archivos.Count}: {nuevos} nuevos, {actualizados} actualizados"
+            + (fallidos > 0 ? $", {fallidos} con error" : "")
+            + (cfg.AutoImportar ? $"; {importados} importados a conciliacion ({periodos.Count} periodo/s)" : "")
+            + (cfg.SubirABlob ? $"; {subidos} archivo(s) al blob" : "")
+            + (cfg.MoverProcesados ? (borradoBloqueado
+                ? "; no se borraron los ZIP de origen (carpeta sin permiso 'rw:'; el dedup por CUFE evita duplicar)"
+                : $"; {movidos} ZIP borrados del origen") : "") + ".";
+        await RecordStepRunAsync(fdb, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
+        return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
+    }
+
+    /// <summary>Lista la carpeta remota via sub-agente Archivos y devuelve los NOMBRES de archivo (no dirs)
+    /// que casan con el patron glob (p.ej. "*.zip"). Lanza si el agente reporta error (p.ej. Archivos no
+    /// habilitado o ruta fuera de la allow-list).</summary>
+    private async Task<List<string>> AgentListMatchingAsync(
+        string clientId, string tenantStr, string carpeta, string patron, CancellationToken ct)
+    {
+        var corr = NewCorr();
+        var res = await fileChannel.ExecuteFilesAsync(clientId,
+            new FileRequestMsg(corr, tenantStr, new[] { new FileAction(FileActionKind.List, carpeta) }),
+            TimeSpan.FromSeconds(30), ct);
+        var r0 = res.Results.Count > 0 ? res.Results[0] : null;
+        if (r0 is null || !r0.Ok)
+        {
+            throw new InvalidOperationException(r0?.Error ?? res.Error ?? "List sin resultado.");
+        }
+        var regex = GlobToRegex(patron);
+        return (r0.Entries ?? Array.Empty<FileEntry>())
+            .Where(e => !e.IsDirectory && regex.IsMatch(e.Name))
+            .Select(e => e.Name)
+            .ToList();
+    }
+
+    /// <summary>Lee un archivo BINARIO remoto via sub-agente Archivos (ReadBytes -> base64) y lo decodifica.
+    /// Devuelve null si el agente reporta error (p.ej. archivo &gt; 5 MB o inexistente).</summary>
+    private async Task<byte[]?> AgentReadBytesAsync(
+        string clientId, string tenantStr, string rutaRemota, CancellationToken ct)
+    {
+        var corr = NewCorr();
+        var res = await fileChannel.ExecuteFilesAsync(clientId,
+            new FileRequestMsg(corr, tenantStr, new[] { new FileAction(FileActionKind.ReadBytes, rutaRemota) }),
+            TimeSpan.FromSeconds(90), ct);
+        var r0 = res.Results.Count > 0 ? res.Results[0] : null;
+        if (r0 is null || !r0.Ok || string.IsNullOrEmpty(r0.Value)) { return null; }
+        try { return Convert.FromBase64String(r0.Value); } catch { return null; }
+    }
+
+    /// <summary>Traduce un patron glob simple ("*.zip", "FA*.zip") a una Regex anclada e insensible a mayusculas.</summary>
+    private static System.Text.RegularExpressions.Regex GlobToRegex(string patron)
+    {
+        var escaped = System.Text.RegularExpressions.Regex.Escape(patron).Replace("\\*", ".*").Replace("\\?", ".");
+        return new System.Text.RegularExpressions.Regex("^" + escaped + "$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    }
+
     private sealed record IngestaNewtonConfig(
         string? UrlVar = "NEWTON_URL", string? TokenVar = "NEWTON_TOKEN",
         string? CarpetaVar = "RutaDescargaNewton", string? Carpeta = null,
@@ -706,7 +999,7 @@ public sealed class BrowserRunService(
     /// en el modulo (de eso se encarga ProcesarArchivos / una fase posterior).</summary>
     private async Task<StepRunResult> RunIngestaNewtonStepAsync(
         IApplicationDbContext db, Guid flowId, Guid tenantId, ScrapeStep step,
-        IReadOnlyDictionary<string, string> vars, CancellationToken ct)
+        IReadOnlyDictionary<string, string> vars, CancellationToken ct, Action<string>? live = null)
     {
         IngestaNewtonConfig cfg = new();
         if (!string.IsNullOrWhiteSpace(step.MappingJson))
@@ -829,6 +1122,7 @@ public sealed class BrowserRunService(
         {
             if (cfg.Max > 0 && i >= cfg.Max) { break; }
             i++;
+            live?.Invoke($"descargando {i}/{(cfg.Max > 0 ? Math.Min(total, cfg.Max) : total)}");
             if (doc.ValueKind == JsonValueKind.Object && doc.TryGetProperty("events", out var evsDiag)
                 && evsDiag.ValueKind == JsonValueKind.Array && evsDiag.GetArrayLength() > 0)
             {

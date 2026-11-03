@@ -54,6 +54,10 @@ public static class AgentChannel
         // runtime ejecuta el flujo paso a paso (singleton, corre en scopes propios). El orquestador del
         // paso de IA y la bitacora son scoped (usan DbContext).
         services.AddSingleton<IBrowserActionChannel, BrowserActionChannel>();
+        // Gemelo del canal del Navegador para el sub-agente Archivos: el paso "Procesar archivos" lo usa
+        // para listar/leer los ZIP de la carpeta de descargas cuando esta vive en la maquina del agente
+        // (Windows) y no en el servidor (Linux). Singleton por la misma razon (mantiene las esperas).
+        services.AddSingleton<IFileActionChannel, FileActionChannel>();
         // Bitacora transversal de actividad de los agentes colmena (ADR-0045, Ola 2). Singleton porque abre
         // su propio scope por escritura (se llama desde el background del runtime, sin scope de peticion).
         services.AddSingleton<IAgentActivityLog, AgentActivityLogWriter>();

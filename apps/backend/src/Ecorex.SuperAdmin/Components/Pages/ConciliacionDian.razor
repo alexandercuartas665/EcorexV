@@ -1827,6 +1827,10 @@ else
                                         <div class="cd-extrun-step">
                                             <span class="cd-extrun-step-badge @("st-" + st.Status)">@StepStatusLabel(st.Status)</span>
                                             <span class="cd-extrun-step-name">@st.Name</span>
+                                            @if (!string.IsNullOrEmpty(st.Detail))
+                                            {
+                                                <span class="cd-extrun-step-detail">@st.Detail</span>
+                                            }
                                         </div>
                                     }
                                 </div>
@@ -2025,7 +2029,7 @@ else
     private string? _extRunShotStep;                  // nombre del paso de esa captura
     private List<ExtRunFlowView> _extRunFlows = new();
     private sealed class ExtRunFlowView { public string Name = ""; public string Status = "pend"; public List<ExtRunStepView> Steps = new(); }
-    private sealed class ExtRunStepView { public string Name = ""; public string Status = "run"; }
+    private sealed class ExtRunStepView { public string Name = ""; public string Status = "run"; public string? Detail; }
 
     // ---- Integraciones con el sistema contable (envio de documentos via API del core VB.NET) ----
     // Se admiten VARIAS integraciones. Cada una mapea los parametros de la API a columnas de la parrilla.
@@ -3735,10 +3739,16 @@ else
                         while (f.Steps.Count <= p.StepIndex) { f.Steps.Add(new ExtRunStepView()); }
                         var st = f.Steps[p.StepIndex];
                         st.Name = p.StepName;
-                        if (!p.Done) { st.Status = "run"; }
+                        if (!p.Done)
+                        {
+                            st.Status = "run";
+                            // Progreso en vivo dentro del paso (p.ej. "procesando 3/15" / "descargando 7/42").
+                            if (!string.IsNullOrEmpty(p.Detail)) { st.Detail = p.Detail; }
+                        }
                         else
                         {
                             st.Status = p.Ok ? "ok" : "warn";
+                            st.Detail = null; // el badge ok/aviso ya lo resume; limpia el contador en vivo.
                             if (!string.IsNullOrEmpty(p.ScreenshotBase64)) { _extRunShot = p.ScreenshotBase64; _extRunShotStep = p.StepName; }
                         }
                         InvokeAsync(StateHasChanged);

@@ -24,13 +24,31 @@ public static class DianUblParser
         try
         {
             using var zip = ZipFile.OpenRead(zipPath);
-            var entry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
-            if (entry is null) { return null; }
-            using var s = entry.Open();
-            using var r = new StreamReader(s);
-            return ParseXml(r.ReadToEnd(), nuestroNit);
+            return ParseZipArchive(zip, nuestroNit);
         }
         catch { return null; }
+    }
+
+    /// <summary>Igual que <see cref="ParseZip"/> pero desde los BYTES del ZIP (no un path en disco). Lo usa
+    /// el paso "Procesar archivos" cuando el ZIP llega leido a traves del sub-agente Archivos.</summary>
+    public static DianDoc? ParseZipBytes(byte[] zipBytes, string nuestroNit)
+    {
+        try
+        {
+            using var ms = new MemoryStream(zipBytes, writable: false);
+            using var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+            return ParseZipArchive(zip, nuestroNit);
+        }
+        catch { return null; }
+    }
+
+    private static DianDoc? ParseZipArchive(System.IO.Compression.ZipArchive zip, string nuestroNit)
+    {
+        var entry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+        if (entry is null) { return null; }
+        using var s = entry.Open();
+        using var r = new StreamReader(s);
+        return ParseXml(r.ReadToEnd(), nuestroNit);
     }
 
     public static DianDoc? ParseXml(string xml, string nuestroNit)

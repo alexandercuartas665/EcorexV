@@ -17,14 +17,16 @@ public sealed class AgenteHub : Hub
     private readonly IAgentRegistry _registry;
     private readonly IAgentImportService _imports;
     private readonly IBrowserActionChannel _browserChannel;
+    private readonly IFileActionChannel _fileChannel;
     private readonly ILogger<AgenteHub> _log;
 
     public AgenteHub(IAgentRegistry registry, IAgentImportService imports,
-        IBrowserActionChannel browserChannel, ILogger<AgenteHub> log)
+        IBrowserActionChannel browserChannel, IFileActionChannel fileChannel, ILogger<AgenteHub> log)
     {
         _registry = registry;
         _imports = imports;
         _browserChannel = browserChannel;
+        _fileChannel = fileChannel;
         _log = log;
     }
 
@@ -132,6 +134,9 @@ public sealed class AgenteHub : Hub
             _log.LogInformation("[ARCHIVOS] corr={Corr} #{Idx} {Kind} ok={Ok} val={Val}{Entries} {Err}",
                 msg.CorrelationId, r.Index, r.Kind, r.Ok, value, entries, r.Ok ? "" : r.Error);
         }
+        // Resuelve la espera del canal de Archivos (el paso "Procesar archivos" que fetchea del agente).
+        // Si no hay espera para este correlationId, no hace nada.
+        _fileChannel.TryResolve(msg);
         return Task.CompletedTask;
     }
 

@@ -367,6 +367,8 @@
                                         <div class="xd-prop"><label>Variable destino (se inserta como &#123;&#123;NOMBRE&#125;&#125; en pasos siguientes)</label><input class="xd-input" placeholder="TOKEN" @bind="_sOtpVar" /></div>
                                         <div class="xd-prop"><label>Timeout de espera (seg)</label><input class="xd-input" type="number" @bind="_sOtpTimeout" /></div>
                                     </div>
+                                    <label class="xd-check"><input type="checkbox" @bind="_sOtpUrlDecode" /> Decodificar enlace (&amp;amp; &rarr; &amp;, %XX)</label>
+                                    <div class="xd-help">Actualo si el token es un ENLACE que llega HTML-escapado en el correo (p.ej. DIAN: <code>AuthToken?pk=..&amp;amp;rk=..</code>). Lo deja navegable. Para un OTP numerico, dejalo apagado.</div>
                                     <div class="xd-props-actions">
                                         <button class="xd-btn" @onclick="ProbarOtpAsync" disabled="@(_busy || string.IsNullOrEmpty(_sOtpMailbox))">@(_busy ? "Leyendo..." : "Probar lectura")</button>
                                     </div>
@@ -480,6 +482,17 @@
                                     }
                                 }
 
+                                @if (_sKind == ScrapeStepKind.ProcesarArchivos)
+                                {
+                                    <div class="xd-prop"><label>Carpeta de descargas (opcional; vacio = variable RutaDescargaBot)</label>
+                                        <input class="xd-input mono" placeholder="C:\descargas\dian" @bind="_paCarpeta" /></div>
+                                    <div class="xd-prop"><label class="xd-check"><input type="checkbox" @bind="_paAutoImportar" /> Auto-importar a la conciliacion del mes</label></div>
+                                    <div class="xd-prop"><label class="xd-check"><input type="checkbox" @bind="_paSubirBlob" /> Subir PDF/XML al gestor (blob) por CUFE</label></div>
+                                    <div class="xd-prop"><label class="xd-check"><input type="checkbox" @bind="_paMoverProcesados" /> Limpiar los procesados tras confirmar</label></div>
+                                    <div class="xd-prop"><label class="xd-check"><input type="checkbox" @bind="_paForzarViaAgente" /> Forzar lectura via agente (sub-agente Archivos)</label>
+                                        <div class="xd-help">Normalmente automatico: si el servidor NO ve la carpeta (prod Linux + agente Windows) lee los ZIP a traves del agente. Marca esto para PROBAR en dev con una sola maquina (app y agente en la misma PC). Requiere capacidad <code>Archivos</code> habilitada en la colmena y la carpeta en la allow-list (con prefijo <code>rw:</code> para poder limpiar).</div></div>
+                                }
+
                                 @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador)
                                 {
                                     <div class="xd-two">
@@ -540,7 +553,24 @@
                                     {
                                         <div class="xd-var-row">
                                             <span class="xd-var-name">@v.Name</span>
-                                            <span class="xd-var-value">@(v.IsSecret ? "********" : (v.HasValue ? "(con valor)" : "(vacia)"))</span>
+                                            @if (!v.IsSecret)
+                                            {
+                                                @* No secreta: el valor esta en texto plano, se muestra tal cual (modulo tecnico). *@
+                                                <span class="xd-var-value mono @(string.IsNullOrEmpty(v.Value) ? "empty" : "")">@(string.IsNullOrEmpty(v.Value) ? "(vacia)" : v.Value)</span>
+                                            }
+                                            else if (_revealed.TryGetValue(v.Id, out var rv))
+                                            {
+                                                @if (rv.Ok)
+                                                { <span class="xd-var-value mono">@(string.IsNullOrEmpty(rv.Value) ? "(vacia)" : rv.Value)</span> }
+                                                else
+                                                { <span class="xd-var-value err" title="@rv.Error">no se pudo descifrar</span> }
+                                                <button class="xd-icon-btn" title="Ocultar" @onclick="() => HideSecret(v.Id)">&#128584;</button>
+                                            }
+                                            else
+                                            {
+                                                <span class="xd-var-value">********</span>
+                                                <button class="xd-icon-btn" title="Ver valor" disabled="@_busy" @onclick="() => RevealSecretAsync(v.Id)">&#128065;</button>
+                                            }
                                             @if (v.IsSecret) { <span class="xd-lock" title="Secreta (cifrada)">&#128274;</span> }
                                             <button class="xd-icon-btn" title="Editar" @onclick="() => OpenVarEditorFor(v)">&#9998;</button>
                                             <button class="xd-icon-btn" title="Eliminar" @onclick="() => DeleteVariableAsync(v.Id)">&times;</button>
@@ -567,7 +597,7 @@
                                             <label>Valor</label>
                                             <input class="xd-input" type="@(_vSecret ? "password" : "text")" placeholder="@(_vEditId is null ? "" : "Dejar vacio para conservar el valor actual")" @bind="_vValue" />
                                         </div>
-                                        <label class="xd-check"><input type="checkbox" @bind="_vSecret" /> Secreta (se cifra y no se puede consultar)</label>
+                                        <label class="xd-check"><input type="checkbox" @bind="_vSecret" /> Secreta (se cifra; el valor se consulta con el boton Ver)</label>
                                         @if (_vEditId is not null)
                                         {
                                             <div style="font-size:11.5px;color:var(--ink-3);margin:2px 0 0;">Si cambias el tipo (secreta/no), reingresa el valor.</div>
@@ -743,6 +773,7 @@
     private string _sOtpRegex = @"\b(\d{4,8})\b";
     private string _sOtpVar = "TOKEN";
     private string _sOtpTimeout = "120";
+    private bool _sOtpUrlDecode;
     private OtpReadResult? _otpTest;
 
     // Paso "Ingesta NEWTON" (IngestaNewton): su config va serializada en MappingJson.
@@ -758,6 +789,16 @@
     private bool _nwReflejarEventos = true;
     private bool _nwSubirBlob = true;
 
+    // Paso "Procesar archivos descargados" (ProcesarArchivos): su config va serializada en MappingJson.
+    // _paCfg guarda la config COMPLETA cargada (para no perder las claves que la UI no muestra, p.ej. patron
+    // o tiempos de espera); la UI solo edita algunos campos y al guardar se hace `_paCfg with { ... }`.
+    private ProcArchStepConfig _paCfg = new();
+    private string _paCarpeta = "";
+    private bool _paMoverProcesados = true;
+    private bool _paSubirBlob = true;
+    private bool _paAutoImportar = true;
+    private bool _paForzarViaAgente;
+
     // Editor de variable
     private bool _showVarEditor;
     private Guid? _vEditId;
@@ -765,6 +806,8 @@
     private string _vName = "";
     private string _vValue = "";
     private bool _vSecret = true;
+    // Valores de secretas revelados bajo demanda (por variable). Se limpia al cambiar de flujo.
+    private readonly Dictionary<Guid, ScrapeSecretRevealDto> _revealed = new();
 
     private List<ScrapeFlowSummaryDto> FilteredFlows =>
         string.IsNullOrWhiteSpace(_search)
@@ -798,6 +841,7 @@
         _editHeader = false;
         _showStepEditor = false;
         _showVarEditor = false;
+        _revealed.Clear();
         _selected = await FlowSvc.GetAsync(id);
         if (_selected is not null)
         {
@@ -1094,7 +1138,7 @@
 
         // Paso "Leer token de correo": su config vive en MappingJson.
         _otpTest = null;
-        _sOtpMailbox = ""; _sOtpFrom = ""; _sOtpSubject = ""; _sOtpRegex = @"\b(\d{4,8})\b"; _sOtpVar = "TOKEN"; _sOtpTimeout = "120";
+        _sOtpMailbox = ""; _sOtpFrom = ""; _sOtpSubject = ""; _sOtpRegex = @"\b(\d{4,8})\b"; _sOtpVar = "TOKEN"; _sOtpTimeout = "120"; _sOtpUrlDecode = false;
         if (s?.Kind == ScrapeStepKind.LeerCorreoOtp && !string.IsNullOrWhiteSpace(s.MappingJson))
         {
             try
@@ -1108,6 +1152,7 @@
                     _sOtpRegex = string.IsNullOrWhiteSpace(cfg.Regex) ? _sOtpRegex : cfg.Regex!;
                     _sOtpVar = string.IsNullOrWhiteSpace(cfg.Variable) ? "TOKEN" : cfg.Variable!;
                     _sOtpTimeout = (cfg.TimeoutSeconds > 0 ? cfg.TimeoutSeconds : 120).ToString();
+                    _sOtpUrlDecode = cfg.UrlDecode;
                 }
             }
             catch { /* json viejo/otra cosa: se deja el default */ }
@@ -1136,14 +1181,45 @@
             }
             catch { /* json viejo/otra cosa: se deja el default */ }
         }
+
+        // Paso "Procesar archivos descargados": su config vive en MappingJson.
+        _paCfg = new();
+        _paCarpeta = ""; _paMoverProcesados = true; _paSubirBlob = true; _paAutoImportar = true; _paForzarViaAgente = false;
+        if (s?.Kind == ScrapeStepKind.ProcesarArchivos && !string.IsNullOrWhiteSpace(s.MappingJson))
+        {
+            try
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<ProcArchStepConfig>(s.MappingJson!,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (cfg is not null)
+                {
+                    _paCfg = cfg;
+                    _paCarpeta = cfg.Carpeta ?? "";
+                    _paMoverProcesados = cfg.MoverProcesados;
+                    _paSubirBlob = cfg.SubirABlob;
+                    _paAutoImportar = cfg.AutoImportar;
+                    _paForzarViaAgente = cfg.ForzarViaAgente;
+                }
+            }
+            catch { /* json viejo/otra cosa: se deja el default */ }
+        }
     }
 
-    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds);
+    private sealed record OtpStepConfig(Guid? MailboxId, string? From, string? Subject, string? Regex, string? Variable, int TimeoutSeconds, bool UrlDecode = false);
 
     private sealed record NewtonStepConfig(
         string? UrlVar = "NEWTON_URL", string? TokenVar = "NEWTON_TOKEN", string? CarpetaVar = "RutaDescargaNewton",
         string? Carpeta = null, int DiasAtras = 45, bool BajarXml = true, bool BajarPdf = true, int Max = 0,
         bool SoloNuevos = true, bool MarcarPlataforma = true, bool ReflejarEventos = true, bool SubirABlob = true);
+
+    // Espejo de la config server-side (BrowserRunService.ProcesarArchivosConfig). Incluye TODOS los campos
+    // para round-trip sin perder los que la UI no muestra (Patron, tiempos de espera, etc.).
+    private sealed record ProcArchStepConfig(
+        string? Carpeta = null, string? Patron = "*.zip", string? Formato = "DianUbl",
+        string? Destino = "ConciliacionBot", string? LlaveDedup = "CUFE",
+        bool AutoImportar = true, bool MoverProcesados = true,
+        int EsperarAsentarSegundos = 30, int GraciaInicialSegundos = 150, int MaxEsperaSegundos = 900,
+        bool SubirABlob = true, bool ForzarViaAgente = false);
 
     private async Task ProbarOtpAsync()
     {
@@ -1169,11 +1245,20 @@
                 ? System.Text.Json.JsonSerializer.Serialize(new OtpStepConfig(
                     ParseGuid(_sOtpMailbox), NullIfBlank(_sOtpFrom), NullIfBlank(_sOtpSubject),
                     string.IsNullOrWhiteSpace(_sOtpRegex) ? @"\b(\d{4,8})\b" : _sOtpRegex.Trim(),
-                    string.IsNullOrWhiteSpace(_sOtpVar) ? "TOKEN" : _sOtpVar.Trim(), ParseInt(_sOtpTimeout) ?? 120))
+                    string.IsNullOrWhiteSpace(_sOtpVar) ? "TOKEN" : _sOtpVar.Trim(), ParseInt(_sOtpTimeout) ?? 120, _sOtpUrlDecode))
                 : _sKind == ScrapeStepKind.IngestaNewton
                 ? System.Text.Json.JsonSerializer.Serialize(new NewtonStepConfig(
                     NullIfBlank(_nwUrlVar), NullIfBlank(_nwTokenVar), NullIfBlank(_nwCarpetaVar), null,
                     _nwDiasAtras, _nwBajarXml, _nwBajarPdf, _nwMax, _nwSoloNuevos, _nwMarcarPlataforma, _nwReflejarEventos, _nwSubirBlob))
+                : _sKind == ScrapeStepKind.ProcesarArchivos
+                ? System.Text.Json.JsonSerializer.Serialize(_paCfg with
+                {
+                    Carpeta = NullIfBlank(_paCarpeta),
+                    MoverProcesados = _paMoverProcesados,
+                    SubirABlob = _paSubirBlob,
+                    AutoImportar = _paAutoImportar,
+                    ForzarViaAgente = _paForzarViaAgente,
+                })
                 : NullIfBlank(_sMappingJson);
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,
@@ -1244,8 +1329,17 @@
         _varError = null;
         _vEditId = v.Id;
         _showVarEditor = true;
-        _vName = v.Name; _vValue = ""; _vSecret = v.IsSecret;
+        // No secreta: se prellena con su valor (texto plano). Secreta: vacio (se consulta/reescribe con Ver).
+        _vName = v.Name; _vValue = v.IsSecret ? "" : (v.Value ?? ""); _vSecret = v.IsSecret;
     }
+
+    private async Task RevealSecretAsync(Guid id)
+    {
+        var res = await FlowSvc.RevealVariableSecretAsync(id);
+        if (res is not null) { _revealed[id] = res; }
+    }
+
+    private void HideSecret(Guid id) => _revealed.Remove(id);
 
     private async Task SaveVariableAsync()
     {

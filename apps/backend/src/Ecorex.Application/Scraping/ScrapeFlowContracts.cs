@@ -52,13 +52,25 @@ public sealed record ScrapeStepDto(
 /// <summary>Una regla del tenant, para el selector del paso ENSAMBLADO (Ola 4).</summary>
 public sealed record ScrapeRuleOptionDto(Guid Id, string Label);
 
-/// <summary>Una variable. NUNCA lleva el valor: solo si tiene o no, y si es secreta.</summary>
+/// <summary>Una variable. <paramref name="Value"/> trae el valor EN CLARO solo de las NO secretas
+/// (se guardan en texto plano); en las secretas va null y se consulta aparte con
+/// <see cref="IScrapeFlowService.RevealVariableSecretAsync"/>. El modulo es administrativo (policy
+/// ExtraccionDatos.Editar, solo tecnicos), por eso se muestra el valor de las no secretas.</summary>
 public sealed record ScrapeVariableDto(
     Guid Id,
     Guid FlowId,
     string Name,
     bool HasValue,
-    bool IsSecret);
+    bool IsSecret,
+    string? Value);
+
+/// <summary>Resultado de pedir el valor en claro de una variable secreta (bajo demanda). Si
+/// <paramref name="Ok"/> es false, <paramref name="Error"/> explica por que (p.ej. cifrada con la
+/// llave de otro entorno -no desencripta-).</summary>
+public sealed record ScrapeSecretRevealDto(
+    bool Ok,
+    string? Value,
+    string? Error);
 
 /// <summary>Una tabla que un flujo puede usar como destino ("Modelo / Tabla"), para el selector.</summary>
 public sealed record ScrapeTargetDto(Guid Id, string Label);
@@ -191,4 +203,8 @@ public interface IScrapeFlowService
 
     Task<ScrapeVariableDto?> SaveVariableAsync(SaveScrapeVariableRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteVariableAsync(Guid variableId, Guid actorUserId, CancellationToken ct = default);
+    /// <summary>Devuelve el valor EN CLARO de una variable (bajo demanda, para el modulo tecnico).
+    /// Descifra las secretas; si la secreta se cifro con la llave de otro entorno no desencripta y
+    /// Ok=false con el motivo. Null si la variable no existe en el tenant.</summary>
+    Task<ScrapeSecretRevealDto?> RevealVariableSecretAsync(Guid variableId, CancellationToken ct = default);
 }

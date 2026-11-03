@@ -353,6 +353,25 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         return true;
     }
 
+    public async Task<ScrapeSecretRevealDto?> RevealVariableSecretAsync(Guid variableId, CancellationToken ct = default)
+    {
+        // Tenant-scoped por el filtro global. El valor en claro solo sale aqui, bajo demanda.
+        var v = await _db.ScrapeVariables.AsNoTracking().FirstOrDefaultAsync(x => x.Id == variableId, ct);
+        if (v is null) { return null; }
+        if (string.IsNullOrEmpty(v.ValueEncrypted)) { return new ScrapeSecretRevealDto(true, "", null); }
+        if (!v.IsSecret) { return new ScrapeSecretRevealDto(true, v.ValueEncrypted, null); }
+        try
+        {
+            return new ScrapeSecretRevealDto(true, _protector.Unprotect(v.ValueEncrypted), null);
+        }
+        catch
+        {
+            // Secreta cifrada con la llave de OTRO entorno (DataProtection es por entorno): no desencripta.
+            return new ScrapeSecretRevealDto(false, null,
+                "No se pudo descifrar: la secreta parece cifrada con la llave de otro entorno. Reingresa el valor aqui.");
+        }
+    }
+
     // ---- Helpers ----
 
     private static ScrapeStepDto MapStep(ScrapeStep s) => new(
@@ -361,8 +380,11 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         s.WarningLabel, s.WarningAction, s.OutputVar, s.LoopOverVar, s.IsLoopEnd, s.IngestPath,
         s.IngestKeyColumn, s.PageCountVar, s.IsPageNext, s.RuleId, s.RuleInputVar);
 
+    // El valor de las NO secretas se guarda en texto plano (ver SaveVariableAsync), asi que se puede
+    // mostrar tal cual. Las secretas van cifradas: aqui NO se devuelven, se piden con RevealVariableSecretAsync.
     private static ScrapeVariableDto MapVariable(ScrapeVariable v) =>
-        new(v.Id, v.FlowId, v.Name, !string.IsNullOrEmpty(v.ValueEncrypted), v.IsSecret);
+        new(v.Id, v.FlowId, v.Name, !string.IsNullOrEmpty(v.ValueEncrypted), v.IsSecret,
+            v.IsSecret ? null : v.ValueEncrypted);
 
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 }

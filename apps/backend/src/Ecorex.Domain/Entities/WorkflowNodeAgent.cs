@@ -47,6 +47,17 @@ public class WorkflowNodeAgent : TenantEntity
     public Guid? VoiceAiAgentId { get; set; }
     public AiAgent? VoiceAiAgent { get; set; }
 
+    /// <summary>Ola 2 (ADR-0142): LINEA de voz (numero saliente de /config-voz) desde la que se coloca la llamada.
+    /// FK a <see cref="RetellVoiceLine"/> (restrict, nullable). Null = la linea por defecto del tenant (el
+    /// comportamiento actual de PlaceCallAsync, que la elige sola). Espejo de <see cref="WhatsAppLineId"/>.</summary>
+    public Guid? VoiceLineId { get; set; }
+    public RetellVoiceLine? VoiceLine { get; set; }
+
+    /// <summary>Ola 2 (ADR-0142): canales que ESTE nodo permite usar al agente (flags Voz|WhatsApp|Web|Correo).
+    /// Null = todos los configurados permitidos (RETROCOMPATIBLE). Con valor, el gating de cada herramienta exige
+    /// que el canal este marcado AQUI ademas de tener su recurso configurado. Ver <see cref="WorkflowAgentChannel"/>.</summary>
+    public WorkflowAgentChannel? AllowedChannels { get; set; }
+
     // ---- ADR-0092: preguntar por WhatsApp para conseguir datos (pausa/reanudacion, como la llamada) ----
 
     /// <summary>Linea WhatsApp desde la que el agente puede usar 'preguntar_whatsapp'. FK a

@@ -113,10 +113,11 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         // de voz, Colmena para web o permiso de correo), NO se decide a ciegas: se corre un bucle de herramientas
         // y el prompt empuja a USAR el medio (preguntarle al cliente el dato que falta) antes de rendirse. Sin
         // ningun medio, la ruta de un solo tiro de abajo queda intacta (cero cambio para los flujos que ya corren).
-        var hasCommsMedium = context.Assignment?.WhatsAppLineId is not null
-            || (context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null)
-            || context.Assignment?.ColmenaClientId is not null
-            || context.Assignment?.CanSendEmail == true;
+        // Ola 2 (ADR-0142): cada medio requiere su recurso configurado Y que el canal este permitido en el nodo.
+        var hasCommsMedium = (context.Assignment?.WhatsAppLineId is not null && Allows(context.Assignment, WorkflowAgentChannel.WhatsApp))
+            || (context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null && Allows(context.Assignment, WorkflowAgentChannel.Voz))
+            || (context.Assignment?.ColmenaClientId is not null && Allows(context.Assignment, WorkflowAgentChannel.Web))
+            || (context.Assignment?.CanSendEmail == true && Allows(context.Assignment, WorkflowAgentChannel.Correo));
         if (hasCommsMedium)
         {
             return await RunDecisionWithToolsAsync(context, agent, providerCfg.BaseUrl, apiKey, model, cancellationToken, onProgress);
@@ -260,10 +261,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         WorkflowAgentContextDto context, Domain.Entities.AiAgent agent, string? baseUrl, string apiKey, string model,
         CancellationToken cancellationToken, Action<string, long>? onProgress = null)
     {
-        var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
-        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
-        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
-        var canSendEmail = context.Assignment?.CanSendEmail == true;
+        var canSearchWeb = context.Assignment?.ColmenaClientId is not null && Allows(context.Assignment, WorkflowAgentChannel.Web);
+        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null && Allows(context.Assignment, WorkflowAgentChannel.Voz);
+        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null && Allows(context.Assignment, WorkflowAgentChannel.WhatsApp);
+        var canSendEmail = context.Assignment?.CanSendEmail == true && Allows(context.Assignment, WorkflowAgentChannel.Correo);
 
         // Mismas specs de comunicacion que el llenado (sin las herramientas de formulario): no hay formulario que
         // ver/fijar/enviar; la decision viaja como texto JSON en el ultimo turno del modelo.
@@ -527,6 +528,11 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
 
     /// <summary>Herramientas de COMUNICACION para un nodo de decision/compuerta (ADR-0120): las mismas del
     /// llenado menos las de formulario. El medio disponible decide cuales se ofrecen.</summary>
+    /// <summary>Ola 2 (ADR-0142): el nodo permite ese canal. Null en el assignment (sin asignacion) = no permite;
+    /// AllowedChannels null = todos permitidos (retrocompatible). Centraliza el gating por canal.</summary>
+    private static bool Allows(WorkflowAgentAssignmentDto? assignment, WorkflowAgentChannel channel)
+        => assignment is not null && assignment.AllowsChannel(channel);
+
     private static IReadOnlyList<AiToolSpec> BuildDecisionTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
     {
         var tools = new List<AiToolSpec>();
@@ -625,15 +631,15 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         CancellationToken cancellationToken, Action<string, long>? onProgress = null)
     {
         var form = context.Node.Form!;
-        var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
+        var canSearchWeb = context.Assignment?.ColmenaClientId is not null && Allows(context.Assignment, WorkflowAgentChannel.Web);
         // Solo se ofrece llamar si hay agente de voz Y no venimos ya de una llamada (reanudacion): en la
-        // reanudacion el agente debe USAR el resultado y terminar, no encadenar otra llamada.
-        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
+        // reanudacion el agente debe USAR el resultado y terminar, no encadenar otra llamada. Ola 2: y si el canal Voz esta permitido.
+        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null && Allows(context.Assignment, WorkflowAgentChannel.Voz);
         // ADR-0092: WhatsApp SI se sigue ofreciendo en la reanudacion (es multi-turno: el agente puede
         // repreguntar si la respuesta no basta). El tope de preguntas lo pone el runner, no aqui.
-        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
+        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null && Allows(context.Assignment, WorkflowAgentChannel.WhatsApp);
         // ADR-0093: enviar correo (sincrono, sin pausa). Permiso explicito por nodo.
-        var canSendEmail = context.Assignment?.CanSendEmail == true;
+        var canSendEmail = context.Assignment?.CanSendEmail == true && Allows(context.Assignment, WorkflowAgentChannel.Correo);
         var tools = BuildFormTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
         var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);

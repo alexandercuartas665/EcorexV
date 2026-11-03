@@ -238,6 +238,9 @@ public interface IWorkflowDesignService
     /// <summary>Lineas WhatsApp del tenant para el selector de 'preguntar_whatsapp' del editor (ADR-0092).</summary>
     Task<IReadOnlyList<FlowWhatsAppLineDto>> ListWhatsAppLinesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Ola 2 (ADR-0142): lineas de voz del tenant para el selector de linea por nodo del editor.</summary>
+    Task<IReadOnlyList<FlowVoiceLineDto>> ListVoiceLinesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>ADR-0091/0092/0093: fija los RECURSOS del agente del nodo para conseguir datos y potenciarlo:
     /// cliente Colmena (+ perfil) para 'buscar_web', agente de voz para 'llamar_telefono', linea WhatsApp
     /// (+ plantilla) para 'preguntar_whatsapp', instrucciones por paso (prompt extra) y permiso de correo

@@ -115,7 +115,9 @@ public sealed record FlowNodeAgentDto(
     WorkflowAgentFailureAction OnFailure = WorkflowAgentFailureAction.ReturnToHuman,
     int FailureRetries = 0, string? FailureRoute = null,
     // Binding de parametros de la plantilla de frio + URL del archivo del header por nodo (al final: append-only).
-    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null);
+    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null,
+    // Ola 2 (ADR-0142): linea de voz del nodo (null = la por defecto) y canales permitidos (null = todos).
+    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null);
 
 /// <summary>ADR-0093: estado COMPLETO de los recursos del agente del nodo, para guardarlo de una en el modal
 /// (evita una firma con muchos parametros). Cada campo null/false = recurso deshabilitado.</summary>
@@ -126,7 +128,9 @@ public sealed record FlowNodeAgentResourcesInput(
     WorkflowAgentFailureAction OnFailure = WorkflowAgentFailureAction.ReturnToHuman,
     int FailureRetries = 0, string? FailureRoute = null,
     int? ColdWindowMinutes = null,
-    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null);
+    string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null,
+    // Ola 2 (ADR-0142): linea de voz del nodo (null = la por defecto) y canales permitidos (null = todos).
+    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null);
 
 /// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
 public sealed record FlowAgentCatalogItemDto(
@@ -137,3 +141,6 @@ public sealed record FlowColmenaClientDto(Guid Id, string Name, bool IsActive);
 
 /// <summary>Linea WhatsApp del tenant para el selector de "preguntar_whatsapp" del editor (ADR-0092).</summary>
 public sealed record FlowWhatsAppLineDto(Guid Id, string Name, bool Connected);
+
+/// <summary>Ola 2 (ADR-0142): linea de voz del tenant para el selector de linea por nodo del editor.</summary>
+public sealed record FlowVoiceLineDto(Guid Id, string Name, bool Enabled, bool IsDefault);

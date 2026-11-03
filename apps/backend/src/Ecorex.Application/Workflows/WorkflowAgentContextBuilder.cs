@@ -261,7 +261,8 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
                     x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
                     x.ColdWindowMinutes,
                     x.WhatsAppTemplateVarsJson, x.WhatsAppTemplateHeaderMediaUrl,
-                    x.ExtraPrompt, x.CanSendEmail))
+                    x.ExtraPrompt, x.CanSendEmail,
+                    x.VoiceLineId, x.AllowedChannels))
             .FirstOrDefaultAsync(cancellationToken);
 
     // ---- (d) Historial de pasos (se arma antes que (b): sus nodos nombran los envios previos) ----

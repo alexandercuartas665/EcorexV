@@ -2092,6 +2092,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
                 .HasForeignKey(x => x.ColmenaClientId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.VoiceAiAgent).WithMany()
                 .HasForeignKey(x => x.VoiceAiAgentId).OnDelete(DeleteBehavior.Restrict);
+            // Ola 2 (ADR-0142): linea de voz por nodo (numero saliente). Restrict: una linea en uso por un flujo
+            // se deshabilita, no se borra. AllowedChannels (flags int nullable) sin default: null = todos permitidos.
+            b.HasOne(x => x.VoiceLine).WithMany()
+                .HasForeignKey(x => x.VoiceLineId).OnDelete(DeleteBehavior.Restrict);
             // ADR-0092: linea WhatsApp + plantilla para 'preguntar_whatsapp'. Restrict: una linea en uso por
             // un flujo se desconecta, no se borra. Nombre/idioma de plantilla acotados.
             b.Property(x => x.WhatsAppTemplateName).HasMaxLength(200);

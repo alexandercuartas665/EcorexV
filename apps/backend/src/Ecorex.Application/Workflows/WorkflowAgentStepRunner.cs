@@ -542,7 +542,9 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             PromptExtra: callRequest.Objetivo,
             Objetivo: objetivo,
             FormulariosPermitidos: formIds,
-            ContactVariables: BuildContactVariables(context)), cancellationToken);
+            ContactVariables: BuildContactVariables(context),
+            // Ola 2 (ADR-0142): linea de voz del nodo. Null = la por defecto del tenant (comportamiento actual).
+            RetellVoiceLineId: context.Assignment?.VoiceLineId), cancellationToken);
 
         if (!placed.Placed || string.IsNullOrWhiteSpace(placed.CallId))
         {

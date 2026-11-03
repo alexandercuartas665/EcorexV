@@ -74,7 +74,15 @@ public sealed record WorkflowAgentAssignmentDto(
     // Binding de parametros de la plantilla de frio ({variable -> expresion}) + URL del archivo del header por nodo.
     string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null,
     // ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente) y permiso de correo.
-    string? ExtraPrompt = null, bool CanSendEmail = false);
+    string? ExtraPrompt = null, bool CanSendEmail = false,
+    // Ola 2 (ADR-0142): linea de voz del nodo (null = la por defecto del tenant) y canales permitidos
+    // (null = todos los configurados). AllowsChannel decide el gating de cada herramienta.
+    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null)
+{
+    /// <summary>Ola 2 (ADR-0142): el nodo permite ese canal (null = todos permitidos, retrocompatible).</summary>
+    public bool AllowsChannel(WorkflowAgentChannel channel)
+        => AllowedChannels is null || (AllowedChannels.Value & channel) != 0;
+}
 
 /// <summary>(a) El nodo actual y el formulario que el paso debe llenar, con sus campos.</summary>
 public sealed record WorkflowAgentNodeDto(

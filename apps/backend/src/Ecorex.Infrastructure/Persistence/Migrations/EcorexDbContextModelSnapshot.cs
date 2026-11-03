@@ -17808,6 +17808,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("ai_agent_id");
 
+                    b.Property<int?>("AllowedChannels")
+                        .HasColumnType("integer")
+                        .HasColumnName("allowed_channels");
+
                     b.Property<int>("Autonomy")
                         .HasColumnType("integer")
                         .HasColumnName("autonomy");
@@ -17881,6 +17885,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("voice_ai_agent_id");
 
+                    b.Property<Guid?>("VoiceLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voice_line_id");
+
                     b.Property<Guid?>("WhatsAppLineId")
                         .HasColumnType("uuid")
                         .HasColumnName("whats_app_line_id");
@@ -17918,6 +17926,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("VoiceAiAgentId")
                         .HasDatabaseName("ix_workflow_node_agents_voice_ai_agent_id");
+
+                    b.HasIndex("VoiceLineId")
+                        .HasDatabaseName("ix_workflow_node_agents_voice_line_id");
 
                     b.HasIndex("WhatsAppLineId")
                         .HasDatabaseName("ix_workflow_node_agents_whats_app_line_id");
@@ -20632,6 +20643,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_workflow_node_agents_ai_agents_voice_ai_agent_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.RetellVoiceLine", "VoiceLine")
+                        .WithMany()
+                        .HasForeignKey("VoiceLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_retell_voice_lines_voice_line_id");
+
                     b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", "WhatsAppLine")
                         .WithMany()
                         .HasForeignKey("WhatsAppLineId")
@@ -20645,6 +20662,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Node");
 
                     b.Navigation("VoiceAiAgent");
+
+                    b.Navigation("VoiceLine");
 
                     b.Navigation("WhatsAppLine");
                 });

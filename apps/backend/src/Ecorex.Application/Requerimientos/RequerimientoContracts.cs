@@ -226,6 +226,15 @@ public sealed record CotizarCandidatosResultado(
     IReadOnlyList<string> Avisos,
     IReadOnlyList<RfqDto> Rfqs);
 
+/// <summary>Ola F - un proveedor resuelto desde la MATRIZ para un producto: proveedor + su proceso de
+/// cotizacion (flujo/subcategoria). La regla mas especifica que aplica al producto puede traer VARIOS
+/// proveedores; el fan-out crea una RFQ candidata a cada uno y es el FLUJO de cada proceso quien envia.</summary>
+public sealed record ReglaProveedorResueltoDto(
+    Guid ProveedorId,
+    string ProveedorNombre,
+    Guid? SubcategoriaCotizacionId,
+    string? SubcategoriaNombre);
+
 /// <summary>Una entrada del ranking que devuelve el agente evaluador.</summary>
 public sealed record CotizacionRankItem(Guid ProveedorId, int Posicion, string Motivo);
 
@@ -326,6 +335,18 @@ public interface IRequerimientoService
     /// (Ola B); las respuestas caen todas en el MISMO comparador por clave de producto. Idempotente por
     /// (necesidad, proveedor) con RFQ abierta.</summary>
     Task<CotizarCandidatosResultado> CotizarCandidatosAsync(CotizarCandidatosRequest req, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    /// <summary>Ola F - resuelve, desde la MATRIZ de proveedores, los proveedores (con su proceso de cotizacion)
+    /// que aplican al PRODUCTO de la necesidad indicada: la regla mas especifica que aplica puede tener VARIOS
+    /// proveedores. Para pre-mostrar el fan-out en el planificador. Vacio si el producto no tiene item o no hay
+    /// regla que aplique.</summary>
+    Task<IReadOnlyList<ReglaProveedorResueltoDto>> GetProveedoresMatrizParaProductoAsync(Guid requerimientoId, CancellationToken ct = default);
+
+    /// <summary>Ola F - fan-out desde la matriz: crea una RFQ CANDIDATA (Ola E) a CADA proveedor de la regla mas
+    /// especifica que aplica al producto de la necesidad, usando el proceso de cotizacion de cada proveedor (si lo
+    /// tiene en la regla; si no, cae a la precedencia del modulo). Idempotente (omite proveedores con RFQ abierta).
+    /// El envio al proveedor lo hace el FLUJO de cada proceso (el modulo solo lo dispara al crear la tarea).</summary>
+    Task<CotizarCandidatosResultado> CotizarSegunMatrizAsync(Guid requerimientoId, Guid actorUserId, string actorName, CancellationToken ct = default);
 
     /// <summary>Lista las Solicitudes de Cotizacion (RFQ) recientes del tenant (numero, proveedor, estado,
     /// tarea portadora y lineas). Para ver lo cotizado desde el modulo.</summary>

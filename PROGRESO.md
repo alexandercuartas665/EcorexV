@@ -2,6 +2,51 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-03 - RFQ Ola F: matriz con N proveedores por regla + proceso de cotizacion por proveedor + cotizar a la matriz (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.246.
+- CONTEXTO: dos pedidos en uno. (1) En la Matriz de proveedores, una misma regla (condiciones por
+  marca/grupo/categoria/referencia) debe admitir VARIOS proveedores, y cada proveedor dentro de la regla
+  con SU PROPIO proceso de cotizacion. (2) Arrancar la Ola F: desde Planificar, "cotizar a la matriz"
+  hace fan-out automatico creando una RFQ candidata a TODOS los proveedores de la regla que gana.
+  CLAVE (restriccion del usuario): el ENVIO real al proveedor (voz/correo/WhatsApp) NO lo hace este modulo;
+  lo hace el FLUJO DE TRABAJO. El "proceso de cotizacion" de cada proveedor ES el flujo que envia: crear la
+  tarea portadora con esa subcategoria dispara el flujo. El modulo solo arma el fan-out y llama el flujo.
+- DECISIONES:
+  - Modelo de "regla con N proveedores" SIN migracion, consistente con el patron del modulo (side-car en
+    `TenantConfiguration`): una "regla" = GRUPO de filas `RequerimientoProveedorRegla` que comparten la misma
+    firma de condiciones (CondSig). Cada fila sigue siendo 1 proveedor + prioridad + vigencia + activo.
+  - El proceso por proveedor-en-regla se guarda en el side-car `requerimientos.matriz_ext` -> `ReglaExt.Proc`
+    (Guid de subcategoria como texto). No es child table ni columna nueva.
+  - Precedencia de proceso (extiende Ola D): proceso de la regla-proveedor (nuevo, gana) > producto >
+    matriz(proveedor tenant-wide, ProvCot) > origen > default del modulo.
+- HECHO:
+  - Contratos: `RequerimientoReglaDto` +`SubcategoriaCotizacionId`/`SubcategoriaNombre`; `SaveReglaRequest`
+    +`SubcategoriaCotizacionId`; nuevo `ReglaProveedorResueltoDto`; en `IRequerimientoService`:
+    `GetProveedoresMatrizParaProductoAsync` y `CotizarSegunMatrizAsync`.
+  - ConfigService: `ReglaExt.Proc`; `ListReglasAsync` resuelve nombre de la subcategoria; `SaveReglaAsync`
+    persiste `Proc` y conserva la fila si tiene Cond/Vig/Proc.
+  - Service: `CotizarCandidatosAsync` delega en `CotizarCandidatosCoreAsync(... procesoOverride ...)` nuevo
+    (precedencia con override por proveedor). `GetProveedoresMatrizParaProductoAsync`: aplica la matriz al
+    producto de la necesidad, elige la regla que mas condiciones cumple (desempate por prioridad) y devuelve
+    TODOS los proveedores de esa firma. `CotizarSegunMatrizAsync`: arma el override de proceso por proveedor
+    y hace fan-out candidato (reusa el core de la Ola E).
+  - UI (`RequerimientosCompra.razor`): editor de regla con selector "Proceso de cotizacion" (aclara que el
+    envio lo hace el flujo); la Matriz ahora agrupa por CondSig (1 tarjeta por regla) con "+ Agregar
+    proveedor" y tabla Proveedor | Proceso (envia el flujo) | Prioridad | Vigencia | Activo; en Planificar,
+    banner "Cotizar a la matriz (N)" cuando el producto cae en una regla.
+- VALIDADO E2E en 5265 (SKY, BD local copia de prod 5442/ecorex):
+  - Regla "Marca: ASUS" con 2 proveedores (INGETEL, Produvarios), Produvarios con proceso propio
+    "Cotizacion de equipos". Round-trip de config OK.
+  - Necesidad del item "PORTATIL ALTA GAMA GAMER ASUS" (marca ASUS) -> "Cotizar a la matriz (2)" ->
+    "Matriz: se crearon 2 RFQ de cotizacion."
+  - BD: RFQ-0008 (INGETEL, candidato, proceso "Contratacion" por fallback) y RFQ-0009 (Produvarios,
+    candidato, proceso "Cotizacion de equipos" por la regla); ambas con `requerimiento_compra_hijo_id=NULL`.
+  - Build Ecorex.sln 0 errores.
+- SIGUIENTE: rondas/plantillas de recordatorio de la Ola F y adjudicacion del candidato (asignar ganador al
+  hijo) a senal del usuario. El PROMPT de integracion a dev central acumula tambien la Ola F.
+- SIN deploy a prod (regla: OK por version). Push a `requerimiento_compras` (no al tronco).
+
 ## 2026-11-02 - RFQ Ola E: multi-candidato (1 producto -> N proveedores) + panel de estado RFQ (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario.

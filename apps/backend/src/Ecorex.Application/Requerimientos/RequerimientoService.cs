@@ -782,20 +782,28 @@ public sealed class RequerimientoService : IRequerimientoService
         return new CotizarPorProveedorResultado(true, null, creadas.Count, totalLineas, omitidas, avisos, creadas);
     }
 
-    public async Task<CotizarCandidatosResultado> CotizarCandidatosAsync(
+    public Task<CotizarCandidatosResultado> CotizarCandidatosAsync(
         CotizarCandidatosRequest req, Guid actorUserId, string actorName, CancellationToken ct = default)
+        => CotizarCandidatosCoreAsync(req.RequerimientoId, req.ProveedorIds, req.Cantidad, null, actorUserId, actorName, ct);
+
+    // Nucleo del multi-candidato (Ola E) con un override opcional de proceso de cotizacion POR PROVEEDOR
+    // (Ola F / matriz): si procesoOverride trae una subcategoria para el proveedor, esa GANA sobre toda la
+    // precedencia del modulo (producto > proveedor global > origen > default). Lo usa el fan-out de la matriz.
+    private async Task<CotizarCandidatosResultado> CotizarCandidatosCoreAsync(
+        Guid requerimientoId, IReadOnlyList<Guid> proveedorIds, decimal? cantidadReq,
+        IReadOnlyDictionary<Guid, Guid>? procesoOverride, Guid actorUserId, string actorName, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tid)
         {
             return new CotizarCandidatosResultado(false, "Sin tenant en contexto.", 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
         }
-        var provIds = (req.ProveedorIds ?? Array.Empty<Guid>()).Where(p => p != Guid.Empty).Distinct().ToList();
+        var provIds = (proveedorIds ?? Array.Empty<Guid>()).Where(p => p != Guid.Empty).Distinct().ToList();
         if (provIds.Count == 0)
         {
             return new CotizarCandidatosResultado(false, "Elige al menos un proveedor candidato.", 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
         }
 
-        var padre = await _db.RequerimientosCompra.AsNoTracking().FirstOrDefaultAsync(r => r.Id == req.RequerimientoId, ct);
+        var padre = await _db.RequerimientosCompra.AsNoTracking().FirstOrDefaultAsync(r => r.Id == requerimientoId, ct);
         if (padre is null)
         {
             return new CotizarCandidatosResultado(false, "La necesidad no existe.", 0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
@@ -806,7 +814,7 @@ public sealed class RequerimientoService : IRequerimientoService
         var planificado = await _db.RequerimientoCompraHijos.Where(h => h.RequerimientoId == padre.Id)
             .SumAsync(h => (decimal?)h.Cantidad, ct) ?? 0m;
         var pendiente = padre.Cantidad - planificado;
-        var cantidad = req.Cantidad is decimal c && c > 0 ? c : (pendiente > 0 ? pendiente : padre.Cantidad);
+        var cantidad = cantidadReq is decimal c && c > 0 ? c : (pendiente > 0 ? pendiente : padre.Cantidad);
 
         // Proceso de cotizacion del ORIGEN de la necesidad (capa 3 de la precedencia de la Ola D).
         Guid? origenSubcat = null;
@@ -860,9 +868,11 @@ public sealed class RequerimientoService : IRequerimientoService
                 continue;
             }
 
-            // Precedencia (Ola D): producto > matriz(proveedor) > origen > default del modulo.
+            // Precedencia: override de la regla-matriz (Ola F, por proveedor) > producto > proveedor global >
+            // origen > default del modulo (Ola D).
             Guid? subcategoriaId =
-                (prodProceso.TryGetValue(clave, out var pc) ? pc : (Guid?)null)
+                (procesoOverride is not null && procesoOverride.TryGetValue(provId, out var ov) ? (Guid?)ov : null)
+                ?? (prodProceso.TryGetValue(clave, out var pc) ? pc : (Guid?)null)
                 ?? (provProceso.TryGetValue(provId, out var mp) ? mp : (Guid?)null)
                 ?? origenSubcat
                 ?? cotDefault;
@@ -943,6 +953,59 @@ public sealed class RequerimientoService : IRequerimientoService
         }
 
         return new CotizarCandidatosResultado(true, null, creadas.Count, omitidas, avisos, creadas);
+    }
+
+    // ==================== Ola F: fan-out desde la MATRIZ ====================
+    // Resuelve los proveedores de la regla MAS ESPECIFICA que aplica al producto de la necesidad. Una regla
+    // (mismo juego de condiciones) puede tener VARIAS filas, una por proveedor, cada una con su proceso de
+    // cotizacion. Devuelve todos los proveedores de esa regla (deduplicados; si un proveedor aparece en 2 filas
+    // del mismo juego, gana la de menor prioridad y conserva su proceso si lo tiene).
+    public async Task<IReadOnlyList<ReglaProveedorResueltoDto>> GetProveedoresMatrizParaProductoAsync(
+        Guid requerimientoId, CancellationToken ct = default)
+    {
+        var vacio = (IReadOnlyList<ReglaProveedorResueltoDto>)Array.Empty<ReglaProveedorResueltoDto>();
+        var padre = await _db.RequerimientosCompra.AsNoTracking().FirstOrDefaultAsync(r => r.Id == requerimientoId, ct);
+        if (padre?.ItemId is not Guid itemId) { return vacio; }  // la matriz resuelve por dimensiones del item del catalogo
+        var itemDims = await ItemDimValuesAsync(itemId, ct);
+        if (itemDims is null) { return vacio; }
+
+        var reglas = await _config.ListReglasAsync(ct);
+        var aplicables = reglas.Where(r => r.Activo && ReglaAplica(r, itemDims)).ToList();
+        if (aplicables.Count == 0) { return vacio; }
+
+        // Firma del juego de condiciones (para agrupar las filas de UNA misma regla).
+        static string Sig(RequerimientoReglaDto r) => string.Join("|",
+            r.Condiciones.OrderBy(c => c.Dimension).ThenBy(c => c.Valor, StringComparer.OrdinalIgnoreCase)
+                .Select(c => $"{c.Dimension}:{c.Valor}"));
+        // Regla ganadora = mas condiciones (mas especifica), a igualdad menor prioridad.
+        var mejor = aplicables.OrderByDescending(r => r.Condiciones.Count).ThenBy(r => r.Prioridad).First();
+        var sigGana = Sig(mejor);
+
+        var result = new List<ReglaProveedorResueltoDto>();
+        var vistos = new HashSet<Guid>();
+        foreach (var r in aplicables.Where(r => Sig(r) == sigGana).OrderBy(r => r.Prioridad))
+        {
+            if (!vistos.Add(r.ProveedorId)) { continue; }
+            result.Add(new ReglaProveedorResueltoDto(
+                r.ProveedorId, r.ProveedorNombre ?? "(proveedor)", r.SubcategoriaCotizacionId, r.SubcategoriaNombre));
+        }
+        return result;
+    }
+
+    public async Task<CotizarCandidatosResultado> CotizarSegunMatrizAsync(
+        Guid requerimientoId, Guid actorUserId, string actorName, CancellationToken ct = default)
+    {
+        var provs = await GetProveedoresMatrizParaProductoAsync(requerimientoId, ct);
+        if (provs.Count == 0)
+        {
+            return new CotizarCandidatosResultado(false,
+                "El producto no tiene una regla de la matriz con proveedores que aplique (requiere un item del catalogo con marca/grupo/etc. y una regla configurada).",
+                0, 0, Array.Empty<string>(), Array.Empty<RfqDto>());
+        }
+        var procesoOverride = provs.Where(p => p.SubcategoriaCotizacionId is Guid)
+            .ToDictionary(p => p.ProveedorId, p => p.SubcategoriaCotizacionId!.Value);
+        return await CotizarCandidatosCoreAsync(requerimientoId, provs.Select(p => p.ProveedorId).ToList(),
+            null, procesoOverride, actorUserId, actorName, ct);
     }
 
     // Ola B: siembra (o reusa) el borrador del formulario de cotizacion del proveedor, con una fila por linea.

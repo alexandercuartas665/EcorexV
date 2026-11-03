@@ -975,6 +975,15 @@ else
                             <button class="btn btn-outline-primary btn-sm" @onclick="ToggleCandidatos" disabled="@_busy">@(_showCandidatos ? "Ocultar" : "Elegir candidatos")</button>
                         </div>
                         <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin:4px 0 8px;">Pide el MISMO producto a varios proveedores a la vez (1 RFQ por proveedor, sin comprometer distribucion). Las respuestas caen en el comparador de arriba; al final adjudicas aqui asignando el proveedor/precio ganador al hijo.</div>
+                        @if (_matrizProvs.Count > 0)
+                        {
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--brand-soft,#eef2ff);border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+                                <div style="flex:1;min-width:200px;font-size:12px;color:var(--ink-2,#4b5563);">
+                                    <strong>Matriz:</strong> @(_matrizProvs.Count) proveedor(es) para este producto (@string.Join(", ", _matrizProvs.Select(p => p.ProveedorNombre))). El envio lo hace el flujo de cada proceso.
+                                </div>
+                                <button class="btn btn-primary btn-sm" @onclick="CotizarMatrizAsync" disabled="@_busy" title="Crea una RFQ candidata a CADA proveedor de la regla de la matriz; cada flujo de cotizacion envia por su canal.">Cotizar a la matriz (@_matrizProvs.Count)</button>
+                            </div>
+                        }
                         @if (_showCandidatos)
                         {
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -1160,40 +1169,25 @@ else
                     else
                     {
                         <div style="display:flex;flex-direction:column;gap:12px;">
-                            @foreach (var grp in _cfgReglas.GroupBy(r => r.ProveedorId))
+                            @foreach (var grp in _cfgReglas.GroupBy(CondSig))
                             {
-                                var provId = grp.Key;
-                                var provNom = grp.First().ProveedorNombre ?? "(proveedor)";
+                                var first = grp.First();
+                                var baseRule = first;
                                 <div style="border:1px solid var(--line-2,#e5e7eb);border-radius:10px;overflow:hidden;">
                                     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px;background:var(--surface-2,#f8fafc);border-bottom:1px solid var(--line,#f1f5f9);">
-                                        <strong style="font-size:13px;flex:1;min-width:150px;">@provNom</strong>
-                                        <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2,#4b5563);">Dias que sostiene una cotizacion
-                                            <input type="number" min="0" step="1" style="width:68px;height:28px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;font-size:12.5px;" placeholder="-"
-                                                   value="@(_cfgProvVigEdit.TryGetValue(provId, out var pv) ? pv : "")"
-                                                   @onchange="e => _cfgProvVigEdit[provId] = e.Value?.ToString() ?? string.Empty" />
-                                            <button class="btn btn-link btn-sm" style="padding:0;" @onclick="() => SaveProvVigenciaAsync(provId)" disabled="@_busy">Guardar</button>
-                                        </span>
-                                        <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2,#4b5563);" title="Flujo/subcategoria que corre la RFQ de este proveedor; gana sobre el origen y el default del modulo, y lo supera lo fijado por producto en Planificar.">Proceso de cotizacion
-                                            <select class="form-select form-select-sm" style="width:200px;height:28px;padding:0 8px;font-size:12.5px;"
-                                                    value="@(_cfgProvProcEdit.TryGetValue(provId, out var pp) ? pp : "")"
-                                                    @onchange="e => SaveProvProcesoAsync(provId, e.Value?.ToString())">
-                                                <option value="">(del origen / default)</option>
-                                                @foreach (var s in _subcats)
-                                                {
-                                                    <option value="@s.Id">@s.Nombre</option>
-                                                }
-                                            </select>
-                                        </span>
-                                        <span style="font-size:11.5px;color:var(--ink-3,#6b7280);">@grp.Count() regla(s)</span>
+                                        <strong style="font-size:13px;flex:1;min-width:150px;">@CondicionesTexto(first)</strong>
+                                        <span style="font-size:11.5px;color:var(--ink-3,#6b7280);">@grp.Count() proveedor(es)</span>
+                                        <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenCfgReglaAddProv(baseRule)" disabled="@_busy" title="Agregar otro proveedor a esta misma regla (mismas condiciones)">+ Agregar proveedor</button>
                                     </div>
                                     <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-                                        <thead><tr style="text-align:left;color:var(--ink-3,#6b7280);"><th style="padding:6px 12px;font-weight:600;">Condiciones (AND)</th><th style="padding:6px 12px;font-weight:600;">Prioridad</th><th style="padding:6px 12px;font-weight:600;">Vigencia</th><th style="padding:6px 12px;font-weight:600;">Activo</th><th></th></tr></thead>
+                                        <thead><tr style="text-align:left;color:var(--ink-3,#6b7280);"><th style="padding:6px 12px;font-weight:600;">Proveedor</th><th style="padding:6px 12px;font-weight:600;">Proceso de cotizacion (envia el flujo)</th><th style="padding:6px 12px;font-weight:600;">Prioridad</th><th style="padding:6px 12px;font-weight:600;">Vigencia</th><th style="padding:6px 12px;font-weight:600;">Activo</th><th></th></tr></thead>
                                         <tbody>
                                             @foreach (var r in grp.OrderBy(x => x.Prioridad))
                                             {
                                                 var rr = r;
                                                 <tr style="border-top:1px solid var(--line,#f1f5f9);">
-                                                    <td style="padding:7px 12px;">@CondicionesTexto(rr)@(rr.Aprendida ? " (aprendida)" : "")</td>
+                                                    <td style="padding:7px 12px;font-weight:600;">@(rr.ProveedorNombre ?? "(proveedor)")@(rr.Aprendida ? " (aprendida)" : "")</td>
+                                                    <td style="padding:7px 12px;">@(rr.SubcategoriaNombre ?? "(precedencia del modulo)")</td>
                                                     <td style="padding:7px 12px;">@rr.Prioridad</td>
                                                     <td style="padding:7px 12px;">@(rr.VigenciaDias is int vd ? $"{vd} d" : "(del proveedor)")</td>
                                                     <td style="padding:7px 12px;">@(rr.Activo ? "Si" : "No")</td>
@@ -1345,6 +1339,12 @@ else
                     </div>
                 }
 
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);" title="Flujo/subcategoria que corre (y ENVIA) la RFQ de ESTE proveedor. El envio al proveedor lo hace el flujo; aqui solo eliges cual. Gana sobre el proceso por producto, el del proveedor global, el del origen y el default del modulo.">Proceso de cotizacion (RFQ) de este proveedor
+                    <select class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgrProceso">
+                        <option value="">(usar la precedencia del modulo)</option>
+                        @foreach (var s in _subcats) { <option value="@s.Id">@s.Nombre</option> }
+                    </select>
+                </label>
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Dias que sostiene la cotizacion (vigencia de esta regla; gana sobre la del proveedor)
                     <input type="number" min="0" step="1" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="(vacio = usar la del proveedor)" @bind="_cfgrVigencia" />
                 </label>
@@ -1614,6 +1614,8 @@ else
     private int? _cfgrVigencia;
     private int _cfgrPrioridad = 100;
     private bool _cfgrActivo = true;
+    // Ola F: proceso de cotizacion (subcategoria) de este proveedor-en-regla.
+    private string _cfgrProceso = "";
     // Vigencia default por proveedor (matriz agrupada) + edicion en linea.
     private Dictionary<Guid, int> _cfgProvVig = new();
     private Dictionary<Guid, string> _cfgProvVigEdit = new();
@@ -1632,6 +1634,8 @@ else
     private string _candCantidad = "";
     private List<(Guid Id, string Nombre)> _candSel = new();
     private List<RfqDto> _rfqsProducto = new();
+    // Ola F: proveedores que la MATRIZ resuelve para el producto abierto (para el fan-out de un clic).
+    private List<ReglaProveedorResueltoDto> _matrizProvs = new();
 
     // Clave de consolidacion del grupo abierto (para recalcular el grupo tras un "Dividir").
     private string _pgKey = "";
@@ -2223,6 +2227,7 @@ else
         _cfgrPrioridad = r?.Prioridad ?? 100;
         _cfgrActivo = r?.Activo ?? true;
         _cfgrVigencia = r?.VigenciaDias;
+        _cfgrProceso = r?.SubcategoriaCotizacionId?.ToString() ?? "";
         _cfgrProveedor = r?.ProveedorId.ToString() ?? "";
         _cfgrProvNombre = r?.ProveedorNombre ?? "";
         _cfgrCond = r is { Condiciones.Count: > 0 }
@@ -2232,6 +2237,30 @@ else
         _cfgrContactos = Guid.TryParse(_cfgrProveedor, out var pid) ? (await Svc.ListContactosAsync(pid)).ToList() : new();
         _cfgShowRegla = true;
     }
+
+    // Ola F: agrega OTRO proveedor a una regla existente = alta nueva con las MISMAS condiciones, proveedor vacio.
+    private async Task OpenCfgReglaAddProv(RequerimientoReglaDto baseRule)
+    {
+        _cfgrError = null;
+        _cfgrId = null;                       // alta: nueva fila-regla con el mismo juego de condiciones
+        _cfgrPrioridad = 100;
+        _cfgrActivo = true;
+        _cfgrVigencia = null;
+        _cfgrProceso = "";
+        _cfgrProveedor = "";
+        _cfgrProvNombre = "";
+        _cfgrContactos = new();
+        _cfgrCond = baseRule.Condiciones.Count > 0
+            ? baseRule.Condiciones.Select(c => new CondEdit { Dim = c.Dimension, Valor = c.Valor }).ToList()
+            : new() { new CondEdit() };
+        foreach (var c in _cfgrCond) { await EnsureDimValoresAsync(c.Dim); }
+        _cfgShowRegla = true;
+    }
+
+    // Firma del juego de condiciones de una regla (para agrupar las filas de UNA misma regla en la matriz).
+    private static string CondSig(RequerimientoReglaDto r) => string.Join("|",
+        r.Condiciones.OrderBy(c => c.Dimension).ThenBy(c => c.Valor, StringComparer.OrdinalIgnoreCase)
+            .Select(c => $"{c.Dimension}:{c.Valor}"));
 
     private async Task AddCfgCond()
     {
@@ -2284,7 +2313,8 @@ else
         _busy = true;
         try
         {
-            var req = new SaveReglaRequest(_cfgrId, cond, provId, _cfgrPrioridad, _cfgrActivo, _cfgrVigencia);
+            var proc = Guid.TryParse(_cfgrProceso, out var pg) ? (Guid?)pg : null;
+            var req = new SaveReglaRequest(_cfgrId, cond, provId, _cfgrPrioridad, _cfgrActivo, _cfgrVigencia, proc);
             var saved = await ConfigSvc.SaveReglaAsync(req);
             if (saved is null) { _cfgrError = "No se pudo guardar."; return; }
             _cfgShowRegla = false;
@@ -2388,6 +2418,28 @@ else
         _candCantidad = "";
         _candSel = new();
         _rfqsProducto = new();
+        _matrizProvs = new();
+    }
+
+    // Ola F: fan-out desde la matriz - crea una RFQ candidata a CADA proveedor de la regla (su proceso lo
+    // corre y ENVIA el flujo). Un clic. Omite los que ya tienen RFQ abierta (idempotente).
+    private async Task CotizarMatrizAsync()
+    {
+        _busy = true;
+        _planError = null;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.CotizarSegunMatrizAsync(_planReqId, actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo cotizar segun la matriz."; return; }
+            var avisos = res.Avisos.Count > 0 ? " | " + string.Join(" | ", res.Avisos) : "";
+            _msg = $"Matriz: se crearon {res.RfqCreados} RFQ de cotizacion" +
+                   (res.Omitidas > 0 ? $" ({res.Omitidas} omitidas, ya existian)." : ".") + avisos;
+            await LoadRfqsProductoAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
     }
 
     private async Task EnviarCandidatosAsync()
@@ -2420,6 +2472,8 @@ else
     {
         try { _rfqsProducto = (await Svc.ListRfqPorProductoAsync(_planItemId, _planDescripcion)).ToList(); }
         catch { _rfqsProducto = new(); }
+        try { _matrizProvs = (await Svc.GetProveedoresMatrizParaProductoAsync(_planReqId)).ToList(); }
+        catch { _matrizProvs = new(); }
     }
 
     private static string RfqEstadoLabel(RfqEstado e) => e switch

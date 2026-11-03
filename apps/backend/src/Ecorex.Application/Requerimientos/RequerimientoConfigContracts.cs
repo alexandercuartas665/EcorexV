@@ -52,17 +52,24 @@ public sealed record RequerimientoReglaDto(
     bool Aprendida,
     bool Activo,
     IReadOnlyList<ReglaCondicionResueltaDto> Condiciones,
-    int? VigenciaDias);
+    int? VigenciaDias,
+    // Proceso de cotizacion (flujo/subcategoria) de ESTE proveedor dentro de la regla. Null = usa la
+    // precedencia del modulo (producto > proveedor global > origen > default). Una misma regla (mismo juego
+    // de condiciones) puede tener VARIOS proveedores, cada uno su proceso: una fila por proveedor.
+    Guid? SubcategoriaCotizacionId = null,
+    string? SubcategoriaNombre = null);
 
 /// <summary>Alta/edicion de una regla de la matriz. Id null = alta. <see cref="Condiciones"/> debe traer al
-/// menos una (AND entre todas). <see cref="VigenciaDias"/> null = hereda del proveedor.</summary>
+/// menos una (AND entre todas). <see cref="VigenciaDias"/> null = hereda del proveedor.
+/// <see cref="SubcategoriaCotizacionId"/> = proceso de cotizacion de ESTE proveedor en la regla (null = default).</summary>
 public sealed record SaveReglaRequest(
     Guid? Id,
     IReadOnlyList<ReglaCondicion> Condiciones,
     Guid ProveedorId,
     int Prioridad,
     bool Activo,
-    int? VigenciaDias);
+    int? VigenciaDias,
+    Guid? SubcategoriaCotizacionId = null);
 
 /// <summary>Dias de vigencia de cotizacion por proveedor (default del proveedor; una regla puede sobreescribirlo).</summary>
 public sealed record ProveedorVigenciaDto(Guid ProveedorId, int? VigenciaDias);

@@ -214,6 +214,9 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         // Condiciones EXTRA (ademas de la primaria que vive en la entidad): [dimensionName, valorGuid].
         public List<string[]> Cond { get; set; } = new();
         public int? Vig { get; set; }
+        // Ola F: proceso de cotizacion (subcategoria Guid como texto) del proveedor de ESTA fila-regla; null =
+        // usa la precedencia del modulo. Una regla = varias filas (una por proveedor), cada una con su Proc.
+        public string? Proc { get; set; }
     }
 
     private async Task<MatrizExt> LoadExtAsync(CancellationToken ct)
@@ -249,6 +252,9 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         var provs = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
             .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
 
+        // Nombres de los procesos de cotizacion (subcategorias) por fila-regla (Ola F).
+        var (subNombres, _) = await NombresAsync(ct);
+
         // Todas las condiciones (primaria + extras) por dimension, para resolver nombres en lote.
         var pares = new HashSet<(RequerimientoDimension, string)>();
         foreach (var r in reglas)
@@ -278,6 +284,7 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         {
             var cond = new List<ReglaCondicionResueltaDto> { new(r.Dimension, r.ValorDimension, Nom(r.Dimension, r.ValorDimension)) };
             int? vig = null;
+            Guid? proc = null;
             if (ext.Reglas.TryGetValue(r.Id.ToString(), out var re))
             {
                 foreach (var c in re.Cond)
@@ -285,11 +292,13 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
                     if (c.Length == 2) { var d = ParseDim(c[0]); cond.Add(new(d, c[1], Nom(d, c[1]))); }
                 }
                 vig = re.Vig;
+                if (Guid.TryParse(re.Proc, out var pg)) { proc = pg; }
             }
             return new RequerimientoReglaDto(
                 r.Id, r.Dimension, r.ValorDimension, Nom(r.Dimension, r.ValorDimension),
                 r.ProveedorId, provs.TryGetValue(r.ProveedorId, out var pn) ? pn : null,
-                r.Prioridad, r.Aprendida, r.Activo, cond, vig);
+                r.Prioridad, r.Aprendida, r.Activo, cond, vig,
+                proc, proc is Guid pc && subNombres.TryGetValue(pc, out var scn) ? scn : null);
         }).ToList();
     }
 
@@ -327,9 +336,10 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         var re = new ReglaExt
         {
             Cond = cond.Skip(1).Select(c => new[] { c.Dimension.ToString(), c.Valor }).ToList(),
-            Vig = req.VigenciaDias
+            Vig = req.VigenciaDias,
+            Proc = req.SubcategoriaCotizacionId is Guid sc && sc != Guid.Empty ? sc.ToString() : null
         };
-        if (re.Cond.Count == 0 && re.Vig is null) { ext.Reglas.Remove(entity.Id.ToString()); }
+        if (re.Cond.Count == 0 && re.Vig is null && re.Proc is null) { ext.Reglas.Remove(entity.Id.ToString()); }
         else { ext.Reglas[entity.Id.ToString()] = re; }
         await PersistExtAsync(ext, tenantId, ct);
 

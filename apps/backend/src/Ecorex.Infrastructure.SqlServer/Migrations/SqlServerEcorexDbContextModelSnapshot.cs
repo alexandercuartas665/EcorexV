@@ -16736,6 +16736,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DisconnectionReason")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("disconnection_reason");
+
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("int")
                         .HasColumnName("duration_seconds");
@@ -17821,6 +17825,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("autonomy");
 
+                    b.Property<int?>("CallWindowEndHour")
+                        .HasColumnType("int")
+                        .HasColumnName("call_window_end_hour");
+
+                    b.Property<int?>("CallWindowStartHour")
+                        .HasColumnType("int")
+                        .HasColumnName("call_window_start_hour");
+
                     b.Property<bool>("CanSendEmail")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -17864,6 +17876,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(64)")
                         .HasColumnName("failure_route");
 
+                    b.Property<int?>("MaxVoiceCalls")
+                        .HasColumnType("int")
+                        .HasColumnName("max_voice_calls");
+
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("node_id");
@@ -17893,6 +17909,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("VoiceLineId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("voice_line_id");
+
+                    b.Property<int?>("VoiceRetryMinutes")
+                        .HasColumnType("int")
+                        .HasColumnName("voice_retry_minutes");
 
                     b.Property<Guid?>("WhatsAppLineId")
                         .HasColumnType("uniqueidentifier")
@@ -18326,6 +18346,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
+
+                    b.Property<int>("VoiceCallCount")
+                        .HasColumnType("int")
+                        .HasColumnName("voice_call_count");
 
                     b.Property<DateTimeOffset?>("WhatsAppAnsweredInboundAt")
                         .HasColumnType("datetimeoffset")

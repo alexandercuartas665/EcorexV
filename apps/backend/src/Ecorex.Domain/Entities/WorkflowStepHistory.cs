@@ -95,6 +95,14 @@ public class WorkflowStepHistory : TenantEntity
     public string? PendingVoiceCallId { get; set; }
 
     /// <summary>
+    /// Ola 3 (ADR-0142): cuantas llamadas de VOZ se han colocado en este paso (incluida la primera). La politica
+    /// de auto-reintento del runner la compara con <see cref="WorkflowNodeAgent.MaxVoiceCalls"/> para decidir si
+    /// vuelve a llamar "sin contacto" o si ya agoto la voz (y cae al agente/WhatsApp/OnFailure). Se incrementa en
+    /// cada colocacion de llamada. Sobrevive a las reanudaciones (misma fila del paso). 0 = aun no ha llamado.
+    /// </summary>
+    public int VoiceCallCount { get; set; }
+
+    /// <summary>
     /// ADR-0092: cuando el agente PIDIO preguntar por WhatsApp para conseguir un dato, el paso queda EN ESPERA
     /// con el Id de la <see cref="Conversation"/> aqui. WhatsApp es asincrono (la persona responde despues):
     /// al entrar su respuesta, <c>ChatIngestService</c> LIMPIA <see cref="AgentAttemptedAt"/> (conservando este

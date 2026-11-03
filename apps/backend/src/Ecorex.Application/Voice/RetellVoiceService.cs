@@ -227,6 +227,8 @@ public sealed class RetellVoiceService : IRetellVoiceService
         if (transcript is not null) { vc.TranscriptText = transcript; }
         var recording = JsonStr(call, "recording_url");
         if (recording is not null) { vc.RecordingUrl = recording; }
+        var disconnect = JsonStr(call, "disconnection_reason");
+        if (disconnect is not null) { vc.DisconnectionReason = disconnect; }
 
         var started = JsonUnixMs(call, "start_timestamp");
         if (started is not null) { vc.StartedAt = started; }
@@ -301,6 +303,27 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
         catch (JsonException) { }
         return null;
+    }
+
+    /// <summary>
+    /// Ola 3 (ADR-0142): clasifica un disconnection_reason de Retell como "SIN contacto" (la persona no atendio la
+    /// llamada: no contesto, buzon de voz, ocupado, o fallo de marcado) vs "hubo contacto" (user_hangup, agent_hangup,
+    /// etc., donde si hablaron). Es la senal DURA para la politica de auto-reintento de la llamada. Null/desconocido
+    /// => false (que el resto del flujo decida por duracion/transcripcion). Comparacion case-insensitive.
+    /// </summary>
+    public static bool IsNoContactReason(string? disconnectionReason)
+    {
+        if (string.IsNullOrWhiteSpace(disconnectionReason)) { return false; }
+        return disconnectionReason.Trim().ToLowerInvariant() switch
+        {
+            "dial_no_answer" => true,
+            "voicemail_reached" => true,
+            "dial_busy" => true,
+            "dial_failed" => true,
+            "no_valid_payment" => true,
+            "max_duration_reached" => false,
+            _ => false
+        };
     }
 
     /// <summary>call_analysis.custom_analysis_data: los campos estructurados que el agente extrajo (clave->valor).</summary>

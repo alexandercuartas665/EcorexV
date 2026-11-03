@@ -16731,6 +16731,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DisconnectionReason")
+                        .HasColumnType("text")
+                        .HasColumnName("disconnection_reason");
+
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("duration_seconds");
@@ -17816,6 +17820,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("autonomy");
 
+                    b.Property<int?>("CallWindowEndHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("call_window_end_hour");
+
+                    b.Property<int?>("CallWindowStartHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("call_window_start_hour");
+
                     b.Property<bool>("CanSendEmail")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -17859,6 +17871,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("failure_route");
 
+                    b.Property<int?>("MaxVoiceCalls")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_voice_calls");
+
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uuid")
                         .HasColumnName("node_id");
@@ -17888,6 +17904,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("VoiceLineId")
                         .HasColumnType("uuid")
                         .HasColumnName("voice_line_id");
+
+                    b.Property<int?>("VoiceRetryMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("voice_retry_minutes");
 
                     b.Property<Guid?>("WhatsAppLineId")
                         .HasColumnType("uuid")
@@ -18321,6 +18341,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
+
+                    b.Property<int>("VoiceCallCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("voice_call_count");
 
                     b.Property<DateTimeOffset?>("WhatsAppAnsweredInboundAt")
                         .HasColumnType("timestamp with time zone")

@@ -68,13 +68,20 @@ public static class WorkflowAgentContextSerializer
             sb.AppendLine();
             sb.AppendLine("## Resultado de la llamada");
             if (!string.IsNullOrWhiteSpace(vc.Status)) { sb.AppendLine($"- Estado: {vc.Status}"); }
-            // "Hubo contacto": Ola 1 no tiene aun el motivo exacto de corte de Retell (eso llega en una ola
-            // posterior), asi que se INFIERE de la duracion y de que haya transcripcion. Es una PISTA para
-            // enrutar o decidir si reintentar, no un dato duro.
-            var huboContacto = (vc.DurationSeconds is int d && d > 0) || !string.IsNullOrWhiteSpace(vc.Transcript);
+            // "Hubo contacto": Ola 3 (ADR-0142) ya trae el motivo de corte de Retell (disconnection_reason).
+            // Si es un motivo de NO contacto (no contesta / buzon / ocupado / fallo de marcado) manda ese dato;
+            // si no vino, se INFIERE de la duracion y de que haya transcripcion. Es una PISTA para enrutar o
+            // decidir si reintentar.
+            var sinContactoPorMotivo = Ecorex.Application.Voice.RetellVoiceService.IsNoContactReason(vc.DisconnectionReason);
+            var huboContacto = !sinContactoPorMotivo
+                && ((vc.DurationSeconds is int d && d > 0) || !string.IsNullOrWhiteSpace(vc.Transcript));
             sb.AppendLine(huboContacto
                 ? "- Contacto: parece que SI hubo conversacion (hay duracion/transcripcion)."
-                : "- Contacto: parece que NO hubo conversacion (sin duracion ni transcripcion); trata la llamada como no contestada.");
+                : "- Contacto: parece que NO hubo conversacion; trata la llamada como no contestada.");
+            if (!string.IsNullOrWhiteSpace(vc.DisconnectionReason))
+            {
+                sb.AppendLine($"- Motivo de corte (Retell): {vc.DisconnectionReason}");
+            }
             if (vc.DurationSeconds is int dur) { sb.AppendLine($"- Duracion (s): {dur}"); }
             if (vc.CallSuccessful is bool ok)
             {

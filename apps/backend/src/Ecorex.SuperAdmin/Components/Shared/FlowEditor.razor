@@ -548,6 +548,35 @@ else
                                 </select>
                             </div>
                         </div>
+                        @* Ola 3 (ADR-0142): politica de reintento de la llamada "sin contacto" + ventana horaria del tenant. *@
+                        <div class="fe-grid-2">
+                            <div>
+                                <label class="fe-label">MAXIMO DE LLAMADAS POR ACTIVIDAD</label>
+                                <input class="fe-input" type="number" min="1" max="10" placeholder="1 (sin reintento)"
+                                       value="@(_nodeAgent.MaxVoiceCalls?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeMaxVoiceCallsChangedAsync(agentNode, e))" />
+                            </div>
+                            <div>
+                                <label class="fe-label">REINTENTAR TRAS (MINUTOS)</label>
+                                <input class="fe-input" type="number" min="1" max="1440" placeholder="30 (por defecto)"
+                                       value="@(_nodeAgent.VoiceRetryMinutes?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeVoiceRetryChangedAsync(agentNode, e))" />
+                            </div>
+                        </div>
+                        <div class="fe-grid-2">
+                            <div>
+                                <label class="fe-label">LLAMAR DESDE LA HORA (0-23)</label>
+                                <input class="fe-input" type="number" min="0" max="23" placeholder="sin restriccion"
+                                       value="@(_nodeAgent.CallWindowStartHour?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeCallWindowStartChangedAsync(agentNode, e))" />
+                            </div>
+                            <div>
+                                <label class="fe-label">HASTA LA HORA (1-24, EXCL.)</label>
+                                <input class="fe-input" type="number" min="1" max="24" placeholder="sin restriccion"
+                                       value="@(_nodeAgent.CallWindowEndHour?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeCallWindowEndChangedAsync(agentNode, e))" />
+                            </div>
+                        </div>
                     }
                     @if (_nodeAgent.WhatsAppLineId is not null)
                     {
@@ -2068,7 +2097,9 @@ else
                     _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute,
                     _nodeAgent.ColdWindowMinutes,
                     _nodeAgent.WhatsAppTemplateVarsJson, _nodeAgent.WhatsAppTemplateHeaderMediaUrl,
-                    _nodeAgent.VoiceLineId, _nodeAgent.AllowedChannels);
+                    _nodeAgent.VoiceLineId, _nodeAgent.AllowedChannels,
+                    _nodeAgent.MaxVoiceCalls, _nodeAgent.VoiceRetryMinutes,
+                    _nodeAgent.CallWindowStartHour, _nodeAgent.CallWindowEndHour);
                 var res = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, resInput);
                 if (!res.IsOk) { _error = res.Error; return; }
             }
@@ -2130,7 +2161,9 @@ else
         _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute,
         _nodeAgent?.ColdWindowMinutes,
         _nodeAgent?.WhatsAppTemplateVarsJson, _nodeAgent?.WhatsAppTemplateHeaderMediaUrl,
-        _nodeAgent?.VoiceLineId, _nodeAgent?.AllowedChannels);
+        _nodeAgent?.VoiceLineId, _nodeAgent?.AllowedChannels,
+        _nodeAgent?.MaxVoiceCalls, _nodeAgent?.VoiceRetryMinutes,
+        _nodeAgent?.CallWindowStartHour, _nodeAgent?.CallWindowEndHour);
 
     private Task OnNodeOnFailureChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
@@ -2178,6 +2211,23 @@ else
         Guid? vl = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
         return SaveNodeResourcesAsync(node, CurrentAgentRes() with { VoiceLineId = vl });
     }
+
+    // Ola 3 (ADR-0142): politica de reintento de la llamada "sin contacto" + ventana horaria. Vacio = null (sin
+    // reintento / sin ventana). El servicio acota los rangos y descarta ventanas invalidas.
+    private static int? ParseNullableInt(ChangeEventArgs e)
+        => int.TryParse(e.Value?.ToString(), out var v) ? v : null;
+
+    private Task OnNodeMaxVoiceCallsChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { MaxVoiceCalls = ParseNullableInt(e) });
+
+    private Task OnNodeVoiceRetryChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { VoiceRetryMinutes = ParseNullableInt(e) });
+
+    private Task OnNodeCallWindowStartChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { CallWindowStartHour = ParseNullableInt(e) });
+
+    private Task OnNodeCallWindowEndChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { CallWindowEndHour = ParseNullableInt(e) });
 
     // Ola 2 (ADR-0142): canales permitidos. Conjunto efectivo = AllowedChannels ?? todos. Al togglear, si queda el
     // conjunto completo se guarda null (retrocompatible: "todos permitidos"); si no, el mask explicito.
@@ -2323,7 +2373,11 @@ else
                 FailureRetries = input.FailureRetries,
                 FailureRoute = input.FailureRoute,
                 VoiceLineId = input.VoiceLineId,
-                AllowedChannels = input.AllowedChannels
+                AllowedChannels = input.AllowedChannels,
+                MaxVoiceCalls = input.MaxVoiceCalls,
+                VoiceRetryMinutes = input.VoiceRetryMinutes,
+                CallWindowStartHour = input.CallWindowStartHour,
+                CallWindowEndHour = input.CallWindowEndHour
             };
         }
         return Task.CompletedTask;

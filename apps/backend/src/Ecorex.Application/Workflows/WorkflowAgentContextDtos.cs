@@ -51,7 +51,10 @@ public sealed record WorkflowAgentVoiceCallDto(
     // Duracion en segundos (si Retell la reporto). 0/null + sin transcripcion => probable no-contacto.
     int? DurationSeconds = null,
     // call_analysis.call_successful de Retell (segun los success criteria del agente). Null si no vino.
-    bool? CallSuccessful = null);
+    bool? CallSuccessful = null,
+    // disconnection_reason de Retell (dial_no_answer | voicemail_reached | dial_busy | dial_failed | user_hangup...).
+    // Permite al agente saber si "no hubo contacto" (buzon/no contesta) para elegir WhatsApp o reprogramar.
+    string? DisconnectionReason = null);
 
 /// <summary>Respuesta que la persona dio por WhatsApp a la pregunta del agente (ADR-0092). <see cref="ReplyText"/>
 /// junta TODOS los mensajes entrantes frescos (una rafaga: "necesito 4 laminas" + "mi cedula es 10199857" llegan

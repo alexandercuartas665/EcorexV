@@ -1,6 +1,7 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Forms;
 using Ecorex.Application.Organization;
+using Ecorex.Application.Scheduling;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -84,6 +85,11 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     /// entorno (ECOREX_AGENT_WAIT_TIMEOUT_HOURS), 6 horas por defecto.
     /// </summary>
     public static readonly int WaitTimeoutHours = ReadEnvInt("ECOREX_AGENT_WAIT_TIMEOUT_HOURS", 6, 1, 720);
+
+    /// <summary>Ola 3 (ADR-0142): minutos por defecto entre reintentos de llamada "sin contacto" cuando el nodo no
+    /// configura <see cref="WorkflowNodeAgent.VoiceRetryMinutes"/>. Configurable por entorno
+    /// (ECOREX_VOICE_RETRY_MIN), 30 por defecto.</summary>
+    private static readonly int DefaultVoiceRetryMinutes = ReadEnvInt("ECOREX_VOICE_RETRY_MIN", 30, 1, 1440);
 
     private static int ReadEnvInt(string name, int fallback, int min, int max)
     {
@@ -246,6 +252,30 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 cancellationToken);
         }
         var context = contextResult.Value;
+
+        // ---- Ola 3 (ADR-0142): politica AUTOMATICA de reintento de la LLAMADA DE VOZ (sin gastar un turno de LLM) ----
+        // Solo cuando el paso se REANUDA tras una llamada (hay PendingVoiceCallId y su resultado en el contexto) y esa
+        // llamada quedo SIN CONTACTO (no contesto / buzon / ocupado / fallo de marcado). Si quedan intentos
+        // (VoiceCallCount < MaxVoiceCalls) se reprograma la siguiente llamada al intervalo configurado, respetando la
+        // ventana horaria del tenant; determinista y barato (no se consulta al modelo). Agotados los intentos (o si
+        // hubo contacto) NO se toca nada aqui y sigue el flujo normal: el agente decide la ruta por el transcript, cae
+        // a WhatsApp si esta permitido, o aplica la politica OnFailure. El buzon (voicemail_reached) cuenta como
+        // no-contacto (colgar y reintentar), igual que no-contesta.
+        if (context.VoiceCallResult is { } vcr
+            && !string.IsNullOrWhiteSpace(step.PendingVoiceCallId)
+            && IsTerminalCallStatus(vcr.Status)
+            && context.Assignment?.VoiceAiAgentId is Guid retryVoiceAgentId
+            && (context.Assignment?.AllowsChannel(WorkflowAgentChannel.Voz) ?? true))
+        {
+            var noContact = Voice.RetellVoiceService.IsNoContactReason(vcr.DisconnectionReason)
+                || ((vcr.DurationSeconds is not int dsec || dsec <= 0) && string.IsNullOrWhiteSpace(vcr.Transcript));
+            var maxCalls = nodeAgent.MaxVoiceCalls ?? 0;
+            if (noContact && maxCalls > 1 && step.VoiceCallCount < maxCalls)
+            {
+                var autoRetry = await TryAutoRedialAsync(step, nodeAgent, context, retryVoiceAgentId, cancellationToken);
+                if (autoRetry is { } retryOutcome) { return retryOutcome; }
+            }
+        }
 
         // ANTI-RAFAGA (gemelo del fix de SARA): se avanza el cursor del paso hasta el ULTIMO entrante que esta foto
         // incorporo. Efectos: (1) un mensaje que entre DURANTE la corrida queda con SentAt > cursor y, como ChatIngest
@@ -528,6 +558,22 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
                 step, nodeAgent, "El paso no tiene un agente de voz configurado para llamar.", cancellationToken);
         }
 
+        return await PlaceVoiceCallAndPauseAsync(
+            step, nodeAgent, context, voiceAgentId, callRequest.Numero, callRequest.Objetivo, retryMinutes,
+            $"el agente solicito una llamada para conseguir un dato ({callRequest.Objetivo}); el paso espera el resultado",
+            cancellationToken);
+    }
+
+    /// <summary>Coloca una llamada de voz (Retell) y deja el paso EN ESPERA de su resultado (PendingVoiceCallId +
+    /// AgentAttemptedAt para que el barrido no lo re-tome hasta el webhook). Nucleo compartido entre la pausa pedida
+    /// por el agente (<see cref="PauseForCallAsync"/>) y el auto-reintento "sin contacto" de la Ola 3
+    /// (<see cref="TryAutoRedialAsync"/>). Incrementa <see cref="WorkflowStepHistory.VoiceCallCount"/> (tope de
+    /// <see cref="WorkflowNodeAgent.MaxVoiceCalls"/>). Si no se puede colocar -> vuelve a una persona.</summary>
+    private async Task<WorkflowAgentStepOutcome> PlaceVoiceCallAndPauseAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, WorkflowAgentContextDto context,
+        Guid voiceAgentId, string toNumber, string? promptExtra, int? retryMinutes, string noteReason,
+        CancellationToken cancellationToken)
+    {
         var formIds = context.Node.Form is { } f ? new[] { f.DefinitionId } : Array.Empty<Guid>();
         // Ola 1 (ADR-0142): el objetivo es una MARCA que decide el comportamiento del webhook. Nodo CON formulario
         // -> LlenarFormulario (el webhook vuelca los datos capturados al formulario del paso). Nodo de
@@ -537,9 +583,9 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             ? nameof(ContactCallObjetivo.LlenarFormulario)
             : nameof(ContactCallObjetivo.SeguimientoCierre);
         var placed = await _voice.PlaceCallAsync(new Voice.VoicePlaceCallRequest(
-            ToNumber: callRequest.Numero,
+            ToNumber: toNumber,
             AiAgentId: voiceAgentId,
-            PromptExtra: callRequest.Objetivo,
+            PromptExtra: promptExtra,
             Objetivo: objetivo,
             FormulariosPermitidos: formIds,
             ContactVariables: BuildContactVariables(context),
@@ -556,17 +602,16 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         // evita que el barrido lo re-tome hasta que el webhook lo reanude (limpia AgentAttemptedAt).
         step.AgentAttemptedAt = _clock.GetUtcNow();
         step.PendingVoiceCallId = placed.CallId;
+        step.VoiceCallCount += 1;          // Ola 3: cuenta esta llamada para el tope MaxVoiceCalls
         step.ExecutedByAiAgentId = null;   // todavia no ejecuto: esta esperando el dato
-        step.AgentProposalComment = Clip(callRequest.Objetivo, 2000);
+        step.AgentProposalComment = Clip(promptExtra, 2000);
         // Fecha limite (B): si la llamada nunca se resuelve, el reaper cerrara el paso pasada esta hora.
         step.AgentDeadlineAt = _clock.GetUtcNow().AddHours(WaitTimeoutHours);
         // ADR-0121: si el agente se auto-reprogramo, se estampa el reintento (antes del deadline duro).
         step.AgentNextRetryAt = retryMinutes is int rm ? _clock.GetUtcNow().AddMinutes(rm) : null;
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
-        await AddTaskNoteAsync(step,
-            $"el agente solicito una llamada para conseguir un dato ({callRequest.Objetivo}); el paso espera el resultado",
-            cancellationToken);
+        await AddTaskNoteAsync(step, noteReason, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {
@@ -574,11 +619,108 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         }
 
         _logger.LogInformation(
-            "El agente {AgentId} solicito una llamada ({CallId}) en el paso {StepId}; queda en espera.",
-            nodeAgent.AiAgentId, placed.CallId, step.Id);
+            "Voz: llamada ({CallId}) colocada en el paso {StepId} (intento {Count}); queda en espera.",
+            placed.CallId, step.Id, step.VoiceCallCount);
         await BroadcastRefreshAsync(step, cancellationToken);   // refresca la tarjeta a "en espera" sin reabrir
         return WorkflowAgentStepOutcome.WaitingForCall;
     }
+
+    /// <summary>Ola 3 (ADR-0142): auto-reintento de la llamada tras un "sin contacto", SIN consultar al modelo. Si aun
+    /// toca esperar (intervalo no cumplido o fuera de la ventana horaria del tenant), DIFIERE el paso: estampa
+    /// <see cref="WorkflowStepHistory.AgentNextRetryAt"/> y el dispatcher lo despertara a esa hora (al re-correr, la
+    /// llamada previa sigue sin-contacto y ya tocara, asi que se colocara). Si ya toca y esta dentro de ventana,
+    /// coloca de inmediato la siguiente llamada al MISMO numero/objetivo que la anterior. Devuelve null si no puede
+    /// auto-reintentar (sin numero previo), para que siga el flujo normal.</summary>
+    private async Task<WorkflowAgentStepOutcome?> TryAutoRedialAsync(
+        WorkflowStepHistory step, WorkflowNodeAgent nodeAgent, WorkflowAgentContextDto context,
+        Guid voiceAgentId, CancellationToken cancellationToken)
+    {
+        // Datos de la llamada previa (mismo destino): numero y cuando termino, para medir el intervalo.
+        var prev = await _db.VoiceCalls.AsNoTracking()
+            .Where(c => c.CallId == step.PendingVoiceCallId)
+            .Select(c => new { c.ToNumber, c.EndedAt })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (prev is null || string.IsNullOrWhiteSpace(prev.ToNumber))
+        {
+            return null;   // sin numero a quien llamar: que el flujo normal resuelva (WhatsApp/OnFailure)
+        }
+
+        var now = _clock.GetUtcNow();
+        var retryMinutes = nodeAgent.VoiceRetryMinutes is int vm && vm > 0 ? vm : DefaultVoiceRetryMinutes;
+        var earliest = (prev.EndedAt ?? now).AddMinutes(retryMinutes);
+        if (earliest < now) { earliest = now; }
+        // Ventana horaria del tenant (regla 9): si 'earliest' cae fuera de franja, se corre al proximo inicio de ventana.
+        var scheduled = await ClampToCallWindowAsync(step.TenantId, earliest, nodeAgent, cancellationToken);
+
+        if (scheduled > now)
+        {
+            // Aun no toca (intervalo pendiente o fuera de ventana): se DIFIERE. El dispatcher limpia AgentNextRetryAt +
+            // AgentAttemptedAt cuando llegue la hora; al re-correr, 'scheduled' ya sera <= now y se colocara la llamada.
+            step.AgentAttemptedAt = now;                               // reclamado: el barrido normal no lo re-toma
+            step.AgentNextRetryAt = scheduled;                         // el dispatcher lo despierta aqui
+            step.AgentDeadlineAt = scheduled.AddHours(WaitTimeoutHours); // no dejar que el reaper mate un reintento programado
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation(
+                "Voz: sin contacto en el paso {StepId}; reintento {Next} de {Max} diferido a {At:o}.",
+                step.Id, step.VoiceCallCount + 1, nodeAgent.MaxVoiceCalls, scheduled);
+            await BroadcastRefreshAsync(step, cancellationToken);
+            return WorkflowAgentStepOutcome.WaitingForCall;
+        }
+
+        // Ya toca y dentro de ventana: se coloca la siguiente llamada (mismo numero/objetivo), sin LLM.
+        step.AgentNextRetryAt = null;
+        return await PlaceVoiceCallAndPauseAsync(
+            step, nodeAgent, context, voiceAgentId, prev.ToNumber, step.AgentProposalComment, retryMinutes: null,
+            $"sin contacto en la llamada anterior; el flujo reintenta la llamada automaticamente (intento {step.VoiceCallCount + 1} de {nodeAgent.MaxVoiceCalls})",
+            cancellationToken);
+    }
+
+    /// <summary>Ola 3 (ADR-0142): si el nodo configura una ventana horaria de llamadas (CallWindowStartHour/EndHour, en
+    /// la zona del TENANT), devuelve el primer instante >= <paramref name="candidateUtc"/> que cae DENTRO de la franja;
+    /// si ya esta dentro (o no hay ventana), devuelve el mismo instante. End es EXCLUSIVO (18 = hasta las 17:59).</summary>
+    private async Task<DateTimeOffset> ClampToCallWindowAsync(
+        Guid tenantId, DateTimeOffset candidateUtc, WorkflowNodeAgent nodeAgent, CancellationToken cancellationToken)
+    {
+        if (nodeAgent.CallWindowStartHour is null && nodeAgent.CallWindowEndHour is null)
+        {
+            return candidateUtc;   // sin ventana: a la hora que sea
+        }
+        var start = Math.Clamp(nodeAgent.CallWindowStartHour ?? 0, 0, 23);
+        var end = Math.Clamp(nodeAgent.CallWindowEndHour ?? 24, 1, 24);
+        if (end <= start) { return candidateUtc; }   // ventana invalida: no restringe
+
+        var tzId = await _db.Tenants.AsNoTracking()
+            .Where(t => t.Id == tenantId).Select(t => t.TimeZoneId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var tz = ScheduledJobRecurrence.ResolveTimeZone(tzId);
+        var local = TimeZoneInfo.ConvertTime(candidateUtc, tz).DateTime;
+
+        DateTime targetLocal;
+        if (local.Hour < start)
+        {
+            targetLocal = local.Date.AddHours(start);              // antes de abrir: hoy a la hora de inicio
+        }
+        else if (local.Hour >= end)
+        {
+            targetLocal = local.Date.AddDays(1).AddHours(start);   // ya cerro: manana a la hora de inicio
+        }
+        else
+        {
+            return candidateUtc;                                    // dentro de ventana
+        }
+        return ToTenantUtc(targetLocal, tz);
+    }
+
+    /// <summary>Convierte una hora LOCAL del tenant a un DateTimeOffset UTC (regla 9 del repo; espejo del de WorkflowEngine).</summary>
+    private static DateTimeOffset ToTenantUtc(DateTime local, TimeZoneInfo tz)
+        => new(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), tz), TimeSpan.Zero);
+
+    /// <summary>Estados TERMINALES de una VoiceCall (ya no suena): solo entonces tiene sentido evaluar "sin contacto"
+    /// para el auto-reintento. Ongoing/Registered => la llamada sigue viva, no se reintenta todavia.</summary>
+    private static bool IsTerminalCallStatus(string? status)
+        => status is not null && status is
+            nameof(VoiceCallStatus.Ended) or nameof(VoiceCallStatus.Analyzed)
+            or nameof(VoiceCallStatus.Failed) or nameof(VoiceCallStatus.Error);
 
     /// <summary>Ola 0 (voz en seguimiento, ADR-0142): arma las variables dinamicas del contacto desde la
     /// tarea/tercero para que la llamada NO vaya "a ciegas" (hoy iba con el diccionario vacio). Solo pone lo que

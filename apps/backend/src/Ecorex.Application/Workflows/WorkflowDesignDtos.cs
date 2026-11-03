@@ -117,7 +117,10 @@ public sealed record FlowNodeAgentDto(
     // Binding de parametros de la plantilla de frio + URL del archivo del header por nodo (al final: append-only).
     string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null,
     // Ola 2 (ADR-0142): linea de voz del nodo (null = la por defecto) y canales permitidos (null = todos).
-    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null);
+    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null,
+    // Ola 3 (ADR-0142): politica de reintento de la llamada de voz (null = sin auto-reintento / sin ventana).
+    int? MaxVoiceCalls = null, int? VoiceRetryMinutes = null,
+    int? CallWindowStartHour = null, int? CallWindowEndHour = null);
 
 /// <summary>ADR-0093: estado COMPLETO de los recursos del agente del nodo, para guardarlo de una en el modal
 /// (evita una firma con muchos parametros). Cada campo null/false = recurso deshabilitado.</summary>
@@ -130,7 +133,10 @@ public sealed record FlowNodeAgentResourcesInput(
     int? ColdWindowMinutes = null,
     string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null,
     // Ola 2 (ADR-0142): linea de voz del nodo (null = la por defecto) y canales permitidos (null = todos).
-    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null);
+    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null,
+    // Ola 3 (ADR-0142): politica de reintento de la llamada de voz (null = sin auto-reintento / sin ventana).
+    int? MaxVoiceCalls = null, int? VoiceRetryMinutes = null,
+    int? CallWindowStartHour = null, int? CallWindowEndHour = null);
 
 /// <summary>Agente del catalogo del tenant para el selector de agente del editor.</summary>
 public sealed record FlowAgentCatalogItemDto(

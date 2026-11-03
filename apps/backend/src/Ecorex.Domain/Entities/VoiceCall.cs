@@ -29,6 +29,11 @@ public class VoiceCall : TenantEntity
     public DateTimeOffset? EndedAt { get; set; }
     public int? DurationSeconds { get; set; }
 
+    /// <summary>Motivo de desconexion reportado por Retell (disconnection_reason): dial_no_answer, voicemail_reached,
+    /// dial_busy, dial_failed, user_hangup, etc. Lo usa la politica de auto-reintento para distinguir "sin contacto"
+    /// (reintentar) de "hubo contacto" (dejar que el agente decida por el transcript).</summary>
+    public string? DisconnectionReason { get; set; }
+
     /// <summary>Costo total reportado por Retell (USD), si viene en el analisis.</summary>
     public decimal? CostUsd { get; set; }
 

@@ -162,11 +162,13 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
                 vc.DurationSeconds = ReadDurationSeconds(call) ?? vc.DurationSeconds;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
+                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
                 break;
             case "call_analyzed":
                 vc.Status = VoiceCallStatus.Analyzed;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
+                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
                 if (call.TryGetProperty("call_analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Object)
                 {
                     vc.AnalysisJson = analysis.GetRawText();

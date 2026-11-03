@@ -151,7 +151,7 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
         }
         var call = await _db.VoiceCalls.AsNoTracking()
             .Where(c => c.CallId == step.PendingVoiceCallId)
-            .Select(c => new { c.TranscriptText, c.AnalysisJson, c.Status, c.DurationSeconds })
+            .Select(c => new { c.TranscriptText, c.AnalysisJson, c.Status, c.DurationSeconds, c.DisconnectionReason })
             .FirstOrDefaultAsync(cancellationToken);
         if (call is null)
         {
@@ -164,7 +164,8 @@ public sealed class WorkflowAgentContextBuilder : IWorkflowAgentContextBuilder
             // parsea del call_analysis (mismo helper que usa la UI de prueba) sobre el JSON crudo, no el recortado.
             Status: call.Status.ToString(),
             DurationSeconds: call.DurationSeconds,
-            CallSuccessful: Ecorex.Application.Voice.RetellVoiceService.ExtractCallSuccessful(call.AnalysisJson));
+            CallSuccessful: Ecorex.Application.Voice.RetellVoiceService.ExtractCallSuccessful(call.AnalysisJson),
+            DisconnectionReason: call.DisconnectionReason);
     }
 
     // ---- (a) Nodo actual + formulario asociado con la definicion de sus campos ----

@@ -1626,7 +1626,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     x.ColdWindowMinutes,
                     x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute,
                     x.WhatsAppTemplateVarsJson, x.WhatsAppTemplateHeaderMediaUrl,
-                    x.VoiceLineId, x.AllowedChannels))
+                    x.VoiceLineId, x.AllowedChannels,
+                    x.MaxVoiceCalls, x.VoiceRetryMinutes, x.CallWindowStartHour, x.CallWindowEndHour))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1683,7 +1684,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.ColdWindowMinutes,
             existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
             existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl,
-            existing.VoiceLineId, existing.AllowedChannels));
+            existing.VoiceLineId, existing.AllowedChannels,
+            existing.MaxVoiceCalls, existing.VoiceRetryMinutes, existing.CallWindowStartHour, existing.CallWindowEndHour));
     }
 
     public async Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default)
@@ -1751,6 +1753,29 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         // dejar config muerta (espejo de plantilla/linea de WhatsApp). AllowedChannels: null = todos permitidos.
         existing.VoiceLineId = input.VoiceAiAgentId is null ? null : input.VoiceLineId;
         existing.AllowedChannels = input.AllowedChannels;
+        // Ola 3 (ADR-0142): politica de reintento de la llamada. Solo tiene sentido con agente de voz; sin agente se
+        // limpia para no dejar config muerta. Tope de intentos acotado a [1,10]; intervalo a [1, 1440] min (24h);
+        // horas de ventana a su rango valido (inicio 0-23, fin 1-24). Null = sin auto-reintento / sin ventana.
+        if (input.VoiceAiAgentId is null)
+        {
+            existing.MaxVoiceCalls = null;
+            existing.VoiceRetryMinutes = null;
+            existing.CallWindowStartHour = null;
+            existing.CallWindowEndHour = null;
+        }
+        else
+        {
+            existing.MaxVoiceCalls = input.MaxVoiceCalls is int mvc && mvc > 0 ? Math.Clamp(mvc, 1, 10) : null;
+            existing.VoiceRetryMinutes = input.VoiceRetryMinutes is int vrm && vrm > 0 ? Math.Clamp(vrm, 1, 1440) : null;
+            existing.CallWindowStartHour = input.CallWindowStartHour is int cs ? Math.Clamp(cs, 0, 23) : null;
+            existing.CallWindowEndHour = input.CallWindowEndHour is int ce ? Math.Clamp(ce, 1, 24) : null;
+            // Ventana invalida (fin <= inicio): se descarta la ventana para no bloquear llamadas por error de captura.
+            if (existing.CallWindowStartHour is int s && existing.CallWindowEndHour is int e && e <= s)
+            {
+                existing.CallWindowStartHour = null;
+                existing.CallWindowEndHour = null;
+            }
+        }
         existing.WhatsAppLineId = input.WhatsAppLineId;
         // La plantilla solo tiene sentido si hay linea; sin linea se limpia para no dejar config muerta.
         existing.WhatsAppTemplateName = input.WhatsAppLineId is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateName)
@@ -1785,7 +1810,8 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.ColdWindowMinutes,
             existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
             existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl,
-            existing.VoiceLineId, existing.AllowedChannels));
+            existing.VoiceLineId, existing.AllowedChannels,
+            existing.MaxVoiceCalls, existing.VoiceRetryMinutes, existing.CallWindowStartHour, existing.CallWindowEndHour));
     }
 
     public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)

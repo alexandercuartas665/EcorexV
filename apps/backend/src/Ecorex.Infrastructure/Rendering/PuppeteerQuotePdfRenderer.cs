@@ -28,13 +28,7 @@ public sealed class PuppeteerQuotePdfRenderer : IQuotePdfRenderer
             WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
             Timeout = 30000
         });
-        return await page.PdfDataAsync(new PdfOptions
-        {
-            Format = PaperFormat.A4,
-            PrintBackground = true,
-            // Margen de pagina ("padding" del formato) para que el contenido no quede pegado al borde.
-            MarginOptions = new MarginOptions { Top = "12mm", Bottom = "12mm", Left = "10mm", Right = "10mm" }
-        });
+        return await page.PdfDataAsync(await BuildPdfOptionsAsync(page));
     }
 
     public async Task<byte[]> RenderHtmlToPdfAsync(string html, CancellationToken cancellationToken = default)
@@ -48,12 +42,53 @@ public sealed class PuppeteerQuotePdfRenderer : IQuotePdfRenderer
             WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
             Timeout = 30000
         });
-        return await page.PdfDataAsync(new PdfOptions
+        return await page.PdfDataAsync(await BuildPdfOptionsAsync(page));
+    }
+
+    // Arma las PdfOptions leyendo el opt-in de paginador de la plantilla. Chromium al imprimir a PDF IGNORA
+    // los contadores CSS @page (counter(page)/counter(pages)); la unica via fiable es el footerTemplate de
+    // Puppeteer con <span class="pageNumber"></span> / <span class="totalPages">.
+    //
+    // Contrato (opt-in por plantilla, self-serve): si el <head> trae
+    //   <meta name="ecorex-pdf-footer" content="Pagina {pageNumber} de {totalPages}">
+    // se activa el pie con esa etiqueta (los tokens {pageNumber}/{totalPages} se sustituyen por los spans de
+    // Puppeteer). Si la plantilla NO trae el meta, el PDF sale igual que hoy (sin footer). No afecta a otras
+    // plantillas ni tenants.
+    private static async Task<PdfOptions> BuildPdfOptionsAsync(IPage page)
+    {
+        var footerRaw = await page.EvaluateFunctionAsync<string?>(
+            "() => document.querySelector('meta[name=\"ecorex-pdf-footer\"]')?.content ?? null");
+
+        // Sin meta -> PdfOptions como hoy (Bottom=12mm, sin header/footer).
+        if (string.IsNullOrWhiteSpace(footerRaw))
+        {
+            return new PdfOptions
+            {
+                Format = PaperFormat.A4,
+                PrintBackground = true,
+                // Margen de pagina ("padding" del formato) para que el contenido no quede pegado al borde.
+                MarginOptions = new MarginOptions { Top = "12mm", Bottom = "12mm", Left = "10mm", Right = "10mm" }
+            };
+        }
+
+        // Escapamos la etiqueta (es texto de la plantilla) y luego insertamos los spans de Puppeteer, que son
+        // los que el motor reemplaza por el numero de pagina / total al imprimir.
+        var footerHtml = System.Net.WebUtility.HtmlEncode(footerRaw)
+            .Replace("{pageNumber}", "<span class=\"pageNumber\"></span>")
+            .Replace("{totalPages}", "<span class=\"totalPages\"></span>");
+
+        return new PdfOptions
         {
             Format = PaperFormat.A4,
             PrintBackground = true,
-            MarginOptions = new MarginOptions { Top = "12mm", Bottom = "12mm", Left = "10mm", Right = "10mm" }
-        });
+            DisplayHeaderFooter = true,
+            // HeaderTemplate vacio OBLIGATORIO: con DisplayHeaderFooter=true y sin el, Chromium pinta su header
+            // por defecto (titulo + fecha). El font-size va inline: Chromium ignora CSS externo en el pie.
+            HeaderTemplate = "<span></span>",
+            FooterTemplate = $"<div style=\"width:100%;font-size:8px;color:#444;text-align:center;font-family:Arial,Helvetica,sans-serif;padding:0 10mm\">{footerHtml}</div>",
+            // El pie se dibuja DENTRO del margen: Bottom sube a 16mm solo con footer, para que no pise el contenido.
+            MarginOptions = new MarginOptions { Top = "12mm", Bottom = "16mm", Left = "10mm", Right = "10mm" }
+        };
     }
 
     public async Task<byte[]> RenderUrlToImageAsync(string url, CancellationToken cancellationToken = default)

@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-03 - Paginador "Pagina X de Y" en el PDF de impresiones (opt-in por plantilla)
+
+- AGENTE: Claude Opus 4.8. Dev. Release v0.16.267. Deploy via rapida GHCR autorizado por el usuario en el pedido.
+- PEDIDO (usuario): contador "Pagina X de Y" al pie del PDF de las OT (y demas plantillas que lo pidan). Chromium al imprimir a PDF IGNORA los contadores CSS @page (counter(page)/counter(pages)); la unica via fiable es el footerTemplate de Puppeteer con <span class="pageNumber"></span> / <span class="totalPages">.
+- CAMBIO (`PuppeteerQuotePdfRenderer.cs`): nuevo helper `BuildPdfOptionsAsync(page)` que `RenderUrlToPdfAsync` y `RenderHtmlToPdfAsync` usan en vez de PdfOptions fijas. Lee por JS el meta opt-in del <head>: `<meta name="ecorex-pdf-footer" content="Pagina {pageNumber} de {totalPages}">`. Sin meta -> PdfOptions IDENTICAS a hoy (Bottom=12mm, sin header/footer). Con meta -> `DisplayHeaderFooter=true`, `HeaderTemplate="<span></span>"` (vacio OBLIGATORIO o Chromium pinta su header de fecha/titulo), `FooterTemplate` con el texto (HtmlEncode) y los tokens reemplazados por los spans de Puppeteer, font-size inline (Chromium ignora CSS externo en el pie), `Bottom=16mm` para que el pie no pise el contenido. Opt-in por plantilla, self-serve, no afecta otras plantillas/tenants. Las 2 plantillas OT de AGRO ya traen el meta (sembrado por el usuario en prod).
+- VALIDADO: `dotnet build` Infrastructure 0 errores. E2E aislado (harness en scratchpad, mismo renderer real + Chrome): doc multipagina CON meta -> 4 pags con pie "Pagina 1 de 4"..."Pagina 4 de 4" centrado, filas sin cortar; control SIN meta -> 4 pags identicas a hoy, sin pie. Rasterizado con `PdfRasterizer` e inspeccion visual.
+- Sin migracion. SIGUIENTE: release v0.16.267 + deploy via rapida GHCR; avisar version al usuario.
+
 ## 2026-11-03 - Contacto de la tarea: UN solo boton "Editar contacto" (editar o cambiar, DEV, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN commit, SIN deploy.

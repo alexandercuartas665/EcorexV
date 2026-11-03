@@ -55,3 +55,20 @@ public sealed record ChatClearResult(int Conversations, int Messages);
 
 /// <summary>Estado "sin responder" de una conversacion: mensajes entrantes tras la ultima respuesta y desde cuando espera.</summary>
 public sealed record LeadChatStateDto(int UnansweredCount, DateTimeOffset WaitingSince);
+
+/// <summary>
+/// ADR-0125 v2: un soporte (adjunto del cliente) que NO encontro tarea destino (SupportStatus=Pending). Alimenta la
+/// BANDEJA de soportes sin tarea para que un humano lo archive en la tarea correcta o lo descarte.
+/// </summary>
+public sealed record ClientSupportItemDto(
+    Guid MessageId,
+    Guid ConversationId,
+    string? ContactPhone,
+    string? ContactName,
+    string? FileName,
+    string? MediaUrl,
+    string? MediaMimeType,
+    DateTimeOffset ReceivedAt);
+
+/// <summary>Resultado de rutear/descartar un soporte de la bandeja.</summary>
+public sealed record ClientSupportResult(bool Ok, string? Error);

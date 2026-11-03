@@ -381,6 +381,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         configurationBuilder.Properties<FollowUpTaskStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<MessageDirection>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<MessageMediaType>().HaveConversion<string>().HaveMaxLength(40);
+        // ADR-0125 v2: estado de ruteo del soporte del cliente, como texto legible (consistente con MessageMediaType).
+        configurationBuilder.Properties<ClientSupportStatus>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<AiProvider>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AgentResourceType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AutomationTrigger>().HaveConversion<string>().HaveMaxLength(40);
@@ -1039,6 +1041,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             // Idempotencia de ingesta: un mensaje externo no se inserta dos veces.
             b.HasIndex(x => new { x.TenantId, x.ExternalId }).IsUnique()
                 .HasFilter(isNpgsql ? "external_id IS NOT NULL" : "[external_id] IS NOT NULL");
+            // ADR-0125 v2: bandeja de soportes sin tarea = Messages Pending; indexado por (tenant, estado).
+            b.HasIndex(x => new { x.TenantId, x.SupportStatus });
         });
 
         modelBuilder.Entity<TenantBlockedNumber>(b =>

@@ -690,6 +690,12 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             // para que el candado de SARA no quede pegado de un caso ya cerrado cuando empieza este nuevo episodio.
             heldConv.FlowHandledCloseAt = null;
             heldConv.FlowHandledTaskId = null;
+            // ADR-0125 v2: este paso acaba de ENGANCHAR al cliente por este hilo -> la tarea de ESTE caso pasa a ser
+            // la DUEÑA ACTUAL del hilo. Asi un soporte de pago que el cliente mande DESPUES (fuera del hold) cae en
+            // esta tarea y no en un negocio viejo. Al abrir un caso mas nuevo que vuelva a enganchar, lo sobreescribe.
+            var ownerTaskId = await _db.WorkflowInstances.AsNoTracking()
+                .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);
+            if (ownerTaskId is Guid otid) { heldConv.CurrentTaskItemId = otid; }
         }
         // CADENCIA POR CONFIG (gestor de plazos): si el NODO tiene una lista de plazos de seguimiento, el "cuando"
         // del proximo relanzamiento lo manda esa lista (no el modelo). AgentFollowUpIndex cuenta los recordatorios
@@ -1353,6 +1359,10 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             {
                 waitConv.FlowHoldStepId = step.Id;
                 waitConv.FlowHoldNodeId = step.NodeId;
+                // ADR-0125 v2: mientras este paso retiene el hilo, su tarea es la dueña actual (ver hold principal).
+                var ownerTaskId = await _db.WorkflowInstances.AsNoTracking()
+                    .Where(i => i.Id == step.InstanceId).Select(i => i.TaskItemId).FirstOrDefaultAsync(cancellationToken);
+                if (ownerTaskId is Guid otid) { waitConv.CurrentTaskItemId = otid; }
             }
         }
 

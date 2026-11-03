@@ -53,4 +53,15 @@ public class Message : TenantEntity
     /// <summary>Motivo del proveedor cuando <see cref="DeliveryStatus"/> es "failed" (codigo + mensaje de Meta, ej.
     /// "131026 Message undeliverable"). Null si no fallo o si Meta no dio detalle. Se muestra en la bandeja.</summary>
     public string? DeliveryError { get; set; }
+
+    /// <summary>
+    /// ADR-0125 v2: estado de RUTEO de este adjunto del cliente hacia una tarea del flujo. None para texto y para
+    /// media ya enganchada por el camino conversacional; Pending si la media no hallo tarea destino abierta (sale
+    /// en la bandeja de soportes sin tarea); Routed si quedo adjunta a una tarea; Dismissed si un humano la descarto.
+    /// </summary>
+    public ClientSupportStatus SupportStatus { get; set; } = ClientSupportStatus.None;
+
+    /// <summary>ADR-0125 v2: tarea a la que se ruteo este soporte (cuando <see cref="SupportStatus"/> es Routed).
+    /// Null mientras esta Pending/Dismissed/None. No es FK con cascada: es solo trazabilidad de la bandeja.</summary>
+    public Guid? SupportTaskItemId { get; set; }
 }

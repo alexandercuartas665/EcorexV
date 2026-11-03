@@ -1373,6 +1373,44 @@ public sealed class TaskItemService : ITaskItemService
         return TaskCoreResult<bool>.Ok(true);
     }
 
+    public async Task<TaskCoreResult<bool>> MoveAttachmentAsync(Guid attachmentId, string targetTaskNumber, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var number = (targetTaskNumber ?? "").Trim();
+        if (number.Length == 0)
+        {
+            return TaskCoreResult<bool>.Invalid("Indica el numero de la tarea destino (ej. T00451).");
+        }
+        var attachment = await _db.TaskItemAttachments
+            .FirstOrDefaultAsync(a => a.Id == attachmentId, cancellationToken);
+        if (attachment is null)
+        {
+            return TaskCoreResult<bool>.NotFound("Adjunto no encontrado.");
+        }
+        // Tarea destino por numero (tenant-scoped via filtro global). Comparacion case-insensitive y tolerante al
+        // prefijo "T" por si el usuario escribe solo el consecutivo.
+        var target = await _db.TaskItems
+            .FirstOrDefaultAsync(t => t.Number == number || t.Number == "T" + number, cancellationToken);
+        if (target is null)
+        {
+            return TaskCoreResult<bool>.NotFound($"No se encontro una tarea con el numero {number}.");
+        }
+        if (target.Id == attachment.TaskItemId)
+        {
+            return TaskCoreResult<bool>.Invalid("El adjunto ya esta en esa tarea.");
+        }
+        var origenNumber = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.Id == attachment.TaskItemId).Select(t => t.Number).FirstOrDefaultAsync(cancellationToken);
+
+        var origenId = attachment.TaskItemId;
+        attachment.TaskItemId = target.Id;
+        _db.TaskItemActivities.Add(BuildActivity(target.TenantId, target.Id, actorUserId, actorName,
+            TaskActivityType.Action, $"recibio el adjunto {attachment.FileName} movido desde {origenNumber ?? "otra tarea"}"));
+        _db.TaskItemActivities.Add(BuildActivity(target.TenantId, origenId, actorUserId, actorName,
+            TaskActivityType.Action, $"movio el adjunto {attachment.FileName} a {target.Number}"));
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
     public async Task<TaskCoreResult<TaskWorkLogDto>> AddWorkLogAsync(AddTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
     {
         if (request.Seconds <= 0 || request.Seconds > MaxWorkLogSeconds)

@@ -45,11 +45,19 @@ public sealed class WorkflowAgentWhatsApp : IWorkflowAgentWhatsApp
         {
             return WhatsAppAskResult.Fail("El numero de WhatsApp no tiene digitos validos.");
         }
+        // ADR-0125 v2: la clave del hilo es el MSISDN canonico (misma regla que la ingesta, PhoneNumber), para que el
+        // saliente del agente NO abra un hilo "3166..." separado del entrante "573166..." (ese fork hacia que el
+        // soporte de pago cayera en el hilo equivocado). Se busca por todas las formas equivalentes y se crea en canonica.
+        var lookupForms = Ecorex.Application.Common.PhoneNumber.LookupForms(command.Phone);
+        phone = Ecorex.Application.Common.PhoneNumber.ToMsisdn(command.Phone);
+        if (phone.Length == 0) { phone = new string(command.Phone.Where(char.IsDigit).ToArray()); }
 
         // Conversacion por (tenant, linea, telefono): la misma clave con la que el webhook de entrada
         // correlaciona la respuesta, para no abrir un hilo aparte.
         var conversation = await _db.Conversations
-            .FirstOrDefaultAsync(c => c.WhatsAppLineId == command.LineId && c.ContactPhone == phone, cancellationToken);
+            .Where(c => c.WhatsAppLineId == command.LineId && lookupForms.Contains(c.ContactPhone))
+            .OrderByDescending(c => c.LastMessageAt)
+            .FirstOrDefaultAsync(cancellationToken);
 
         var now = _clock.GetUtcNow();
 

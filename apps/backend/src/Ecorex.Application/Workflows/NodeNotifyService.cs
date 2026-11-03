@@ -422,6 +422,10 @@ public sealed class NodeNotifyService : INodeNotifyService
         {
             conversation.LastMessageAt = now;
         }
+        // ADR-0125 v2: el flujo ACABA de notificar al cliente sobre ESTA tarea por este hilo -> la tarea pasa a ser
+        // la DUEÑA ACTUAL del hilo, para que un soporte de pago que el cliente mande despues (fuera de cualquier hold)
+        // caiga en ella. El ultimo caso que engancha gana la titularidad (sobreescribe un negocio anterior).
+        conversation.CurrentTaskItemId = task.Id;
 
         // Observacion ENRIQUECIDA (rotulada): numero de caso/tarea, nodo que la genero, cliente y que se envio.
         // Sirve de contexto para SARA (si el cliente responde) y para el agente del NODO (bitacora de actividad).

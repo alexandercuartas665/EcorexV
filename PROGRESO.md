@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-03 - Soporte del cliente cae en la tarea CORRECTA (ADR-0125 v2 / ADR-0146, DEV, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN deploy (a la espera del OK por version).
+- HAND-OFF (sesion data-ops AGRO): en prod un comprobante de pago NO se adjunto a la tarea del flujo. CAUSA: el hook ADR-0125 (`ChatIngestService`) solo adjuntaba la media si habia `waitingSteps` (pasos reteniendo la conversacion); el cliente mando el pago FUERA del hold -> no disparo. Los soportes llegan asincronos, casi siempre sin hold.
+- DECISIONES del usuario: (1) ALCANCE = todo, incl. bandeja de pendientes; (2) TELEFONO = normalizar al ingerir, SIN fusionar los dos hilos viejos.
+- DOMAIN: `Conversation.CurrentTaskItemId` (tarea dueña del hilo) + `Message.SupportStatus` (enum `ClientSupportStatus` None/Pending/Routed/Dismissed, string) + `Message.SupportTaskItemId`. MIGRACION DUAL `AddClientSupportRouting` (PG + SQL Server); default de filas viejas = "None" (NO "": el conversor enum<->string fallaria al leer mensajes viejos). Indice `(tenant, support_status)` para la bandeja.
+- MOTOR: la tarea dueña se fija donde un paso ENGANCHA al cliente: ambos holds de `WorkflowAgentStepRunner` y al notificar al cliente en `NodeNotifyService` (el ultimo caso que engancha gana).
+- RUTEO (`ChatIngestService`, media entrante): con hold -> tarea(s) del paso (ADR-0125 v1); sin hold -> dueña abierta -> unica tarea abierta del hilo (`TaskItem.ConversationId`) -> si varias, la mas reciente + nota de ambiguedad -> si ninguna, `Pending` = bandeja. NUNCA a Done/Closed. De-dup (tarea,url) intacto. El mensaje se marca Routed/Pending.
+- NORMALIZACION (sin fusionar): helper compartido `Ecorex.Application.Common.PhoneNumber` (ToMsisdn + LookupForms). La ingesta Y el envio del agente (`WorkflowAgentWhatsApp`) ahora buscan el hilo por TODAS las formas (canonica "57..." y nacional) y toman el mas activo; se crea en canonica. Asi el trafico nuevo colapsa en UN hilo sin migrar/mezclar los dos viejos. Causa del fork: la ingesta guardaba "573166578604" y el saliente del agente "3166578604".
+- BANDEJA (pestana Conversaciones): panel "Soportes sin tarea (N)" lista los Pending con su contacto; Archivar en tarea (por numero) o Descartar. `IChatService.ListPendingSupportsAsync/CountPendingSupportsAsync/RouteSupportAsync/DismissSupportAsync`.
+- RE-ARCHIVAR (detalle de tarea, Documentos): boton "Mover" por adjunto -> nueva tarea por numero. `ITaskItemService.MoveAttachmentAsync` (bitacora en ambas tareas).
+- VALIDADO: `dotnet build Ecorex.sln` verde (0 errores; 4 fakes de ITaskItemService en tests ganaron el metodo nuevo). Migracion PG aplicada a dev `ecorex`. Server 5234 arranca limpio; `/conversaciones` renderiza. E2E bandeja: se sembro un Message Pending (conv AGRO, media PDF) -> panel "Soportes sin tarea (1)" -> "Archivar en tarea" T00096 -> mensaje Routed + `support_task_item_id` seteado + `TaskItemAttachment` y bitacora creados en T00096 (atribuidos al usuario) + panel desaparece. Filas viejas leen `support_status = None` OK (no "" roto). Datos de prueba revertidos.
+- ADR-0146 (`docs/decisiones/`, extiende ADR-0125). SIN deploy, SIN bump de version aun. SIGUIENTE: commit (doble push tronco+espejo) y, con OK por version, release + deploy via rapida GHCR. El envio real del webhook en prod lo configura/dispara el usuario.
+
 ## 2026-11-03 - Conciliador: los datos de la grilla NO caian en el formulario al crear la tarea (FIX, DEV, SIN commit)
 
 - AGENTE: Claude Opus 4.8. Dev (server 5263, BD local `ecorex`@5442). SIN commit, SIN deploy.

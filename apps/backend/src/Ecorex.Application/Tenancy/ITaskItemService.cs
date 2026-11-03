@@ -135,6 +135,12 @@ public interface ITaskItemService
     Task<TaskCoreResult<TaskItemAttachmentDto>> AddAttachmentAsync(AddTaskAttachmentRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
     Task<TaskCoreResult<bool>> DeleteAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// ADR-0125 v2: MUEVE un adjunto a OTRA tarea (identificada por su numero, p.ej. "T00451"). Sirve para corregir
+    /// un soporte de pago que el ruteo automatico dejo en la tarea equivocada. Deja bitacora en ambas tareas.
+    /// </summary>
+    Task<TaskCoreResult<bool>> MoveAttachmentAsync(Guid attachmentId, string targetTaskNumber, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
     // Worklog
     Task<TaskCoreResult<TaskWorkLogDto>> AddWorkLogAsync(AddTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskWorkLogDto>> ListWorkLogsAsync(Guid taskId, CancellationToken cancellationToken = default);

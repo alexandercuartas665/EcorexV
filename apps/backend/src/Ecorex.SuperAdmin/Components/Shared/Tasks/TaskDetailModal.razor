@@ -1091,9 +1091,23 @@
                                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenDocViewer(a))">Ver</button>
                                     @if (!readOnly)
                                     {
+                                        @* ADR-0125 v2: mover/re-archivar el adjunto a otra tarea (si el ruteo lo dejo mal). *@
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" title="Mover a otra tarea" @onclick="@(() => ToggleMoveAttachment(a.Id))">Mover</button>
                                         <button class="tk-tag-x" title="Eliminar adjunto" @onclick="@(() => DeleteAttachmentAsync(a.Id))">&times;</button>
                                     }
                                 </div>
+                                @if (!readOnly && _moveAttId == a.Id)
+                                {
+                                    <div class="tk-attachment-add" style="margin:-4px 0 8px 28px;">
+                                        <input class="form-control form-control-sm" @bind="_moveTarget" placeholder="Numero de tarea destino (ej. T00451)" />
+                                        <button class="btn btn-sm btn-primary" @onclick="@(() => MoveAttachmentAsync(a.Id))" disabled="@_busy">Mover</button>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ToggleMoveAttachment(a.Id))" disabled="@_busy">Cancelar</button>
+                                    </div>
+                                    @if (_moveError is not null)
+                                    {
+                                        <div class="tk-field-error" style="margin:-4px 0 8px 28px;">@_moveError</div>
+                                    }
+                                }
                             }
                         }
                         else
@@ -4012,6 +4026,41 @@
         try
         {
             await TasksSvc.DeleteAttachmentAsync(attachmentId);
+            await ReloadAsync(_detail.Item.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ADR-0125 v2: mover/re-archivar un adjunto a otra tarea (corrige un soporte mal ruteado).
+    private Guid? _moveAttId;
+    private string _moveTarget = "";
+    private string? _moveError;
+
+    private void ToggleMoveAttachment(Guid attachmentId)
+    {
+        _moveError = null;
+        if (_moveAttId == attachmentId) { _moveAttId = null; _moveTarget = ""; }
+        else { _moveAttId = attachmentId; _moveTarget = ""; }
+    }
+
+    private async Task MoveAttachmentAsync(Guid attachmentId)
+    {
+        if (_detail is null) { return; }
+        _moveError = null;
+        _busy = true;
+        try
+        {
+            var res = await TasksSvc.MoveAttachmentAsync(attachmentId, _moveTarget, await ActorAsync(), await ActorNameAsync());
+            if (!res.IsOk)
+            {
+                _moveError = res.Error ?? "No se pudo mover el adjunto.";
+                return;
+            }
+            _moveAttId = null;
+            _moveTarget = "";
             await ReloadAsync(_detail.Item.Id);
         }
         finally

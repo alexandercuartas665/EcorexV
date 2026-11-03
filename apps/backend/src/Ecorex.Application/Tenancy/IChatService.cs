@@ -42,4 +42,17 @@ public interface IChatService
 
     /// <summary>Envia una ubicacion por una linea y la persiste.</summary>
     Task<ChatSendResult> SendLocationViaLineAsync(Guid conversationId, Guid lineId, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default);
+
+    // ADR-0125 v2: BANDEJA de soportes sin tarea (adjuntos del cliente que el ruteo no pudo asignar).
+    /// <summary>Soportes pendientes (adjuntos del cliente sin tarea destino), mas recientes primero.</summary>
+    Task<IReadOnlyList<ClientSupportItemDto>> ListPendingSupportsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Cuantos soportes pendientes hay (para el badge de la bandeja).</summary>
+    Task<int> CountPendingSupportsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Archiva el soporte en la tarea indicada (por numero, ej. "T00451"): lo adjunta y lo marca ruteado.</summary>
+    Task<ClientSupportResult> RouteSupportAsync(Guid messageId, string targetTaskNumber, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+
+    /// <summary>Descarta el soporte de la bandeja sin asignarlo a ninguna tarea (el archivo sigue en el chat).</summary>
+    Task<ClientSupportResult> DismissSupportAsync(Guid messageId, CancellationToken cancellationToken = default);
 }

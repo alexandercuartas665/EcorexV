@@ -53,13 +53,22 @@ public sealed class ChatIngestService : IChatIngestService
             return ChatIngestResult.Duplicate;
         }
 
-        var phone = payload.ContactPhone.Trim();
         var lineId = payload.WhatsAppLineId;
+        // ADR-0125 v2 (normalizar al ingerir): la llave del hilo es el MSISDN canonico (misma regla que el envio,
+        // PhoneNumber), para que el mismo contacto no se parta en dos hilos (p.ej. "573166578604" del entrante vs
+        // "3166578604" que guardo el saliente del agente) y un soporte de pago caiga en el hilo equivocado. Se busca
+        // por TODAS las formas equivalentes (canonica y nacional) y se toma el hilo MAS ACTIVO si existieran varios:
+        // asi el trafico nuevo aterriza deterministamente en UN hilo SIN fusionar los hilos viejos ya partidos.
+        var phone = Common.PhoneNumber.ToMsisdn(payload.ContactPhone);
+        if (phone.Length == 0) { phone = payload.ContactPhone.Trim(); }
+        var lookupForms = Common.PhoneNumber.LookupForms(payload.ContactPhone);
         // Conversacion por (tenant, linea, contacto): el mismo numero en dos lineas son hilos separados,
         // lo que separa la sesion de cache del agente y evita confundir clientes.
         var conversation = await _db.Conversations
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.WhatsAppLineId == lineId && c.ContactPhone == phone, cancellationToken);
+            .Where(c => c.TenantId == tenantId && c.WhatsAppLineId == lineId && lookupForms.Contains(c.ContactPhone))
+            .OrderByDescending(c => c.LastMessageAt)
+            .FirstOrDefaultAsync(cancellationToken);
 
         var now = _timeProvider.GetUtcNow();
         var sentAt = payload.SentAt ?? now;
@@ -151,48 +160,111 @@ public sealed class ChatIngestService : IChatIngestService
             }
         }
 
-        // ADR-0125: la MEDIA que el cliente envia DURANTE un hold de flujo (comprobante de pago, documento,
-        // imagen) debe caer como ADJUNTO en la tarea que origino el flujo. El camino del flujo solo lee el texto
-        // (WorkflowAgentContextBuilder) y no toca la media; este es el unico punto que tiene a la vez el inbound con
-        // su MediaUrl recien creado y la senal de que un paso de flujo retiene la conversacion. Se inserta INLINE con
-        // IgnoreQueryFilters: el webhook corre SIN tenant ambient (por eso todo el metodo ignora el filtro global), y
-        // el AddAttachmentAsync publico filtra _db.TaskItems por tenant -> aqui no encontraria la tarea. De-dup por
-        // (tarea, url) porque el barrido de agentes puede re-correr el paso.
-        if (waitingSteps.Count > 0 && !string.IsNullOrWhiteSpace(message.MediaUrl))
+        // ADR-0125 (v2): la MEDIA que el cliente envia (comprobante de pago, documento, imagen) debe caer como
+        // ADJUNTO en la tarea CORRECTA. El camino del flujo solo lee el texto (WorkflowAgentContextBuilder) y no toca
+        // la media; este es el unico punto que tiene a la vez el inbound con su MediaUrl recien creado y el estado del
+        // hilo. Se inserta INLINE con IgnoreQueryFilters: el webhook corre SIN tenant ambient (por eso todo el metodo
+        // ignora el filtro global), y el AddAttachmentAsync publico filtra _db.TaskItems por tenant -> aqui no
+        // encontraria la tarea. Reglas de ruteo deterministico (un soporte llega casi siempre FUERA del hold):
+        //  1. Si un paso retiene el hilo (waitingSteps): a la(s) tarea(s) de esos pasos (comportamiento v1).
+        //  2. Si no, a la TAREA DUEÑA del hilo (Conversation.CurrentTaskItemId) si sigue ABIERTA.
+        //  3. Si no hay dueña abierta, a la UNICA tarea ABIERTA ligada al hilo; si hay varias, a la mas reciente
+        //     (con nota de ambiguedad). NUNCA a una tarea Done/Closed: un negocio cerrado no absorbe un pago nuevo.
+        //  4. Si no hay candidata abierta, el archivo queda en el chat marcado Pending = BANDEJA de soportes sin
+        //     tarea, para que un humano lo archive (no se adivina en una tarea cerrada, no se pierde).
+        // De-dup por (tarea, url) porque el barrido de agentes puede re-correr el paso.
+        if (!string.IsNullOrWhiteSpace(message.MediaUrl))
         {
-            var instanceIds = waitingSteps.Select(s => s.InstanceId).Distinct().ToList();
-            var taskIds = await _db.WorkflowInstances.IgnoreQueryFilters()
-                .Where(i => instanceIds.Contains(i.Id) && i.TaskItemId != null)
-                .Select(i => i.TaskItemId!.Value)
-                .Distinct()
-                .ToListAsync(cancellationToken);
-            foreach (var taskId in taskIds)
+            // Adjunta el archivo a una tarea (de-dup por url) + bitacora; marca el mensaje como ruteado. Devuelve
+            // true si quedo adjunto (o ya lo estaba). noteSuffix enriquece la linea de la bitacora.
+            async Task<bool> AttachToTaskAsync(Guid taskId, string noteSuffix)
             {
                 var alreadyAttached = await _db.TaskItemAttachments.IgnoreQueryFilters()
                     .AnyAsync(a => a.TaskItemId == taskId && a.Url == message.MediaUrl, cancellationToken);
-                if (alreadyAttached) { continue; }
-
                 var fileName = !string.IsNullOrWhiteSpace(message.MediaFileName)
                     ? message.MediaFileName!
                     : FileNameFromUrl(message.MediaUrl!);
-                _db.TaskItemAttachments.Add(new TaskItemAttachment
+                if (!alreadyAttached)
                 {
-                    TenantId = tenantId,
-                    TaskItemId = taskId,
-                    FileName = fileName,
-                    Url = message.MediaUrl!,
-                    MimeType = message.MediaMimeType,
-                    SizeBytes = 0,
-                    UploadedByName = "Cliente (flujo)"
-                });
-                _db.TaskItemActivities.Add(new TaskItemActivity
+                    _db.TaskItemAttachments.Add(new TaskItemAttachment
+                    {
+                        TenantId = tenantId,
+                        TaskItemId = taskId,
+                        FileName = fileName,
+                        Url = message.MediaUrl!,
+                        MimeType = message.MediaMimeType,
+                        SizeBytes = 0,
+                        UploadedByName = "Cliente (flujo)"
+                    });
+                    _db.TaskItemActivities.Add(new TaskItemActivity
+                    {
+                        TenantId = tenantId,
+                        TaskItemId = taskId,
+                        Type = TaskActivityType.Action,
+                        ActorName = "Cliente (flujo)",
+                        Text = $"adjunto el archivo {fileName} (enviado por WhatsApp{noteSuffix})"
+                    });
+                }
+                message.SupportStatus = ClientSupportStatus.Routed;
+                message.SupportTaskItemId = taskId;
+                return true;
+            }
+
+            if (waitingSteps.Count > 0)
+            {
+                var instanceIds = waitingSteps.Select(s => s.InstanceId).Distinct().ToList();
+                var taskIds = await _db.WorkflowInstances.IgnoreQueryFilters()
+                    .Where(i => instanceIds.Contains(i.Id) && i.TaskItemId != null)
+                    .Select(i => i.TaskItemId!.Value)
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+                foreach (var taskId in taskIds)
                 {
-                    TenantId = tenantId,
-                    TaskItemId = taskId,
-                    Type = TaskActivityType.Action,
-                    ActorName = "Cliente (flujo)",
-                    Text = $"adjunto el archivo {fileName} (enviado por WhatsApp durante el seguimiento)"
-                });
+                    await AttachToTaskAsync(taskId, " durante el seguimiento");
+                }
+            }
+            else
+            {
+                // Un negocio CERRADO (Done/Closed) NUNCA debe absorber un soporte nuevo.
+                // (2) Tarea DUEÑA del hilo, si sigue abierta.
+                Guid? destino = null;
+                if (conversation.CurrentTaskItemId is Guid ownerId)
+                {
+                    var ownerOpen = await _db.TaskItems.IgnoreQueryFilters()
+                        .AnyAsync(t => t.Id == ownerId
+                            && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Closed, cancellationToken);
+                    if (ownerOpen) { destino = ownerId; }
+                }
+
+                // (3) Fallback: tarea(s) ABIERTA(s) ligada(s) al hilo (TaskItem.ConversationId). Una -> esa; varias
+                //     -> la mas reciente (CreatedAt) con nota de ambiguedad.
+                var ambiguas = false;
+                if (destino is null)
+                {
+                    var abiertas = await _db.TaskItems.IgnoreQueryFilters()
+                        .Where(t => t.ConversationId == conversation.Id
+                            && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Closed)
+                        .OrderByDescending(t => t.CreatedAt)
+                        .Select(t => t.Id)
+                        .ToListAsync(cancellationToken);
+                    if (abiertas.Count >= 1)
+                    {
+                        destino = abiertas[0];
+                        ambiguas = abiertas.Count > 1;
+                    }
+                }
+
+                if (destino is Guid destinoId)
+                {
+                    await AttachToTaskAsync(destinoId, ambiguas
+                        ? "; habia varias tareas abiertas para este contacto, se adjunto a la mas reciente (verificar)"
+                        : "");
+                }
+                else
+                {
+                    // (4) Sin candidata abierta: a la BANDEJA de soportes sin tarea (no se pierde, no entra a cerradas).
+                    message.SupportStatus = ClientSupportStatus.Pending;
+                }
             }
         }
 

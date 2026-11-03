@@ -44,6 +44,55 @@
     </div>
 }
 
+@* ADR-0125 v2: BANDEJA de soportes sin tarea. Un adjunto del cliente (comprobante de pago, documento) que el ruteo
+   automatico no pudo asignar a ninguna tarea abierta queda aqui para que un humano lo archive o lo descarte. *@
+@if (_pendingSupports.Count > 0)
+{
+    <div class="cv-warn" style="background:#fffbeb;border-color:#fde68a;color:#92400e;">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" @onclick="() => _showSupports = !_showSupports">
+            <strong>Soportes sin tarea (@_pendingSupports.Count)</strong>
+            <span>@(_showSupports ? "Ocultar" : "Revisar")</span>
+        </div>
+        @if (_showSupports)
+        {
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+                @foreach (var s in _pendingSupports)
+                {
+                    var item = s;
+                    <div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">
+                        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                            <span style="font-weight:600;">@(string.IsNullOrWhiteSpace(item.ContactName) ? (item.ContactPhone ?? "Contacto") : item.ContactName)</span>
+                            @if (!string.IsNullOrWhiteSpace(item.ContactPhone)) { <span style="color:#78716c;">@item.ContactPhone</span> }
+                            <span style="color:#78716c;">- @item.ReceivedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                            @if (!string.IsNullOrWhiteSpace(item.MediaUrl))
+                            {
+                                <a href="@item.MediaUrl" target="_blank" rel="noopener" style="margin-left:auto;">@(item.FileName ?? "ver archivo")</a>
+                            }
+                        </div>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+                            @if (_supportRouteId == item.MessageId)
+                            {
+                                <input class="form-control form-control-sm" style="max-width:260px;" @bind="_supportTarget" placeholder="Numero de tarea (ej. T00451)" />
+                                <button class="btn btn-sm btn-primary" @onclick="@(() => RouteSupportAsync(item.MessageId))" disabled="@_supportBusy">Archivar</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ToggleSupportRoute(item.MessageId))" disabled="@_supportBusy">Cancelar</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-primary" @onclick="@(() => ToggleSupportRoute(item.MessageId))">Archivar en tarea</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => DismissSupportAsync(item.MessageId))" disabled="@_supportBusy" title="Quitar de la bandeja sin asignarlo a ninguna tarea">Descartar</button>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (_supportError is not null)
+                {
+                    <div class="tk-field-error">@_supportError</div>
+                }
+            </div>
+        }
+    </div>
+}
+
 @if (_loading)
 {
     <p><em>Cargando...</em></p>
@@ -750,7 +799,55 @@ else
             _templates = (await TemplatesSvc.ListAsync()).ToList();
             await EnsureHubAsync();
         }
+        await ReloadSupportsAsync();
         _loading = false;
+    }
+
+    // ADR-0125 v2: bandeja de soportes sin tarea (adjuntos del cliente que el ruteo no pudo asignar).
+    private List<ClientSupportItemDto> _pendingSupports = new();
+    private bool _showSupports;
+    private Guid? _supportRouteId;
+    private string _supportTarget = "";
+    private string? _supportError;
+    private bool _supportBusy;
+
+    private async Task ReloadSupportsAsync()
+    {
+        _pendingSupports = (await ChatSvc.ListPendingSupportsAsync()).ToList();
+    }
+
+    private void ToggleSupportRoute(Guid messageId)
+    {
+        _supportError = null;
+        if (_supportRouteId == messageId) { _supportRouteId = null; _supportTarget = ""; }
+        else { _supportRouteId = messageId; _supportTarget = ""; }
+    }
+
+    private async Task RouteSupportAsync(Guid messageId)
+    {
+        _supportError = null;
+        _supportBusy = true;
+        try
+        {
+            var actor = Guid.TryParse((await AuthState!).User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+            var res = await ChatSvc.RouteSupportAsync(messageId, _supportTarget, actor, _myName ?? "Usuario");
+            if (!res.Ok) { _supportError = res.Error ?? "No se pudo archivar el soporte."; return; }
+            _supportRouteId = null;
+            _supportTarget = "";
+            await ReloadSupportsAsync();
+        }
+        finally { _supportBusy = false; }
+    }
+
+    private async Task DismissSupportAsync(Guid messageId)
+    {
+        _supportBusy = true;
+        try
+        {
+            await ChatSvc.DismissSupportAsync(messageId);
+            await ReloadSupportsAsync();
+        }
+        finally { _supportBusy = false; }
     }
 
     private async Task ReloadConversationsAsync()

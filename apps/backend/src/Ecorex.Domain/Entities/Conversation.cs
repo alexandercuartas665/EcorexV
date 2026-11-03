@@ -77,4 +77,16 @@ public class Conversation : TenantEntity
     /// <summary>La ACTIVIDAD (tarea) cuyo cierre gestiono el flujo (ver <see cref="FlowHandledCloseAt"/>). Acota la
     /// marca a ese caso. Null = sin cierre-por-flujo pendiente.</summary>
     public Guid? FlowHandledTaskId { get; set; }
+
+    /// <summary>
+    /// ADR-0125 v2: TAREA DUENA ACTUAL del hilo. El mismo hilo de WhatsApp (linea + contacto) se reutiliza para
+    /// TODOS los negocios del cliente en el tiempo; un soporte de pago llega de forma asincrona (casi siempre
+    /// cuando el flujo NO esta en hold), asi que atar la captura del adjunto al hold es demasiado estrecho. Esta
+    /// marca fija, de forma deterministica, A QUE tarea cae la media entrante: la actualiza el motor cada vez que
+    /// un paso ENGANCHA al cliente por esta conversacion (toma la linea / le pregunta). Al abrir un negocio nuevo
+    /// que vuelve a enganchar al mismo cliente, la titularidad pasa a la tarea nueva. Si la dueña ya esta cerrada o
+    /// no esta fijada, la ingesta cae a un fallback (unica tarea abierta del hilo) y, si no hay, a la bandeja de
+    /// soportes sin tarea. NUNCA se adjunta a una tarea cerrada. Null = sin dueña fijada (holds/hilos viejos).
+    /// </summary>
+    public Guid? CurrentTaskItemId { get; set; }
 }

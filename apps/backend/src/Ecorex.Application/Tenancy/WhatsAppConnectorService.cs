@@ -707,12 +707,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
     /// digito faltante ni se asume pais). "57" es el default del despliegue actual (tenants CO); si en el futuro hay
     /// multi-pais, esto deberia venir de un codigo de pais por tenant.
     /// </summary>
-    private static string ToMsisdn(string? phone)
-    {
-        var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
-        if (digits.Length == 10 && digits[0] == '3') { return "57" + digits; }
-        return digits;
-    }
+    private static string ToMsisdn(string? phone) => Ecorex.Application.Common.PhoneNumber.ToMsisdn(phone);
 
     // Credenciales Cloud de la linea (phone_number_id + token descifrado), o null si faltan.
     private (string phoneNumberId, string token)? CloudCreds(WhatsAppLine line)

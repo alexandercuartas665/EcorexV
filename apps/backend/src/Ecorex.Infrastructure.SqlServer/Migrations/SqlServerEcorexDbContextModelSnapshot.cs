@@ -3457,6 +3457,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("CurrentTaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("current_task_item_id");
+
                     b.Property<DateTimeOffset?>("FlowHandledCloseAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("flow_handled_close_at");
@@ -9436,6 +9440,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("sent_by_tenant_user_id");
 
+                    b.Property<string>("SupportStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("support_status");
+
+                    b.Property<Guid?>("SupportTaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("support_task_item_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
@@ -9461,6 +9475,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_messages_tenant_id_external_id")
                         .HasFilter("[external_id] IS NOT NULL");
+
+                    b.HasIndex("TenantId", "SupportStatus")
+                        .HasDatabaseName("ix_messages_tenant_id_support_status");
 
                     b.ToTable("messages", (string)null);
                 });

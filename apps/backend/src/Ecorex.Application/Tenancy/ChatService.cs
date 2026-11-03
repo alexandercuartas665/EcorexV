@@ -417,4 +417,91 @@ public sealed class ChatService : IChatService
     }
 
     private static string Digits(string s) => new(s.Where(char.IsDigit).ToArray());
+
+    // ===== ADR-0125 v2: bandeja de soportes sin tarea =====
+
+    public async Task<IReadOnlyList<ClientSupportItemDto>> ListPendingSupportsAsync(CancellationToken cancellationToken = default)
+    {
+        // Mensajes marcados Pending (adjunto del cliente sin tarea destino), con el contacto del hilo. Tenant-scoped
+        // por el filtro global; mas recientes primero.
+        return await _db.Messages.AsNoTracking()
+            .Where(m => m.SupportStatus == ClientSupportStatus.Pending)
+            .OrderByDescending(m => m.SentAt)
+            .Join(_db.Conversations.AsNoTracking(), m => m.ConversationId, c => c.Id, (m, c) => new ClientSupportItemDto(
+                m.Id, m.ConversationId, c.ContactPhone, c.ContactName,
+                m.MediaFileName ?? m.MediaUrl, m.MediaUrl, m.MediaMimeType, m.SentAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> CountPendingSupportsAsync(CancellationToken cancellationToken = default)
+        => await _db.Messages.CountAsync(m => m.SupportStatus == ClientSupportStatus.Pending, cancellationToken);
+
+    public async Task<ClientSupportResult> RouteSupportAsync(Guid messageId, string targetTaskNumber, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var number = (targetTaskNumber ?? "").Trim();
+        if (number.Length == 0) { return new ClientSupportResult(false, "Indica el numero de la tarea destino (ej. T00451)."); }
+
+        var message = await _db.Messages.FirstOrDefaultAsync(m => m.Id == messageId, cancellationToken);
+        if (message is null) { return new ClientSupportResult(false, "Mensaje no encontrado."); }
+        if (string.IsNullOrWhiteSpace(message.MediaUrl)) { return new ClientSupportResult(false, "El mensaje no tiene un archivo adjunto."); }
+
+        var task = await _db.TaskItems.FirstOrDefaultAsync(t => t.Number == number || t.Number == "T" + number, cancellationToken);
+        if (task is null) { return new ClientSupportResult(false, $"No se encontro una tarea con el numero {number}."); }
+
+        var url = message.MediaUrl!;
+        var fileName = !string.IsNullOrWhiteSpace(message.MediaFileName) ? message.MediaFileName! : FileNameFromUrl(url);
+        var alreadyAttached = await _db.TaskItemAttachments.AnyAsync(a => a.TaskItemId == task.Id && a.Url == url, cancellationToken);
+        if (!alreadyAttached)
+        {
+            _db.TaskItemAttachments.Add(new TaskItemAttachment
+            {
+                TenantId = task.TenantId,
+                TaskItemId = task.Id,
+                FileName = fileName,
+                Url = url,
+                MimeType = message.MediaMimeType,
+                SizeBytes = 0,
+                UploadedBy = actorUserId,
+                UploadedByName = string.IsNullOrWhiteSpace(actorName) ? "Cliente (flujo)" : actorName
+            });
+            _db.TaskItemActivities.Add(new TaskItemActivity
+            {
+                TenantId = task.TenantId,
+                TaskItemId = task.Id,
+                Type = TaskActivityType.Action,
+                ActorName = string.IsNullOrWhiteSpace(actorName) ? "Sistema" : actorName,
+                Text = $"archivo el soporte {fileName} (enviado por WhatsApp) en esta tarea desde la bandeja"
+            });
+        }
+        message.SupportStatus = ClientSupportStatus.Routed;
+        message.SupportTaskItemId = task.Id;
+        await _db.SaveChangesAsync(cancellationToken);
+        return new ClientSupportResult(true, null);
+    }
+
+    public async Task<ClientSupportResult> DismissSupportAsync(Guid messageId, CancellationToken cancellationToken = default)
+    {
+        var message = await _db.Messages.FirstOrDefaultAsync(m => m.Id == messageId, cancellationToken);
+        if (message is null) { return new ClientSupportResult(false, "Mensaje no encontrado."); }
+        message.SupportStatus = ClientSupportStatus.Dismissed;
+        message.SupportTaskItemId = null;
+        await _db.SaveChangesAsync(cancellationToken);
+        return new ClientSupportResult(true, null);
+    }
+
+    /// <summary>Nombre de archivo a partir de la URL (ultimo segmento del path, sin query). "archivo" si no hay.</summary>
+    private static string FileNameFromUrl(string url)
+    {
+        try
+        {
+            var path = Uri.TryCreate(url, UriKind.Absolute, out var abs) ? abs.AbsolutePath : url;
+            var name = path.TrimEnd('/');
+            var slash = name.LastIndexOf('/');
+            if (slash >= 0) { name = name[(slash + 1)..]; }
+            var q = name.IndexOf('?');
+            if (q >= 0) { name = name[..q]; }
+            return string.IsNullOrWhiteSpace(name) ? "archivo" : name;
+        }
+        catch { return "archivo"; }
+    }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Ecorex.Application.Common;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -133,9 +134,28 @@ public sealed class FormResponseService : IFormResponseService
         {
             return FormResult<FormResponseDto>.NotFound("Respuesta no encontrada.");
         }
+
+        // Config de la definicion para este guardado. "Registro editable" (theme_json.keepEditable) hace que el
+        // formulario NUNCA se cierre: se guarda siempre como borrador y una respuesta ya enviada se REABRE a
+        // borrador para seguir editandola/autoguardandola en TODA superficie (detalle de tarea, modulo, modal
+        // del tercero y el enlace publico /f/). Se parsea aqui (no en la UI) porque el candado de inmutabilidad
+        // vive en el servidor. Tambien se reusa el CloseRuleJson que de todos modos hacia falta mas abajo.
+        var defInfo = await _db.FormDefinitions.AsNoTracking()
+            .Where(d => d.Id == response.DefinitionId)
+            .Select(d => new { d.ThemeJson, d.CloseRuleJson })
+            .FirstOrDefaultAsync(cancellationToken);
+        var keepEditable = ThemeKeepEditable(defInfo?.ThemeJson);
+
         if (response.Status == FormResponseStatus.Submitted)
         {
-            return FormResult<FormResponseDto>.Invalid("La respuesta ya fue enviada y no puede modificarse.");
+            if (!keepEditable)
+            {
+                return FormResult<FormResponseDto>.Invalid("La respuesta ya fue enviada y no puede modificarse.");
+            }
+            // Registro editable: el envio NO es inmutable para este tipo de formulario -> reabrir a borrador.
+            response.Status = FormResponseStatus.Draft;
+            AddAudit(response, FormResponseAuditAction.Update, actorUser: submittedByTenantUserId, snapshot: null,
+                note: "reopen (registro editable)");
         }
 
         var questions = await _db.FormQuestions.AsNoTracking()
@@ -218,15 +238,16 @@ public sealed class FormResponseService : IFormResponseService
         // cumple con los datos actuales (p.ej. se agrego una firma), el guardado se PROMUEVE a envio: confirma
         // y CIERRA el registro (queda Submitted/Confirmed y ya no admite mas cambios), aunque el cliente lo
         // mandara como borrador. Reusa la misma semantica de la visibilidad condicional.
-        if (!submit)
+        // Registro editable (keepEditable): NUNCA se auto-cierra por regla ni se envia -> siempre borrador. Asi el
+        // formulario queda editable/autoguardable de por vida y no vuelve a caer en el candado de inmutabilidad.
+        if (!submit && !keepEditable
+            && FormCloseRule.IsMet(defInfo?.CloseRuleJson, code => document.TryGetValue(code, out var fv) ? fv.Value : null))
         {
-            var closeRuleJson = await _db.FormDefinitions.AsNoTracking()
-                .Where(d => d.Id == response.DefinitionId).Select(d => d.CloseRuleJson)
-                .FirstOrDefaultAsync(cancellationToken);
-            if (FormCloseRule.IsMet(closeRuleJson, code => document.TryGetValue(code, out var fv) ? fv.Value : null))
-            {
-                submit = true;
-            }
+            submit = true;
+        }
+        if (keepEditable)
+        {
+            submit = false;
         }
 
         if (submit)
@@ -905,6 +926,30 @@ public sealed class FormResponseService : IFormResponseService
     }
 
     // Auditoria INMUTABLE de respuestas (integridad): agrega una fila (NO guarda; el caller hace SaveChanges).
+    /// <summary>Lee el flag de COMPORTAMIENTO keepEditable (registro editable / autoguardado) del theme_json de la
+    /// definicion. Se parsea en el servidor porque el candado de inmutabilidad de una respuesta Submitted vive aqui,
+    /// y el flag debe honrarse en TODA superficie (incl. el enlace publico /f/). Mismo contrato que
+    /// FormThemeJson.Read de la capa Blazor (que es la fuente autoritativa al guardar el tema).</summary>
+    private static bool ThemeKeepEditable(string? themeJson)
+    {
+        if (string.IsNullOrWhiteSpace(themeJson)) { return false; }
+        try
+        {
+            if (JsonNode.Parse(themeJson) is not JsonObject root
+                || !root.TryGetPropertyValue("keepEditable", out var v) || v is null)
+            {
+                return false;
+            }
+            return v.GetValueKind() switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.String => bool.TryParse(v.GetValue<string>(), out var b) && b,
+                _ => false
+            };
+        }
+        catch (JsonException) { return false; }
+    }
+
     private void AddAudit(FormResponse r, FormResponseAuditAction action, Guid? actorUser, string? snapshot,
         string? note = null, Guid? actorAiAgent = null)
     {

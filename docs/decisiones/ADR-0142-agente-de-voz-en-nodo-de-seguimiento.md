@@ -50,3 +50,13 @@ transcripcion.
   `webhook_url` por llamada; la entrega a prod la valida el usuario.
 - Toda migracion (olas 2-4) es DUAL (PostgreSQL + SQL Server). Multi-tenant por filtro
   global. ASCII en archivos nuevos.
+- Ola 4 (hecha): la bitacora de voz cuelga de `VoiceCall` (`AiAgentRunLog.VoiceCallId`,
+  `ConversationId` nullable, check "exactamente uno"); el riel de `/bitacora-agente` agrupa
+  por CONTACTO (ultimos 10 digitos del telefono) uniendo WhatsApp + voz. El candado de voz
+  (4.6b) REUSA el hold de la conversacion de WhatsApp del contacto (`FlowHoldStepId`, que
+  SARA ya respeta): se estampa al colocar la llamada y se suelta por DUENO del paso (cubre
+  WhatsApp y voz). Sub-decision del transcript-para-SARA: se escribe el resumen como
+  `Message` SOLO si el contacto ya tiene conversacion de WhatsApp; si el seguimiento fue
+  solo-voz no se crea una conversacion (el transcript completo queda en `VoiceCall` y en la
+  bitacora). Extender el context builder de SARA para leer transcripts de voz sin WhatsApp
+  previo queda pendiente (no bloquea esta ola).

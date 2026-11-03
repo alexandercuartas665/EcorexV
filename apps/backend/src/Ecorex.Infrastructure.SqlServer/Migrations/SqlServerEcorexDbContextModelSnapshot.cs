@@ -1286,7 +1286,7 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("content");
 
-                    b.Property<Guid>("ConversationId")
+                    b.Property<Guid?>("ConversationId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("conversation_id");
 
@@ -1330,13 +1330,23 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid?>("VoiceCallId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("voice_call_id");
+
                     b.HasKey("Id")
                         .HasName("pk_ai_agent_run_logs");
 
                     b.HasIndex("TenantId", "ConversationId", "OccurredAt")
                         .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_conversation_id_occurred_at");
 
-                    b.ToTable("ai_agent_run_logs", (string)null);
+                    b.HasIndex("TenantId", "VoiceCallId", "OccurredAt")
+                        .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_voice_call_id_occurred_at");
+
+                    b.ToTable("ai_agent_run_logs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_ai_agent_run_log_conv_xor_voice", "(conversation_id IS NOT NULL AND voice_call_id IS NULL) OR (conversation_id IS NULL AND voice_call_id IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AiProviderConfig", b =>

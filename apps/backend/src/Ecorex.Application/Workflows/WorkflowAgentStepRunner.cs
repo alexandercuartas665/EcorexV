@@ -612,6 +612,10 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
 
         await using var transaction = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         await AddTaskNoteAsync(step, noteReason, cancellationToken);
+        // Ola 4 (ADR-0142, 4.6b): candado a nivel CONTACTO. Mientras el flujo llama (o reintenta) al cliente, marca
+        // la conversacion de WhatsApp del MISMO contacto como "tomada por el flujo" (el candado que SARA ya respeta),
+        // para que SARA no le abra un caso nuevo por WhatsApp en paralelo. Se suelta al resolver/fallar el paso.
+        await StampContactVoiceHoldAsync(step, toNumber, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         if (transaction is not null)
         {
@@ -1352,19 +1356,46 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         catch { /* best-effort: un fallo del stream no afecta al paso */ }
     }
 
-    /// <summary>ADR-0122: libera la marca de "tomada por el flujo" (FlowHoldStepId/FlowHoldNodeId) de la
-    /// conversacion que ESTE paso tenia anotada. Se llama al RESOLVER, devolver a persona o fallar, para que el
-    /// agente de la linea (SARA) y otros pasos puedan volver a usarla. Solo la suelta si el dueno sigue siendo
-    /// este paso (no pisa una toma mas nueva).</summary>
+    /// <summary>ADR-0122: libera la marca de "tomada por el flujo" (FlowHoldStepId/FlowHoldNodeId) de la(s)
+    /// conversacion(es) que ESTE paso tomo. Se llama al RESOLVER, devolver a persona o fallar, para que el agente
+    /// de la linea (SARA) y otros pasos puedan volver a usarla. Busca por dueno (FlowHoldStepId == este paso), asi
+    /// cubre tanto el hold de WhatsApp (ADR-0122) como el de VOZ a nivel contacto (Ola 4, 4.6b), sin pisar una
+    /// toma mas nueva de otro paso.</summary>
     private async Task ReleaseConversationHoldAsync(WorkflowStepHistory step, CancellationToken cancellationToken)
     {
-        if (step.PendingWhatsAppConversationId is not Guid conversationId) { return; }
-        var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
-        if (conv is not null && conv.FlowHoldStepId == step.Id)
+        var held = await _db.Conversations
+            .Where(c => c.FlowHoldStepId == step.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var conv in held)
         {
             conv.FlowHoldStepId = null;
             conv.FlowHoldNodeId = null;
         }
+    }
+
+    /// <summary>Ola 4 (ADR-0142, 4.6b): al colocar una llamada de voz, estampa el candado "tomada por el flujo" en la
+    /// conversacion de WhatsApp del MISMO contacto (emparejada por telefono), para que SARA no abra un caso nuevo con
+    /// ese contacto en paralelo. Reusa FlowHoldStepId/FlowHoldNodeId (el candado que SARA ya respeta). Solo estampa si
+    /// la conversacion NO esta tomada por otro paso (no roba una toma vigente). Si el contacto no tiene conversacion de
+    /// WhatsApp (seguimiento solo por voz), no hay nada que bloquear: el paso ya quedo "en espera" en su tarjeta.</summary>
+    private async Task StampContactVoiceHoldAsync(
+        WorkflowStepHistory step, string toNumber, CancellationToken cancellationToken)
+    {
+        var digits = new string(toNumber.Where(char.IsDigit).ToArray());
+        if (digits.Length > 10) { digits = digits[^10..]; }
+        if (digits.Length < 7) { return; }
+        var conv = await _db.Conversations
+            .Where(c => c.ContactPhone == digits || c.ContactPhone.EndsWith(digits))
+            .OrderByDescending(c => c.LastMessageAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (conv is null) { return; }
+        if (conv.FlowHoldStepId is Guid holder && holder != step.Id) { return; }   // la tiene otro caso: no se roba
+        conv.FlowHoldStepId = step.Id;
+        conv.FlowHoldNodeId = step.NodeId;
+        // Un episodio nuevo del flujo atiende la linea: limpia cualquier marca de cierre-por-flujo anterior para que
+        // el candado de SARA no quede pegado de un caso ya cerrado (mismo criterio que el hold de WhatsApp).
+        conv.FlowHandledCloseAt = null;
+        conv.FlowHandledTaskId = null;
     }
 
     /// <summary>

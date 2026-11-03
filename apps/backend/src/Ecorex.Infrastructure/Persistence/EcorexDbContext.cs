@@ -1153,6 +1153,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Content).HasColumnType(longTextColumnType);
             b.Property(x => x.Response).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.ConversationId, x.OccurredAt });
+            // Ola 4 (ADR-0142, opcion A): la bitacora cuelga de una conversacion de WhatsApp O de una llamada de
+            // voz, nunca de ambas. Indice para el riel de voz y candado "exactamente uno de los dos" (portable PG +
+            // SQL Server: sin comparar predicados IS NULL como booleanos, que SQL Server no admite).
+            b.HasIndex(x => new { x.TenantId, x.VoiceCallId, x.OccurredAt });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_ai_agent_run_log_conv_xor_voice",
+                "(conversation_id IS NOT NULL AND voice_call_id IS NULL) OR (conversation_id IS NULL AND voice_call_id IS NOT NULL)"));
         });
 
         modelBuilder.Entity<AiUsageLog>(b =>

@@ -23,7 +23,7 @@
         <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@(_loading || _busy)">Actualizar</button>
         @if (_tab == "atencion")
         {
-            <button class="btn btn-outline-danger" @onclick="ClearAllAsync" disabled="@(_loading || _busy || _convs.Count == 0)"
+            <button class="btn btn-outline-danger" @onclick="ClearAllAsync" disabled="@(_loading || _busy || _contacts.Count == 0)"
                     title="Borra los LOGS de la bitacora y el CACHE de datos capturados de toda la empresa. NO borra los mensajes del chat (la memoria conversacional del agente) ni los leads. Para que un agente olvide a un contacto, usa 'Reiniciar memoria' en la fila del contacto.">
                 @(_busy ? "Borrando..." : "Limpiar bitacora y cache")
             </button>
@@ -49,6 +49,10 @@
             style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "flujo" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "flujo" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
         Lineas por flujo@(_held.Count > 0 ? $" ({_held.Count})" : "")
     </button>
+    <button type="button" @onclick="@(() => _tab = "grabaciones")"
+            style="background:none;border:none;cursor:pointer;padding:8px 14px;font-size:13px;font-weight:700;color:@(_tab == "grabaciones" ? "var(--primary)" : "var(--muted-foreground)");border-bottom:2px solid @(_tab == "grabaciones" ? "var(--primary)" : "transparent");margin-bottom:-1px;">
+        Grabacion de llamadas@(_recordings.Count > 0 ? $" ({_recordings.Count})" : "")
+    </button>
 </div>
 
 @if (_flash is not null)
@@ -67,22 +71,26 @@ else if (_tab == "atencion")
 {
     <div style="display:grid;grid-template-columns:minmax(300px,400px) 1fr;gap:22px;align-items:start;">
         <div class="card" style="padding:14px;">
-            @if (_convs.Count == 0)
+            @if (_contacts.Count == 0)
             {
-                <p class="text-muted" style="padding:8px 2px;">Aun no hay atenciones registradas. Cuando un agente atienda una linea, apareceran aqui.</p>
+                <p class="text-muted" style="padding:8px 2px;">Aun no hay atenciones registradas. Cuando un agente atienda una linea (WhatsApp o voz), apareceran aqui.</p>
             }
             else
             {
                 <div style="display:flex;flex-direction:column;gap:4px;max-height:68vh;overflow-y:auto;">
-                    @foreach (var c in _convs)
+                    @foreach (var c in _contacts)
                     {
-                        <div style="display:flex;align-items:center;gap:10px;padding:9px;border-radius:10px;cursor:pointer;@(_selectedId == c.ConversationId ? "background:var(--primary-soft);" : "")" @onclick="() => SelectAsync(c.ConversationId)">
+                        <div style="display:flex;align-items:center;gap:10px;padding:9px;border-radius:10px;cursor:pointer;@(_selectedKey == c.ContactKey ? "background:var(--primary-soft);" : "")" @onclick="() => SelectAsync(c)">
                             <span style="width:38px;height:38px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;color:#fff;font-weight:800;font-size:12px;background:var(--gradient-violet);">@Initials(c.ContactName ?? c.ContactPhone)</span>
                             <div style="flex:1;min-width:0;">
                                 <div style="font-weight:700;font-size:13px;">@(string.IsNullOrWhiteSpace(c.ContactName) ? c.ContactPhone : c.ContactName)</div>
                                 <div class="text-muted" style="font-size:11px;">@c.ContactPhone @(c.LineLabel is null ? "" : $"- linea {c.LineLabel}")</div>
                             </div>
                             <div style="text-align:right;">
+                                @if (c.HasVoice)
+                                {
+                                    <span class="badge" style="background:var(--gradient-violet);color:#fff;" title="Incluye llamadas de voz">voz</span>
+                                }
                                 <span class="badge bg-secondary">@c.Events</span>
                                 <div class="text-muted" style="font-size:10.5px;">@(c.LastActivityAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "")</div>
                             </div>
@@ -93,7 +101,7 @@ else if (_tab == "atencion")
         </div>
 
         <div class="card" style="padding:22px;">
-            @if (_selectedId is not null)
+            @if (_selectedKey is not null && _selectedConvId is not null)
             {
                 <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
                     <button class="btn btn-sm btn-outline-secondary" @onclick="ResetContextAsync" disabled="@_busy"
@@ -101,14 +109,14 @@ else if (_tab == "atencion")
                         @(_busy ? "Reiniciando..." : "Reiniciar memoria (conservar mensajes)")
                     </button>
                     <button class="btn btn-sm btn-outline-danger" @onclick="ResetConversationAsync" disabled="@_busy"
-                            title="Borra logs + cache + mensajes del chat de esta conversacion. El agente arranca de cero en el siguiente mensaje. No toca el lead.">
+                            title="Borra logs + cache + mensajes del chat de la conversacion de WhatsApp de este contacto. El agente arranca de cero en el siguiente mensaje. No toca el lead ni las llamadas de voz.">
                         @(_busy ? "Reiniciando..." : "Reiniciar conversacion")
                     </button>
                 </div>
             }
-            @if (_selectedId is null)
+            @if (_selectedKey is null)
             {
-                <p class="text-muted" style="padding:24px 0;text-align:center;">Selecciona una conversacion para ver su bitacora de atencion.</p>
+                <p class="text-muted" style="padding:24px 0;text-align:center;">Selecciona un contacto para ver su bitacora de atencion (WhatsApp y voz).</p>
             }
             else if (_log.Count == 0)
             {
@@ -226,7 +234,7 @@ else if (_tab == "entregados")
         }
     </div>
 }
-else
+else if (_tab == "flujo")
 {
     @* Pestana "Lineas por flujo": conversaciones que un flujo tomo ahora mismo. Propio tab, con scroll. *@
     <div class="card" style="padding:18px;">
@@ -263,19 +271,58 @@ else
         }
     </div>
 }
+else
+{
+    @* Ola 4 (ADR-0142): pestana "Grabacion de llamadas". El audio NO va al timeline de texto; aqui se listan las
+       grabaciones de voz del contacto (reproductor + fecha + duracion + estado) desde VoiceCall.RecordingUrl. *@
+    <div class="card" style="padding:18px;">
+        <div style="font-size:12.5px;color:var(--muted-foreground);margin-bottom:14px;">
+            Grabaciones de las <strong>llamadas de voz</strong> colocadas por el flujo (Retell), mas recientes primero.
+            El transcripto de texto queda en la bitacora de atencion del contacto; aqui esta el audio.
+        </div>
+        @if (_recordings.Count == 0)
+        {
+            <p class="text-muted" style="padding:8px 2px;">Aun no hay grabaciones. Cuando una llamada de voz termine con grabacion disponible, aparecera aqui.</p>
+        }
+        else
+        {
+            <div style="display:flex;flex-direction:column;gap:12px;max-height:70vh;overflow-y:auto;">
+                @foreach (var r in _recordings)
+                {
+                    <div style="border-left:3px solid var(--primary);padding:8px 0 10px 14px;">
+                        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;">
+                            <strong style="font-size:13.5px;">
+                                @r.ContactPhone
+                                <span class="text-muted" style="font-weight:600;font-size:11.5px;">@(string.IsNullOrWhiteSpace(r.Objetivo) ? "" : $"- {r.Objetivo}")</span>
+                            </strong>
+                            <span class="text-muted" style="font-size:11.5px;">
+                                @r.At.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")@(r.DurationSeconds is int d ? $" - {FormatDuration(d)}" : "") - @r.Status
+                            </span>
+                        </div>
+                        <audio controls preload="none" src="@r.RecordingUrl" style="width:100%;margin-top:8px;"></audio>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
 
 @code {
     private bool _loading = true;
     private bool _busy;
     private string? _flash;
-    private List<AgentConversationDto> _convs = new();
+    // Ola 4 (ADR-0142): el riel agrupa por CONTACTO (WhatsApp + voz). _selectedKey = clave del contacto;
+    // _selectedConvId = conversacion de WhatsApp de respaldo (si existe) para reiniciar memoria/conversacion.
+    private List<AgentContactDto> _contacts = new();
     private List<FlowHeldConversationDto> _held = new();
-    private Guid? _selectedId;
+    private string? _selectedKey;
+    private Guid? _selectedConvId;
     private List<AgentRunLogEntryDto> _log = new();
-    // Pestana activa: "atencion" (bitacora de SARA) o "fallos" (entregas de WhatsApp que no llegaron).
+    // Pestana activa: "atencion" (bitacora), "entregados"/"fallos" (WhatsApp), "flujo" (lineas tomadas) o "grabaciones" (audio de voz).
     private string _tab = "atencion";
     private List<AgentDeliveryFailureDto> _failures = new();
     private List<AgentDeliveryDto> _deliveries = new();
+    private List<VoiceRecordingDto> _recordings = new();
 
     private async Task ClearAllAsync()
     {
@@ -284,7 +331,7 @@ else
         try
         {
             var (logs, cache) = await AgentLinesSvc.ClearAllLogsAsync();
-            _selectedId = null; _log = new();
+            _selectedKey = null; _selectedConvId = null; _log = new();
             await ReloadAsync();
             _flash = $"Bitacora y cache limpiados: {logs} evento(s) y {cache} dato(s) de cache eliminados. No se tocaron los mensajes del chat.";
         }
@@ -293,7 +340,7 @@ else
 
     private async Task ResetContextAsync()
     {
-        if (_selectedId is not Guid id) { return; }
+        if (_selectedConvId is not Guid id) { return; }
         if (!await JS.InvokeAsync<bool>("confirm", "Reiniciar la memoria del agente para este contacto? El agente arrancara de cero en el siguiente mensaje, PERO se conservan los mensajes del chat para que puedas leerlos. No toca el lead.")) { return; }
         _busy = true; _flash = null;
         try
@@ -308,13 +355,13 @@ else
 
     private async Task ResetConversationAsync()
     {
-        if (_selectedId is not Guid id) { return; }
+        if (_selectedConvId is not Guid id) { return; }
         if (!await JS.InvokeAsync<bool>("confirm", "Reiniciar esta conversacion? Borra sus logs, su cache y los mensajes del chat. El agente arranca de cero en el siguiente mensaje. No toca el lead.")) { return; }
         _busy = true; _flash = null;
         try
         {
             var (logs, cache, messages) = await AgentLinesSvc.ResetConversationMemoryAsync(id);
-            _selectedId = null; _log = new();
+            _selectedKey = null; _selectedConvId = null; _log = new();
             await ReloadAsync();
             _flash = $"Conversacion reiniciada: {logs} log(s), {cache} dato(s) de cache y {messages} mensaje(s) eliminados.";
         }
@@ -344,11 +391,12 @@ else
 
     private async Task ReloadAsync()
     {
-        _convs = (await AgentLinesSvc.ListAttendedConversationsAsync()).ToList();
+        _contacts = (await AgentLinesSvc.ListAttendedContactsAsync()).ToList();
         _held = (await AgentLinesSvc.ListFlowHeldConversationsAsync()).ToList();
         _failures = (await AgentLinesSvc.ListDeliveryFailuresAsync()).ToList();
         _deliveries = (await AgentLinesSvc.ListDeliveriesAsync()).ToList();
-        if (_selectedId is Guid id && _convs.All(c => c.ConversationId != id)) { _selectedId = null; _log = new(); }
+        _recordings = (await AgentLinesSvc.ListVoiceRecordingsAsync()).ToList();
+        if (_selectedKey is string key && _contacts.All(c => c.ContactKey != key)) { _selectedKey = null; _selectedConvId = null; _log = new(); }
     }
 
     /// <summary>Cambia a la pestana "Fallos de envio" y refresca (para ver el estado mas reciente).</summary>
@@ -393,10 +441,19 @@ else
         _ => "bg-secondary"
     };
 
-    private async Task SelectAsync(Guid id)
+    private async Task SelectAsync(AgentContactDto contact)
     {
-        _selectedId = id;
-        _log = (await AgentLinesSvc.GetConversationLogAsync(id)).ToList();
+        _selectedKey = contact.ContactKey;
+        _selectedConvId = contact.ConversationId;
+        _log = (await AgentLinesSvc.GetContactLogAsync(contact.ContactKey)).ToList();
+    }
+
+    private static string FormatDuration(int seconds)
+    {
+        if (seconds < 60) { return $"{seconds}s"; }
+        var m = seconds / 60;
+        var s = seconds % 60;
+        return s == 0 ? $"{m}m" : $"{m}m {s}s";
     }
 
     private static int Rows(string s)

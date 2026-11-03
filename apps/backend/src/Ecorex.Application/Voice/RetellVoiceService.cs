@@ -135,7 +135,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
 
         // 6) Persistir la VoiceCall (snapshot de origen + whitelist de formularios).
-        _db.VoiceCalls.Add(new VoiceCall
+        var voiceCall = new VoiceCall
         {
             CallId = callRes.CallId!,
             RetellVoiceLineId = cfg.Id,
@@ -148,7 +148,11 @@ public sealed class RetellVoiceService : IRetellVoiceService
             FormulariosPermitidosJson = request.FormulariosPermitidos.Count > 0
                 ? JsonSerializer.Serialize(request.FormulariosPermitidos) : null,
             ContactWorkflowRunId = request.ContactWorkflowRunId
-        });
+        };
+        _db.VoiceCalls.Add(voiceCall);
+        // Ola 4 (ADR-0142): deja rastro en la bitacora del agente de que el flujo coloco la llamada (espejo del
+        // saliente de WhatsApp). Best-effort: solo si la llamada tiene agente ECOREX atribuible.
+        VoiceAgentJournal.LogPlaced(_db, voiceCall, _clock.GetUtcNow());
         await _db.SaveChangesAsync(cancellationToken);
 
         _log.LogInformation("Voz IA: llamada colocada call_id={CallId} agent={AgentId}", callRes.CallId, overrideAgentId);
@@ -207,6 +211,16 @@ public sealed class RetellVoiceService : IRetellVoiceService
             ApplyRetellCall(vc, doc.RootElement);
         }
         catch (JsonException) { return; }
+
+        // Ola 4 (ADR-0142): red de seguridad del webhook -> si el sondeo trajo el resultado terminal, deja la
+        // entrada de resultado en la bitacora (y el resumen como Message para SARA), idempotente. Igual criterio
+        // que el webhook: en 'analyzed' (con resumen) o en terminal "sin contacto" (que puede no traer analyzed).
+        var noContactTerminal = vc.Status is VoiceCallStatus.Failed or VoiceCallStatus.Error
+            || IsNoContactReason(vc.DisconnectionReason);
+        if (vc.Status == VoiceCallStatus.Analyzed || noContactTerminal)
+        {
+            await VoiceAgentJournal.WriteResultAsync(_db, vc, _clock.GetUtcNow(), ct);
+        }
 
         try
         {

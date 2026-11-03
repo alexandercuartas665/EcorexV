@@ -93,8 +93,36 @@
 
 /* ---- Marcador de color por fila (menu contextual persistente) ---- */
 .cd-mark-cell { padding-left: 6px; }
-.cd-grid tbody tr.cd-marked { background: rgba(0,0,0,.015); }
+/* El color elegido pinta TODA la fila: se setea --cd-row-tint (hex con alpha) inline en el <tr> y se aplica a
+   cada celda (incluidas las congeladas y en hover) para que el tinte cubra la fila completa sin tapar el texto. */
+.cd-grid tbody tr.cd-marked > td,
+.cd-grid tbody tr.cd-marked:hover > td,
+.cd-grid tbody tr.cd-marked > td.cd-frozen,
+.cd-grid tbody tr.cd-marked:hover > td.cd-frozen { background: var(--cd-row-tint, rgba(0,0,0,.015)); }
 .cd-grid tbody tr { cursor: context-menu; }
+/* Indicador de que la fila tiene observacion (icono de nota junto al check) */
+.cd-note-dot { display: inline-flex; align-items: center; color: var(--text-2, #6b7280); margin-left: 3px; vertical-align: middle; cursor: help; }
+.cd-note-dot svg { display: block; }
+
+/* Editor de observacion dentro del menu "Marcar fila" */
+.cd-ctx-note-title { font-size: 11px; font-weight: 600; color: var(--text-2, #6b7280); margin: 2px 2px 4px; }
+.cd-ctx-note {
+    width: 100%; box-sizing: border-box; resize: vertical; min-height: 48px;
+    border: 1px solid var(--line-2, #d7dbe0); border-radius: 7px; padding: 6px 8px;
+    font-size: 12px; font-family: inherit; color: var(--text, #1f2937);
+}
+.cd-ctx-note:focus { outline: none; border-color: var(--brand, #2f6feb); box-shadow: 0 0 0 2px rgba(47,111,235,.15); }
+.cd-ctx-note-acts { display: flex; gap: 6px; margin-top: 6px; }
+.cd-ctx-note-save {
+    flex: 1; background: var(--brand, #2f6feb); color: #fff; border: none; border-radius: 7px;
+    padding: 6px 8px; font-size: 12px; cursor: pointer;
+}
+.cd-ctx-note-save:hover { filter: brightness(.95); }
+.cd-ctx-note-clear {
+    background: var(--surface, #fff); color: #dc2626; border: 1px solid #f0c6c6; border-radius: 7px;
+    padding: 6px 8px; font-size: 12px; cursor: pointer;
+}
+.cd-ctx-note-clear:hover { background: #fef2f2; }
 
 .cd-ctx-overlay { position: fixed; inset: 0; z-index: 4000; background: transparent; }
 .cd-ctx-menu {
@@ -196,13 +224,13 @@
 /* Celdas congeladas: fondo opaco para que no se transparente lo que pasa por debajo. */
 .cd-grid td.cd-frozen { background: var(--surface, #fff); }
 .cd-grid tbody tr:hover td.cd-frozen { background: var(--brand-soft, #f5f7ff); }
-.cd-grid tbody tr.cd-marked td.cd-frozen { background: #fbfcff; }
+.cd-grid tbody tr.cd-marked td.cd-frozen { background: var(--cd-row-tint, #fbfcff); }
 .cd-grid tbody tr.cd-grp td.cd-frozen, .cd-grid tbody tr.cd-sub td.cd-frozen { background: var(--surface-2, #f8fafc); }
 
 /* Celdas congeladas: fondo opaco para que no se transparente lo que pasa por debajo. */
 .cd-grid td.cd-frozen { background: var(--surface, #fff); }
 .cd-grid tbody tr:hover td.cd-frozen { background: var(--brand-soft, #f5f7ff); }
-.cd-grid tbody tr.cd-marked td.cd-frozen { background: #fbfcff; }
+.cd-grid tbody tr.cd-marked td.cd-frozen { background: var(--cd-row-tint, #fbfcff); }
 /* Borde derecho en la ultima columna fija, para separar visualmente del area que scrollea. */
 .cd-grid th.cd-frozen-edge, .cd-grid td.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }
 .cd-grid thead th.cd-frozen-edge { box-shadow: inset 0 -1px 0 var(--line-2, #e5e7eb), 2px 0 4px -2px rgba(0,0,0,.22); }

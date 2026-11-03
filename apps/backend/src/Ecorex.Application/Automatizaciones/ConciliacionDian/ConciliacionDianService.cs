@@ -315,6 +315,16 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task SetMarkerNoteAsync(Guid renglonId, string? note, CancellationToken ct = default)
+    {
+        var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        if (r is null) { return; }
+        var n = note?.Trim();
+        // "" o solo espacios => limpia la observacion. Tope defensivo de 500 chars (es una nota corta de fila).
+        r.MarkerNote = string.IsNullOrEmpty(n) ? null : (n.Length > 500 ? n[..500] : n);
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task SetAssigneeAsync(Guid renglonId, Guid? tenantUserId, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
@@ -566,5 +576,5 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             r.DescuentoComercial, r.SubtotalNeto, r.IvaDescontable, r.TotalAntesRetenciones, r.RetRetefuente,
             r.RetIca, r.TotalFactura, r.TipoPago, r.FacturaAprobada, r.PlataformaProveedor, r.RutEscaneado,
             r.Evento30, r.Evento31, r.Evento32, r.Evento33, r.Evento34, r.Seleccionado, r.Cufe, r.MarkerColor,
-            r.AssignedTenantUserId, r.Rechazado);
+            r.MarkerNote, r.AssignedTenantUserId, r.Rechazado);
 }

@@ -2552,6 +2552,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("marker_color");
 
+                    b.Property<string>("MarkerNote")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("marker_note");
+
                     b.Property<string>("NitProveedor")
                         .IsRequired()
                         .HasMaxLength(40)

@@ -2552,6 +2552,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("marker_color");
 
+                    b.Property<string>("MarkerNote")
+                        .HasColumnType("text")
+                        .HasColumnName("marker_note");
+
                     b.Property<string>("NitProveedor")
                         .IsRequired()
                         .HasMaxLength(40)

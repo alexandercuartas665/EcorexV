@@ -332,7 +332,7 @@ else
                     {
                         @if (it.Kind == GKind.Group)
                         {
-                            <tr class="cd-grp @(it.Level > 0 ? "cd-grp2" : "")">
+                            <tr @key="@($"g{it.Seq}")" class="cd-grp @(it.Level > 0 ? "cd-grp2" : "")">
                                 <td colspan="@ColSpanAll">
                                     <span class="cd-grp-lbl" style="padding-left:@(it.Level * 18)px">@it.Label</span>
                                     <span class="cd-grp-n">@it.Count reg.</span>
@@ -341,7 +341,7 @@ else
                         }
                         else if (it.Kind == GKind.Subtotal)
                         {
-                            <tr class="cd-sub @(it.Grand ? "cd-sub-grand" : "")">
+                            <tr @key="@($"s{it.Seq}")" class="cd-sub @(it.Grand ? "cd-sub-grand" : "")">
                                 <td class="cd-mark-cell"></td>
                                 @{ var labelPut = false; }
                                 @foreach (var c in VisibleCols())
@@ -363,9 +363,15 @@ else
                         else
                         {
                             var r = it.R!;
-                            <tr class="@(r.MarkerColor is null ? "" : "cd-marked")" @oncontextmenu="e => OpenColorMenu(r, e)" @oncontextmenu:preventDefault="true" title="Clic derecho para marcar con color">
+                            <tr @key="r.Id" class="@RowClass(r)" style="@RowStyle(r)" @oncontextmenu="e => OpenColorMenu(r, e)" @oncontextmenu:preventDefault="true" title="@RowTitle(r)">
                                 <td class="cd-mark-cell" style="@(r.MarkerColor is {} mc ? $"border-left:5px solid {Hex(mc)}" : "border-left:5px solid transparent")">
                                     <input type="checkbox" checked="@r.Seleccionado" @onchange="e => OnSelChanged(r, e)" />
+                                    @if (!string.IsNullOrWhiteSpace(r.MarkerNote))
+                                    {
+                                        <span class="cd-note-dot" title="@r.MarkerNote">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                        </span>
+                                    }
                                     @if (_cufesConArchivos.Contains(r.Cufe))
                                     {
                                         <button class="cd-files-btn" title="Ver documentos de la factura (DIAN / NEWTON)" @onclick="() => OpenFilesAsync(r)" @onclick:stopPropagation="true">
@@ -651,6 +657,17 @@ else
                 }
             </div>
             <button type="button" class="cd-ctx-clear" @onclick="() => SetColorAsync(null)">Sin color</button>
+            <div class="cd-ctx-sep"></div>
+            <div class="cd-ctx-note-title">Observacion (tooltip de la fila)</div>
+            <textarea class="cd-ctx-note" rows="3" placeholder="Nota para esta fila..."
+                      @bind="_menuNote" @bind:event="oninput" @onclick:stopPropagation="true"></textarea>
+            <div class="cd-ctx-note-acts">
+                <button type="button" class="cd-ctx-note-save" @onclick="SaveNoteAsync">Guardar</button>
+                @if (!string.IsNullOrWhiteSpace(_menuNoteOriginal))
+                {
+                    <button type="button" class="cd-ctx-note-clear" @onclick="ClearNoteAsync" title="Quitar la observacion">Quitar</button>
+                }
+            </div>
         </div>
     }
 
@@ -2390,7 +2407,7 @@ else
                     var td = await FormResponses.GetOrCreateDraftAsync(fid, num);
                     if (td.IsOk && td.Value is { } tdr)
                     {
-                        var candidatos = new Dictionary<string, FormFieldValue>
+                        var candidatos = new Dictionary<string, FormFieldValue>(StringComparer.OrdinalIgnoreCase)
                         {
                             ["proveedor"] = new FormFieldValue(r.NombreProveedor ?? string.Empty, "Text"),
                             ["nit"] = new FormFieldValue(r.NitProveedor ?? string.Empty, "Text"),
@@ -2400,7 +2417,12 @@ else
                         };
                         var planos = await TaskCfg.GetPlainTextFieldCodesAsync(fid);
                         var data = candidatos.Where(kv => planos.Contains(kv.Key))
-                            .ToDictionary(kv => kv.Key, kv => kv.Value);
+                            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+                        // Mapeo configurado (el MISMO de "Direccionar compra") aplicado en REVERSA grilla->form:
+                        // por cada (FormField <- Target) toma el valor del renglon para la columna Target y lo
+                        // escribe en el campo del formulario, con su tipo de control real. Prevalece sobre el
+                        // prellenado generico de arriba. Asi, al crear la tarea, los datos de la grilla caen en el form.
+                        foreach (var kv in await BuildMappingPrefillAsync(r, salida, assignee, fid)) { data[kv.Key] = kv.Value; }
                         if (data.Count > 0) { await FormResponses.SaveAsync(tdr.Id, data, false); }
                     }
                 }
@@ -2437,6 +2459,58 @@ else
             return (true, num);
         }
         catch (Exception ex) { return (false, "Error al crear la tarea: " + ex.Message); }
+    }
+
+    // Prellenado grilla->form al crear la tarea: aplica el mapeo configurado (DireccionarMaps) en REVERSA.
+    // Por cada (FormField <- Target) resuelve el valor del renglon para la columna Target (oc | numsol |
+    // asignado | dyn:{fieldKey}) y lo escribe en el campo del formulario con su tipo de control real. Es la
+    // contraparte de creacion del verbo DIRECCIONAR_CONCILIADOR (que corre form->grilla al "Direccionar compra").
+    private async Task<Dictionary<string, FormFieldValue>> BuildMappingPrefillAsync(
+        ConciliacionDianRenglonDto r, SalidaFlujoDto salida, Guid assignee, Guid fid)
+    {
+        var result = new Dictionary<string, FormFieldValue>(StringComparer.OrdinalIgnoreCase);
+        if (!salida.DireccionarEnabled || salida.DireccionarMaps is not { Count: > 0 } maps) { return result; }
+        var ctrlTypes = await TaskCfg.GetFieldControlTypesAsync(fid);
+        IReadOnlyDictionary<Guid, Dictionary<Guid, string?>>? dynVals = null;
+        foreach (var m in maps)
+        {
+            if (string.IsNullOrWhiteSpace(m.FormField) || string.IsNullOrWhiteSpace(m.Target)) { continue; }
+            if (!ctrlTypes.TryGetValue(m.FormField, out var ctrl)) { continue; }  // el campo ya no existe en el form
+            var t = m.Target;
+            string? raw;
+            if (string.Equals(t, "oc", StringComparison.OrdinalIgnoreCase)) { raw = r.OrdenCompraSoldarco; }
+            else if (string.Equals(t, "numsol", StringComparison.OrdinalIgnoreCase)) { raw = r.NumFacturaSoldarco; }
+            else if (string.Equals(t, "asignado", StringComparison.OrdinalIgnoreCase)) { raw = assignee.ToString(); }
+            else if (t.StartsWith("dyn:", StringComparison.Ordinal) && _dynByKey.TryGetValue(t, out var def))
+            {
+                dynVals ??= await Fields.GetValuesAsync(new[] { r.Id });
+                raw = dynVals.TryGetValue(r.Id, out var dd) && dd.TryGetValue(def.Id, out var vv) ? vv : null;
+            }
+            else { continue; }   // target desconocido o columna dinamica no cargada
+            if (string.IsNullOrWhiteSpace(raw)) { continue; }   // sin dato: no escribir (no pisar con vacio)
+            var coerced = CoerceForControl(ctrl, raw!);
+            if (coerced is null) { continue; }
+            result[m.FormField] = new FormFieldValue(coerced, ctrl);
+        }
+        return result;
+    }
+
+    // Lleva el valor crudo del renglon al formato interno que espera el renderer segun el tipo de control:
+    //  Toggle -> "true"/"false"; Date -> yyyy-MM-dd; el resto (Text/Number/Select/Radio/SystemUser) tal cual.
+    private static string? CoerceForControl(string ctrl, string raw)
+    {
+        raw = raw.Trim();
+        switch (ctrl)
+        {
+            case "Toggle":
+                var on = raw is "1" or "true" or "True" or "si" or "Si" or "SI"
+                    or "yes" or "Yes" or "on" or "On" or "x" or "X";
+                return on ? "true" : "false";
+            case "Date":
+                return DateTime.TryParse(raw, out var dt) ? dt.ToString("yyyy-MM-dd") : raw;
+            default:
+                return raw;
+        }
     }
 
     // ===== Asistente de IA: analisis masivo del documento (propone salida+usuario por factura; se confirma) =====
@@ -3170,6 +3244,10 @@ else
         public ConciliacionDianRenglonDto? R;
         public Dictionary<string, decimal>? Sums;
         public bool Grand;
+        // Secuencia unica dentro de la construccion; se usa como @key de las filas de
+        // grupo/subtotal (las de datos van con r.Id). Sin @key, Blazor diffea las <tr>
+        // por POSICION y el color/nota (estilo inline) se pega al renglon equivocado.
+        public int Seq;
     }
     private List<GridItem> _gridItems = new();
 
@@ -3405,6 +3483,7 @@ else
         {
             items.Add(new GridItem { Kind = GKind.Subtotal, Count = src.Count, Sums = SumsOf(src), Grand = true });
         }
+        for (var i = 0; i < items.Count; i++) { items[i].Seq = i; }
         _gridItems = items;
     }
 
@@ -4257,6 +4336,8 @@ else
     private bool _menuOpen;
     private double _menuX, _menuY;
     private ConciliacionDianRenglonDto? _menuRenglon;
+    private string _menuNote = "";          // texto editable de la observacion en el menu
+    private string? _menuNoteOriginal;      // la observacion guardada (para decidir si mostrar "Quitar")
 
     private static readonly (string Token, string Label, string Hex)[] _palette = new[]
     {
@@ -4271,14 +4352,30 @@ else
     }
     private static string Px(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px";
 
-    private void OpenColorMenu(ConciliacionDianRenglonDto r, Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    // Alto/ancho estimados del menu "Marcar fila" (swatches + sin color + editor de observacion), para clamp.
+    private const double MenuW = 200, MenuH = 280;
+    private async Task OpenColorMenu(ConciliacionDianRenglonDto r, Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
     {
         _menuRenglon = r;
-        _menuX = e.ClientX;
-        _menuY = e.ClientY;
+        _menuNote = r.MarkerNote ?? "";
+        _menuNoteOriginal = r.MarkerNote;
+        var x = e.ClientX;
+        var y = e.ClientY;
+        // Clamp contra el viewport: si el menu se saldria por abajo/derecha, lo recolocamos para que quepa entero
+        // (asi la observacion y "Guardar" siempre quedan visibles, aunque la fila este al pie de la pantalla).
+        try
+        {
+            var vp = await JS.InvokeAsync<Viewport>("ecorexCdCols.viewport");
+            if (vp.H > 0 && y + MenuH > vp.H) { y = Math.Max(8, vp.H - MenuH - 8); }
+            if (vp.W > 0 && x + MenuW > vp.W) { x = Math.Max(8, vp.W - MenuW - 8); }
+        }
+        catch { /* sin JS: usa las coords crudas */ }
+        _menuX = x;
+        _menuY = y;
         _menuOpen = true;
     }
-    private void CloseColorMenu() { _menuOpen = false; _menuRenglon = null; }
+    private sealed record Viewport(double W, double H);
+    private void CloseColorMenu() { _menuOpen = false; _menuRenglon = null; _menuNote = ""; _menuNoteOriginal = null; }
     private async Task SetColorAsync(string? token)
     {
         if (_menuRenglon is null) { return; }
@@ -4287,6 +4384,38 @@ else
         await Svc.SetMarkerColorAsync(id, token);
         await ReloadAsync();
     }
+    private async Task SaveNoteAsync()
+    {
+        if (_menuRenglon is null) { return; }
+        var id = _menuRenglon.Id;
+        var note = _menuNote;
+        CloseColorMenu();
+        await Svc.SetMarkerNoteAsync(id, note);
+        await ReloadAsync();
+    }
+    private async Task ClearNoteAsync()
+    {
+        if (_menuRenglon is null) { return; }
+        var id = _menuRenglon.Id;
+        CloseColorMenu();
+        await Svc.SetMarkerNoteAsync(id, null);
+        await ReloadAsync();
+    }
+
+    // Clase/estilo/tooltip de la fila: "cd-marked" pinta TODA la fila con el color elegido (tinte via custom
+    // property heredada a las celdas); la observacion se muestra como title (tooltip nativo) de la fila.
+    private static string RowClass(ConciliacionDianRenglonDto r)
+    {
+        var cls = r.MarkerColor is null ? "" : "cd-marked";
+        if (!string.IsNullOrWhiteSpace(r.MarkerNote)) { cls = (cls + " cd-has-note").Trim(); }
+        return cls;
+    }
+    private static string RowStyle(ConciliacionDianRenglonDto r)
+        => r.MarkerColor is { } mc ? $"--cd-row-tint:{Hex(mc)}2b;" : "";
+    private static string RowTitle(ConciliacionDianRenglonDto r)
+        => string.IsNullOrWhiteSpace(r.MarkerNote)
+            ? "Clic derecho para marcar con color o agregar una observacion"
+            : r.MarkerNote!;
 
     private static string Fmt(decimal d) => d.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture);
     private static MarkupString Si() => new("<span class=\"cd-pill ok\">Si</span>");

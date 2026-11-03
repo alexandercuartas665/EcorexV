@@ -160,6 +160,10 @@ public interface IAutorizacionComprasConfigService
     /// sistema, tercero, item, etc., para no pisarlos con el valor crudo (p. ej. meter la fecha en un campo que
     /// ahora es un selector de usuario).</summary>
     Task<IReadOnlySet<string>> GetPlainTextFieldCodesAsync(Guid formDefinitionId, CancellationToken ct = default);
+    /// <summary>Tipo de control (ControlType.ToString(): Text/Date/Toggle/Select/...) por codigo de campo del
+    /// formulario. Lo usa el prellenado al crear la tarea para escribir cada campo con su "type" correcto y
+    /// coercionar el valor (p. ej. "1" del renglon -> "true" en un Toggle, id de usuario en un Select).</summary>
+    Task<IReadOnlyDictionary<string, string>> GetFieldControlTypesAsync(Guid formDefinitionId, CancellationToken ct = default);
     /// <summary>Secciones (contenedores de nivel superior, con nombre) de un formulario, para elegir cuales ocultar.</summary>
     Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default);
     /// <summary>Secciones a ocultar en autorizacion para el formulario dado (salen de la salida cuyo form coincide).</summary>
@@ -506,6 +510,15 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .Where(q => q.SourceKind == FormSourceKind.Options && plain.Contains(q.ControlType))
             .Select(q => q.FieldCode)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyDictionary<string, string>> GetFieldControlTypesAsync(Guid formDefinitionId, CancellationToken ct = default)
+    {
+        var def = await _forms.GetAsync(formDefinitionId, ct);
+        if (def is null) { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var q in def.Questions) { map[q.FieldCode] = q.ControlType.ToString(); }
+        return map;
     }
 
     public async Task<IReadOnlyList<FormContainerOptionDto>> ListFormContainersAsync(Guid formDefinitionId, CancellationToken ct = default)

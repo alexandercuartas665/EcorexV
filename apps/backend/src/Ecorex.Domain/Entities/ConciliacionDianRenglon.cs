@@ -74,6 +74,11 @@ public sealed class ConciliacionDianRenglon : TenantEntity
     /// no participa del cruce ni de los eventos. Los renglones nuevos nacen sin color.</summary>
     public string? MarkerColor { get; set; }
 
+    /// <summary>Observacion PERSISTENTE de la fila (nota libre del usuario; se muestra como tooltip de la fila y
+    /// se puede quitar). null/"" = sin observacion. Solo organizativo/visual: no participa del cruce ni de los
+    /// eventos. Los renglones nuevos nacen sin observacion.</summary>
+    public string? MarkerNote { get; set; }
+
     /// <summary>Usuario (TenantUser) asignado al renglon para gestionar la factura por linea (asignar, y mas
     /// adelante crear tareas desde cada fila). null = sin asignar. No participa del cruce ni de los eventos.</summary>
     public Guid? AssignedTenantUserId { get; set; }

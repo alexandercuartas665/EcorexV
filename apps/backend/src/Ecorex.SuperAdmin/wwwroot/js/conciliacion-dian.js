@@ -94,5 +94,8 @@ window.ecorexCdCols = (function () {
         }
     }
 
-    return { apply: apply, wireResize: wireResize };
+    // Tamano del viewport, para que el menu contextual (marcar fila) no se salga por el borde inferior/derecho.
+    function viewport() { return { w: window.innerWidth || 0, h: window.innerHeight || 0 }; }
+
+    return { apply: apply, wireResize: wireResize, viewport: viewport };
 })();

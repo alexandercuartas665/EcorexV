@@ -46,6 +46,9 @@ public interface IConciliacionDianService
     /// <summary>Fija (o limpia con null/"") el color del marcador PERSISTENTE de la fila. Solo visual; valida
     /// contra una whitelist de colores (cualquier otro valor limpia el marcador).</summary>
     Task SetMarkerColorAsync(Guid renglonId, string? color, CancellationToken ct = default);
+    /// <summary>Fija (o limpia con null/"") la observacion PERSISTENTE de la fila (nota libre; se muestra como
+    /// tooltip de la fila). Solo visual; no afecta el cruce ni los eventos. Tope de 500 caracteres.</summary>
+    Task SetMarkerNoteAsync(Guid renglonId, string? note, CancellationToken ct = default);
     /// <summary>Asigna (o limpia con null) el usuario (TenantUser) responsable del renglon. Primer paso para
     /// gestionar tareas desde cada linea; no afecta el cruce ni los eventos.</summary>
     Task SetAssigneeAsync(Guid renglonId, Guid? tenantUserId, CancellationToken ct = default);

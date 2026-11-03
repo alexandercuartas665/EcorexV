@@ -37,6 +37,7 @@ public sealed record ConciliacionDianRenglonDto(
     bool Seleccionado,
     string Cufe,
     string? MarkerColor,
+    string? MarkerNote,
     Guid? AssignedTenantUserId,
     bool Rechazado);
 

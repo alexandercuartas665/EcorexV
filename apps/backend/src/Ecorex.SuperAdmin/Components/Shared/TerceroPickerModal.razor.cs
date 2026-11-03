@@ -33,6 +33,10 @@ public partial class TerceroPickerModal : ComponentBase, IDisposable
     private string? _subtitle;
     private Guid? _excludeId;
     private Guid? _currentEmpresaId;
+    // Cuando false, elegir una persona que ya pertenece a una empresa NO pide confirmacion de "mover"
+    // (el picker solo DEVUELVE la fila; no reasigna empresa). Lo usan contextos como asignar el contacto
+    // de una tarea, donde no hay empresa destino.
+    private bool _confirmMove = true;
 
     private bool _open;
     private bool _loading;
@@ -58,18 +62,22 @@ public partial class TerceroPickerModal : ComponentBase, IDisposable
     /// <param name="subtitle">Subtitulo opcional de ayuda.</param>
     /// <param name="excludeId">Id a excluir de los resultados (p.ej. el propio tercero en edicion).</param>
     /// <param name="currentEmpresaId">En modo Personas: oculta las que YA estan en esta empresa.</param>
+    /// <param name="confirmMove">En modo Personas: si true (por defecto) pide confirmar cuando la persona
+    /// elegida ya pertenece a otra empresa; si false, elige directo sin confirmar (solo devuelve la fila).</param>
     public async Task OpenAsync(
         TerceroPickerMode mode,
         string? title = null,
         string? subtitle = null,
         Guid? excludeId = null,
-        Guid? currentEmpresaId = null)
+        Guid? currentEmpresaId = null,
+        bool confirmMove = true)
     {
         _mode = mode;
         _title = title;
         _subtitle = subtitle;
         _excludeId = excludeId;
         _currentEmpresaId = currentEmpresaId;
+        _confirmMove = confirmMove;
         _term = "";
         _confirmId = null;
         _rows = new();
@@ -147,7 +155,8 @@ public partial class TerceroPickerModal : ComponentBase, IDisposable
     private async Task Choose(TerceroListItemDto row)
     {
         // Mover una persona que YA pertenece a otra empresa: pide confirmacion antes de reasignar.
-        if (_mode == TerceroPickerMode.Personas && row.EmpresaId is not null
+        // Se omite cuando el host abrio con confirmMove=false (solo quiere la fila, sin mover de empresa).
+        if (_confirmMove && _mode == TerceroPickerMode.Personas && row.EmpresaId is not null
             && !string.IsNullOrWhiteSpace(row.EmpresaNombre))
         {
             _confirmId = row.Id;

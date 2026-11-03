@@ -35,6 +35,12 @@ public partial class TerceroModal
     /// y notifica el Id del recien creado (para que el host lo SELECCIONE, p.ej. la wizard de tareas).</summary>
     [Parameter] public EventCallback<Guid> OnCreated { get; set; }
 
+    /// <summary>Opcional: si el host lo provee, al pulsar "Guardar" sobre un tercero EXISTENTE (edicion) el
+    /// modal NO se queda abierto: cierra y notifica el Id del tercero guardado, para que el host lo
+    /// SELECCIONE (p.ej. asignar el contacto de una tarea: editar/elegir existente + Guardar = asignar).
+    /// Sin este callback, editar deja el modal abierto como siempre (DirectorioGeneral).</summary>
+    [Parameter] public EventCallback<Guid> OnSelectedExisting { get; set; }
+
     /// <summary>Cuando true (Cargador de contactos 000740) habilita el cableado CRM: muestra las
     /// oportunidades del tercero en el aside, la fecha de "Proxima atencion" y crea cita/oportunidad
     /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>
@@ -1062,6 +1068,14 @@ public partial class TerceroModal
         // Al EDITAR NO se cierra: se recarga el registro y el modal SIGUE ABIERTO (se cierra con Cancelar/x).
         if (_editingId is Guid editedId)
         {
+            // Modo "seleccionar existente" (p.ej. asignar el contacto de una tarea): al guardar sobre un
+            // tercero existente, notifica su Id y CIERRA, para que el host lo seleccione/asigne.
+            if (OnSelectedExisting.HasDelegate)
+            {
+                await OnSelectedExisting.InvokeAsync(editedId);
+                CloseModal();
+                return;
+            }
             await OpenEditAsync(editedId);
             StateHasChanged();
             return;

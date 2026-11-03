@@ -4,6 +4,7 @@
 @using Ecorex.Application.Forms.Lookups
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Workflows
+@using Ecorex.Application.Directorio
 @using Ecorex.Application.DataLookups
 @using Ecorex.Domain.Enums
 @using Ecorex.Domain.Rules
@@ -1265,7 +1266,10 @@
                             {
                                 <div class="tk-summary-row">
                                     <span></span>
-                                    <button class="tb-modal-section-action" @onclick="OpenContactEditor" title="Recapturar nombre, correo, telefono e identificacion del contacto">Editar contacto</button>
+                                    <span style="display:inline-flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+                                        <button class="tb-modal-section-action" @onclick="OpenContactEditor" title="@(_detail.TerceroId is null ? "Crear el contacto en el directorio (o buscar uno existente) y asignarlo a la tarea" : "Editar los datos del contacto del directorio asignado a la tarea")">Editar contacto</button>
+                                        <button class="tb-modal-section-action" @onclick="OpenContactPickerAsync" title="Buscar un contacto que ya existe en el directorio y asignarlo a esta tarea">@(_detail.TerceroId is null ? "Buscar contacto" : "Cambiar contacto")</button>
+                                    </span>
                                 </div>
                             }
                             @if (_detail.CcEmails.Count > 0)
@@ -1537,7 +1541,13 @@
        enlazado) o en CREAR prellenado (texto libre), y al guardar se enlaza y se sincronizan los datos. ===== *@
 <TerceroModal @ref="_terceroModal"
               OnCreated="OnContactTerceroCreatedAsync"
+              OnSelectedExisting="OnContactTerceroSelectedAsync"
               OnChanged="OnContactTerceroChangedAsync" />
+
+@* Buscar un contacto YA existente en el directorio para asignarlo a la tarea: al elegirlo se abre su
+   ficha (edicion) y, al Guardar, queda asignado como contacto de la tarea. confirmMove=false: aqui no
+   se mueve de empresa, solo se selecciona. *@
+<TerceroPickerModal @ref="_contactPicker" OnPick="OnContactPickedAsync" />
 
 @* ===== Menu del nodo del diagrama, como popover FIJO a nivel raiz (no lo recorta el scroller ni lo
        descoloca el zoom del canvas). Se ancla a la posicion en pantalla del boton del nodo. ===== *@
@@ -1818,6 +1828,8 @@
     private DateTime? _editStart;
     // "Editar contacto" abre el TerceroModal (crear/editar del Directorio) en vez del viejo mini-editor.
     private TerceroModal? _terceroModal;
+    // "Buscar/Cambiar contacto": selector de terceros existentes para asignar a la tarea.
+    private TerceroPickerModal? _contactPicker;
     private bool _confirmClose;
     private bool _confirmArchive;
     private string? _copyNotice;
@@ -3376,8 +3388,32 @@
         }
     }
 
+    // "Buscar/Cambiar contacto": abre el selector de terceros existentes. Al elegir uno se abre su ficha
+    // (edicion) y, al Guardar, queda asignado como contacto de la tarea (mismo camino que OnSelectedExisting).
+    private async Task OpenContactPickerAsync()
+    {
+        if (_contactPicker is null) { return; }
+        await _contactPicker.OpenAsync(
+            TerceroPickerMode.Personas,
+            title: "Buscar contacto",
+            subtitle: "Elige un contacto del directorio para asignarlo a esta tarea.",
+            confirmMove: false);
+    }
+
+    // El picker devolvio un tercero existente: se abre su ficha para revisar/editar; al Guardar se asigna.
+    private async Task OnContactPickedAsync(TerceroListItemDto row)
+    {
+        if (_terceroModal is null) { return; }
+        await _terceroModal.OpenEditAsync(row.Id);
+    }
+
     // El TerceroModal creo un contacto nuevo (OnCreated): se enlaza a la tarea y se sincronizan sus datos.
     private async Task OnContactTerceroCreatedAsync(Guid terceroId)
+        => await LinkContactTerceroAsync(terceroId);
+
+    // El TerceroModal guardo un tercero EXISTENTE en modo seleccion (OnSelectedExisting): se enlaza a la
+    // tarea (editar el actual = re-sync; elegir otro = re-apuntar el contacto de la tarea a ese tercero).
+    private async Task OnContactTerceroSelectedAsync(Guid terceroId)
         => await LinkContactTerceroAsync(terceroId);
 
     // El TerceroModal guardo cambios (OnChanged) sobre el Tercero YA enlazado: se re-sincronizan los

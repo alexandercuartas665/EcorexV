@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-03 - Asignar contacto a la tarea al guardar la ficha (buscar existente o crear, DEV, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN commit->commit, SIN deploy.
+- PEDIDO (usuario, sobre el detalle de tarea): al entrar a una tarea y editar/elegir un contacto, debe quedar ASIGNADO a la tarea, ya sea ubicando uno EXISTENTE o creando. Caso real: CONTACTO salia "-" aunque habia telefono.
+- DIAGNOSTICO: "Editar contacto" (TaskDetailModal) ya abria el `TerceroModal` (crear-prellenado si no habia Tercero; editar si lo habia) y al CREAR enlazaba (OnCreated -> SetContactTerceroAsync). PERO: (1) no habia camino para BUSCAR y enlazar un Tercero EXISTENTE (duplicaria), y (2) al EDITAR, "Guardar" NO cerraba ni asignaba (el modal se quedaba abierto; OnChanged solo re-sincronizaba si YA estaba enlazado).
+- DECISIONES del usuario: la asignacion ocurre al **Guardar** de la ficha (no un boton "Aplicar"): editar/crear/elegir-otro + Guardar = cierra y asigna ese Tercero a la tarea. Q2: "Editar + Cambiar".
+- CAMBIOS (sin migracion): (1) `TerceroModal` gana `OnSelectedExisting` (EventCallback<Guid>): en `SaveAsync` rama EDITAR, si el host lo provee, notifica el Id y CIERRA (antes se quedaba abierto); otros llamadores (DirectorioGeneral) sin el callback no cambian. (2) `TerceroPickerModal.OpenAsync` gana `confirmMove=false` (por defecto true): al elegir una persona para una tarea NO dispara el "mover de empresa" (solo devuelve la fila). (3) `TaskDetailModal`: cablea `OnSelectedExisting`/`OnCreated` -> `LinkContactTerceroAsync`; nuevo boton "Buscar contacto" (sin Tercero) / "Cambiar contacto" (con Tercero) que abre el picker (Personas, confirmMove=false) -> al elegir abre la ficha en edicion -> Guardar asigna. Sin Tercero, "Editar contacto" sigue abriendo CREAR, cuyo buscador propio ya ubica existentes.
+- VALIDADO E2E (dev 5234, T00097): CONTACTO estaba "-"; "Buscar contacto" -> picker (sin move-confirm) -> elegir "ALEXANDER CUARTAS BEJARANO" -> ficha EDITAR -> Guardar -> modal cierra, RESUMEN muestra CONTACTO=ALEXANDER + IDENTIFICACION 37626882 sincronizada, boton cambia a "Cambiar contacto". `dotnet build` SuperAdmin 0 errores; sin errores de consola.
+- Extiende la feature de [[editar-contacto-tarea-modal-directorio.md]] y reusa [[directorio-vincular-contactos-picker.md]]. SIGUIENTE: commit (doble push) y, con OK por version, release + deploy via rapida GHCR.
+
 ## 2026-11-03 - Crash del circuito al crear actividad con adjunto + ErrorBoundary global (DEV, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN deploy (a la espera del OK por version).

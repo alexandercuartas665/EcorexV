@@ -1724,7 +1724,7 @@ app.MapPost("/webhooks/evolution", async (
                     {
                         ext = mime.Contains("png") ? ".png" : mime.Contains("webp") ? ".webp" : ".jpg";
                     }
-                    var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+                    var dir = System.IO.Path.Combine(env.WebRootPath ?? "wwwroot", "uploads", "chat");
                     System.IO.Directory.CreateDirectory(dir);
                     var fname = $"wa-{Guid.NewGuid():N}{ext}";
                     await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
@@ -1992,7 +1992,7 @@ app.MapPost("/webhooks/ycloud", async (
                 var http = httpClientFactory.CreateClient();
                 var bytes = await http.GetByteArrayAsync(m.MediaLink, ct);
                 var mime = string.IsNullOrWhiteSpace(m.MediaMime) ? "application/octet-stream" : m.MediaMime!;
-                var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+                var dir = System.IO.Path.Combine(env.WebRootPath ?? "wwwroot", "uploads", "chat");
                 System.IO.Directory.CreateDirectory(dir);
                 var fname = $"yc-{Guid.NewGuid():N}{ExtForMime(mime)}";
                 await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
@@ -2122,7 +2122,7 @@ app.MapPost("/api/test/agent", async (
             var bytes = Convert.FromBase64String(body.ImageBase64!);
             var mime = string.IsNullOrWhiteSpace(body.ImageMime) ? "image/jpeg" : body.ImageMime!;
             var ext = mime.Contains("png") ? ".png" : mime.Contains("webp") ? ".webp" : ".jpg";
-            var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+            var dir = System.IO.Path.Combine(env.WebRootPath ?? "wwwroot", "uploads", "chat");
             System.IO.Directory.CreateDirectory(dir);
             var fname = $"emu-{Guid.NewGuid():N}{ext}";
             await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);
@@ -2165,7 +2165,7 @@ app.MapPost("/api/test/agent", async (
                     : (mime.Contains("sheet") || mime.Contains("excel")) ? ".xlsx"
                     : mime.Contains("csv") ? ".csv" : ".bin";
             }
-            var dir = System.IO.Path.Combine(env.WebRootPath, "uploads", "chat");
+            var dir = System.IO.Path.Combine(env.WebRootPath ?? "wwwroot", "uploads", "chat");
             System.IO.Directory.CreateDirectory(dir);
             var fname = $"emu-{Guid.NewGuid():N}{ext}";
             await System.IO.File.WriteAllBytesAsync(System.IO.Path.Combine(dir, fname), bytes, ct);

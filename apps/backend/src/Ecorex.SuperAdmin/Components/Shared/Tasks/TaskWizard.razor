@@ -596,8 +596,22 @@
         if (await TenantIdAsync() is not Guid tenantId) { return; }
         var actor = await ActorAsync();
         var actorName = await ActorNameAsync();
-        var dir = Path.Combine(Env.WebRootPath, "uploads", "tasks", tenantId.ToString("N"));
-        Directory.CreateDirectory(dir);
+        // WebRootPath puede ser NULL en el contenedor publicado (static web assets, sin wwwroot
+        // fisico): el mismo fallback que usa Program.cs al crear/servir /uploads. Sin el, Path.Combine
+        // lanzaba ArgumentNullException FUERA del try por-archivo y, como SaveAsync no tiene catch,
+        // tumbaba el circuito al adjuntar un archivo en la creacion (pantalla en blanco "muy comun").
+        string dir;
+        try
+        {
+            dir = Path.Combine(Env.WebRootPath ?? "wwwroot", "uploads", "tasks", tenantId.ToString("N"));
+            Directory.CreateDirectory(dir);
+        }
+        catch
+        {
+            _wizError = "No se pudo preparar el almacen de archivos; la actividad se creo sin los adjuntos.";
+            _wizFiles.Clear();
+            return;
+        }
         foreach (var w in _wizFiles)
         {
             var f = w.File;
@@ -1380,6 +1394,13 @@
                 // el usuario vea el ID y decida cerrar o crear otra.
                 _created = result.Value;
             }
+        }
+        catch (Exception ex)
+        {
+            // Red de seguridad: ningun fallo inesperado (anclaje de formularios, callback del tablero,
+            // etc.) debe terminar el circuito Blazor (pantalla en blanco que obliga a recargar). Se
+            // reporta como error del formulario y el modal sigue vivo.
+            _errors["create"] = "No se pudo completar la creacion: " + ex.Message;
         }
         finally
         {

@@ -3961,7 +3961,9 @@
         }
         try
         {
-            var dir = Path.Combine(Env.WebRootPath, "uploads", "tasks", tenantId.ToString("N"));
+            // WebRootPath puede ser NULL en el contenedor publicado (static web assets); mismo fallback
+            // que Program.cs al crear/servir /uploads, para que el adjunto se guarde donde se sirve.
+            var dir = Path.Combine(Env.WebRootPath ?? "wwwroot", "uploads", "tasks", tenantId.ToString("N"));
             Directory.CreateDirectory(dir);
             var stored = $"{Guid.NewGuid():N}{ext.ToLowerInvariant()}";
             await using var srcStream = file.OpenReadStream(cap);

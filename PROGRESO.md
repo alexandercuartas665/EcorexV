@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-03 - Crash del circuito al crear actividad con adjunto + ErrorBoundary global (DEV, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN deploy (a la espera del OK por version).
+- SINTOMA (usuario, screenshot de PROD): al crear una actividad nueva, en el paso 4 "Documentos", aparece "There was an unhandled exception on the current circuit, so this circuit will be terminated" (pantalla en blanco que obliga a recargar). El usuario dice que ese error es MUY COMUN en el sistema.
+- DIAGNOSTICO: reproducido en dev. Crear SIN archivo funciona (nacio T00097). El crash aparece al ADJUNTAR archivo. CAUSA RAIZ: `TaskWizard.AttachWizFilesAsync` hacia `Path.Combine(Env.WebRootPath, ...)` + `Directory.CreateDirectory(...)` FUERA del try por-archivo, y `SaveAsync` NO tiene catch. `IWebHostEnvironment.WebRootPath` puede ser NULL en el contenedor publicado (static web assets, sin wwwroot fisico) -> `ArgumentNullException` sin capturar -> circuito muerto. El propio `Program.cs:868` ya lo sabe: usa `WebRootPath ?? "wwwroot"`. Encaja con "funciona en dev, truena en prod". El detalle de la tarea (`TaskDetailModal.StoreAttachmentAsync`) no tronaba porque su `Path.Combine` esta dentro de try/catch (pero en prod los adjuntos fallaban EN SILENCIO).
+- FIX 1 (causa raiz, uploads null-safe): `Env.WebRootPath ?? "wwwroot"` en `TaskWizard`, `TaskDetailModal` y los 4 handlers de media de WhatsApp de `Program.cs` (esto ultimo tambien arregla guardar soportes/pagos entrantes de ADR-0146 en prod). El fallback escribe en el MISMO directorio que sirve `/uploads` (base identica a `Program.cs:868`).
+- FIX 2 (defensa): `AttachWizFilesAsync` prepara el almacen en try/catch (si falla, la actividad se crea igual + aviso `_wizError`, nunca tumba el circuito) + `SaveAsync` gana un catch de ultimo recurso (anclaje de formularios / callback del tablero) que reporta como error del form en vez de matar el circuito.
+- FIX 3 (SISTEMICO, ataca el "muy comun"): `ErrorBoundary` global en `MainLayout.razor` alrededor de `@Body`. Una excepcion no controlada de CUALQUIER pagina ya no tumba el circuito: queda acotada a un panel recuperable ("Reintentar" -> `Recover()` / "Recargar"); rail/menu/shell siguen vivos. Se restablece solo al navegar (`OnLocationChanged -> Recover`).
+- VALIDADO: `dotnet build Ecorex.sln` compila limpio (los 8 "errores" de la 1a corrida eran MSB3027/MSB3021 = DLL en uso por el dev server; tras parar el preview, `Ecorex.SuperAdmin.csproj` compila 0 errores). Server 5234 arranca limpio y `/actividades` renderiza normal con el ErrorBoundary. OJO: el crash de prod NO se reproduce en dev porque aqui WebRootPath SI existe (content root con wwwroot); la prueba es por codigo + arranque + precedente `Program.cs:868`; confirmacion final en prod tras deploy.
+- SIN migracion, SIN bump de version. SIGUIENTE: commit (doble push tronco+espejo) y, con OK por version, release + deploy via rapida GHCR (bundlearia tambien ADR-0125 v2 y el release v0.16.263 del conciliador, todos en tronco).
+
 ## 2026-11-03 - Soporte del cliente cae en la tarea CORRECTA (ADR-0125 v2 / ADR-0146, DEV, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN deploy (a la espera del OK por version).

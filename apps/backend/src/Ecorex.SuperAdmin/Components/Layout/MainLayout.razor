@@ -111,7 +111,28 @@
         </div>
 
         <div class="ecorex-content">
-            @Body
+            @* Red de seguridad del circuito: una excepcion no controlada en CUALQUIER pagina/componente
+               ya no tumba todo el circuito (pantalla en blanco que obliga a recargar). Queda acotada a
+               este panel recuperable; el rail, el menu y el resto del shell siguen vivos. Se restablece
+               sola al navegar (OnLocationChanged -> Recover). *@
+            <ErrorBoundary @ref="_errorBoundary">
+                <ChildContent>
+                    @Body
+                </ChildContent>
+                <ErrorContent>
+                    <div role="alert" style="max-width:640px;margin:48px auto;padding:28px 30px;border:1px solid var(--line-2,#e5e7eb);border-radius:14px;background:var(--surface,#fff);text-align:center">
+                        <div style="width:48px;height:48px;border-radius:12px;background:var(--surface-2,#f3f4f6);display:grid;place-items:center;margin:0 auto 16px">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:.7"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+                        </div>
+                        <div style="font-weight:700;font-size:16px;margin-bottom:6px">Algo no salio bien en esta vista</div>
+                        <p style="font-size:13px;color:var(--ink-3,#6b7280);margin:0 0 18px">La operacion fallo, pero el resto del sistema sigue disponible. Puedes reintentar esta vista o recargar la pagina.</p>
+                        <div style="display:flex;gap:10px;justify-content:center">
+                            <button type="button" @onclick="RecoverFromError" style="height:38px;padding:0 18px;border-radius:10px;border:none;background:var(--brand,#111827);color:var(--on-brand,#fff);font:inherit;font-weight:600;font-size:13px;cursor:pointer">Reintentar</button>
+                            <a href="." style="height:38px;padding:0 18px;border-radius:10px;border:1px solid var(--line-2,#e5e7eb);background:var(--surface,#fff);color:var(--ink-2,#374151);font:inherit;font-weight:600;font-size:13px;text-decoration:none;display:inline-flex;align-items:center">Recargar</a>
+                        </div>
+                    </div>
+                </ErrorContent>
+            </ErrorBoundary>
         </div>
     </div>
 </div>
@@ -184,6 +205,11 @@
 
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    // Red de seguridad del circuito (ver el markup): se restablece al navegar y al pulsar "Reintentar".
+    private ErrorBoundary? _errorBoundary;
+
+    private void RecoverFromError() => _errorBoundary?.Recover();
 
     // El rail y el breadcrumb solo aplican al workspace del tenant. Los operadores de
     // plataforma (PlatformAdmin) conservan su chrome actual: ws-tenant NO se aplica,
@@ -334,7 +360,12 @@
         }
     }
 
-    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => StateHasChanged();
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Al cambiar de vista, limpia el panel de error para que la nueva pagina se renderice normal.
+        _errorBoundary?.Recover();
+        StateHasChanged();
+    }
     public void Dispose()
     {
         Navigation.LocationChanged -= OnLocationChanged;

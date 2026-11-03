@@ -510,6 +510,15 @@ else
                         muestra Enviar.
                     </p>
                 </div>
+                <div class="field">
+                    <label class="pl-toggle"><input type="checkbox" @bind="_keepEditable" /> Registro editable: autoguarda y NO muestra "Enviar"</label>
+                    <p style="font-size:12px;color:var(--ink-3);margin:4px 0 0;">
+                        El formulario nunca se "envia" ni se bloquea: autoguarda a medida que se llena, el boton
+                        del pie dice "Guardar" y se puede reabrir, editar e imprimir las veces que haga falta.
+                        Aplica en TODAS las superficies, incluido el ENLACE PUBLICO compartido (/f/) y el modal
+                        del Directorio. Util para fichas/registros que el cliente completa por partes.
+                    </p>
+                </div>
                 }
                 @if (_propsTab == "registro")
                 {
@@ -821,6 +830,9 @@ else
     private bool _txNextOk;
     private FormCardLayout _cardLayout = FormCardLayout.Normal;
     private bool _hideSubmitBar;
+    // Registro editable / autoguardado a nivel de definicion (viaja en theme_json keepEditable; aplica en todas
+    // las superficies, incluido el enlace publico /f/). Fuente autoritativa; se fusiona en el theme al guardar.
+    private bool _keepEditable;
     private string _customCss = "";
     // Escalon de estados calculados (Ola 3): status_ladder_json de la definicion.
     private string? _statusLadderJson;
@@ -2057,6 +2069,7 @@ else
         _customCss = _def.CustomCss ?? "";
         _statusLadderJson = _def.StatusLadderJson;
         _themeJson = _def.ThemeJson;
+        _keepEditable = Components.Shared.Forms.FormThemeJson.Read(_def.ThemeJson).KeepEditable;
         _closeRuleJson = _def.CloseRuleJson;
         _isModule = _def.IsModule;
         _moduleIcon = _def.ModuleIcon;
@@ -2155,10 +2168,14 @@ else
             if (!ladder.IsOk) { _modalError = ladder.Error; return; }
             _def = ladder.Value;
 
-            // Apariencia / tema (Ola 5): theme_json (null = tema clasico).
-            var theme = await FormsSvc.SetThemeAsync(_def!.Id, _themeJson);
+            // Apariencia / tema (Ola 5): theme_json (null = tema clasico). Fusiona el flag de COMPORTAMIENTO
+            // "registro editable" (autoguardado) del panel Propiedades: viaja en el mismo theme_json pero el
+            // ThemeEditor lo ignora, asi que el checkbox es la fuente autoritativa y se (re)aplica aqui.
+            var mergedTheme = Components.Shared.Forms.FormThemeJson.WithKeepEditable(_themeJson, _keepEditable);
+            var theme = await FormsSvc.SetThemeAsync(_def!.Id, mergedTheme);
             if (!theme.IsOk) { _modalError = theme.Error; return; }
             _def = theme.Value;
+            _themeJson = _def.ThemeJson;
 
             // Cierre por evento (Ola 6/A3): close_rule_json (null = sin cierre automatico).
             var close = await FormsSvc.SetCloseRuleAsync(_def!.Id, _closeRuleJson);

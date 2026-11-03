@@ -15,11 +15,15 @@ namespace Ecorex.SuperAdmin.Components.Shared.Forms;
 /// </summary>
 public static class FormThemeJson
 {
-    /// <summary>Config de apariencia ya parseada. Color validado como hex; strings recortados.</summary>
-    public sealed record ThemeSpec(string Tema, string? Color, bool Hero, string? Eyebrow, bool HideChips, bool Cards)
+    /// <summary>Config de apariencia ya parseada. Color validado como hex; strings recortados.
+    /// <see cref="KeepEditable"/> NO es apariencia sino COMPORTAMIENTO (registro editable / autoguardado), pero
+    /// viaja en el mismo theme_json para no exigir una columna/migracion nueva: asi el flag acompana a la
+    /// definicion y el renderer lo honra en TODAS las superficies (detalle de tarea, modulo, modal del tercero
+    /// y el enlace publico /f/).</summary>
+    public sealed record ThemeSpec(string Tema, string? Color, bool Hero, string? Eyebrow, bool HideChips, bool Cards, bool KeepEditable)
     {
         public bool IsPrototipo => string.Equals(Tema, "prototipo", StringComparison.OrdinalIgnoreCase);
-        public static ThemeSpec Default => new("clasico", null, false, null, false, false);
+        public static ThemeSpec Default => new("clasico", null, false, null, false, false, false);
     }
 
     // Solo se acepta un color hex (#rgb, #rrggbb, #rrggbbaa): evita inyeccion en el bloque <style>.
@@ -41,7 +45,8 @@ public static class FormThemeJson
                 Bool(root, "hero"),
                 string.IsNullOrWhiteSpace(Str(root, "eyebrow")) ? null : Str(root, "eyebrow")!.Trim(),
                 Bool(root, "hideChips"),
-                Bool(root, "cards"));
+                Bool(root, "cards"),
+                Bool(root, "keepEditable"));
         }
         catch (JsonException) { return ThemeSpec.Default; }
     }
@@ -65,6 +70,28 @@ public static class FormThemeJson
         if (hideChips) { o["hideChips"] = true; }
         if (cards) { o["cards"] = true; }
         return o.ToJsonString();
+    }
+
+    /// <summary>Fusiona el flag de COMPORTAMIENTO keepEditable (registro editable / autoguardado) dentro de un
+    /// theme_json existente SIN tocar el resto de la apariencia. Lo usa el FormDesigner al guardar: el editor de
+    /// tema (ThemeEditor) ignora este flag, asi que el checkbox del panel Propiedades es la fuente autoritativa y
+    /// aqui se (re)aplica sobre lo que el editor haya emitido. Devuelve null si el objeto queda vacio (todo
+    /// por defecto y sin keepEditable) para no guardar un JSON inutil.</summary>
+    public static string? WithKeepEditable(string? json, bool keepEditable)
+    {
+        JsonObject root;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            root = new JsonObject();
+        }
+        else
+        {
+            try { root = JsonNode.Parse(json) as JsonObject ?? new JsonObject(); }
+            catch (JsonException) { root = new JsonObject(); }
+        }
+        if (keepEditable) { root["keepEditable"] = true; }
+        else { root.Remove("keepEditable"); }
+        return root.Count == 0 ? null : root.ToJsonString();
     }
 
     /// <summary>CSS a colocar DENTRO del @scope del formulario (variables de marca + ocultar chips tecnicos).

@@ -41,6 +41,12 @@ public partial class TerceroModal
     /// Sin este callback, editar deja el modal abierto como siempre (DirectorioGeneral).</summary>
     [Parameter] public EventCallback<Guid> OnSelectedExisting { get; set; }
 
+    /// <summary>Opcional: si el host lo provee, en EDICION aparece un boton "Cambiar contacto" en el
+    /// encabezado que dispara este callback (el host abre su selector de terceros y, al elegir otro, reabre
+    /// este mismo modal sobre el tercero elegido). Asi, desde un solo boton "Editar contacto", el usuario
+    /// puede editar el actual O cambiarlo. Sin este callback no se muestra el boton (DirectorioGeneral).</summary>
+    [Parameter] public EventCallback OnSwitchRequested { get; set; }
+
     /// <summary>Cuando true (Cargador de contactos 000740) habilita el cableado CRM: muestra las
     /// oportunidades del tercero en el aside, la fecha de "Proxima atencion" y crea cita/oportunidad
     /// al registrar esas notas. En Directorio General (false) las notas son solo bitacora.</summary>

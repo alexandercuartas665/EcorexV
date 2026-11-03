@@ -1267,8 +1267,7 @@
                                 <div class="tk-summary-row">
                                     <span></span>
                                     <span style="display:inline-flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
-                                        <button class="tb-modal-section-action" @onclick="OpenContactEditor" title="@(_detail.TerceroId is null ? "Crear el contacto en el directorio (o buscar uno existente) y asignarlo a la tarea" : "Editar los datos del contacto del directorio asignado a la tarea")">Editar contacto</button>
-                                        <button class="tb-modal-section-action" @onclick="OpenContactPickerAsync" title="Buscar un contacto que ya existe en el directorio y asignarlo a esta tarea">@(_detail.TerceroId is null ? "Buscar contacto" : "Cambiar contacto")</button>
+                                        <button class="tb-modal-section-action" @onclick="OpenContactEditor" title="@(_detail.TerceroId is null ? "Buscar un contacto del directorio (o crearlo) y asignarlo a la tarea" : "Editar el contacto asignado o cambiarlo por otro del directorio; al guardar queda asignado a la tarea")">Editar contacto</button>
                                     </span>
                                 </div>
                             }
@@ -1537,16 +1536,18 @@
 }
 
 @* ===== Editar el contacto de la tarea como registro del Directorio (000232): reemplaza al mini-editor
-       de 4 campos. "Editar contacto" abre este TerceroModal en EDITAR (si la tarea ya tiene Tercero
-       enlazado) o en CREAR prellenado (texto libre), y al guardar se enlaza y se sincronizan los datos. ===== *@
+       de 4 campos. Un SOLO boton "Editar contacto" abre este TerceroModal en EDITAR (si la tarea ya tiene
+       Tercero enlazado) o en CREAR prellenado (texto libre). En EDITAR, "Cambiar contacto" (OnSwitchRequested)
+       abre el selector para re-apuntar a otro. Al Guardar se enlaza y se sincronizan los datos. ===== *@
 <TerceroModal @ref="_terceroModal"
               OnCreated="OnContactTerceroCreatedAsync"
               OnSelectedExisting="OnContactTerceroSelectedAsync"
+              OnSwitchRequested="OpenContactPickerAsync"
               OnChanged="OnContactTerceroChangedAsync" />
 
-@* Buscar un contacto YA existente en el directorio para asignarlo a la tarea: al elegirlo se abre su
-   ficha (edicion) y, al Guardar, queda asignado como contacto de la tarea. confirmMove=false: aqui no
-   se mueve de empresa, solo se selecciona. *@
+@* Selector de un contacto YA existente para re-apuntar el de la tarea: se abre DESDE "Cambiar contacto"
+   del encabezado de la ficha; al elegirlo, la MISMA ficha se recarga sobre ese tercero y, al Guardar,
+   queda asignado. confirmMove=false: aqui no se mueve de empresa, solo se selecciona. *@
 <TerceroPickerModal @ref="_contactPicker" OnPick="OnContactPickedAsync" />
 
 @* ===== Menu del nodo del diagrama, como popover FIJO a nivel raiz (no lo recorta el scroller ni lo
@@ -3388,15 +3389,16 @@
         }
     }
 
-    // "Buscar/Cambiar contacto": abre el selector de terceros existentes. Al elegir uno se abre su ficha
-    // (edicion) y, al Guardar, queda asignado como contacto de la tarea (mismo camino que OnSelectedExisting).
+    // "Cambiar contacto" (desde el encabezado de la ficha, OnSwitchRequested): abre el selector de terceros
+    // existentes. Al elegir uno, la MISMA ficha se recarga sobre ese tercero y, al Guardar, queda asignado
+    // como contacto de la tarea (mismo camino que OnSelectedExisting).
     private async Task OpenContactPickerAsync()
     {
         if (_contactPicker is null) { return; }
         await _contactPicker.OpenAsync(
             TerceroPickerMode.Personas,
-            title: "Buscar contacto",
-            subtitle: "Elige un contacto del directorio para asignarlo a esta tarea.",
+            title: "Cambiar contacto",
+            subtitle: "Elige otro contacto del directorio para asignarlo a esta tarea.",
             confirmMove: false);
     }
 

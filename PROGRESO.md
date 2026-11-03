@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-03 - Contacto de la tarea: UN solo boton "Editar contacto" (editar o cambiar, DEV, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN commit, SIN deploy.
+- PEDIDO (usuario, sobre v0.16.265): dejar UN solo boton "Editar contacto" (no dos). Ese boton sirve para "cambiar" (elegir otro y, al Guardar, llevarlo a la tarea) O para "entrar y cambiar cosas en el contacto" actual.
+- CAMBIOS (sin migracion): (1) se quita el segundo boton ("Buscar/Cambiar contacto") del `TaskDetailModal`; queda solo "Editar contacto" (sin Tercero -> CREAR prellenado, con buscador propio que ubica existentes; con Tercero -> EDITAR el registro real). (2) `TerceroModal` gana `OnSwitchRequested` (EventCallback): si el host lo cablea, en EDICION aparece un boton "Cambiar contacto" en el encabezado (gated por `HasDelegate`, otros llamadores sin cambio). (3) `TaskDetailModal` cablea `OnSwitchRequested="OpenContactPickerAsync"`: abre el picker (Personas, confirmMove=false, z-index 1300 sobre la ficha 1100) -> al elegir, la MISMA ficha se recarga sobre ese tercero -> Guardar asigna (`OnSelectedExisting` -> `LinkContactTerceroAsync`). Editar el actual + Guardar re-sincroniza igual.
+- VALIDADO: `dotnet build` SuperAdmin 0 errores. E2E dev 5234 (pendiente de reflejar en esta entrada).
+- Afina [[editar-contacto-tarea-modal-directorio.md]]. SIGUIENTE: commit (doble push) y, con OK por version, release v0.16.266 + deploy via rapida GHCR.
+
 ## 2026-11-03 - Asignar contacto a la tarea al guardar la ficha (buscar existente o crear, DEV, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev (server 5234, BD local `ecorex`@5442, tenant AGROMETALICAS). SIN commit->commit, SIN deploy.

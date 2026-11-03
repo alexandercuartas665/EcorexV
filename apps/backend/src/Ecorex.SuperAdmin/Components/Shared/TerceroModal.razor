@@ -164,6 +164,14 @@
                     <div class="dg-m-kicker">@(_prospectoId is not null ? $"PROSPECTO SCRAPEADO{(string.IsNullOrWhiteSpace(_prospectoFuente) ? "" : " - " + _prospectoFuente)}" : _editingId is not null ? "EDITAR TERCERO" : _returnToParentId is not null ? "NUEVO CONTACTO" : "NUEVO CLIENTE")@(Especializado ? " · ESPECIALIZADO" : "")</div>
                     <div class="dg-m-title">@(string.IsNullOrWhiteSpace(_mNombre) ? "Sin nombre" : _mNombre)</div>
                 </div>
+                @* "Cambiar contacto": solo cuando el host lo cablea (p.ej. asignar el contacto de una tarea).
+                   Abre el selector de terceros del host para re-apuntar a OTRO contacto sin salir de "Editar". *@
+                @if (_editingId is not null && OnSwitchRequested.HasDelegate)
+                {
+                    <button type="button" class="dg-btn-mini" style="flex:none;margin-right:4px"
+                            title="Elegir otro contacto del directorio para esta tarea" disabled="@_busy"
+                            @onclick="OnSwitchRequested">Cambiar contacto</button>
+                }
                 <button class="dg-close" @onclick="BackOrCloseAsync">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                 </button>

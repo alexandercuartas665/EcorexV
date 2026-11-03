@@ -62,13 +62,22 @@ public sealed class FormResponseService : IFormResponseService
         {
             // GUARD anti-reemplazo (integridad): si YA existe una respuesta para esta (definicion, reference),
             // se ABRE esa en vez de crear un draft nuevo VACIO que la tape. Prioridad: la ENVIADA (mas reciente),
-            // luego el borrador (mas antiguo). El filtro global ya excluye las soft-borradas. Esto evitaba el
-            // caso de T00521: una cotizacion enviada quedaba tapada por un draft en blanco al reabrir la tarea.
+            // luego la MAS RECIENTEMENTE TOCADA (UpdatedAt). El filtro global ya excluye las soft-borradas.
+            // Esto evitaba el caso de T00521 (una cotizacion enviada tapada por un draft en blanco al reabrir la
+            // tarea) y, con "registro editable" (keepEditable), el caso en que una respuesta reabierta a borrador
+            // convivia con un draft vacio del mismo reference: ordenar por SubmittedAt/CreatedAt hacia que
+            // GANARA el vacio (en Postgres NULLS FIRST en DESC, o el mas antiguo), y al recargar el usuario veia
+            // el formulario en blanco -> "parece que no guarda". Desempate = "ULTIMA ACTIVIDAD" =
+            // COALESCE(UpdatedAt, SubmittedAt, CreatedAt) descendente: carga SIEMPRE la respuesta tocada mas
+            // recientemente. Se usa COALESCE y NO un ThenBy(SubmittedAt) aparte porque un draft nunca modificado
+            // tiene UpdatedAt NULL (el interceptor solo lo setea en Modified) y una respuesta reabierta a borrador
+            // conserva su SubmittedAt; con desempates NULLS-FIRST sueltos el vacio ganaba. Con COALESCE el vacio
+            // vale su CreatedAt antiguo y GANA la recien guardada. La prioridad por ENVIADA (Status) se mantiene.
             var existing = await _db.FormResponses.AsNoTracking()
                 .Where(r => r.DefinitionId == definitionId && r.Reference == normalizedReference)
                 .OrderByDescending(r => r.Status == FormResponseStatus.Submitted)
-                .ThenByDescending(r => r.SubmittedAt)
-                .ThenBy(r => r.CreatedAt)
+                .ThenByDescending(r => r.UpdatedAt ?? r.SubmittedAt ?? r.CreatedAt)
+                .ThenByDescending(r => r.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
             if (existing is not null)
             {

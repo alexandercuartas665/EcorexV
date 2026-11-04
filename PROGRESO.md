@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-04 - Limpieza PUNTUAL del backlog de flujos zombi: endpoint one-shot dry-run/apply (release v0.16.271, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Dev. Release v0.16.271. `dotnet build Ecorex.sln` verde (0 errores). Sin migracion EF ni paquetes nuevos. Archivo nuevo (`ZombieFlowCleanupService.cs`) solo-ASCII. Extiende ADR-0150. SIN deploy (a la espera del OK por version del usuario). Complementa v0.16.270 (el fix de aqui en adelante).
+- PROBLEMA: v0.16.270 evita nuevos zombis, pero las ~169 instancias Running ya existentes (de tareas cerradas/archivadas antes del fix) siguen ahi; las de tareas YA archivadas no vuelven a pasar por ningun hook de cierre, asi que no se limpian solas.
+- FIX: nuevo `IZombieFlowCleanupService` (`Ecorex.Application/Workflows`) que reusa `WorkflowInstanceLifecycle` (misma semantica exacta que el cierre en vivo). `CleanupForTenantAsync(nowUtc, apply)`: busca tareas del tenant cerradas (Done/Closed) o archivadas que AUN tienen instancia Running; con apply=false DRY-RUN (solo cuenta), con apply=true cancela + deja una actividad "Sistema" por tarea afectada + SaveChanges (una transaccion por tenant). Endpoint `POST /admin/cleanup-zombie-flows[?apply=true]` (Program.cs), gated a policy `PlatformOperator`, recorre todos los tenants acotando cada uno con `AmbientTenantContext.Begin` (query filter aisla) y devuelve JSON `{ apply, total, tenants:[{tenantId,instancias}] }` + log con conteos. Idempotente: segunda corrida = 0.
+- VALIDADO: `dotnet build Ecorex.sln` verde. Sin migracion (solo cambia estado de instancias/pasos; concurrencia optimista intacta). Patron de iteracion por tenant calcado de `TaskAutoArchiveWorker`/`ListTenantIdsAsync` (`_db.Tenants.IgnoreQueryFilters()`).
+- Extiende ADR-0150 (seccion de consecuencias). SIGUIENTE: con OK por version -> deploy via rapida GHCR v0.16.271; luego correr el endpoint UNA vez (DRY-RUN primero para ver conteos, despues `?apply=true`) con el OK del usuario.
+
 ## 2026-11-04 - Cancelar el flujo en marcha al cerrar/archivar la tarea: matar los flujos "zombi" (release v0.16.270, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev. Release v0.16.270. `dotnet build Ecorex.sln` verde (0 errores). Sin migracion EF ni paquetes nuevos. Archivo nuevo (`WorkflowInstanceLifecycle.cs`) solo-ASCII. ADR-0150. SIN deploy (a la espera del OK por version del usuario).

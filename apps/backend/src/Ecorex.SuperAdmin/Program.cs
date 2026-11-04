@@ -1430,6 +1430,51 @@ app.MapPost("/auth/logout", async (HttpContext http) =>
     return Results.Redirect("/login");
 }).DisableAntiforgery();
 
+// POST /admin/cleanup-zombie-flows[?apply=true]: limpieza PUNTUAL del backlog de flujos "zombi"
+// (ADR-0150) -- instancias Running de tareas ya cerradas/archivadas que quedaron de antes del fix y que
+// ningun hook de cierre vuelve a tocar. DRY-RUN por defecto (apply ausente o distinto de "true"): solo
+// cuenta por tenant, sin tocar nada. Con ?apply=true cancela de verdad (reusa WorkflowInstanceLifecycle,
+// misma semantica que el cierre en vivo, idempotente). Gated a PlatformOperator. Recorre todos los
+// tenants acotando cada uno con AmbientTenantContext para que el query filter aisle.
+app.MapPost("/admin/cleanup-zombie-flows", async (
+    HttpContext http, IServiceScopeFactory scopeFactory, TimeProvider timeProvider, CancellationToken ct) =>
+{
+    var apply = string.Equals(http.Request.Query["apply"], "true", StringComparison.OrdinalIgnoreCase);
+    var nowUtc = timeProvider.GetUtcNow();
+
+    IReadOnlyList<Guid> tenants;
+    await using (var scope = scopeFactory.CreateAsyncScope())
+    {
+        var svc = scope.ServiceProvider
+            .GetRequiredService<Ecorex.Application.Workflows.IZombieFlowCleanupService>();
+        tenants = await svc.ListTenantIdsAsync(ct);
+    }
+
+    var porTenant = new List<object>();
+    var total = 0;
+    foreach (var tenantId in tenants)
+    {
+        if (ct.IsCancellationRequested) { break; }
+        await using var scope = scopeFactory.CreateAsyncScope();
+        using (Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantId))
+        {
+            var svc = scope.ServiceProvider
+                .GetRequiredService<Ecorex.Application.Workflows.IZombieFlowCleanupService>();
+            var n = await svc.CleanupForTenantAsync(nowUtc, apply, ct);
+            if (n > 0)
+            {
+                porTenant.Add(new { tenantId, instancias = n });
+                total += n;
+            }
+        }
+    }
+
+    app.Logger.LogWarning(
+        "Limpieza de flujos zombi (ADR-0150): apply={Apply}, {Total} instancia(s) en {Tenants} tenant(s).",
+        apply, total, porTenant.Count);
+    return Results.Json(new { apply, total, tenants = porTenant });
+}).RequireAuthorization("PlatformOperator").DisableAntiforgery();
+
 // Endpoint DEMO del modulo de extraccion de datos (000730, ADR-0025): JSON estatico de
 // items para que la fuente demo y los tests E2E corran sin depender de internet. Es
 // AllowAnonymous a proposito: el ejecutor hace un GET sin cookies (datos ficticios, sin

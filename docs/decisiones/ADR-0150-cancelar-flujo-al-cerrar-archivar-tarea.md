@@ -78,7 +78,11 @@ flujo cancelado) y es barato. Se hacen las dos cosas.
   Concurrencia optimista intacta (las entidades se cargan rastreadas y guardan con el token).
 - Un entrante de WhatsApp sobre una tarea ya cerrada ya no reactiva un paso muerto (el paso quedo
   Skipped y la linea liberada).
-- Queda PENDIENTE una limpieza puntual del backlog existente (~169 instancias Running de tareas ya
-  cerradas/archivadas antes de este fix). El auto-archivado las ira cancelando a medida que archiva, pero
-  las tareas YA archivadas no vuelven a pasar por ningun hook: requieren una pasada de mantenimiento
-  (a confirmar con el usuario), que puede reusar este mismo helper.
+- Para el backlog existente (~169 instancias Running de tareas ya cerradas/archivadas antes de este fix,
+  que el auto-archivado solo ira cancelando al re-archivar y que las tareas YA archivadas no vuelven a
+  tocar) se agrega una limpieza PUNTUAL que reusa este mismo helper: `IZombieFlowCleanupService` +
+  endpoint `POST /admin/cleanup-zombie-flows` (gated a PlatformOperator). DRY-RUN por defecto (solo
+  cuenta por tenant); con `?apply=true` cancela de verdad. Recorre todos los tenants acotando cada uno
+  con `AmbientTenantContext` (el query filter aisla) y deja rastro: una actividad "Sistema" por tarea
+  afectada y un log con los conteos. Idempotente: una segunda corrida no encuentra nada. Se corre UNA
+  vez (dry-run primero) tras desplegar, con el OK del usuario.

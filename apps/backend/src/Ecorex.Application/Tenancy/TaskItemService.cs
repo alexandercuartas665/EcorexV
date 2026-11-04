@@ -630,6 +630,20 @@ public sealed class TaskItemService : ITaskItemService
         }
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, text));
+
+        // Al cerrar/completar la tarea por fuera del motor, cancela su flujo en marcha para que no quede
+        // como "zombi" (instancia Running + paso vigente) que todo barrido siga tomando (ADR-0150).
+        if (newStatus is TaskItemStatus.Closed or TaskItemStatus.Done)
+        {
+            var cancelados = await Ecorex.Application.Workflows.WorkflowInstanceLifecycle
+                .CancelRunningForTaskAsync(_db, task.Id, DateTimeOffset.UtcNow, cancellationToken);
+            if (cancelados > 0)
+            {
+                _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+                    TaskActivityType.Action,
+                    $"cancelo el flujo en curso al {(newStatus == TaskItemStatus.Closed ? "cerrar" : "completar")} la tarea"));
+            }
+        }
         try
         {
             await _db.SaveChangesAsync(cancellationToken);
@@ -940,6 +954,16 @@ public sealed class TaskItemService : ITaskItemService
         task.IsArchived = true;
         _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
             TaskActivityType.Action, "archivo la tarea"));
+
+        // Archivar una tarea con flujo a medias dejaba la instancia Running colgada; cancelala para que
+        // no la sigan tomando los barridos (ADR-0150).
+        var cancelados = await Ecorex.Application.Workflows.WorkflowInstanceLifecycle
+            .CancelRunningForTaskAsync(_db, task.Id, DateTimeOffset.UtcNow, cancellationToken);
+        if (cancelados > 0)
+        {
+            _db.TaskItemActivities.Add(BuildActivity(task.TenantId, task.Id, actorUserId, actorName,
+                TaskActivityType.Action, "cancelo el flujo en curso al archivar la tarea"));
+        }
         try
         {
             await _db.SaveChangesAsync(cancellationToken);

@@ -71,6 +71,13 @@ public sealed class TaskAutoArchiveService : ITaskAutoArchiveService
                 Text = $"archivada automaticamente ({x.AutoArchiveDoneDays} dias cerrada en el tablero)"
             });
         }
+
+        // Estas tareas ya estan Done/Closed; si quedo algun flujo Running colgado (cierre legacy previo al
+        // fix, o algun camino que no lo cancelo), cancelalo en lote para que no lo sigan tomando los
+        // barridos (ADR-0150). Lo normal es que ya este Completed/Cancelled: entonces es no-op.
+        await Ecorex.Application.Workflows.WorkflowInstanceLifecycle
+            .CancelRunningForTasksAsync(_db, due.Select(x => x.Task.Id).ToList(), nowUtc, cancellationToken);
+
         await _db.SaveChangesAsync(cancellationToken);
         return due.Count;
     }

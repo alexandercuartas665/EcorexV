@@ -819,6 +819,15 @@ public sealed class ActivityBoardService : IActivityBoardService
                 _db, task.TenantId, task.Id, DateTimeOffset.UtcNow, cancellationToken);
         }
 
+        // Solo cuando la tarea REALMENTE paso a Done por este movimiento (statusChanged): cancela su flujo
+        // en marcha para que no quede zombi (ADR-0150). Si un flujo solo PARQUEO una tarea VIVA en una
+        // columna de cierre (status no cambio), el flujo sigue legitimamente y no se toca.
+        if (statusChanged)
+        {
+            await Ecorex.Application.Workflows.WorkflowInstanceLifecycle
+                .CancelRunningForTaskAsync(_db, task.Id, DateTimeOffset.UtcNow, cancellationToken);
+        }
+
         try
         {
             await _db.SaveChangesAsync(cancellationToken);

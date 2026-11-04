@@ -1043,19 +1043,23 @@ public sealed class ActivityBoardService : IActivityBoardService
         if (rows.Count == 0) { return []; }
 
         var result = new HashSet<Guid>();
-        var candidateByNode = new Dictionary<Guid, bool>();
+        // Candidatos por nodo EN LOTE (mata el N+1): los nodos Task sin reclamar se resuelven de una
+        // sola vez (organigrama cargado una vez), no uno por uno recargando el organigrama cada vez.
+        var unclaimedTaskNodeIds = rows
+            .Where(r => r.AssignedToTenantUserId is null && r.NodeType == WorkflowNodeType.Task)
+            .Select(r => r.NodeId)
+            .Distinct()
+            .ToList();
+        var candidatesByNode = await _nodeAssignees.ResolveCandidatesForNodesAsync(unclaimedTaskNodeIds, cancellationToken);
         foreach (var r in rows)
         {
             if (r.AssignedToTenantUserId == me) { result.Add(r.TaskItemId); continue; }
             if (r.AssignedToTenantUserId is null && r.NodeType == WorkflowNodeType.Task)
             {
-                if (!candidateByNode.TryGetValue(r.NodeId, out var isCandidate))
+                if (candidatesByNode.TryGetValue(r.NodeId, out var candidates) && candidates.Contains(me))
                 {
-                    var candidates = await _nodeAssignees.ResolveCandidatesAsync(r.NodeId, cancellationToken);
-                    isCandidate = candidates.Contains(me);
-                    candidateByNode[r.NodeId] = isCandidate;
+                    result.Add(r.TaskItemId);
                 }
-                if (isCandidate) { result.Add(r.TaskItemId); }
             }
         }
         return result.ToList();

@@ -13,4 +13,14 @@ public interface INodeAssigneeResolver
     /// (sin asignacion = nadie resuelto todavia).
     /// </summary>
     Task<IReadOnlyList<Guid>> ResolveCandidatesAsync(Guid workflowNodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Version EN LOTE: resuelve los candidatos de VARIOS nodos en una sola pasada, cargando el
+    /// organigrama (unidades + miembros) UNA vez y todas las policies en UNA consulta. Devuelve el
+    /// mapa nodeId -&gt; candidatos (un nodo sin policies no aparece en el mapa = candidatos vacios).
+    /// Mata el N+1 de los listados (bandeja/tablero) que antes resolvian paso por paso, recargando
+    /// el organigrama en cada iteracion.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> ResolveCandidatesForNodesAsync(
+        IReadOnlyCollection<Guid> workflowNodeIds, CancellationToken cancellationToken = default);
 }

@@ -460,6 +460,16 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             .Select(n => n.Id)
             .ToListAsync(cancellationToken)).ToHashSet();
 
+        // Candidatos por nodo EN LOTE (mata el N+1): antes se llamaba al resolver por cada paso sin
+        // reclamar dentro del loop, y cada llamada recargaba TODO el organigrama. Ahora se resuelven de
+        // una sola vez los nodos que esperan a un humano y estan sin reclamar.
+        var candidateNodeIds = rows
+            .Where(r => r.Step.AssignedToTenantUserId is null && r.Node.WaitsForHuman)
+            .Select(r => r.Node.Id)
+            .Distinct()
+            .ToList();
+        var candidatesByNode = await _resolver.ResolveCandidatesForNodesAsync(candidateNodeIds, cancellationToken);
+
         var result = new List<PendingStepDto>();
         foreach (var row in rows)
         {
@@ -473,8 +483,8 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
             var isCandidate = isMine;
             if (isUnassigned && node.WaitsForHuman)
             {
-                var candidates = await _resolver.ResolveCandidatesAsync(node.Id, cancellationToken);
-                isCandidate = candidates.Contains(tenantUserId);
+                isCandidate = candidatesByNode.TryGetValue(node.Id, out var candidates)
+                    && candidates.Contains(tenantUserId);
             }
             if (!isMine && !isCandidate)
             {

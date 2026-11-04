@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-04 - Prod lento: matar el N+1 de candidatos de nodo en tablero/bandeja (release v0.16.269)
+
+- AGENTE: Claude Opus 4.8. Dev. Release v0.16.269. Commit + doble push (tronco + espejo main) + deploy via rapida GHCR (autorizado por el usuario). `dotnet build Ecorex.sln` verde. Sin migracion EF ni paquetes nuevos. ADR-0149.
+- SINTOMA (usuarios): sistema lento. DIAGNOSTICO en prod (solo lectura): `ecorex-app` clavaba ~1 nucleo, ~113 consultas/seg, casi todas `SELECT org_unit_id FROM workflow_node_policies WHERE workflow_node_id=?`. Host justo (4 cores, ~15 stacks, load ~9) pero la causa dominante era ECOREX.
+- CAUSA RAIZ: N+1 en el render de listados. `WorkflowInboxService` (bandeja) y `ActivityBoardService.GetRoutedTaskIdsAsync` (tablero, alcance Mis tareas) recorren TODOS los pasos is_current+Pending y por cada paso sin reclamar llaman `INodeAssigneeResolver.ResolveCandidatesAsync(nodeId)`; cada llamada = 3 consultas (policies del nodo + TODO el organigrama org_units+org_unit_members). Con ~800 pasos pendientes acumulados (AGRO), cada apertura/refresh = ~2.400 consultas. El agente en nodos NO era (acotado, cada 30s, tope 25).
+- FIX: (1) nuevo `INodeAssigneeResolver.ResolveCandidatesForNodesAsync(nodeIds)` -> mapa nodeId->candidatos: policies de TODOS los nodos en UNA consulta + organigrama cargado UNA vez, resuelto en memoria con `OrgAssigneeTree.ResolveForUnits`. (2) tablero y bandeja resuelven en lote ANTES del loop y consultan el diccionario dentro (~2.400 queries/render -> 3). (3) se conserva el metodo por-nodo para los llamadores single-node (motor/runner/inicio/editor/reclamar). (4) `appsettings.json`: `Microsoft.EntityFrameworkCore.Database.Command` a `Warning` (dejaba de loguear cada SQL en prod).
+- VALIDADO: `dotnet build Ecorex.sln` verde. Sin fakes de INodeAssigneeResolver en tests; unica implementacion NodeAssigneeResolver. Misma logica de candidatos (sin cambio funcional), solo deja de repetir trabajo.
+- ADR-0149 (`docs/decisiones/`). Ver [[prod-lentitud-worker-seguimiento-backlog]]. PENDIENTE (otra sesion, mas invasivo): cancelar la `workflow_instance` Running al cerrar/archivar la tarea (169 zombis) + limpieza del backlog. SIGUIENTE: deploy via rapida GHCR v0.16.269.
+
 ## 2026-11-03 - Extraccion de datos / conciliador DIAN: 4 ajustes (release v0.16.268, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev. Release v0.16.268. Commit + doble push (tronco + espejo main). SIN deploy (a la espera del OK por version del usuario). `dotnet build Ecorex.sln` verde (0 errores). Sin migracion EF ni paquetes NuGet nuevos. Archivo nuevo (`FileActionChannel.cs`) solo-ASCII. Sin secretos versionados.

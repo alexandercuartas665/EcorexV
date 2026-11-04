@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-04 - El multi-click en una tarjeta ya no tumba el circuito (abrir detalle resiliente, release v0.16.272, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Dev. Release v0.16.272. `dotnet build` SuperAdmin verde (0 errores). Sin migracion EF ni paquetes nuevos. 1 archivo (`TaskDetailModal.razor`). SIN deploy (a la espera del OK por version del usuario).
+- SINTOMA (usuario, con captura de consola): al hacer click en una tarjeta del tablero "a veces no abre de una"; el usuario impaciente da varios clicks y el sistema "explota": consola Blazor "unhandled exception on the current circuit, so this circuit will be terminated" + "Connection disconnected".
+- CAUSA RAIZ: el detalle se abre por un unico punto, `TaskDetailModal.OpenAsync`, que arranca con 3 consultas sobre el DbContext DEL CIRCUITO (`TenantUsersSvc/TypesSvc/ProjectsSvc.ListAsync`). En Blazor Server los handlers async se ENTRELAZAN en sus await: un segundo click dispara otro `OpenAsync` mientras el primero sigue cargando y ambos tocan el MISMO DbContext -> "A second operation was started on this context instance..." -> excepcion no controlada -> circuito terminado. La recarga pesada (`ReloadAsync`) ya estaba blindada (scope EF propio + `_reloadLock`), pero la APERTURA no.
+- FIX: (1) guarda anti-reentrada `_opening` en `OpenAsync`: mientras una apertura esta en curso los clicks extra se ignoran (un punto unico cubre tarjeta/lista/gantt/chips/reabrir). (2) todo `OpenAsync` en try/catch/finally: un error transitorio se loguea (ILogger nuevo) + avisa ("No se pudo abrir la actividad. Intenta de nuevo.") y NO tumba el circuito; el finally siempre resetea `_opening` y hace StateHasChanged.
+- VALIDADO: `dotnet build` SuperAdmin verde. Cambio minimo, mismo patron de resiliencia que [[dbcontext-efimero-lectura-factory]] (ADR-0138) y [[crash-circuito-webrootpath-errorboundary]]. SIGUIENTE: con OK por version -> deploy via rapida GHCR v0.16.272.
+
 ## 2026-11-04 - Limpieza PUNTUAL del backlog de flujos zombi: endpoint one-shot dry-run/apply (release v0.16.271, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev. Release v0.16.271. `dotnet build Ecorex.sln` verde (0 errores). Sin migracion EF ni paquetes nuevos. Archivo nuevo (`ZombieFlowCleanupService.cs`) solo-ASCII. Extiende ADR-0150. SIN deploy (a la espera del OK por version del usuario). Complementa v0.16.270 (el fix de aqui en adelante).

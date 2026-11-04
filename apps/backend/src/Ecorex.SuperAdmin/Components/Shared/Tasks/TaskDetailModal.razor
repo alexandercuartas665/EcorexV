@@ -28,6 +28,7 @@
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 @inject Ecorex.Application.Common.ITenantContext TenantCtx
 @inject NavigationManager Nav
+@inject ILogger<TaskDetailModal> Logger
 
 @if (_detail is not null)
 {
@@ -1955,35 +1956,58 @@
         StateHasChanged();
     }
 
+    // Guarda anti-reentrada de la apertura. El usuario impaciente hace multi-click en la tarjeta: en
+    // Blazor Server los handlers async se ENTRELAZAN en sus await, asi que un segundo OpenAsync arranca
+    // mientras el primero aun esta cargando y ambos tocan el MISMO DbContext del circuito (los ListAsync
+    // de abajo) -> "second operation on this context instance" -> excepcion no controlada -> el circuito
+    // se termina ("explota") y se desconecta. Mientras una apertura esta en curso los clicks extra se
+    // ignoran, y toda la apertura es resiliente: un error transitorio avisa y NO tumba el circuito.
+    private bool _opening;
+
     public async Task OpenAsync(Guid taskId, IReadOnlyList<Guid>? siblings = null)
     {
-        _navSiblings = siblings is { Count: > 0 } ? siblings : null;
-        _users = (await TenantUsersSvc.ListAsync()).ToList();
-        _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
-        _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
-        _editingTitle = _editingDesc = _confirmClose = _confirmArchive = false;
-        _conflict = _actionError = _workLogError = _attError = _moveNote = null;
-        _openMenu = null;
-        _timerRunning = false;
-        // El cronometro vive en un singleton JS a nivel de PAGINA: si no se reinicia al abrir, un valor
-        // acumulado de OTRA tarea (o de una sesion anterior) sobrevive y luego PISA el tiempo manual al
-        // guardar. Se reinicia a 0 en cada apertura para que cada tarea arranque limpia.
-        try { await JS.InvokeVoidAsync("ecorexTaskTimer.reset"); } catch { /* aun sin render: best-effort */ }
-        _timerNote = _newComment = _attName = _attUrl = "";
-        _newCheckText = "";
-        _addAssigneeId = "";
-        _tagMenuOpen = false;
-        _manualHours = _manualMinutes = null;
-        // Diagrama del flujo: al abrir OTRA tarea, reinicia zoom y los desplazamientos de arrastre.
-        _flowOffsets.Clear();
-        _flowZoom = 1;
-        _flowDragNode = null;
-        // Tabs/visor de documentos: al abrir OTRA tarea, vuelve al Detalle y a la galeria.
-        _modalTab = "detalle";
-        _docMode = "galeria";
-        _docIndex = 0;
-        await ReloadAsync(taskId);
-        StateHasChanged();
+        if (_opening) { return; }
+        _opening = true;
+        try
+        {
+            _navSiblings = siblings is { Count: > 0 } ? siblings : null;
+            _users = (await TenantUsersSvc.ListAsync()).ToList();
+            _types = (await TypesSvc.ListAsync(includeArchived: true)).ToList();
+            _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
+            _editingTitle = _editingDesc = _confirmClose = _confirmArchive = false;
+            _conflict = _actionError = _workLogError = _attError = _moveNote = null;
+            _openMenu = null;
+            _timerRunning = false;
+            // El cronometro vive en un singleton JS a nivel de PAGINA: si no se reinicia al abrir, un valor
+            // acumulado de OTRA tarea (o de una sesion anterior) sobrevive y luego PISA el tiempo manual al
+            // guardar. Se reinicia a 0 en cada apertura para que cada tarea arranque limpia.
+            try { await JS.InvokeVoidAsync("ecorexTaskTimer.reset"); } catch { /* aun sin render: best-effort */ }
+            _timerNote = _newComment = _attName = _attUrl = "";
+            _newCheckText = "";
+            _addAssigneeId = "";
+            _tagMenuOpen = false;
+            _manualHours = _manualMinutes = null;
+            // Diagrama del flujo: al abrir OTRA tarea, reinicia zoom y los desplazamientos de arrastre.
+            _flowOffsets.Clear();
+            _flowZoom = 1;
+            _flowDragNode = null;
+            // Tabs/visor de documentos: al abrir OTRA tarea, vuelve al Detalle y a la galeria.
+            _modalTab = "detalle";
+            _docMode = "galeria";
+            _docIndex = 0;
+            await ReloadAsync(taskId);
+        }
+        catch (Exception ex)
+        {
+            // Nunca dejar que un fallo al abrir tumbe el circuito: se avisa y el modal queda reintentar-able.
+            Logger.LogWarning(ex, "Fallo al abrir la actividad {TaskId} en el detalle.", taskId);
+            _actionError = "No se pudo abrir la actividad. Intenta de nuevo.";
+        }
+        finally
+        {
+            _opening = false;
+            StateHasChanged();
+        }
     }
 
     // Serializa recargas solapadas del modal (una mutacion + su ReloadAsync vs. otra recarga por

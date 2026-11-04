@@ -1451,7 +1451,8 @@ app.MapPost("/admin/cleanup-zombie-flows", async (
     }
 
     var porTenant = new List<object>();
-    var total = 0;
+    var totalInstancias = 0;
+    var totalPasosHuerfanos = 0;
     foreach (var tenantId in tenants)
     {
         if (ct.IsCancellationRequested) { break; }
@@ -1460,19 +1461,20 @@ app.MapPost("/admin/cleanup-zombie-flows", async (
         {
             var svc = scope.ServiceProvider
                 .GetRequiredService<Ecorex.Application.Workflows.IZombieFlowCleanupService>();
-            var n = await svc.CleanupForTenantAsync(nowUtc, apply, ct);
-            if (n > 0)
+            var r = await svc.CleanupForTenantAsync(nowUtc, apply, ct);
+            if (r.Total > 0)
             {
-                porTenant.Add(new { tenantId, instancias = n });
-                total += n;
+                porTenant.Add(new { tenantId, instancias = r.Instancias, pasosHuerfanos = r.PasosHuerfanos });
+                totalInstancias += r.Instancias;
+                totalPasosHuerfanos += r.PasosHuerfanos;
             }
         }
     }
 
     app.Logger.LogWarning(
-        "Limpieza de flujos zombi (ADR-0150): apply={Apply}, {Total} instancia(s) en {Tenants} tenant(s).",
-        apply, total, porTenant.Count);
-    return Results.Json(new { apply, total, tenants = porTenant });
+        "Limpieza de flujos zombi (ADR-0150): apply={Apply}, {Instancias} instancia(s) + {Huerfanos} paso(s) huerfano(s) en {Tenants} tenant(s).",
+        apply, totalInstancias, totalPasosHuerfanos, porTenant.Count);
+    return Results.Json(new { apply, totalInstancias, totalPasosHuerfanos, tenants = porTenant });
 }).RequireAuthorization("PlatformOperator").DisableAntiforgery();
 
 // Endpoint DEMO del modulo de extraccion de datos (000730, ADR-0025): JSON estatico de

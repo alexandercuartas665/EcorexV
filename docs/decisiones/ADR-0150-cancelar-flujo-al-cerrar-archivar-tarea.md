@@ -78,6 +78,13 @@ flujo cancelado) y es barato. Se hacen las dos cosas.
   Concurrencia optimista intacta (las entidades se cargan rastreadas y guardan con el token).
 - Un entrante de WhatsApp sobre una tarea ya cerrada ya no reactiva un paso muerto (el paso quedo
   Skipped y la linea liberada).
+- Pasos HUERFANOS (vigentes sobre una instancia YA terminal): `WorkflowDesignService.CancelInstanceAsync`
+  cancelaba la instancia pero NO resolvia su paso vigente, dejando un paso `is_current + Pending` sobre una
+  instancia Cancelled (un frente vivo imposible que todo barrido sigue tomando). Se tapa la fuente: ese
+  metodo ahora resuelve sus pasos al cancelar (helper comun `ResolveCurrentStepsForInstancesAsync`). Y para
+  los que ya existian, la limpieza puntual barre ademas los pasos vigentes sobre instancias Completed o
+  Cancelled (`ResolveOrphanCurrentStepsAsync`; NO toca Stuck, estado defensivo que puede esperar). El
+  endpoint reporta `{ totalInstancias, totalPasosHuerfanos }`. (v0.16.273.)
 - Para el backlog existente (~169 instancias Running de tareas ya cerradas/archivadas antes de este fix,
   que el auto-archivado solo ira cancelando al re-archivar y que las tareas YA archivadas no vuelven a
   tocar) se agrega una limpieza PUNTUAL que reusa este mismo helper: `IZombieFlowCleanupService` +

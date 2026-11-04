@@ -731,6 +731,11 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             return WorkflowResult<bool>.Ok(true);
         }
         instance.Status = WorkflowInstanceStatus.Cancelled;
+        instance.CompletedAt = DateTimeOffset.UtcNow;
+        // Al cancelar, resolver su paso vigente para no dejarlo huerfano (IsCurrent + Pending sobre una
+        // instancia ya terminal), que todo barrido seguiria tomando. Mismo helper que el cierre en vivo.
+        await WorkflowInstanceLifecycle.ResolveCurrentStepsForInstancesAsync(
+            _db, new[] { instance.Id }, DateTimeOffset.UtcNow, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
     }

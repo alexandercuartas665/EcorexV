@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-04 - Barrer pasos huerfanos + tapar la fuente (CancelInstanceAsync); limpieza zombi EJECUTADA (release v0.16.273)
+
+- AGENTE: Claude Opus 4.8. Dev. Release v0.16.273. `dotnet build Ecorex.sln` verde (0 errores). Sin migracion EF ni paquetes nuevos. Extiende ADR-0150. SIN deploy aun (a la espera del OK por version).
+- CONTEXTO: tras ejecutar la limpieza del backlog (v0.16.271, endpoint via navegador logueado del usuario: 171 instancias zombi canceladas -AGRO 165, SOLDARCO 6-; Running 572->401; 171 actividades de auditoria; segundo dry-run=0) quedaba 1 paso HUERFANO: `is_current+Pending` sobre una instancia YA Cancelled (tarea DEMO archivada, nodo sin agente). El usuario pidio barrerlo tambien.
+- CAUSA del huerfano: `WorkflowDesignService.CancelInstanceAsync` cancelaba la instancia pero NO resolvia su paso vigente -> frente vivo sobre instancia terminal que todo barrido sigue tomando.
+- FIX (v0.16.273): (1) refactor de `WorkflowInstanceLifecycle`: resolucion de pasos extraida a metodo comun; nuevo `ResolveCurrentStepsForInstancesAsync` (publico) y `ResolveOrphanCurrentStepsAsync` (barre pasos vigentes sobre instancias Completed/Cancelled; NO toca Stuck). (2) `CancelInstanceAsync` ahora resuelve sus pasos al cancelar + sella CompletedAt (tapa la fuente). (3) `ZombieFlowCleanupService.CleanupForTenantAsync` devuelve `ZombieCleanupResult(Instancias, PasosHuerfanos)` y barre ambos; endpoint reporta `{ apply, totalInstancias, totalPasosHuerfanos, tenants:[...] }`.
+- VALIDADO: `dotnet build Ecorex.sln` verde. Sin migracion. Pasos resueltos con la MISMA semantica (Skipped + is_current=false + limpia esperas del agente + suelta hold de WhatsApp).
+- Extiende ADR-0150. Ver [[prod-lentitud-worker-seguimiento-backlog]]. SIGUIENTE: con OK por version -> deploy v0.16.273 + correr el barrido por el endpoint (reporta ~1 paso huerfano resuelto).
+
 ## 2026-11-04 - El multi-click en una tarjeta ya no tumba el circuito (abrir detalle resiliente, release v0.16.272, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Dev. Release v0.16.272. `dotnet build` SuperAdmin verde (0 errores). Sin migracion EF ni paquetes nuevos. 1 archivo (`TaskDetailModal.razor`). SIN deploy (a la espera del OK por version del usuario).

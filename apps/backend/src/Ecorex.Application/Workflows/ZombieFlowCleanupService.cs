@@ -22,9 +22,16 @@ public interface IZombieFlowCleanupService
 
     /// <summary>
     /// Cancela (o cuenta, si apply=false) las instancias Running de tareas cerradas/archivadas del tenant
-    /// actual. Devuelve cuantas instancias se cancelarian/cancelaron.
+    /// actual, y barre los pasos huerfanos (vigentes sobre una instancia ya terminal). Devuelve el conteo
+    /// de ambos.
     /// </summary>
-    Task<int> CleanupForTenantAsync(DateTimeOffset nowUtc, bool apply, CancellationToken cancellationToken = default);
+    Task<ZombieCleanupResult> CleanupForTenantAsync(DateTimeOffset nowUtc, bool apply, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Conteo de una pasada de limpieza: instancias Running canceladas + pasos huerfanos resueltos.</summary>
+public readonly record struct ZombieCleanupResult(int Instancias, int PasosHuerfanos)
+{
+    public int Total => Instancias + PasosHuerfanos;
 }
 
 public sealed class ZombieFlowCleanupService : IZombieFlowCleanupService
@@ -43,7 +50,7 @@ public sealed class ZombieFlowCleanupService : IZombieFlowCleanupService
             .Select(t => t.Id)
             .ToListAsync(cancellationToken);
 
-    public async Task<int> CleanupForTenantAsync(
+    public async Task<ZombieCleanupResult> CleanupForTenantAsync(
         DateTimeOffset nowUtc, bool apply, CancellationToken cancellationToken = default)
     {
         // Tareas del tenant que estan cerradas/archivadas y AUN tienen una instancia Running (zombi).
@@ -55,18 +62,25 @@ public sealed class ZombieFlowCleanupService : IZombieFlowCleanupService
             select t.Id)
             .Distinct()
             .ToListAsync(cancellationToken);
-        if (zombieTaskIds.Count == 0) { return 0; }
 
         if (!apply)
         {
-            // DRY-RUN: cuenta cuantas instancias Running se cancelarian, sin tocar nada.
-            return await _db.WorkflowInstances.CountAsync(
+            // DRY-RUN: cuenta sin tocar nada. Instancias zombi + pasos huerfanos (vigentes sobre una
+            // instancia ya terminal: Completed/Cancelled).
+            var instCount = zombieTaskIds.Count == 0 ? 0 : await _db.WorkflowInstances.CountAsync(
                 i => i.Status == WorkflowInstanceStatus.Running && i.TaskItemId != null
                     && zombieTaskIds.Contains(i.TaskItemId!.Value),
                 cancellationToken);
+            var orphanCount = await _db.WorkflowStepHistories.CountAsync(
+                s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending
+                    && _db.WorkflowInstances.Any(i => i.Id == s.InstanceId
+                        && (i.Status == WorkflowInstanceStatus.Completed
+                            || i.Status == WorkflowInstanceStatus.Cancelled)),
+                cancellationToken);
+            return new ZombieCleanupResult(instCount, orphanCount);
         }
 
-        var cancelled = await WorkflowInstanceLifecycle
+        var cancelled = zombieTaskIds.Count == 0 ? 0 : await WorkflowInstanceLifecycle
             .CancelRunningForTasksAsync(_db, zombieTaskIds, nowUtc, cancellationToken);
 
         // Rastro de auditoria por tarea afectada (el helper no escribe actividad; lo hace el llamador).
@@ -84,8 +98,16 @@ public sealed class ZombieFlowCleanupService : IZombieFlowCleanupService
             });
         }
 
+        // Barre ademas los pasos huerfanos (vigentes sobre instancias ya terminales), p.ej. de un
+        // cancelar-instancia viejo que no resolvio su paso. No pertenecen a ninguna tarea que cerremos
+        // aqui, por eso van en su propio barrido.
+        var orphans = await WorkflowInstanceLifecycle
+            .ResolveOrphanCurrentStepsAsync(_db, nowUtc, cancellationToken);
+
+        if (cancelled == 0 && orphans == 0) { return new ZombieCleanupResult(0, 0); }
+
         // Un solo SaveChanges = una transaccion atomica para todo el tenant (regla de multi-tabla).
         await _db.SaveChangesAsync(cancellationToken);
-        return cancelled;
+        return new ZombieCleanupResult(cancelled, orphans);
     }
 }

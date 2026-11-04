@@ -1,4 +1,5 @@
 using Ecorex.Application.Common;
+using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -49,12 +50,65 @@ public static class WorkflowInstanceLifecycle
         if (instances.Count == 0) { return 0; }
         var instanceIds = instances.Select(i => i.Id).ToList();
 
-        // Resuelve los pasos vigentes: dejan de ser corriente y quedan Skipped. Se limpian las marcas de
-        // espera del agente para que WorkflowAgentStepWorker/Dispatcher no los recoja (ni por reintento).
+        // Resuelve los pasos vigentes de esas instancias (dejan de ser corriente y quedan Skipped).
+        await ResolveCurrentStepsForInstancesAsync(db, instanceIds, now, cancellationToken);
+
+        foreach (var i in instances)
+        {
+            i.Status = WorkflowInstanceStatus.Cancelled;
+            i.CompletedAt = now;
+        }
+        return instances.Count;
+    }
+
+    /// <summary>
+    /// Resuelve los pasos vigentes (IsCurrent + Pending) de las instancias dadas: IsCurrent=false,
+    /// Skipped, limpia esperas del agente y suelta el hold de WhatsApp. Lo usan el cierre en vivo
+    /// (<see cref="CancelRunningForTasksAsync"/>) y el cancelar manual de una instancia
+    /// (WorkflowDesignService.CancelInstanceAsync), para que una instancia cancelada NUNCA deje un paso
+    /// vigente huerfano. NO llama SaveChanges. Devuelve cuantos pasos se resolvieron.
+    /// </summary>
+    public static async Task<int> ResolveCurrentStepsForInstancesAsync(
+        IApplicationDbContext db, IReadOnlyCollection<Guid> instanceIds, DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        if (instanceIds is null || instanceIds.Count == 0) { return 0; }
+        var idList = instanceIds.Distinct().ToList();
         var steps = await db.WorkflowStepHistories
-            .Where(s => instanceIds.Contains(s.InstanceId) && s.IsCurrent
+            .Where(s => idList.Contains(s.InstanceId) && s.IsCurrent
                 && s.Status == WorkflowStepStatus.Pending)
             .ToListAsync(cancellationToken);
+        await ResolveStepsAsync(db, steps, now, cancellationToken);
+        return steps.Count;
+    }
+
+    /// <summary>
+    /// Barre pasos HUERFANOS: pasos vigentes (IsCurrent + Pending) cuya instancia YA es terminal
+    /// (Completed o Cancelled). Un frente vivo sobre una instancia terminada es una inconsistencia (p.ej.
+    /// un cancelar-instancia viejo que no resolvio su paso) y todo barrido lo sigue tomando. NO toca
+    /// instancias Stuck (estado defensivo heredado que puede esperar legitimamente). Acotado al tenant por
+    /// el query filter del DbContext. NO llama SaveChanges. Devuelve cuantos pasos se resolvieron.
+    /// </summary>
+    public static async Task<int> ResolveOrphanCurrentStepsAsync(
+        IApplicationDbContext db, DateTimeOffset now, CancellationToken cancellationToken = default)
+    {
+        var steps = await db.WorkflowStepHistories
+            .Where(s => s.IsCurrent && s.Status == WorkflowStepStatus.Pending
+                && db.WorkflowInstances.Any(i => i.Id == s.InstanceId
+                    && (i.Status == WorkflowInstanceStatus.Completed
+                        || i.Status == WorkflowInstanceStatus.Cancelled)))
+            .ToListAsync(cancellationToken);
+        await ResolveStepsAsync(db, steps, now, cancellationToken);
+        return steps.Count;
+    }
+
+    // Resolucion comun de una lista de pasos ya cargados (rastreados): los saca de vigentes + Skipped,
+    // limpia las esperas del agente y suelta el hold de WhatsApp que apuntara a ellos.
+    private static async Task ResolveStepsAsync(
+        IApplicationDbContext db, List<WorkflowStepHistory> steps, DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (steps.Count == 0) { return; }
         var skippedStepIds = new List<Guid>(steps.Count);
         foreach (var s in steps)
         {
@@ -70,23 +124,13 @@ public static class WorkflowInstanceLifecycle
 
         // Libera cualquier hold de linea de WhatsApp que uno de esos pasos tuviera apartado (ADR-0122/0126):
         // sin esto la linea quedaria muda apuntando a un paso ya no vigente.
-        if (skippedStepIds.Count > 0)
+        var heldConvs = await db.Conversations
+            .Where(c => c.FlowHoldStepId != null && skippedStepIds.Contains(c.FlowHoldStepId!.Value))
+            .ToListAsync(cancellationToken);
+        foreach (var c in heldConvs)
         {
-            var heldConvs = await db.Conversations
-                .Where(c => c.FlowHoldStepId != null && skippedStepIds.Contains(c.FlowHoldStepId!.Value))
-                .ToListAsync(cancellationToken);
-            foreach (var c in heldConvs)
-            {
-                c.FlowHoldStepId = null;
-                c.FlowHoldNodeId = null;
-            }
+            c.FlowHoldStepId = null;
+            c.FlowHoldNodeId = null;
         }
-
-        foreach (var i in instances)
-        {
-            i.Status = WorkflowInstanceStatus.Cancelled;
-            i.CompletedAt = now;
-        }
-        return instances.Count;
     }
 }

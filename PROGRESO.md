@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-04 - Proceso de COMPRAS configurable (default modulo + matriz) y resuelto en el planificador (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.249. Commits e445887e (tab cotizacion->proceso) +
+  168dd444 (proceso de compras). Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: el usuario senalo que solo el proceso de COTIZACION (RFQ) era configurable; faltaba el proceso de
+  COMPRAS con la misma logica: default del modulo + en la matriz de proveedores + que llegue al planificador.
+  Ademas movi el selector "Proceso de cotizacion por producto" del pie de Planificacion al tab Cotizacion.
+- HECHO (espejo del proceso de cotizacion, SIN migracion, todo en TenantConfiguration):
+  - CONFIG DEL MODULO: nuevo "Proceso de compras por defecto" junto al de cotizacion (clave
+    requerimientos.compra_default). GetCompraDefaultAsync/SetCompraDefaultAsync.
+  - MATRIZ: cada proveedor de una regla gana un "Proceso de compras" ademas del de cotizacion. Se guarda en
+    ReglaExt.ProcComp dentro del blob matriz_ext. Contratos: SaveReglaRequest/RequerimientoReglaDto/
+    ReglaProveedorResueltoDto ganan SubcategoriaCompraId (opcional, compatible). UI: 2a columna de select en
+    cada fila del editor multi-proveedor (ReglaProvEdit.ProcesoCompra).
+  - PLANIFICADOR: EjecutarHijoAsync resuelve el proceso de compra con la cadena matriz del proveedor
+    (GetProveedoresMatrizParaProductoAsync, por el producto y el proveedor del hijo) > origen de la necesidad >
+    default del modulo (antes SOLO miraba el origen). Mensaje de error actualizado a la cadena completa.
+  - UI tab Cotizacion: el selector "Proceso de cotizacion (RFQ) por producto" se movio del pie de la pestana
+    Planificacion al tab Cotizacion (junto al comparador/candidatos).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.249): config muestra y PERSISTE "Proceso de compras por
+  defecto" (lo deje en "Pago a proveedor"); en la matriz, el editor de una regla muestra "Proceso de compras"
+  por proveedor y PERSISTE (INGETEL -> "Contratacion", Produvarios -> default). Build SuperAdmin 0 errores.
+  OJO dato dev (artefactos de prueba, reversibles por UI): compra_default=Pago a proveedor; INGETEL compra=Contratacion.
+- SIGUIENTE: lo que el usuario siga ajustando. Pendiente mayor: (opcional) proceso de compra POR PRODUCTO (hoy
+  compra = default/matriz/origen, sin capa producto como si tiene cotizacion); rondas/plantillas (Ola F fase 2);
+  adjudicacion del candidato; PROMPT de integracion a dev central; deploy con OK por version.
+
 ## 2026-11-04 - RFQ Ola F (ajustes UX): editor de regla multi-proveedor + pestana Cotizacion en Planificar (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.247. Commit 8d92f230 (push a requerimiento_compras, SIN deploy).

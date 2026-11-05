@@ -60,11 +60,28 @@ public sealed class AgentWorker(ILogger<AgentWorker> logger) : BackgroundService
             () => new AgentIpcServer.StateMsgSource(_hive?.State ?? ConnectionState.Offline, _hive?.LastError, _hive?.TenantName),
             _ => _configChanged.Release(),
             m => logger.LogInformation("{Mensaje}", m));
-        _ipc.Start();
-        logger.LogInformation("Canal local escuchando en \\\\.\\pipe\\{Pipe} (la colmena se conecta aqui).", AgentIpc.PipeName);
+        // Blindaje de arranque (1.9.5): si el pipe local no se puede abrir, el servicio NO se cae.
+        // Sigue atendiendo el hub (Gateway/Archivos headless); solo la colmena local no reflejaria
+        // estado hasta reiniciar el servicio. Antes, una excepcion aqui tumbaba el worker en el arranque.
+        try
+        {
+            _ipc.Start();
+            logger.LogInformation("Canal local escuchando en \\\\.\\pipe\\{Pipe} (la colmena se conecta aqui).", AgentIpc.PipeName);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "No se pudo abrir el canal local con la colmena (pipe {Pipe}); el servicio sigue y atiende el hub. "
+                + "La colmena no reflejara estado hasta reiniciar el servicio.", AgentIpc.PipeName);
+        }
 
         SetupConfigWatcher();
         SetupCapabilityWatcher();
+
+        // Deja en el log, al arrancar, QUE build corre y QUE decidio sobre TLS (ADR-0152). Sirve para
+        // distinguir en campo un binario viejo que el MSI no actualizo (misma version no sobrescribe) de
+        // una incompatibilidad real del SO, sin depurar a ciegas en la maquina del cliente.
+        logger.LogInformation("Diagnostico TLS/arranque: {Diag}", Ecorex.Agent.Core.Services.RealHiveConnection.TlsDiagnostics);
 
         while (!stoppingToken.IsCancellationRequested)
         {

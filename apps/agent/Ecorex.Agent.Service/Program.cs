@@ -56,6 +56,14 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "EcorexAgent");
 builder.Services.AddHostedService<AgentWorker>();
 
+// Blindaje de arranque (1.9.5): si el worker lanza una excepcion NO controlada (p.ej. el pipe local
+// no se puede crear en el arranque), el comportamiento por defecto -StopHost- DETENDRIA el servicio,
+// y el instalador 1.9.5 lo reportaria como "no corre" aunque la instalacion este bien. Con Ignore el
+// servicio queda ARRIBA y el worker reintenta su ciclo; la identidad y las capacidades se pueden
+// configurar despues desde la colmena. La conexion al hub sin identidad ya es fail-soft (AgentWorker).
+builder.Services.Configure<HostOptions>(o =>
+    o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
+
 // En servicio no hay consola donde mirar: el log va al Visor de eventos. En consola, a la consola.
 if (WindowsServiceHelpers.IsWindowsService())
 {

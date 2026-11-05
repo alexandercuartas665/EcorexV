@@ -111,6 +111,103 @@ public sealed class BrowserRunService(
 
     /// <summary>Clave de sesion viva del navegador para el stepping de un flujo (el agente reusa el mismo
     /// perfil/ventana entre pasos). Estable por flujo.</summary>
+    // Espera "con progreso": sondea en bucle el fin (#dron-fin, via step.Selector) y el contador que el
+    // motor del dron publica en #dron-prog, reportando el texto al modal del conciliador (callback live).
+    // Firma cada sondeo igual que el compilador (Eval firmado) y corre sobre la MISMA sesion viva del paso.
+    // Un sondeo que falle no corta la espera. Termina al ver el fin (Ok) o al vencer WaitMs (benigno: el
+    // flujo sigue a Procesar con lo que haya en disco).
+    private async Task<StepRunResult> RunWaitConProgresoAsync(
+        IApplicationDbContext db, Guid flowId, Guid tenantId, ScrapeStep step,
+        DataClient client, string? secret, Dictionary<string, string> vars,
+        Action<string> live, CancellationToken ct)
+    {
+        var sessionKey = StepSessionKeyFor(flowId);
+        var folder = DownloadFolderFrom(vars);
+        var selLiteral = JsonSerializer.Serialize(step.Selector);
+        // Cuerpo de funcion (como los pasos nativos): devuelve un JSON {fin, prog}. Se envuelve y firma igual.
+        var body = "return JSON.stringify({fin: !!document.querySelector(" + selLiteral
+            + "), prog:(function(){var e=document.getElementById('dron-prog');return e?(''+e.textContent):'';})()});";
+        var wrapped = "(function(){\n" + body + "\n})()";
+
+        var waitMs = step.WaitMs is > 0 ? step.WaitMs.Value : 600000;
+        var deadline = _clock.GetUtcNow().AddMilliseconds(waitMs);
+        string? lastProg = null;
+
+        while (_clock.GetUtcNow() < deadline)
+        {
+            if (!registry.IsOnline(client.ClientId))
+            {
+                return new StepRunResult(false, true, "El agente quedo offline durante la espera.", null, null, 0, 0, 0, null);
+            }
+
+            string? value = null;
+            try
+            {
+                var corr = NewCorr();
+                var sig = secret is null ? null : AgentSign.SignJs(secret, corr, wrapped);
+                var action = new BrowserAction(BrowserActionKind.Eval, Script: wrapped, Signature: sig);
+                var req = new BrowserRequestMsg(corr, tenantId.ToString(), new List<BrowserAction> { action },
+                    SessionKey: sessionKey, KeepAlive: true, DownloadFolder: folder);
+                var res = await channel.ExecuteAsync(client.ClientId, req, TimeSpan.FromSeconds(30), ct);
+                value = res.Results.FirstOrDefault(r => r.Kind == BrowserActionKind.Eval)?.Value
+                    ?? res.Results.FirstOrDefault()?.Value;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+            catch { /* un sondeo fallido no mata la espera */ }
+
+            var fin = false;
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                try
+                {
+                    // El Eval (WebView2 ExecuteScriptAsync) entrega el resultado JSON-encoded SIN decodificar:
+                    // si llega como literal de cadena ("...{...}..."), se decodifica UNA vez para obtener el
+                    // objeto real {fin,prog}. Si ya viene como objeto, se parsea directo.
+                    var raw = value!.Trim();
+                    if (raw.Length > 1 && raw[0] == '"')
+                    {
+                        try { raw = JsonSerializer.Deserialize<string>(raw) ?? raw; } catch { /* no era literal */ }
+                    }
+                    using var doc = JsonDocument.Parse(raw);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("fin", out var f))
+                    {
+                        fin = f.ValueKind == JsonValueKind.True
+                            || (f.ValueKind == JsonValueKind.String && string.Equals(f.GetString(), "true", StringComparison.OrdinalIgnoreCase));
+                    }
+                    var p = root.TryGetProperty("prog", out var pe) ? pe.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(p) && p != lastProg) { live(p!); lastProg = p; }
+                }
+                catch { /* value no-JSON: se ignora este sondeo */ }
+            }
+
+            if (fin)
+            {
+                string? shot = null;
+                try
+                {
+                    var corr2 = NewCorr();
+                    var req2 = new BrowserRequestMsg(corr2, tenantId.ToString(),
+                        new List<BrowserAction> { new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true) },
+                        SessionKey: sessionKey, KeepAlive: true, DownloadFolder: folder);
+                    var res2 = await channel.ExecuteAsync(client.ClientId, req2, TimeSpan.FromSeconds(30), ct);
+                    shot = res2.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64;
+                }
+                catch { /* la captura final es opcional */ }
+                var okDet = lastProg is null ? "Descargas finalizadas." : $"Descargas finalizadas ({lastProg}).";
+                await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, okDet, ct);
+                return new StepRunResult(true, false, null, shot, null, 0, 0, 0, okDet);
+            }
+
+            try { await Task.Delay(TimeSpan.FromSeconds(4), ct); }
+            catch (OperationCanceledException) { break; }
+        }
+
+        // Timeout: nunca aparecio el selector de fin. Benigno: el flujo sigue a Procesar con lo que haya en disco.
+        await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, "Espera agotada (timeout).", ct);
+        return new StepRunResult(false, false, "Espera agotada (timeout).", null, null, 0, 0, 0, "Espera agotada (timeout).");
+    }
+
     private static string StepSessionKeyFor(Guid flowId) => $"stepflow-{flowId:N}";
 
     public async Task<BrowserRunResult> RunFlowNowAsync(Guid flowId, Guid tenantId, ImportRunTrigger trigger,
@@ -332,6 +429,17 @@ public sealed class BrowserRunService(
                 var closed = await CloseStepSessionAsync(flowId, tenantId, ct);
                 await RecordStepRunAsync(db, flowId, step.Name, closed.Ok, 0, 0, 0, closed.Detail, ct);
                 return closed;
+            }
+
+            // Paso "Esperar" con condicion por selector (p.ej. "Esperar fin de descargas" del dron DIAN):
+            // en vez de UNA espera bloqueante, SONDEA en bucle el fin (#dron-fin) y el contador que el motor
+            // publica en #dron-prog, reportando "descargando N" en vivo al modal (callback live). Solo aplica
+            // en la corrida "Ejecutar ahora" (hay live); el paso a paso manual (live null) cae al camino
+            // generico de una sola espera. Para otros Wait con selector es equivalente (sin #dron-prog no hay
+            // texto en vivo, solo se espera el selector).
+            if (step.Kind == ScrapeStepKind.Wait && !string.IsNullOrWhiteSpace(step.Selector) && live is not null)
+            {
+                return await RunWaitConProgresoAsync(db, flowId, tenantId, step, client, secret, vars, live, ct);
             }
 
             if (step.Kind == ScrapeStepKind.Ai)

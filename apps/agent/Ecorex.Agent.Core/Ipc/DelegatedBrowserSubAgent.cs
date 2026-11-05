@@ -19,8 +19,14 @@ public sealed class DelegatedBrowserSubAgent(AgentIpcServer ipc) : IBrowserSubAg
     /// Tope de una secuencia de navegador delegada. Generoso (navegar + esperar condiciones + capturar
     /// es lento), pero finito: sin el, una colmena que muere a mitad dejaria al servidor esperando un
     /// acuse que no llegara nunca.
+    ///
+    /// Subido de 3 a 20 min: pasos de espera legitimos (p.ej. "Esperar fin de descargas" de un dron de
+    /// extraccion masiva de la DIAN) pueden tardar mucho mas de 3 min, y el tope viejo los cortaba a los
+    /// 3 min aunque el paso pidiera 10. No dana la deteccion de colmenas muertas en pasos cortos: el
+    /// servidor conserva su propio timeout por-accion (~60s + WaitMs) y corta primero cuando la accion
+    /// es rapida; este tope solo manda cuando la accion legitimamente pide una espera larga.
     /// </summary>
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(20);
 
     private readonly UnavailableBrowserSubAgent _noDesktop = new();
 

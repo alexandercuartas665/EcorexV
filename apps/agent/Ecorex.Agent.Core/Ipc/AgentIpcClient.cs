@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Security.Principal;
 using Ecorex.Contracts.Agent;
 
 namespace Ecorex.Agent.Core.Ipc;
@@ -42,8 +43,14 @@ public sealed class AgentIpcClient : IAsyncDisposable
         {
             try
             {
+                // Impersonation level = Identification: el Servicio (AgentIpcServer.IsClientAdmin) hace
+                // RunAsClient + IsInRole(Administrator) para decidir si acepta una mutacion. Con el nivel
+                // por defecto (None) ese chequeo recibe un token ANONIMO y da no-admin SIEMPRE, aun con la
+                // colmena elevada -> toda mutacion por pipe se rechazaba ("exige administrador"). Con
+                // Identification el Servicio puede LEER la identidad/grupos del cliente (suficiente para el
+                // chequeo) pero NO suplantarlo para acceder a otros recursos (minimo privilegio).
                 using var pipe = new NamedPipeClientStream(".", AgentIpc.PipeName,
-                    PipeDirection.InOut, PipeOptions.Asynchronous);
+                    PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification);
                 await pipe.ConnectAsync(_cts.Token);
 
                 using var channel = new IpcChannel(pipe);

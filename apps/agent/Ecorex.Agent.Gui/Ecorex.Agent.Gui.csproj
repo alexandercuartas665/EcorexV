@@ -13,6 +13,10 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>Ecorex.Agent.Gui</RootNamespace>
     <AssemblyName>Ecorex.Agent.Gui</AssemblyName>
+    <!-- Version visible en la colmena (HiveViewModel.AgentVersion lee el assembly). Debe ir en linea
+         con la version reportada al hub (RealHiveConnection.SafeHelloAsync) y con la del instalador
+         (-p:ProductVersion). 1.9.2 -> 1.9.3: fix de guardar capacidad en servidor (ADR-0148). -->
+    <Version>1.9.3</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- WFO0003: WinForms sugiere configurar DPI por API; aqui el DPI lo gobierna el manifest para
          WPF (no llamamos ApplicationConfiguration.Initialize). Warning benigno, se silencia. -->

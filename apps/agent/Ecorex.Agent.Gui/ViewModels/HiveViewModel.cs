@@ -384,34 +384,38 @@ public sealed class HiveViewModel : ObservableObject
             .Where(e => e.Length > 0)
             .ToList();
 
-        // Demo/captura: sin servicio detras; el store local basta.
-        if (_pipe is null)
-        {
-            if (_capKind == SubAgentKind.Browser) { _browserAllow.Save(entries); _consent.SetBrowser(CapEnabled); }
-            else if (_capKind == SubAgentKind.Files) { _fileAllow.Save(entries); _consent.SetFiles(CapEnabled); }
-            IsCapConfigOpen = false;
-            return;
-        }
-
-        // Real y YA elevado: la ruta por pipe funciona (el servicio ve una conexion de administrador).
-        if (ElevationHelper.IsElevated())
-        {
-            _ = _capKind == SubAgentKind.Browser
-                ? _pipe.SetBrowserAllowAsync(entries)
-                : _pipe.SetFileAllowAsync(entries);
-            var browser = _capKind == SubAgentKind.Browser ? CapEnabled : _serviceState?.BrowserEnabled ?? false;
-            var files = _capKind == SubAgentKind.Files ? CapEnabled : _serviceState?.FilesEnabled ?? false;
-            _ = _pipe.SetConsentAsync(browser, files);
-            IsCapConfigOpen = false;
-            return;
-        }
-
-        // Real y NO elevado (caso tipico: la colmena se auto-lanzo sin elevar): el servicio RECHAZABA el
-        // cambio por el pipe (conexion no-admin), por lo que la allow-list y el consentimiento NO se
-        // persistian (bug: al reabrir, la lista salia vacia). Igual que SaveConfig (ADR-0050): se pide UN
-        // prompt de UAC y se escribe la boveda directo (--save-caps); el servicio recoge el cambio por su
-        // FileSystemWatcher. La allow-list es un control de seguridad: ensancharla EXIGE administrador.
         var kind = _capKind == SubAgentKind.Browser ? "browser" : "files";
+
+        // La boveda (allow-list + consentimiento) la POSEE el Servicio (LocalSystem) con ACL
+        // SYSTEM+Administradores (ADR-0039). Persistirla NO debe ir por el pipe: el Servicio exige que la
+        // CONEXION sea de administrador (AgentIpcServer.RequireAdmin, via impersonacion del pipe), y en un
+        // servidor la colmena casi nunca conecta elevada (instancia unica + auto-arranque en bandeja).
+        // Peor aun, un cliente elevado se puede impersonar como no-admin (nivel del token del pipe), por
+        // lo que el Servicio lo RECHAZABA en silencio ("Rechazado: ...exige administrador") aunque el
+        // operador hubiera corrido la colmena como administrador. En su lugar se ESCRIBE la boveda directo,
+        // sin involucrar la impersonacion del pipe:
+        //  - si YA somos un proceso elevado (admin), el ACL de la boveda nos deja escribir sin UAC extra;
+        //  - si no, se eleva con un UNICO prompt de UAC (--save-caps).
+        // El Servicio recoge el cambio por su FileSystemWatcher y reemite el estado (ADR-0050).
+        try
+        {
+            if (ElevationHelper.IsElevated())
+            {
+                if (_capKind == SubAgentKind.Browser) { _browserAllow.Save(entries); _consent.SetBrowser(CapEnabled); }
+                else { _fileAllow.Save(entries); _consent.SetFiles(CapEnabled); }
+                Log($"Capacidad {CapTitle} guardada.");
+                IsCapConfigOpen = false;
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Elevados pero sin poder escribir la boveda (ACL atipico): se reintenta por UAC abajo.
+            Log($"No se pudo escribir la boveda directamente ({ex.GetType().Name}); se pedira administrador (UAC)...");
+        }
+
+        // No elevado (caso tipico en servidor y estacion): UN prompt de UAC escribe la boveda elevada
+        // (--save-caps). La allow-list es un control de seguridad: ensancharla EXIGE administrador.
         Log($"Se pedira confirmacion de administrador (UAC) para guardar la capacidad {CapTitle}...");
         var res = ElevationHelper.SaveCapabilityElevated(kind, CapEnabled, entries);
         Log(res.Ok

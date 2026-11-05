@@ -506,6 +506,21 @@ else
                 await conceptosSvc.EnsureConceptosDemoAsync();
             }
         }
+        // Conciliacion DIAN demo (ADR-0144): siembra el demo Fase 1 del conciliador para el tenant
+        // demo -- 6 facturas del bot, referencias ERP (4 limpias + 1 inconsistencia + 1 sin cruce),
+        // Newton (4 con representacion grafica), las 3 reglas del "cruce estandar" (motor configurable)
+        // y un CCD del mes ya importado y cruzado. Asi un demo recien construido abre /conciliacion-dian
+        // con el cruce de ejemplo funcionando (antes solo se sembraba al pulsar "Sembrar datos dummy").
+        // El servicio lee el tenant del ambient; es idempotente (si el tenant ya tiene un CCD no toca nada).
+        if (workflowDemoTenantId is Guid conciliacionTenantId)
+        {
+            using (AmbientTenantContext.Begin(conciliacionTenantId))
+            {
+                var conciliacionSvc = scope.ServiceProvider
+                    .GetRequiredService<Ecorex.Application.Automatizaciones.ConciliacionDian.IConciliacionDianService>();
+                await conciliacionSvc.SeedDummyAsync();
+            }
+        }
         // Menu configurable por perfil (Ola 1): vista "Completo" (1:1 del menu actual) + vista
         // "Simple" reducida + 2 usuarios (completo@ / simple@) asignados a cada vista. Idempotente.
         await seeder.EnsureMenuConfigDemoAsync();

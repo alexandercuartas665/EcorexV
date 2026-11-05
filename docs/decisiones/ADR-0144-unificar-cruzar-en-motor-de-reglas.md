@@ -65,7 +65,8 @@ Sin migracion EF: el origen usa Guids centinela, la bandera de normalizacion y l
 - Se quita el boton "Cruzar" y su wrapper `CruzarAsync()` del razor. El metodo de servicio
   `ConciliacionDianService.CruzarAsync` PERMANECE (lo usa el seed demo internamente).
 - Boton "+ Cruce estandar (ERP + Newton)" en la toolbar de la pestana Reglas -> `AgregarCruceEstandarAsync`
-  (idempotente por nombre). `SeedDummyAsync` siembra tambien las 3 reglas en el tenant demo.
+  (idempotente por nombre). `SeedDummyAsync` siembra tambien las 3 reglas en el tenant demo; el arranque
+  lo invoca para el demo (ver Seguimiento 2026-11-05).
 
 ## Consecuencias
 
@@ -109,3 +110,13 @@ menos codigo y sin ETL.
 1. [ ] Deploy a prod (OK del usuario por version).
 2. [ ] En cada tenant que use el conciliador, pulsar "Agregar cruce estandar" una vez para adoptar el cruce.
 3. [ ] Reflejar en el vault (INVENTARIO GENERAL / ADRs) al cerrar el modulo.
+
+## Seguimiento 2026-11-05 (v0.16.275): auto-sembrar el demo en el arranque
+
+El seed del demo (seccion "UI / seed") solo ocurria al pulsar el boton "Sembrar datos dummy": el arranque
+no lo disparaba, asi que un demo reconstruido desde cero NO nacia con el cruce de ejemplo. Se cablea en el
+bloque de seed demo de `Ecorex.SuperAdmin/Program.cs` (rama NO-SkipDemoSeed): bajo `AmbientTenantContext.Begin`
+del tenant demo se resuelve `IConciliacionDianService` y se llama `SeedDummyAsync()` (mismo patron que los
+demas seeds por-tenant del bloque; idempotente, bail si ya hay un CCD). Reusa el constructor de demo probado
+(facturas bot, refs ERP, Newton, 3 reglas, CCD importado y cruzado). `Ecorex.Api/Program.cs` hace seed minimo
+y no toca el demo. Sin migracion. Build `Ecorex.SuperAdmin` verde. SIN deploy (a la espera del OK por version).

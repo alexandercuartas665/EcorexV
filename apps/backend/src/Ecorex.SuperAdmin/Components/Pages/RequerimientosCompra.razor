@@ -720,6 +720,7 @@ else
             @* Pestanas: Detalle (necesidad[es]) | Planificacion -- mismo modal para individual y grupo *@
             <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
                 <button class="req-pgtab @(_planTab == "detalle" ? "on" : "")" @onclick='() => _planTab = "detalle"'>Detalle (@_planRegs.Count)</button>
+                <button class="req-pgtab @(_planTab == "cotizacion" ? "on" : "")" @onclick='() => _planTab = "cotizacion"'>Cotizacion@(_rfqsProducto.Count > 0 ? $" ({_rfqsProducto.Count})" : "")</button>
                 <button class="req-pgtab @(_planTab == "plan" ? "on" : "")" @onclick='() => _planTab = "plan"'>Planificacion</button>
             </div>
             @if (_planTab == "detalle")
@@ -775,10 +776,16 @@ else
                     <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
                 </div>
 
+                @if (_planTab == "cotizacion")
+                {
+                <div style="font-size:12px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Proceso de cotizacion y candidatos para este producto. El envio al proveedor lo hace el <strong>flujo</strong> de cada proceso; aqui eliges a quien pedir y comparas las ofertas que vuelven. Al usar una oferta pasas a <strong>Planificacion</strong>.</div>
                 <CotizacionesComparador ItemId="_planItemId" Descripcion="@_planDescripcion"
                     Cantidad="@(RestanteActual > 0 ? RestanteActual : TotalPlan)"
                     CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync" />
+                }
 
+                @if (_planTab == "plan")
+                {
                 <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
                     <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
                         <thead>
@@ -967,7 +974,9 @@ else
                         }
                     </div>
                 }
-                @if (_canConfig)
+                }
+
+                @if (_canConfig && _planTab == "cotizacion")
                 {
                     <div style="margin-top:14px;border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
                         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -1039,6 +1048,11 @@ else
             <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
                 @if (_planTab == "detalle")
                 {
+                    <button class="btn btn-primary btn-sm" @onclick='() => _planTab = "cotizacion"' disabled="@_busy">Continuar &rarr;</button>
+                }
+                else if (_planTab == "cotizacion")
+                {
+                    <button class="btn btn-outline-secondary btn-sm" style="margin-right:auto;" @onclick='() => _planTab = "detalle"' disabled="@_busy">&larr; Detalle</button>
                     <button class="btn btn-primary btn-sm" @onclick='() => _planTab = "plan"' disabled="@_busy">Continuar a planificar &rarr;</button>
                 }
                 else
@@ -1315,43 +1329,43 @@ else
                     <button class="btn btn-link btn-sm" style="padding:0;" @onclick="AddCfgCond">+ Agregar condicion</button>
                 </div>
 
-                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proveedor (del Directorio)
-                    <div style="display:flex;gap:8px;align-items:center;">
-                        <input list="cfg-prov-list" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;flex:1;" placeholder="Escribe o elige del Directorio" value="@_cfgrProvNombre" @onchange="OnCfgProvChanged" />
-                        @if (string.IsNullOrEmpty(_cfgrProveedor) && !string.IsNullOrWhiteSpace(_cfgrProvNombre))
+                <div>
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proveedores de esta regla <span style="font-weight:400;color:var(--ink-3,#6b7280);">(uno o varios; cada uno con su proceso de cotizacion. El envio al proveedor lo hace el flujo de cada proceso).</span></div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        @foreach (var pe in _cfgrProvs2)
                         {
-                            <button class="btn btn-outline-primary btn-sm" style="white-space:nowrap;" @onclick="CrearProveedorEnDirectorioAsync" disabled="@_busy" title="Crear/marcar este proveedor en el Directorio (pide mas datos al marcarlo como Proveedor)">+ Crear en Directorio</button>
+                            var ppe = pe;
+                            <div style="border:1px solid var(--line-2,#e5e7eb);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--surface-2,#f8fafc);">
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input list="cfg-prov-list" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;flex:1;" placeholder="Proveedor del Directorio" value="@ppe.ProvNombre" @onchange="e => OnCfgProvRowChanged(ppe, e)" />
+                                    @if (string.IsNullOrEmpty(ppe.Proveedor) && !string.IsNullOrWhiteSpace(ppe.ProvNombre))
+                                    {
+                                        <button class="btn btn-outline-primary btn-sm" style="white-space:nowrap;" @onclick="() => CrearProveedorEnDirectorioRowAsync(ppe)" disabled="@_busy" title="Crear/marcar este proveedor en el Directorio">+ Crear</button>
+                                    }
+                                    <button class="btn btn-link btn-sm" style="color:#b91c1c;padding:0 6px;" @onclick="() => RemoveCfgProvRow(ppe)" disabled="@(_cfgrProvs2.Count <= 1)" title="Quitar este proveedor de la regla">&times;</button>
+                                </div>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);flex:1;min-width:190px;">Proceso de cotizacion (RFQ) &mdash; lo envia el flujo
+                                        <select class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" @bind="ppe.Proceso">
+                                            <option value="">(usar la precedencia del modulo)</option>
+                                            @foreach (var s in _subcats) { <option value="@s.Id">@s.Nombre</option> }
+                                        </select>
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);width:120px;">Vigencia (dias)
+                                        <input type="number" min="0" step="1" class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" placeholder="(del proveedor)" @bind="ppe.Vigencia" />
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);width:100px;" title="A igual especificidad, menor gana">Prioridad
+                                        <input type="number" min="0" step="1" class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" @bind="ppe.Prioridad" />
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;height:32px;"><input type="checkbox" @bind="ppe.Activo" /> Activo</label>
+                                </div>
+                                @if (ppe.Aprendida) { <div style="font-size:11px;color:var(--ink-3,#6b7280);">(regla aprendida automaticamente)</div> }
+                            </div>
                         }
                     </div>
-                </label>
-                @if (!string.IsNullOrEmpty(_cfgrProveedor))
-                {
-                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);background:var(--surface-2,#f8fafc);border:1px solid var(--line,#f1f5f9);border-radius:8px;padding:8px 10px;">
-                        @if (_cfgrContactos.Count == 0)
-                        {
-                            <text>Sin contactos en el Directorio todavia. Al cotizar podras capturar el contacto (p.ej. el jefe de compras).</text>
-                        }
-                        else
-                        {
-                            <strong>Contactos del proveedor (@_cfgrContactos.Count):</strong>
-                            <span> @string.Join(", ", _cfgrContactos.Select(x => x.Nombre + (string.IsNullOrWhiteSpace(x.Cargo) ? "" : $" ({x.Cargo})")))</span>
-                        }
-                    </div>
-                }
-
-                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);" title="Flujo/subcategoria que corre (y ENVIA) la RFQ de ESTE proveedor. El envio al proveedor lo hace el flujo; aqui solo eliges cual. Gana sobre el proceso por producto, el del proveedor global, el del origen y el default del modulo.">Proceso de cotizacion (RFQ) de este proveedor
-                    <select class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgrProceso">
-                        <option value="">(usar la precedencia del modulo)</option>
-                        @foreach (var s in _subcats) { <option value="@s.Id">@s.Nombre</option> }
-                    </select>
-                </label>
-                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Dias que sostiene la cotizacion (vigencia de esta regla; gana sobre la del proveedor)
-                    <input type="number" min="0" step="1" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="(vacio = usar la del proveedor)" @bind="_cfgrVigencia" />
-                </label>
-                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Prioridad (a igual especificidad, menor gana)
-                    <input type="number" min="0" step="1" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgrPrioridad" />
-                </label>
-                <label style="display:flex;align-items:center;gap:8px;font-size:13px;"><input type="checkbox" @bind="_cfgrActivo" /> Activo</label>
+                    <button class="btn btn-outline-primary btn-sm" style="margin-top:8px;" @onclick="AddCfgProvRow" disabled="@_busy">+ Agregar proveedor</button>
+                    <div style="font-size:11px;color:var(--ink-3,#6b7280);margin-top:6px;">Los contactos (p.ej. el jefe de compras) se capturan al cotizar.</div>
+                </div>
                 @if (_cfgrError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgrError</div> }
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
@@ -1608,14 +1622,22 @@ else
     private sealed class CondEdit { public RequerimientoDimension Dim = RequerimientoDimension.Marca; public string Valor = ""; }
     private List<CondEdit> _cfgrCond = new();
     private Dictionary<RequerimientoDimension, List<RequerimientoOpcionDto>> _cfgDimValores = new();
-    private string _cfgrProveedor = "";
-    private string _cfgrProvNombre = "";
-    private List<ProveedorContactoItemDto> _cfgrContactos = new();
-    private int? _cfgrVigencia;
-    private int _cfgrPrioridad = 100;
-    private bool _cfgrActivo = true;
-    // Ola F: proceso de cotizacion (subcategoria) de este proveedor-en-regla.
-    private string _cfgrProceso = "";
+    // Ola F (editor multi-proveedor): una regla = condiciones (arriba) + N proveedores (abajo), cada uno con su
+    // proceso/vigencia/prioridad/activo. Cada fila respalda una RequerimientoProveedorRegla (RuleId null = nueva).
+    private sealed class ReglaProvEdit
+    {
+        public Guid? RuleId;
+        public string Proveedor = "";     // Guid del tercero (texto)
+        public string ProvNombre = "";
+        public string Proceso = "";       // Guid de la subcategoria (texto); "" = precedencia del modulo
+        public int? Vigencia;
+        public int Prioridad = 100;
+        public bool Activo = true;
+        public bool Aprendida;
+    }
+    private List<ReglaProvEdit> _cfgrProvs2 = new();
+    private HashSet<Guid> _cfgrOrigIds = new();   // ids de filas-regla del grupo al abrir (para borrar las quitadas)
+    private ReglaProvEdit? _cfgrCreatingRow;      // fila a la que se asignara el proveedor creado en el Directorio
     // Vigencia default por proveedor (matriz agrupada) + edicion en linea.
     private Dictionary<Guid, int> _cfgProvVig = new();
     private Dictionary<Guid, string> _cfgProvVigEdit = new();
@@ -2220,42 +2242,54 @@ else
     private List<RequerimientoOpcionDto> DimValores(RequerimientoDimension dim)
         => _cfgDimValores.TryGetValue(dim, out var l) ? l : new();
 
+    // Ola F: el editor es a nivel de REGLA. Arriba las condiciones (compartidas); abajo TODOS los proveedores
+    // que comparten esas condiciones, cada uno con su proceso/vigencia/prioridad/activo.
     private async Task OpenCfgRegla(RequerimientoReglaDto? r)
     {
         _cfgrError = null;
+        _cfgrCreatingRow = null;
         _cfgrId = r?.Id;
-        _cfgrPrioridad = r?.Prioridad ?? 100;
-        _cfgrActivo = r?.Activo ?? true;
-        _cfgrVigencia = r?.VigenciaDias;
-        _cfgrProceso = r?.SubcategoriaCotizacionId?.ToString() ?? "";
-        _cfgrProveedor = r?.ProveedorId.ToString() ?? "";
-        _cfgrProvNombre = r?.ProveedorNombre ?? "";
         _cfgrCond = r is { Condiciones.Count: > 0 }
             ? r.Condiciones.Select(c => new CondEdit { Dim = c.Dimension, Valor = c.Valor }).ToList()
             : new() { new CondEdit() };
         foreach (var c in _cfgrCond) { await EnsureDimValoresAsync(c.Dim); }
-        _cfgrContactos = Guid.TryParse(_cfgrProveedor, out var pid) ? (await Svc.ListContactosAsync(pid)).ToList() : new();
+        if (r is null)
+        {
+            _cfgrProvs2 = new() { new ReglaProvEdit() };
+            _cfgrOrigIds = new();
+        }
+        else
+        {
+            var sig = CondSig(r);
+            var grupo = _cfgReglas.Where(x => CondSig(x) == sig).OrderBy(x => x.Prioridad).ToList();
+            _cfgrProvs2 = grupo.Select(MapReglaProv).ToList();
+            if (_cfgrProvs2.Count == 0) { _cfgrProvs2.Add(new ReglaProvEdit()); }
+            _cfgrOrigIds = grupo.Select(x => x.Id).ToHashSet();
+        }
         _cfgShowRegla = true;
     }
 
-    // Ola F: agrega OTRO proveedor a una regla existente = alta nueva con las MISMAS condiciones, proveedor vacio.
+    private static ReglaProvEdit MapReglaProv(RequerimientoReglaDto r) => new()
+    {
+        RuleId = r.Id,
+        Proveedor = r.ProveedorId.ToString(),
+        ProvNombre = r.ProveedorNombre ?? "",
+        Proceso = r.SubcategoriaCotizacionId?.ToString() ?? "",
+        Vigencia = r.VigenciaDias,
+        Prioridad = r.Prioridad,
+        Activo = r.Activo,
+        Aprendida = r.Aprendida,
+    };
+
+    // "+ Agregar proveedor" desde la tarjeta de la matriz: abre la regla y agrega una fila de proveedor en blanco.
     private async Task OpenCfgReglaAddProv(RequerimientoReglaDto baseRule)
     {
-        _cfgrError = null;
-        _cfgrId = null;                       // alta: nueva fila-regla con el mismo juego de condiciones
-        _cfgrPrioridad = 100;
-        _cfgrActivo = true;
-        _cfgrVigencia = null;
-        _cfgrProceso = "";
-        _cfgrProveedor = "";
-        _cfgrProvNombre = "";
-        _cfgrContactos = new();
-        _cfgrCond = baseRule.Condiciones.Count > 0
-            ? baseRule.Condiciones.Select(c => new CondEdit { Dim = c.Dimension, Valor = c.Valor }).ToList()
-            : new() { new CondEdit() };
-        foreach (var c in _cfgrCond) { await EnsureDimValoresAsync(c.Dim); }
-        _cfgShowRegla = true;
+        await OpenCfgRegla(baseRule);
+        _cfgrProvs2.Add(new ReglaProvEdit());
     }
+
+    private void AddCfgProvRow() => _cfgrProvs2.Add(new ReglaProvEdit());
+    private void RemoveCfgProvRow(ReglaProvEdit row) { if (_cfgrProvs2.Count > 1) { _cfgrProvs2.Remove(row); } }
 
     // Firma del juego de condiciones de una regla (para agrupar las filas de UNA misma regla en la matriz).
     private static string CondSig(RequerimientoReglaDto r) => string.Join("|",
@@ -2274,27 +2308,31 @@ else
         if (Enum.TryParse<RequerimientoDimension>(e.Value?.ToString(), out var d)) { c.Dim = d; c.Valor = ""; await EnsureDimValoresAsync(d); }
     }
 
-    private async Task OnCfgProvChanged(ChangeEventArgs e)
+    private void OnCfgProvRowChanged(ReglaProvEdit row, ChangeEventArgs e)
     {
         var txt = (e.Value?.ToString() ?? "").Trim();
-        _cfgrProvNombre = txt;
+        row.ProvNombre = txt;
         var match = _cfgProvs.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
-        _cfgrProveedor = match?.Id.ToString() ?? "";
-        _cfgrContactos = match is not null ? (await Svc.ListContactosAsync(match.Id)).ToList() : new();
+        row.Proveedor = match?.Id.ToString() ?? "";
     }
 
-    // El proveedor no esta en el Directorio: se crea/ marca con el MISMO modal del Directorio (pide mas datos
-    // cuando se marca como Proveedor). Al crearlo, OnProveedorCreatedAsync lo selecciona y trae sus contactos.
-    private async Task CrearProveedorEnDirectorioAsync()
+    // El proveedor no esta en el Directorio: se crea/ marca con el MISMO modal del Directorio. Al crearlo,
+    // OnProveedorCreatedAsync lo asigna a la fila que disparo la creacion.
+    private async Task CrearProveedorEnDirectorioRowAsync(ReglaProvEdit row)
     {
-        if (_terceroModal is not null) { await _terceroModal.OpenCreate(TerceroPerfil.Proveedor, _cfgrProvNombre); }
+        _cfgrCreatingRow = row;
+        if (_terceroModal is not null) { await _terceroModal.OpenCreate(TerceroPerfil.Proveedor, row.ProvNombre); }
     }
     private async Task OnProveedorCreatedAsync(Guid id)
     {
         _cfgProvs = (await ConfigSvc.ListProveedoresAsync()).ToList();
-        _cfgrProveedor = id.ToString();
-        _cfgrProvNombre = _cfgProvs.FirstOrDefault(p => p.Id == id)?.Nombre ?? _cfgrProvNombre;
-        _cfgrContactos = (await Svc.ListContactosAsync(id)).ToList();
+        var nombre = _cfgProvs.FirstOrDefault(p => p.Id == id)?.Nombre ?? "";
+        if (_cfgrCreatingRow is not null)
+        {
+            _cfgrCreatingRow.Proveedor = id.ToString();
+            if (!string.IsNullOrEmpty(nombre)) { _cfgrCreatingRow.ProvNombre = nombre; }
+            _cfgrCreatingRow = null;
+        }
         await LoadCfgAvanzadaAsync();
         StateHasChanged();
     }
@@ -2302,23 +2340,37 @@ else
     private async Task SaveCfgReglaAsync()
     {
         _cfgrError = null;
-        if (!Guid.TryParse(_cfgrProveedor, out var provId))
-        {
-            _cfgrError = "Elige un proveedor del Directorio (o crealo con el boton).";
-            return;
-        }
         var cond = _cfgrCond.Where(c => !string.IsNullOrWhiteSpace(c.Valor))
             .Select(c => new ReglaCondicion(c.Dim, c.Valor)).ToList();
         if (cond.Count == 0) { _cfgrError = "Agrega al menos una condicion (dimension + valor)."; return; }
+
+        var filas = _cfgrProvs2.Where(p => Guid.TryParse(p.Proveedor, out _)).ToList();
+        if (filas.Count == 0) { _cfgrError = "Agrega al menos un proveedor del Directorio (o crealo con el boton)."; return; }
+        var dup = filas.GroupBy(p => p.Proveedor).FirstOrDefault(g => g.Count() > 1);
+        if (dup is not null) { _cfgrError = "Un proveedor esta repetido en esta regla; dejalo una sola vez."; return; }
+
         _busy = true;
         try
         {
-            var proc = Guid.TryParse(_cfgrProceso, out var pg) ? (Guid?)pg : null;
-            var req = new SaveReglaRequest(_cfgrId, cond, provId, _cfgrPrioridad, _cfgrActivo, _cfgrVigencia, proc);
-            var saved = await ConfigSvc.SaveReglaAsync(req);
-            if (saved is null) { _cfgrError = "No se pudo guardar."; return; }
+            var keepIds = new HashSet<Guid>();
+            string? ultimo = null;
+            foreach (var p in filas)
+            {
+                var provId = Guid.Parse(p.Proveedor);
+                var proc = Guid.TryParse(p.Proceso, out var pg) ? (Guid?)pg : null;
+                var req = new SaveReglaRequest(p.RuleId, cond, provId, p.Prioridad, p.Activo, p.Vigencia, proc);
+                var saved = await ConfigSvc.SaveReglaAsync(req);
+                if (saved is null) { _cfgrError = "No se pudo guardar un proveedor de la regla."; return; }
+                keepIds.Add(saved.Id);
+                ultimo = saved.ProveedorNombre;
+            }
+            // Borra las filas-regla que estaban en el grupo y se quitaron del editor.
+            foreach (var oldId in _cfgrOrigIds.Where(x => !keepIds.Contains(x)).ToList())
+            {
+                await ConfigSvc.DeleteReglaAsync(oldId);
+            }
             _cfgShowRegla = false;
-            _msg = $"Regla guardada -> {saved.ProveedorNombre}.";
+            _msg = filas.Count == 1 ? $"Regla guardada -> {ultimo}." : $"Regla guardada con {filas.Count} proveedores.";
             await LoadCfgAvanzadaAsync();
         }
         catch (Exception ex) { _cfgrError = ex.Message; }
@@ -3383,6 +3435,7 @@ else
         row.ContactoId = c.ProveedorContactoId;
         await FillContactoAsync(row);
         _planError = null;
+        _planTab = "plan";   // al usar una oferta, pasa a Planificacion para ver/ajustar la division
         StateHasChanged();
     }
 

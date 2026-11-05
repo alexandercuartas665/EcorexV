@@ -2,6 +2,37 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-04 - RFQ Ola F (ajustes UX): editor de regla multi-proveedor + pestana Cotizacion en Planificar (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.247. Commit 8d92f230 (push a requerimiento_compras, SIN deploy).
+- CONTEXTO: dos ajustes del usuario sobre la Ola F. (1) "aun no puedo aplicar esta misma regla a varios
+  proveedores": el editor "Editar regla" editaba 1 proveedor a la vez (habia que reabrirlo con "+ Agregar
+  proveedor" desde la tarjeta). (2) En Planificar, lo de cotizacion (proceso + candidatos + comparador)
+  debia ir en OTRA pestana, no mezclado con la planificacion.
+- HECHO (solo RequerimientosCompra.razor + AppVersion):
+  - EDITOR MULTI-PROVEEDOR: "Editar regla" ahora es a nivel de REGLA. Condiciones compartidas arriba; abajo
+    una LISTA de proveedores (ReglaProvEdit), cada fila = proveedor del Directorio + proceso de cotizacion +
+    vigencia + prioridad + activo, con "+ Agregar proveedor" y quitar (x) dentro del editor. Al abrir carga
+    TODAS las filas que comparten la firma de condiciones (CondSig); Guardar RECONCILIA: alta/edita cada fila
+    (SaveReglaAsync con su RuleId) y BORRA (DeleteReglaAsync) las filas-regla del grupo que se quitaron.
+    Valida: >=1 condicion, >=1 proveedor, sin proveedor repetido. "+ Crear en Directorio" por fila
+    (OnProveedorCreatedAsync asigna a la fila que disparo la creacion). Se eliminaron los campos de 1 solo
+    proveedor (_cfgrProveedor/_cfgrProvNombre/_cfgrContactos/_cfgrVigencia/_cfgrPrioridad/_cfgrActivo/_cfgrProceso).
+  - PESTANA COTIZACION: el modal Planificar pasa de 2 a 3 pestanas: Detalle | Cotizacion (N) | Planificacion.
+    La pestana Cotizacion reune el comparador, "Cotizar a varios proveedores (candidatos)", el banner de la
+    matriz ("Cotizar a la matriz") y la lista de RFQ del producto. La pestana Planificacion queda SOLO con
+    la tabla de divisiones + "Proceso de cotizacion por producto". Al usar una oferta del comparador
+    (AplicarCotizacionIndividualAsync) salta a Planificacion. Footer navega Detalle->Cotizacion->Planificacion.
+    Implementado gateando bloques por _planTab (sin mover grandes bloques de markup).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.247): editor de "Marca: ASUS" abre con INGETEL +
+  Produvarios en UNA sola pantalla (cada uno su proceso); cambie vigencia de INGETEL 3->5 y Guardar -> ambos
+  persisten agrupados (INGETEL 5 d, Produvarios "Cotizacion de equipos"). Planificar de "PORTATIL ALTA GAMA
+  GAMER ASUS" muestra 3 pestanas; Cotizacion lista comparador + candidatos + "Matriz: 2 proveedor(es)" +
+  RFQ-0008/0009; Planificacion solo la tabla de divisiones. Build Ecorex.sln 0 errores.
+  OJO dato dev: quedo INGETEL vigencia=5 (era 3) en SKY como artefacto de la prueba de guardado; reversible por UI.
+- SIGUIENTE: lo que el usuario siga ajustando. Pendiente mayor: rondas/plantillas (Ola F fase 2) + adjudicacion
+  del candidato + PROMPT de integracion a dev central (acumula Ola F + estos ajustes) + deploy con OK.
+
 ## 2026-11-03 - RFQ Ola F: matriz con N proveedores por regla + proceso de cotizacion por proveedor + cotizar a la matriz (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.246.

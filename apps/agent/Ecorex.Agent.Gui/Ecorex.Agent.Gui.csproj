@@ -15,8 +15,10 @@
     <AssemblyName>Ecorex.Agent.Gui</AssemblyName>
     <!-- Version visible en la colmena (HiveViewModel.AgentVersion lee el assembly). Debe ir en linea
          con la version reportada al hub (RealHiveConnection.SafeHelloAsync) y con la del instalador
-         (-p:ProductVersion). 1.9.2 -> 1.9.3: fix de guardar capacidad en servidor (ADR-0148). -->
-    <Version>1.9.3</Version>
+         (-p:ProductVersion). 1.9.2 -> 1.9.3: fix de guardar capacidad en servidor (ADR-0148).
+         1.9.3 -> 1.9.4: alinea la version con el MSI que porta el tope del navegador delegado 3->20 min
+         (ADR-0151); el fix de codigo vino en 60fc1075, este bump cierra la numeracion. -->
+    <Version>1.9.4</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- WFO0003: WinForms sugiere configurar DPI por API; aqui el DPI lo gobierna el manifest para
          WPF (no llamamos ApplicationConfiguration.Initialize). Warning benigno, se silencia. -->

@@ -429,7 +429,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     {
         var hello = new AgentHelloMsg(
             ClientId: _config.ClientId,
-            AgentVersion: "1.9.3",
+            AgentVersion: "1.9.4",
             ProtocolVersion: AgentProtocol.Version,
             Host: Environment.MachineName,
             Os: RuntimeInformation.OSDescription,

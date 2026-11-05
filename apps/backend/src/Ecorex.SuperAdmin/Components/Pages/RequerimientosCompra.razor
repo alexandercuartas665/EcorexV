@@ -778,7 +778,30 @@ else
 
                 @if (_planTab == "cotizacion")
                 {
-                <div style="font-size:12px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Proceso de cotizacion y candidatos para este producto. El envio al proveedor lo hace el <strong>flujo</strong> de cada proceso; aqui eliges a quien pedir y comparas las ofertas que vuelven. Al usar una oferta pasas a <strong>Planificacion</strong>.</div>
+                <div style="font-size:12px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Proceso de cotizacion y candidatos para este producto. El envio al proveedor lo hace el <strong>flujo</strong> de cada proceso; aqui eliges el proceso que corre la RFQ, a quien pedir y comparas las ofertas que vuelven. Al usar una oferta pasas a <strong>Planificacion</strong>.</div>
+                @if (_canConfig)
+                {
+                    <div style="margin-bottom:12px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;padding:10px 12px;background:var(--surface-2,#f8fafc);">
+                        <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de cotizacion (RFQ) por producto</div>
+                        <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Fija que flujo/subcategoria corre la RFQ de este producto. Gana sobre el proveedor, el origen y el default del modulo. Se recuerda para el producto.</div>
+                        @foreach (var p in PlanProductos())
+                        {
+                            var pp = p;
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                                <span style="font-size:12.5px;min-width:160px;color:var(--ink,#1f2937);">@pp.Label</span>
+                                <select class="form-select form-select-sm" style="max-width:280px;font-size:12.5px;"
+                                        value="@(_planProcEdit.TryGetValue(pp.Clave, out var pcur) ? pcur : "")"
+                                        @onchange="e => SetPlanProcesoAsync(pp.ItemId, pp.Desc, e.Value?.ToString())">
+                                    <option value="">(usa proveedor / origen / default)</option>
+                                    @foreach (var s in _subcats)
+                                    {
+                                        <option value="@s.Id">@s.Nombre</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                }
                 <CotizacionesComparador ItemId="_planItemId" Descripcion="@_planDescripcion"
                     Cantidad="@(RestanteActual > 0 ? RestanteActual : TotalPlan)"
                     CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync" />
@@ -951,29 +974,6 @@ else
                     </table>
                 </div>
                 <button class="btn btn-outline-secondary btn-sm" style="margin-top:10px;" @onclick="AddHijoRow">+ Agregar compra programada</button>
-                @if (_canConfig)
-                {
-                    <div style="margin-top:14px;border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
-                        <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de cotizacion (RFQ) por producto</div>
-                        <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Fija que flujo/subcategoria corre la RFQ de este producto. Gana sobre el proveedor, el origen y el default del modulo. Se recuerda para el producto.</div>
-                        @foreach (var p in PlanProductos())
-                        {
-                            var pp = p;
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                                <span style="font-size:12.5px;min-width:160px;color:var(--ink,#1f2937);">@pp.Label</span>
-                                <select class="form-select form-select-sm" style="max-width:280px;font-size:12.5px;"
-                                        value="@(_planProcEdit.TryGetValue(pp.Clave, out var pcur) ? pcur : "")"
-                                        @onchange="e => SetPlanProcesoAsync(pp.ItemId, pp.Desc, e.Value?.ToString())">
-                                    <option value="">(usa proveedor / origen / default)</option>
-                                    @foreach (var s in _subcats)
-                                    {
-                                        <option value="@s.Id">@s.Nombre</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                    </div>
-                }
                 }
 
                 @if (_canConfig && _planTab == "cotizacion")

@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -89,13 +92,16 @@ public static class StepSlaList
         return list;
     }
 
-    /// <summary>Lee las filas (dias,horas,minutos) de la lista. Ausente/invalido = vacio.</summary>
+    /// <summary>Lee las filas (dias,horas,minutos) de la lista. Ausente/invalido = vacio. Acepta tanto el array
+    /// plano (legacy) como el objeto { "items":[...], "window":{...} } que lleva ademas la ventana horaria.</summary>
     public static IReadOnlyList<(int Days, int Hours, int Minutes)> ReadRows(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) { return Array.Empty<(int, int, int)>(); }
         try
         {
-            if (JsonNode.Parse(json) is not JsonArray arr) { return Array.Empty<(int, int, int)>(); }
+            var node = JsonNode.Parse(json);
+            var arr = node as JsonArray ?? (node as JsonObject)?["items"] as JsonArray;
+            if (arr is null) { return Array.Empty<(int, int, int)>(); }
             var list = new List<(int, int, int)>(arr.Count);
             foreach (var el in arr)
             {
@@ -109,6 +115,14 @@ public static class StepSlaList
 
     /// <summary>Arma el JSON array desde filas (dias,horas,minutos). Lista vacia -> null (sin cadencia).</summary>
     public static string? Build(IEnumerable<(int Days, int Hours, int Minutes)> rows)
+        => Build(rows, null);
+
+    /// <summary>
+    /// Arma el JSON de la cadencia, embebiendo opcionalmente la VENTANA HORARIA. Sin filas -> null (sin
+    /// cadencia; la ventana sola no aplica). Con filas pero SIN ventana -> array plano (compat hacia atras,
+    /// misma forma de siempre). Con filas Y ventana -> objeto { "items":[...], "window":{...} }.
+    /// </summary>
+    public static string? Build(IEnumerable<(int Days, int Hours, int Minutes)> rows, PulseSendWindow? window)
     {
         var arr = new JsonArray();
         foreach (var r in rows)
@@ -120,8 +134,110 @@ public static class StepSlaList
                 ["minutes"] = Math.Max(0, r.Minutes)
             });
         }
-        return arr.Count == 0 ? null : arr.ToJsonString();
+        if (arr.Count == 0) { return null; }
+        var win = window?.ToJson();
+        if (win is null) { return arr.ToJsonString(); }
+        return new JsonObject { ["items"] = arr, ["window"] = win }.ToJsonString();
     }
+
+    private static int IntOf(JsonObject o, string key)
+    {
+        if (!o.TryGetPropertyValue(key, out var v) || v is null) { return 0; }
+        try { return v.GetValueKind() == JsonValueKind.Number ? v.GetValue<int>() : (int.TryParse(v.ToString(), out var n) ? n : 0); }
+        catch { return 0; }
+    }
+}
+
+/// <summary>
+/// VENTANA HORARIA DE ENVIO (horario de atencion) de los PULSOS del agente de un nodo: franja [inicio,fin] del
+/// dia en minutos desde medianoche + dias de semana activos (ISO 1=Lunes..7=Domingo), con opcion de saltar los
+/// dias no operativos del tenant (festivos). Si un pulso (recordatorio de la cadencia de seguimiento) cae FUERA
+/// de la ventana, se corre al INICIO de la proxima ventana disponible, para no escribir a la gente de madrugada.
+/// Se persiste DENTRO del propio <c>WorkflowNode.AgentFollowUpJson</c> (sin columna nueva; ver StepSlaList).
+/// Helper PURO (parse/build/clamp): usa TimeZoneInfo pero no BD, testeable aislado.
+/// </summary>
+public sealed record PulseSendWindow(bool Enabled, int StartMin, int EndMin, IReadOnlySet<int> Days, bool RespectHolidays)
+{
+    public static readonly PulseSendWindow Disabled = new(false, 0, 0, new HashSet<int>(), false);
+
+    private const int DayMinutes = 24 * 60;
+
+    /// <summary>Lee la ventana embebida en el JSON de seguimiento. Array plano (legacy)/ausente/invalida = Disabled.</summary>
+    public static PulseSendWindow Read(string? followUpJson)
+    {
+        if (string.IsNullOrWhiteSpace(followUpJson)) { return Disabled; }
+        try
+        {
+            if (JsonNode.Parse(followUpJson) is not JsonObject root) { return Disabled; }
+            if (root["window"] is not JsonObject w) { return Disabled; }
+            if (!(w["enabled"]?.GetValue<bool>() ?? false)) { return Disabled; }
+            var start = ClampMin(IntOf(w, "startMin"));
+            var end = ClampMin(IntOf(w, "endMin"));
+            if (end <= start) { return Disabled; }
+            var days = new HashSet<int>();
+            if (w["days"] is JsonArray da)
+            {
+                foreach (var el in da)
+                {
+                    if (el is null) { continue; }
+                    try { var n = el.GetValue<int>(); if (n >= 1 && n <= 7) { days.Add(n); } } catch { /* entrada no numerica: se ignora */ }
+                }
+            }
+            if (days.Count == 0) { for (var d = 1; d <= 7; d++) { days.Add(d); } }
+            var holidays = w["respectHolidays"]?.GetValue<bool>() ?? false;
+            return new PulseSendWindow(true, start, end, days, holidays);
+        }
+        catch (JsonException) { return Disabled; }
+    }
+
+    /// <summary>Serializa la ventana a un JsonObject para embeberla en el JSON de seguimiento. Null = deshabilitada.</summary>
+    public JsonObject? ToJson()
+    {
+        if (!Enabled || EndMin <= StartMin) { return null; }
+        var da = new JsonArray();
+        foreach (var d in Days.Where(x => x >= 1 && x <= 7).OrderBy(x => x)) { da.Add(d); }
+        return new JsonObject
+        {
+            ["enabled"] = true,
+            ["startMin"] = StartMin,
+            ["endMin"] = EndMin,
+            ["days"] = da,
+            ["respectHolidays"] = RespectHolidays
+        };
+    }
+
+    /// <summary>
+    /// Ajusta un instante UTC a la ventana (evaluada en la zona del tenant). Dentro de la ventana -> sin cambio.
+    /// Fuera -> inicio de la proxima ventana disponible (proximo dia activo y no festivo, a la hora de apertura).
+    /// </summary>
+    public DateTimeOffset ClampUtc(DateTimeOffset dueUtc, TimeZoneInfo tz, IReadOnlySet<DateOnly> nonWorking)
+    {
+        if (!Enabled || EndMin <= StartMin) { return dueUtc; }
+        var local = TimeZoneInfo.ConvertTime(dueUtc, tz);
+        var day = DateOnly.FromDateTime(local.DateTime);
+        var minuteOfDay = (local.Hour * 60) + local.Minute;
+
+        bool DayOk(DateOnly d) => Days.Contains(IsoDow(d.DayOfWeek)) && !(RespectHolidays && nonWorking.Contains(d));
+
+        if (DayOk(day) && minuteOfDay >= StartMin && minuteOfDay < EndMin) { return dueUtc; }
+        if (DayOk(day) && minuteOfDay < StartMin) { return ToUtc(day, StartMin, tz); }
+        for (var i = 1; i <= 420; i++)
+        {
+            var d = day.AddDays(i);
+            if (DayOk(d)) { return ToUtc(d, StartMin, tz); }
+        }
+        return dueUtc; // ninguna ventana en ~14 meses (todo apagado/festivo): no bloquea el pulso
+    }
+
+    private static DateTimeOffset ToUtc(DateOnly d, int minuteOfDay, TimeZoneInfo tz)
+    {
+        var localDt = d.ToDateTime(new TimeOnly(minuteOfDay / 60, minuteOfDay % 60));
+        var utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localDt, DateTimeKind.Unspecified), tz);
+        return new DateTimeOffset(utc, TimeSpan.Zero);
+    }
+
+    private static int IsoDow(DayOfWeek d) => d == DayOfWeek.Sunday ? 7 : (int)d; // Lunes=1..Domingo=7
+    private static int ClampMin(int v) => v < 0 ? 0 : (v > DayMinutes ? DayMinutes : v);
 
     private static int IntOf(JsonObject o, string key)
     {

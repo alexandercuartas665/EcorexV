@@ -1,6 +1,7 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.Forms;
 using Ecorex.Application.Organization;
+using Ecorex.Application.Scheduling;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -716,7 +717,9 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             // Tras el recordatorio N-esimo el proximo plazo es schedule[N-1]; si no hay mas (o es 0), fin de la
             // cadencia (no re-dispara en bucle).
             var nextMin = (sentSoFar - 1) < schedule.Count ? schedule[sentSoFar - 1] : 0;
-            step.AgentNextRetryAt = nextMin > 0 ? now.AddMinutes(nextMin) : null;
+            step.AgentNextRetryAt = nextMin > 0
+                ? await ClampPulseUtcAsync(now.AddMinutes(nextMin), followUpJson, cancellationToken)
+                : null;
             step.AgentDeadlineAt = null;                      // sin agotar (lo pidio el usuario): no se cierra por tiempo
         }
         else
@@ -1329,6 +1332,24 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
     }
 
     /// <summary>
+    /// VENTANA HORARIA DEL PULSO (horario de atencion): si el nodo configuro una ventana en su cadencia de
+    /// seguimiento, corre el proximo recordatorio al INICIO de la proxima ventana disponible (zona del tenant +
+    /// festivos) en vez de dispararlo de madrugada. Sin ventana configurada devuelve el instante tal cual. El
+    /// clamp se hace AL AGENDAR, asi que el barrido/dispatcher no cambia (sigue mirando AgentNextRetryAt<=now).
+    /// </summary>
+    private async Task<DateTimeOffset> ClampPulseUtcAsync(DateTimeOffset rawUtc, string? followUpJson, CancellationToken cancellationToken)
+    {
+        var window = PulseSendWindow.Read(followUpJson);
+        if (!window.Enabled) { return rawUtc; }
+        var tzId = await _db.Tenants.AsNoTracking().Select(t => t.TimeZoneId).FirstOrDefaultAsync(cancellationToken);
+        var tz = ScheduledJobRecurrence.ResolveTimeZone(tzId);
+        IReadOnlySet<DateOnly> nonWorking = window.RespectHolidays
+            ? (await _db.TenantOperatingDays.AsNoTracking().Select(d => d.Date).ToListAsync(cancellationToken)).ToHashSet()
+            : new HashSet<DateOnly>();
+        return window.ClampUtc(rawUtc, tz, nonWorking);
+    }
+
+    /// <summary>
     /// SEGUIMIENTO (decision del usuario): el agente de un nodo con cadencia NO decide la compuerta por su
     /// cuenta. Sin una respuesta real del cliente, el paso SIGUE EN ESPERA: avanza el indice de la cadencia y
     /// programa el proximo recordatorio; al AGOTARSE la cadencia, espera INDEFINIDAMENTE (AgentNextRetryAt y
@@ -1345,7 +1366,9 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
         step.AgentFollowUpIndex = idx;
         var nextMin = (idx - 1) < schedule.Count ? schedule[idx - 1] : 0;
         step.AgentAttemptedAt = now;                 // no re-barrer hasta el proximo plazo (o la respuesta)
-        step.AgentNextRetryAt = nextMin > 0 ? now.AddMinutes(nextMin) : null;
+        step.AgentNextRetryAt = nextMin > 0
+            ? await ClampPulseUtcAsync(now.AddMinutes(nextMin), followUpJson, cancellationToken)
+            : null;
         step.AgentDeadlineAt = null;                 // no se cierra por tiempo: espera la respuesta del cliente
         step.ExecutedByAiAgentId = null;             // no resolvio: sigue esperando
 

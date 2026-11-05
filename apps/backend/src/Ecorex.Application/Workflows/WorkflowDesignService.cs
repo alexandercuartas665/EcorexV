@@ -975,11 +975,12 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             return WorkflowResult<bool>.NotFound("Nodo de flujo no encontrado.");
         }
         // Cadencia de seguimiento por plazos: metadato del nodo, editable sobre publicada, no regenera el XML.
-        // Se re-normaliza por StepSlaList (lista de {days,hours,minutes}); lista vacia -> null (sin cadencia).
+        // Se re-normaliza por StepSlaList (lista de {days,hours,minutes}) CONSERVANDO la ventana horaria embebida
+        // (horario de envio de los recordatorios); lista vacia -> null (sin cadencia; la ventana sola no aplica).
         var trimmed = string.IsNullOrWhiteSpace(agentFollowUpJson) ? null : agentFollowUpJson.Trim();
         if (trimmed is not null)
         {
-            trimmed = StepSlaList.Build(StepSlaList.ReadRows(trimmed));
+            trimmed = StepSlaList.Build(StepSlaList.ReadRows(trimmed), PulseSendWindow.Read(trimmed));
         }
         node.AgentFollowUpJson = trimmed;
         await _db.SaveChangesAsync(cancellationToken);

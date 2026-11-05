@@ -1018,6 +1018,47 @@ else
                 }
                 <button class="fe-btn" @onclick="@(() => _followUps.Add(new FollowUpRow()))">+ Agregar plazo</button>
 
+                @* ---- Ventana horaria de los recordatorios: si un pulso cae fuera, se corre al inicio de la proxima ventana ---- *@
+                <div style="margin-top:14px;border-top:1px dashed var(--line-2,#eee);padding-top:10px;">
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;">
+                        <input type="checkbox" @bind="_pulseWindowEnabled" />
+                        Respetar horario de envio
+                    </label>
+                    <div class="fe-acc-note" style="margin:4px 0 8px;">
+                        Si un recordatorio cae FUERA del horario (p.ej. de madrugada), se enviara al INICIO de la
+                        proxima ventana disponible. Se evalua en la zona horaria del tenant. No afecta el primer
+                        contacto inmediato.
+                    </div>
+                    @if (_pulseWindowEnabled)
+                    {
+                        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+                            <div>
+                                <label class="fe-lbl">Desde</label>
+                                <input class="fe-input sm" type="time" style="width:120px" @bind="_pulseStart" @bind:format="HH:mm" />
+                            </div>
+                            <div>
+                                <label class="fe-lbl">Hasta</label>
+                                <input class="fe-input sm" type="time" style="width:120px" @bind="_pulseEnd" @bind:format="HH:mm" />
+                            </div>
+                        </div>
+                        <div style="margin-top:8px;">
+                            <label class="fe-lbl">Dias activos</label>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                                @foreach (var d in PulseDayOptions)
+                                {
+                                    var on = _pulseDays.Contains(d.Iso);
+                                    <button type="button" class="fe-btn" style="padding:4px 12px;@(on ? "background:var(--brand,#6b46c1);color:#fff;border-color:var(--brand,#6b46c1);" : "")"
+                                            @onclick="@(() => TogglePulseDay(d.Iso))">@d.Label</button>
+                                }
+                            </div>
+                        </div>
+                        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;">
+                            <input type="checkbox" @bind="_pulseRespectHolidays" />
+                            Saltar festivos / dias no operativos del tenant
+                        </label>
+                    }
+                </div>
+
                 @if (!string.IsNullOrEmpty(_slaError))
                 {
                     <div class="fe-acc-note" style="color:var(--t-rose);margin-top:6px;">@_slaError</div>
@@ -2400,6 +2441,19 @@ else
     // Cadencia de seguimiento por plazos (nodos con agente): lista editable de esperas entre recordatorios.
     private sealed class FollowUpRow { public int Days { get; set; } public int Hours { get; set; } public int Minutes { get; set; } }
     private List<FollowUpRow> _followUps = new();
+    // Ventana horaria de los recordatorios (horario de atencion): si un pulso cae fuera, se corre al inicio de la
+    // proxima ventana. Se guarda DENTRO de AgentFollowUpJson (sin columna nueva). Dias en ISO 1=Lunes..7=Domingo.
+    private bool _pulseWindowEnabled;
+    private TimeOnly _pulseStart = new(8, 0);
+    private TimeOnly _pulseEnd = new(18, 0);
+    private HashSet<int> _pulseDays = new() { 1, 2, 3, 4, 5 };
+    private bool _pulseRespectHolidays = true;
+    private static readonly (int Iso, string Label)[] PulseDayOptions =
+    {
+        (1, "Lun"), (2, "Mar"), (3, "Mie"), (4, "Jue"), (5, "Vie"), (6, "Sab"), (7, "Dom")
+    };
+    private void TogglePulseDay(int iso) { if (!_pulseDays.Remove(iso)) { _pulseDays.Add(iso); } }
+    private static TimeOnly MinToTime(int m) => new(Math.Clamp(m, 0, 1439) / 60, Math.Clamp(m, 0, 1439) % 60);
     // Tope de conversaciones por actividad del AGENTE del nodo (0 = usar el valor por defecto del codigo).
     private int _maxAsks;
     // Traspaso por salida (compuerta con agente): nota por salida que el flujo le deja a SARA. Key = BpmnElementId
@@ -2433,6 +2487,20 @@ else
         _startDays = start.Days; _startHours = start.Hours; _startMinutes = start.Minutes; _startMode = start.DayMode;
         _followUps = StepSlaList.ReadRows(node.AgentFollowUpJson)
             .Select(r => new FollowUpRow { Days = r.Days, Hours = r.Hours, Minutes = r.Minutes }).ToList();
+        var win = PulseSendWindow.Read(node.AgentFollowUpJson);
+        _pulseWindowEnabled = win.Enabled;
+        if (win.Enabled)
+        {
+            _pulseStart = MinToTime(win.StartMin);
+            _pulseEnd = MinToTime(win.EndMin);
+            _pulseDays = win.Days.ToHashSet();
+            _pulseRespectHolidays = win.RespectHolidays;
+        }
+        else
+        {
+            _pulseStart = new(8, 0); _pulseEnd = new(18, 0);
+            _pulseDays = new() { 1, 2, 3, 4, 5 }; _pulseRespectHolidays = true;
+        }
         _slaModalOpen = true;
     }
 
@@ -2447,15 +2515,27 @@ else
             ? null
             : StepSla.Build(Math.Clamp(_startDays, 0, 365), Math.Clamp(_startHours, 0, 23), Math.Clamp(_startMinutes, 0, 59), _startMode);
 
+        // Ventana horaria de los recordatorios: valida antes de abrir la transaccion (el error se muestra en el modal).
+        PulseSendWindow? pulseWindow = null;
+        if (_pulseWindowEnabled)
+        {
+            var winStart = (_pulseStart.Hour * 60) + _pulseStart.Minute;
+            var winEnd = (_pulseEnd.Hour * 60) + _pulseEnd.Minute;
+            if (winEnd <= winStart) { _slaError = "Horario de envio: la hora 'Hasta' debe ser mayor que la de 'Desde'."; return; }
+            var winDays = _pulseDays.Count > 0 ? _pulseDays : new HashSet<int> { 1, 2, 3, 4, 5 };
+            pulseWindow = new PulseSendWindow(true, winStart, winEnd, winDays, _pulseRespectHolidays);
+        }
+
         await GuardAsync(async () =>
         {
             var result = await DesignSvc.SetNodeSlaAsync(node.Id, json);
             if (!result.IsOk) { _slaError = result.Error; return; }
             var startResult = await DesignSvc.SetNodeStartDelayAsync(node.Id, startJson);
             if (!startResult.IsOk) { _slaError = startResult.Error; return; }
-            // Cadencia de seguimiento: serializa las filas (acotadas) a un JSON array; lista vacia => sin cadencia.
-            var followUpJson = StepSlaList.Build(_followUps.Select(r =>
-                (Math.Clamp(r.Days, 0, 365), Math.Clamp(r.Hours, 0, 23), Math.Clamp(r.Minutes, 0, 59))));
+            // Cadencia de seguimiento: serializa las filas (acotadas) + la ventana horaria opcional; lista vacia => sin cadencia.
+            var followUpJson = StepSlaList.Build(
+                _followUps.Select(r => (Math.Clamp(r.Days, 0, 365), Math.Clamp(r.Hours, 0, 23), Math.Clamp(r.Minutes, 0, 59))),
+                pulseWindow);
             var followUpResult = await DesignSvc.SetNodeAgentFollowUpAsync(node.Id, followUpJson);
             if (!followUpResult.IsOk) { _slaError = followUpResult.Error; return; }
             _canvas = await DesignSvc.GetCanvasAsync(DefinitionId);

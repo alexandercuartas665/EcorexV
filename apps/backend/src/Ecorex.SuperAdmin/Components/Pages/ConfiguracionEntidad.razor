@@ -41,6 +41,7 @@
         @if (_canEdit)
         {
             <button class="btn btn-outline-secondary" @onclick="OpenFields">Campos personalizados</button>
+            <button class="btn btn-outline-secondary" @onclick="() => _calOpen = true">Calendario habil</button>
             <button class="btn btn-primary" @onclick="() => OpenEntidad(null)">+ Nueva entidad</button>
         }
     </div>
@@ -345,6 +346,26 @@ else
     </div>
 }
 
+@* ===== Modal: calendario habil (dias no operativos del tenant) ===== *@
+@if (_calOpen)
+{
+    <div class="modal-overlay" style="z-index:1075;">
+        <div class="modal-dialog" style="max-width:720px;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Calendario habil &#183; dias no operativos</h3>
+                <button class="modal-close" @onclick="() => _calOpen = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:12px;">Marca los festivos o dias sin operacion de esta empresa. El calculo de plazos de flujo en modo "habil" y la ventana horaria de los pulsos del agente ("Saltar festivos") los saltan, ademas de sabados y domingos.</p>
+                <CalendarioOperativoEditor />
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-outline-secondary" @onclick="() => _calOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .ent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
     .ent-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--line, var(--border)); border-radius: 12px; background: var(--surface, var(--card)); }
@@ -405,6 +426,8 @@ else
 
     // Modal campos.
     private bool _fieldsOpen;
+    // Modal calendario habil (dias no operativos del tenant).
+    private bool _calOpen;
     private Guid? _fdId;
     private string _fdLabel = "";
     private TerceroFieldType _fdType = TerceroFieldType.Text;

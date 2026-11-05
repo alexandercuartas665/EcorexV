@@ -53,6 +53,41 @@ public sealed class TenantOperatingCalendarService : ITenantOperatingCalendarSer
         return new TenantOperatingDayDto(day.Id, day.Date, day.Reason);
     }
 
+    public async Task<int> SeedColombianHolidaysAsync(int year, CancellationToken cancellationToken = default)
+    {
+        var holidays = ColombianHolidays.ForYear(year);
+        var from = new DateOnly(year, 1, 1);
+        var to = new DateOnly(year, 12, 31);
+
+        // Fechas ya marcadas en el anio: no se duplican (idempotente por fecha).
+        var existing = await _db.TenantOperatingDays
+            .Where(d => d.Date >= from && d.Date <= to)
+            .Select(d => d.Date)
+            .ToListAsync(cancellationToken);
+        var have = existing.ToHashSet();
+
+        var added = 0;
+        foreach (var h in holidays)
+        {
+            if (have.Add(h.Date))
+            {
+                _db.TenantOperatingDays.Add(new TenantOperatingDay
+                {
+                    TenantId = _tenant.TenantId ?? Guid.Empty,
+                    Date = h.Date,
+                    Reason = h.Name
+                });
+                added++;
+            }
+        }
+
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        return added;
+    }
+
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var day = await _db.TenantOperatingDays.FirstOrDefaultAsync(d => d.Id == id, cancellationToken);

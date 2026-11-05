@@ -19,4 +19,11 @@ public interface ITenantOperatingCalendarService
 
     /// <summary>Quita un dia no operativo por su id. Devuelve false si no existe (en el tenant).</summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Precarga los festivos NACIONALES de Colombia del <paramref name="year"/> en el calendario operativo del
+    /// tenant (Ley Emiliani + Pascua, ver <see cref="ColombianHolidays"/>). Idempotente por fecha: no duplica
+    /// los que ya existen (actualiza su motivo). Devuelve cuantos dias quedaron como festivo nacional.
+    /// </summary>
+    Task<int> SeedColombianHolidaysAsync(int year, CancellationToken cancellationToken = default);
 }

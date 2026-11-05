@@ -460,19 +460,32 @@ public sealed class HiveViewModel : ObservableObject
             return;
         }
 
-        // Real y YA elevado: la ruta por pipe funciona (el servicio ve una conexion de administrador)
-        // y le avisa para reconectar de inmediato.
+        // Real y YA elevado: escribir la boveda DIRECTO, igual que las capacidades (ADR-0148). El proceso
+        // admin tiene acceso por el ACL SYSTEM+Administradores. NO se persiste por el pipe: el Servicio
+        // puede ver la conexion del pipe como NO-admin aunque la colmena este elevada (nivel del token de
+        // impersonacion del pipe) y RECHAZAR el SetConfig -dejando la identidad SIN guardar mientras la UI
+        // decia "Configuracion guardada." (falso exito) y el servicio nunca conectaba-. Ese era el bug que
+        // reincidia en el servidor ("Rechazado: ...exige administrador" + "Configuracion guardada."). El
+        // Servicio recoge la escritura por su FileSystemWatcher sobre config.dat y reconecta en ~1-2s, sin
+        // Restart-Service ni pasar por la impersonacion del pipe (ADR-0152, extiende ADR-0148/0050).
         if (ElevationHelper.IsElevated())
         {
-            _ = _pipe.TestConnectionAsync(cfg);
-            Log("Configuracion guardada.");
-            return;
+            try
+            {
+                _store.Save(cfg);
+                Log("Configuracion guardada. El servicio reconectara en unos segundos.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Elevados pero sin poder escribir la boveda (ACL atipico): se reintenta por UAC abajo.
+                Log($"No se pudo escribir la boveda directamente ({ex.GetType().Name}); se pedira administrador (UAC)...");
+            }
         }
 
-        // Real y NO elevado (caso tipico: la colmena se auto-lanzo tras el MSI sin elevar): el servicio
-        // rechazaria el cambio por el pipe (conexion no-admin). En vez de fallar, se pide UN prompt de
-        // UAC y se escribe la boveda directo (--save-config); el servicio recoge el cambio por su
-        // FileSystemWatcher y reconecta sin Restart-Service. Ver ADR-0050.
+        // Real y NO elevado (caso tipico: la colmena se auto-lanzo tras el MSI sin elevar): se pide UN
+        // prompt de UAC y se escribe la boveda directo (--save-config); el servicio recoge el cambio por
+        // su FileSystemWatcher y reconecta sin Restart-Service. Ver ADR-0050.
         Log("Se pedira confirmacion de administrador (UAC) para guardar la configuracion...");
         var res = ElevationHelper.SaveConfigElevated(cfg.ClientId, cfg.HubUrl, cfg.Secret);
         Log(res.Ok
@@ -502,11 +515,13 @@ public sealed class HiveViewModel : ObservableObject
             Log(string.IsNullOrWhiteSpace(cfg.HubUrl)
                 ? "Probar: falta la URL del hub."
                 : $"Probando conexion con {cfg.HubUrl}...");
-            SaveConfig(); // guarda (elevando por UAC si hace falta)
-            // La prueba activa por pipe solo aplica en demo o ya elevados: si se guardo por elevacion,
-            // el servicio reconecta por su cuenta (watcher) y una prueba por pipe seria rechazada por
-            // no-admin (el ruido "Rechazado" que justamente evitamos).
-            if (_pipe is null || ElevationHelper.IsElevated())
+            SaveConfig(); // guarda (directo si elevado; elevando por UAC si no)
+            // La prueba activa por pipe SOLO aplica en demo (_pipe is null -> _hive es el mock). En modo
+            // real, SaveConfig ya persistio la boveda directo y el Servicio reconecta por su
+            // FileSystemWatcher: mandar un SetConfig por el pipe seria RECHAZADO (el Servicio ve la
+            // conexion del pipe como no-admin aunque la colmena este elevada) y ensuciaria el registro
+            // con "Rechazado: ...exige administrador" (ADR-0152). Por eso NO se llama en modo real.
+            if (_pipe is null)
             {
                 await _hive.TestConnectionAsync(cfg);
             }

@@ -42,6 +42,7 @@ $ExeDir       = Join-Path $DistDir "exe"
 
 $ServiceProj  = Join-Path $AgentDir "Ecorex.Agent.Service\Ecorex.Agent.Service.csproj"
 $GuiProj      = Join-Path $AgentDir "Ecorex.Agent.Gui\Ecorex.Agent.Gui.csproj"
+$ToolProj     = Join-Path $AgentDir "Ecorex.Agent.Tool\Ecorex.Agent.Tool.csproj"
 $WixProj      = Join-Path $InstallerDir "Ecorex.Agent.Installer.wixproj"
 
 $Profile      = "win-x64-selfcontained"
@@ -62,11 +63,19 @@ Write-Step "Publicando GUI (self-contained win-x64) en el mismo staging"
 dotnet publish $GuiProj -p:PublishProfile=$Profile -p:Version=$Version -o $StageDir
 if ($LASTEXITCODE -ne 0) { throw "Fallo la publicacion de la GUI." }
 
+# Herramienta de purga/verificacion (1.9.5, ADR-0152): self-contained win-x64 en el MISMO staging, SIN
+# single-file (para que los .dll queden sueltos y compartan el runtime ya publicado por el agente; solo
+# son nuevos Ecorex.Agent.Tool.dll + .runtimeconfig.json). Su exe se separa luego como los otros dos.
+Write-Step "Publicando Herramienta (self-contained win-x64) en el mismo staging"
+dotnet publish $ToolProj -c $Configuration -r win-x64 --self-contained true `
+    -p:PublishSingleFile=false -p:Version=$Version -o $StageDir
+if ($LASTEXITCODE -ne 0) { throw "Fallo la publicacion de la Herramienta." }
+
 Write-Step "Limpiando simbolos y docs (.pdb / .xml)"
 Get-ChildItem -Path $StageDir -Recurse -Include *.pdb, *.xml | Remove-Item -Force
 
-Write-Step "Separando los dos exe a dist\exe"
-foreach ($exe in @("Ecorex.Agent.Service.exe", "Ecorex.Agent.Gui.exe")) {
+Write-Step "Separando los tres exe a dist\exe"
+foreach ($exe in @("Ecorex.Agent.Service.exe", "Ecorex.Agent.Gui.exe", "Ecorex.Agent.Tool.exe")) {
     $src = Join-Path $StageDir $exe
     if (-not (Test-Path $src)) { throw "No se encontro $exe en el staging (publicacion incompleta)." }
     Move-Item -Force $src (Join-Path $ExeDir $exe)

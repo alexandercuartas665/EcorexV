@@ -118,9 +118,38 @@
                   Impersonate="no"
                   Return="ignore" />
 
+    <!-- ===== Validacion de la instalacion (1.9.5, ADR-0152) =====
+         EcorexVerifyInstall: ARRANCA el servicio y VERIFICA que todo quedo (archivos + servicio +
+         ejecucion), dejando el veredicto en %ProgramData%\Ecorex\Agent\install-verify.log. Deferida +
+         NO impersonada (SYSTEM): arrancar el servicio exige privilegio. Return="ignore": si el servicio
+         no arrancara, la instalacion NO se revierte (ese era el bug 1.9.4); el fallo queda en el log y
+         lo muestra EcorexShowResult. Se agenda tras EcorexConfigureIdentity para que, si la identidad
+         vino por propiedades, el servicio arranque ya configurado. Un EXE deferido con FileRef corre con
+         el exe ya en disco (va despues de InstallFiles/InstallServices). -->
+    <CustomAction Id="EcorexVerifyInstall"
+                  FileRef="Ecorex.Agent.Tool.exe"
+                  ExeCommand="verify --start --quiet"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- EcorexShowResult: muestra el veredicto al usuario en SU sesion. Inmediata + IMPERSONADA (una
+         CA deferida corre como SYSTEM en la sesion 0, donde el cuadro seria invisible). 'show-result'
+         NO necesita admin (solo lee el log), por eso corre con el token no elevado del usuario. Solo en
+         instalacion nueva y con UI (silencioso/SCCM no muestra nada). asyncNoWait no aplica: EXE con
+         FileRef impersonado inmediato, como LaunchTrayGui. -->
+    <CustomAction Id="EcorexShowResult"
+                  FileRef="Ecorex.Agent.Tool.exe"
+                  ExeCommand="show-result"
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="ignore" />
+
     <InstallExecuteSequence>
       <Custom Action="LaunchTrayGui" After="InstallFinalize" Condition="NOT Installed" />
       <Custom Action="EcorexConfigureIdentity" After="InstallServices" Condition="CLIENTID AND HUBURL" />
+      <Custom Action="EcorexVerifyInstall" After="EcorexConfigureIdentity" Condition="NOT Installed" />
+      <Custom Action="EcorexShowResult" After="LaunchTrayGui" Condition="NOT Installed AND UILevel&gt;=4" />
     </InstallExecuteSequence>
 
     <!-- ================= Arbol de directorios ================= -->
@@ -162,13 +191,23 @@
                         Account="LocalSystem"
                         Vital="yes" />
 
-        <!-- Arranca al instalar; detiene al instalar (upgrade) y al desinstalar; se elimina al desinstalar. -->
+        <!-- Detiene al instalar (upgrade) y al desinstalar; se elimina al desinstalar; ARRANCA al instalar.
+             OJO (1.9.7, ADR-0152): se vuelve a poner Start="install" pero con Wait="no". El problema que
+             motivo quitarlo en 1.9.5 era Wait="yes" (el default): el MSI ESPERABA a que el servicio
+             confirmara arranque y, por ser Vital, un arranque lento REVERTIA toda la instalacion. Con
+             Wait="no" el arranque es "dispara y sigue": el servicio queda corriendo tras instalar, pero el
+             MSI NO espera ni puede revertir por eso. Esto arregla el hueco real visto en campo (2026-11-05):
+             en instalacion INTERACTIVA el servicio quedaba Stopped (exit 1077 "nunca se intento arrancar")
+             porque el unico arranque era la accion EcorexVerifyInstall, anclada After EcorexConfigureIdentity,
+             que SOLO corre en instalacion desatendida (con CLIENTID). Ahora el arranque no depende de esa
+             accion. Stop="both": detiene en upgrade y en desinstalacion (Event=162 sin el bit de Start en
+             desinstalacion; el arranque es solo al instalar). -->
         <ServiceControl Id="EcorexAgentServiceControl"
                         Name="EcorexAgent"
                         Start="install"
                         Stop="both"
                         Remove="uninstall"
-                        Wait="yes" />
+                        Wait="no" />
 
         <!-- Origen del Visor de eventos "ECOREX Agente". Program.cs lo usa pero no lo crea (crear un
              origen exige privilegio): lo hace el instalador. EventMessageFile apunta a la libreria de
@@ -176,6 +215,16 @@
         <util:EventSource Name="ECOREX Agente"
                           Log="Application"
                           EventMessageFile="%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll" />
+      </Component>
+
+      <!-- Herramienta de purga/verificacion (1.9.5, ADR-0152). Viaja instalada para que el propio
+           instalador pueda llamarla (verify tras instalar) y para que el operador tenga a mano la
+           limpieza total si algo quedara a medias. Su .dll/runtimeconfig salen de la carpeta staging
+           (comparten el runtime self-contained); aqui solo se declara su exe, igual que los otros dos. -->
+      <Component Id="ToolExe" Bitness="always64">
+        <File Id="Ecorex.Agent.Tool.exe"
+              Source="$(var.AgentExeDir)\Ecorex.Agent.Tool.exe"
+              KeyPath="yes" />
       </Component>
     </ComponentGroup>
 

@@ -11,4 +11,5 @@
   <Project Path="Ecorex.Agent.Core/Ecorex.Agent.Core.csproj" />
   <Project Path="Ecorex.Agent.Gui/Ecorex.Agent.Gui.csproj" />
   <Project Path="Ecorex.Agent.Service/Ecorex.Agent.Service.csproj" />
+  <Project Path="Ecorex.Agent.Tool/Ecorex.Agent.Tool.csproj" />
 </Solution>

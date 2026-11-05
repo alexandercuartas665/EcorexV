@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Herramienta de linea de comandos del Agente Colmena. Dos modos:
+         uninstall  -> purga TODO rastro del agente, aunque ya no aparezca en "Programas y
+                       caracteristicas" (caso de una instalacion MSI que hizo rollback).
+         verify     -> comprueba que la instalacion quedo bien (archivos + servicio + arranque).
+                       La usa el instalador 1.9.5 como accion post-install, y tambien se puede
+                       correr a mano.
+       Se publica como UN SOLO exe self-contained win-x64 (sin runtime .NET ni el resto del
+       agente), para poder copiarla a un servidor roto y correrla con doble clic. Exige admin
+       (app.manifest). Sin dependencias de proyecto a proposito: debe funcionar sola. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Ecorex.Agent.Tool</RootNamespace>
+    <AssemblyName>Ecorex.Agent.Tool</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- En linea con la version del agente/instalador (Gui.csproj + RealHiveConnection + MSI). -->
+    <Version>1.9.8</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>

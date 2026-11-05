@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Security;
 using System.Runtime.InteropServices;
+using System.Security.Authentication;
 using Ecorex.Contracts.Agent;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -21,7 +23,43 @@ namespace Ecorex.Agent.Core.Services;
 /// </summary>
 public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    // TLS adaptativo por maquina (ADR-0152). El agente corre tanto en Windows modernos como en Windows
+    // VIEJOS (visto en campo: Windows Server 2012), cuyo SChannel NO soporta TLS 1.3. Con el handshake
+    // por defecto de .NET -que ofrece TLS 1.3- esas maquinas viejas fallan con "No se pudo realizar una
+    // llamada a SSPI... la funcion solicitada no se admite" (SEC_E_UNSUPPORTED_FUNCTION). Pedir 1.3 en un
+    // SChannel sin soporte es lo que dispara el error. Por eso NO se fija 1.2 a ciegas (eso limitaria a
+    // los modernos a 1.2): se detecta si la maquina soporta 1.3 y se habilitan los protocolos que
+    // correspondan. Asi un MISMO binario funciona en Server 2012 (1.2) y en Server 2016+/Win10+ (1.2+1.3).
+    //
+    // Regla de deteccion: SChannel habilita TLS 1.3 desde Windows 10 2004 / Server 2022 (build 19041+).
+    // Server 2016 (14393), Server 2019 (17763) y Server 2012 (9200) NO lo traen; todos quedan por DEBAJO
+    // de 19041, mientras Server 2022 (20348), Win10 2004 (19041) y Win11 (22000+) quedan por encima. Un
+    // solo corte en el build 19041 separa correctamente clientes y servidores. .NET (Core) devuelve el
+    // build real del SO (sin shim de manifest), asi que Environment.OSVersion es fiable aqui.
+    private static readonly bool Tls13Supported =
+        OperatingSystem.IsWindows() && Environment.OSVersion.Version.Build >= 19041;
+
+    // Protocolos a habilitar: modernos -> 1.2 + 1.3 (SChannel elige 1.3, el mejor); viejos -> solo 1.2.
+    private static readonly SslProtocols AgentSslProtocols =
+        Tls13Supported ? (SslProtocols.Tls12 | SslProtocols.Tls13) : SslProtocols.Tls12;
+
+    private static SocketsHttpHandler TlsHandler() => new()
+    {
+        SslOptions = new SslClientAuthenticationOptions { EnabledSslProtocols = AgentSslProtocols },
+    };
+
+    private static readonly HttpClient Http = new(TlsHandler()) { Timeout = TimeSpan.FromSeconds(15) };
+
+    /// <summary>
+    /// Linea de diagnostico que el servicio escribe en el log al arrancar (ADR-0152). Deja constancia
+    /// EN LA MAQUINA del cliente de QUE build corre y QUE decidio sobre TLS, para distinguir "binario
+    /// viejo que no se actualizo" (el MSI de misma version no sobrescribe archivos) de "este SO no puede"
+    /// sin tener que depurar a ciegas. Incluye el build del SO, si se detecto soporte de TLS 1.3, los
+    /// protocolos habilitados y la version del ensamblado del nucleo.
+    /// </summary>
+    public static string TlsDiagnostics =>
+        $"Core v{typeof(RealHiveConnection).Assembly.GetName().Version?.ToString(3)}; " +
+        $"SO build {Environment.OSVersion.Version}; TLS13={Tls13Supported}; protocolos={AgentSslProtocols}";
 
     private readonly GatewayExecutor _gateway = new();
     private readonly RestExecutor _rest = new();
@@ -102,7 +140,10 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
                 // mirando, "no pude conectar" a secas es indepurable. Quien hospeda (servicio o
                 // colmena) decide como mostrarlo. `??=`: si el handshake ya explico el porque, ese
                 // motivo es mas util que el "401" pelado con el que StartAsync se queja aqui.
-                LastError ??= ex.Message;
+                // Se aplana la cadena de InnerException: errores como "The SSL connection could not be
+                // established, see inner exception." esconden la causa REAL (cert, TLS, DNS) en el inner
+                // (ADR-0152). Sin esto el operador solo ve el mensaje externo, indepurable.
+                LastError ??= FlattenError(ex);
                 SetState(ConnectionState.Offline);
                 return false;
             }
@@ -111,6 +152,23 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Aplana la cadena de excepciones en un solo mensaje legible. Los fallos de red/TLS de .NET suelen
+    /// envolver la causa real: "The SSL connection could not be established, see inner exception." ->
+    /// inner "The remote certificate is invalid..." / "No such host is known" / "connection reset", etc.
+    /// Sin aplanar, el operador on-prem solo ve el mensaje externo y no puede depurar (ADR-0152).
+    /// </summary>
+    private static string FlattenError(Exception ex)
+    {
+        var parts = new List<string>();
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+        {
+            var m = e.Message?.Trim();
+            if (!string.IsNullOrEmpty(m) && (parts.Count == 0 || parts[^1] != m)) { parts.Add(m); }
+        }
+        return string.Join(" -> ", parts);
     }
 
     /// <summary>
@@ -135,8 +193,29 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         return new HubConnectionBuilder()
             .WithUrl(NormalizeHubUrl(config.HubUrl), options =>
             {
-                // doc 02 s1: transporte forzado a WebSockets.
-                options.Transports = HttpTransportType.WebSockets;
+                // doc 02 s1: transportes segun el SO (ADR-0152), sin limitar al moderno.
+                //  - Windows moderno (TLS 1.3): se PREFIERE WebSockets -que usa ClientWebSocket con el TLS
+                //    por defecto del SO, es decir 1.3- y se dejan SSE/LongPolling solo como respaldo. El
+                //    canal principal sigue siendo WebSocket 1.3: NO se degrada nada.
+                //  - Windows viejo sin TLS 1.3 (Server 2012): el WebSocket ofreceria 1.3 y fallaria el
+                //    handshake, asi que se OMITE y se va directo a los transportes HTTP (SSE / LongPolling),
+                //    que pasan por el handler de abajo con TLS 1.2 y conectan sin el intento fallido previo.
+                options.Transports = Tls13Supported
+                    ? (HttpTransportType.WebSockets | HttpTransportType.ServerSentEvents | HttpTransportType.LongPolling)
+                    : (HttpTransportType.ServerSentEvents | HttpTransportType.LongPolling);
+
+                // Habilita en el handler HTTP del hub (negociacion + transportes HTTP) los mismos
+                // protocolos que el resto del agente: 1.2+1.3 en modernos, solo 1.2 en viejos. Se modifica
+                // el handler que arma SignalR (conserva sus cookies/ajustes) en vez de reemplazarlo.
+                options.HttpMessageHandlerFactory = inner =>
+                {
+                    if (inner is SocketsHttpHandler s)
+                    {
+                        s.SslOptions.EnabledSslProtocols = AgentSslProtocols;
+                    }
+                    return inner;
+                };
+
                 // doc 02 s2 (opcion A): si hay secreto, el hub exige JWT -> se adquiere un token corto
                 // por HMAC en /api/agente/token y se pasa por AccessTokenProvider. Sin secreto se
                 // conecta anonimo (util contra el simulador de dev).
@@ -176,7 +255,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            LastError = $"No se pudo pedir el token a {config.HubUrl}: {ex.Message}";
+            LastError = $"No se pudo pedir el token a {config.HubUrl}: {FlattenError(ex)}";
             return null; // sin token -> el hub [Authorize] rechaza -> queda Offline
         }
     }
@@ -429,7 +508,7 @@ public sealed class RealHiveConnection : IHiveConnection, IAsyncDisposable
     {
         var hello = new AgentHelloMsg(
             ClientId: _config.ClientId,
-            AgentVersion: "1.9.4",
+            AgentVersion: "1.9.8",
             ProtocolVersion: AgentProtocol.Version,
             Host: Environment.MachineName,
             Os: RuntimeInformation.OSDescription,

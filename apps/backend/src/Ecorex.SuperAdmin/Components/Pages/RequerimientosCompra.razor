@@ -1128,6 +1128,17 @@ else
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Flujo/subcategoria que corre la RFQ cuando ni el <strong>producto</strong> (en Planificar), ni el <strong>proveedor</strong> (matriz), ni el <strong>origen</strong> de la linea fijan uno. Es el ultimo recurso de la cadena.</div>
                 </div>
                 <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de compras por defecto</div>
+                    <select class="form-select form-select-sm" @bind="_cfgCompraDefault">
+                        <option value="">(sin default: usa el proceso de compra del origen de la linea)</option>
+                        @foreach (var s in _subcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Flujo/subcategoria que corre al <strong>Ejecutar</strong> la compra cuando ni la <strong>matriz</strong> del proveedor ni el <strong>origen</strong> de la linea fijan uno. Es el ultimo recurso de la cadena de compra.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
                     <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Unidades de medida</div>
                     <textarea class="form-control form-control-sm" rows="6" @bind="_cfgUnidades" placeholder="Una por linea (Unidad, Caja, Kilogramo...)" style="font-size:12.5px;font-family:inherit;"></textarea>
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Una unidad por linea. Aparecen al crear una necesidad y en el verbo <strong>Generar requerimientos desde tabla</strong>. Si lo dejas vacio se usan las unidades comunes por defecto.</div>
@@ -1330,7 +1341,7 @@ else
                 </div>
 
                 <div>
-                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proveedores de esta regla <span style="font-weight:400;color:var(--ink-3,#6b7280);">(uno o varios; cada uno con su proceso de cotizacion. El envio al proveedor lo hace el flujo de cada proceso).</span></div>
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proveedores de esta regla <span style="font-weight:400;color:var(--ink-3,#6b7280);">(uno o varios; cada uno con su proceso de cotizacion y su proceso de compra. El envio al proveedor lo hace el flujo de cada proceso).</span></div>
                     <div style="display:flex;flex-direction:column;gap:8px;">
                         @foreach (var pe in _cfgrProvs2)
                         {
@@ -1347,6 +1358,12 @@ else
                                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
                                     <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);flex:1;min-width:190px;">Proceso de cotizacion (RFQ) &mdash; lo envia el flujo
                                         <select class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" @bind="ppe.Proceso">
+                                            <option value="">(usar la precedencia del modulo)</option>
+                                            @foreach (var s in _subcats) { <option value="@s.Id">@s.Nombre</option> }
+                                        </select>
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);flex:1;min-width:190px;">Proceso de compras &mdash; corre al Ejecutar
+                                        <select class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" @bind="ppe.ProcesoCompra">
                                             <option value="">(usar la precedencia del modulo)</option>
                                             @foreach (var s in _subcats) { <option value="@s.Id">@s.Nombre</option> }
                                         </select>
@@ -1629,7 +1646,8 @@ else
         public Guid? RuleId;
         public string Proveedor = "";     // Guid del tercero (texto)
         public string ProvNombre = "";
-        public string Proceso = "";       // Guid de la subcategoria (texto); "" = precedencia del modulo
+        public string Proceso = "";       // proceso de COTIZACION: Guid de subcategoria (texto); "" = precedencia del modulo
+        public string ProcesoCompra = ""; // proceso de COMPRA: Guid de subcategoria (texto); "" = precedencia del modulo
         public int? Vigencia;
         public int Prioridad = 100;
         public bool Activo = true;
@@ -1645,6 +1663,7 @@ else
     // Ola D: proceso de cotizacion por defecto del modulo + por proveedor (matriz). _subcats = catalogo comun.
     private List<RequerimientoOpcionDto> _subcats = new();
     private string _cfgCotDefault = "";
+    private string _cfgCompraDefault = "";
     private Dictionary<Guid, Guid> _cfgProvProc = new();
     private Dictionary<Guid, string> _cfgProvProcEdit = new();
     // Ola D: proceso de cotizacion por PRODUCTO (lo fija el comprador en Planificar). Mapa clave -> subcat.
@@ -2140,6 +2159,7 @@ else
             _cfgAgente = await ConfigSvc.GetAgenteCotizacionesAsync();
             _cfgUnidades = string.Join('\n', await ConfigSvc.GetUnidadesAsync());
             _cfgCotDefault = (await ConfigSvc.GetCotizacionDefaultAsync())?.ToString() ?? "";
+            _cfgCompraDefault = (await ConfigSvc.GetCompraDefaultAsync())?.ToString() ?? "";
             await LoadCfgAvanzadaAsync();
         }
         catch (Exception ex) { _cfgError = ex.Message; }
@@ -2174,6 +2194,7 @@ else
             await ConfigSvc.SetAgenteCotizacionesAsync(_cfgAgente);
             await ConfigSvc.SetUnidadesAsync(_cfgUnidades.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             await ConfigSvc.SetCotizacionDefaultAsync(Guid.TryParse(_cfgCotDefault, out var cdef) ? cdef : null);
+            await ConfigSvc.SetCompraDefaultAsync(Guid.TryParse(_cfgCompraDefault, out var cpdef) ? cpdef : null);
             _unidades = (await ConfigSvc.GetUnidadesAsync()).ToList();
             _modo = _cfgModo;
             // El modo del modulo manda sobre la vista: al guardar, la grilla pasa al modo elegido.
@@ -2275,6 +2296,7 @@ else
         Proveedor = r.ProveedorId.ToString(),
         ProvNombre = r.ProveedorNombre ?? "",
         Proceso = r.SubcategoriaCotizacionId?.ToString() ?? "",
+        ProcesoCompra = r.SubcategoriaCompraId?.ToString() ?? "",
         Vigencia = r.VigenciaDias,
         Prioridad = r.Prioridad,
         Activo = r.Activo,
@@ -2358,7 +2380,8 @@ else
             {
                 var provId = Guid.Parse(p.Proveedor);
                 var proc = Guid.TryParse(p.Proceso, out var pg) ? (Guid?)pg : null;
-                var req = new SaveReglaRequest(p.RuleId, cond, provId, p.Prioridad, p.Activo, p.Vigencia, proc);
+                var procComp = Guid.TryParse(p.ProcesoCompra, out var pgc) ? (Guid?)pgc : null;
+                var req = new SaveReglaRequest(p.RuleId, cond, provId, p.Prioridad, p.Activo, p.Vigencia, proc, procComp);
                 var saved = await ConfigSvc.SaveReglaAsync(req);
                 if (saved is null) { _cfgrError = "No se pudo guardar un proveedor de la regla."; return; }
                 keepIds.Add(saved.Id);

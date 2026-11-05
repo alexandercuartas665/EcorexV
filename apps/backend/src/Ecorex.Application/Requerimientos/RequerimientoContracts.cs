@@ -233,7 +233,10 @@ public sealed record ReglaProveedorResueltoDto(
     Guid ProveedorId,
     string ProveedorNombre,
     Guid? SubcategoriaCotizacionId,
-    string? SubcategoriaNombre);
+    string? SubcategoriaNombre,
+    // Proceso de COMPRA (subcategoria que corre al Ejecutar) del proveedor en la regla ganadora. Null = default.
+    Guid? SubcategoriaCompraId = null,
+    string? SubcategoriaCompraNombre = null);
 
 /// <summary>Una entrada del ranking que devuelve el agente evaluador.</summary>
 public sealed record CotizacionRankItem(Guid ProveedorId, int Posicion, string Motivo);

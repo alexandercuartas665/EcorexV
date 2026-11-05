@@ -57,7 +57,11 @@ public sealed record RequerimientoReglaDto(
     // precedencia del modulo (producto > proveedor global > origen > default). Una misma regla (mismo juego
     // de condiciones) puede tener VARIOS proveedores, cada uno su proceso: una fila por proveedor.
     Guid? SubcategoriaCotizacionId = null,
-    string? SubcategoriaNombre = null);
+    string? SubcategoriaNombre = null,
+    // Proceso de COMPRA (flujo/subcategoria que corre al Ejecutar la compra) de ESTE proveedor en la regla.
+    // Null = usa la precedencia del modulo (matriz > origen > default de compra). Espejo del de cotizacion.
+    Guid? SubcategoriaCompraId = null,
+    string? SubcategoriaCompraNombre = null);
 
 /// <summary>Alta/edicion de una regla de la matriz. Id null = alta. <see cref="Condiciones"/> debe traer al
 /// menos una (AND entre todas). <see cref="VigenciaDias"/> null = hereda del proveedor.
@@ -69,7 +73,9 @@ public sealed record SaveReglaRequest(
     int Prioridad,
     bool Activo,
     int? VigenciaDias,
-    Guid? SubcategoriaCotizacionId = null);
+    Guid? SubcategoriaCotizacionId = null,
+    // Proceso de COMPRA de ESTE proveedor en la regla (null = default). Espejo de SubcategoriaCotizacionId.
+    Guid? SubcategoriaCompraId = null);
 
 /// <summary>Dias de vigencia de cotizacion por proveedor (default del proveedor; una regla puede sobreescribirlo).</summary>
 public sealed record ProveedorVigenciaDto(Guid ProveedorId, int? VigenciaDias);
@@ -157,6 +163,12 @@ public interface IRequerimientoConfigService
     Task<Guid?> GetCotizacionDefaultAsync(CancellationToken ct = default);
     /// <summary>Fija (o limpia, con null) el proceso de cotizacion por defecto del modulo.</summary>
     Task SetCotizacionDefaultAsync(Guid? subcategoriaId, CancellationToken ct = default);
+
+    /// <summary>Proceso de COMPRA por DEFECTO del modulo (ultimo recurso al Ejecutar la compra). La cadena del
+    /// planificador es: matriz del proveedor (regla) > origen de la necesidad > este default. Null si no se fijo.</summary>
+    Task<Guid?> GetCompraDefaultAsync(CancellationToken ct = default);
+    /// <summary>Fija (o limpia, con null) el proceso de compra por defecto del modulo.</summary>
+    Task SetCompraDefaultAsync(Guid? subcategoriaId, CancellationToken ct = default);
 
     /// <summary>Proceso de cotizacion fijado por PROVEEDOR (capa "matriz"). Mapa proveedorId -> subcategoria.
     /// Solo incluye proveedores con valor definido.</summary>

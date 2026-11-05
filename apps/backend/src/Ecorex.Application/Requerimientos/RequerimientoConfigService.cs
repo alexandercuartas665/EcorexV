@@ -217,6 +217,9 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         // Ola F: proceso de cotizacion (subcategoria Guid como texto) del proveedor de ESTA fila-regla; null =
         // usa la precedencia del modulo. Una regla = varias filas (una por proveedor), cada una con su Proc.
         public string? Proc { get; set; }
+        // Proceso de COMPRA (subcategoria Guid como texto) del proveedor de ESTA fila-regla; null = usa la
+        // precedencia del modulo (matriz > origen > default de compra). Espejo de Proc, para el planificador.
+        public string? ProcComp { get; set; }
     }
 
     private async Task<MatrizExt> LoadExtAsync(CancellationToken ct)
@@ -285,6 +288,7 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
             var cond = new List<ReglaCondicionResueltaDto> { new(r.Dimension, r.ValorDimension, Nom(r.Dimension, r.ValorDimension)) };
             int? vig = null;
             Guid? proc = null;
+            Guid? procComp = null;
             if (ext.Reglas.TryGetValue(r.Id.ToString(), out var re))
             {
                 foreach (var c in re.Cond)
@@ -293,12 +297,14 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
                 }
                 vig = re.Vig;
                 if (Guid.TryParse(re.Proc, out var pg)) { proc = pg; }
+                if (Guid.TryParse(re.ProcComp, out var pgc)) { procComp = pgc; }
             }
             return new RequerimientoReglaDto(
                 r.Id, r.Dimension, r.ValorDimension, Nom(r.Dimension, r.ValorDimension),
                 r.ProveedorId, provs.TryGetValue(r.ProveedorId, out var pn) ? pn : null,
                 r.Prioridad, r.Aprendida, r.Activo, cond, vig,
-                proc, proc is Guid pc && subNombres.TryGetValue(pc, out var scn) ? scn : null);
+                proc, proc is Guid pc && subNombres.TryGetValue(pc, out var scn) ? scn : null,
+                procComp, procComp is Guid pcc && subNombres.TryGetValue(pcc, out var scnc) ? scnc : null);
         }).ToList();
     }
 
@@ -337,9 +343,10 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         {
             Cond = cond.Skip(1).Select(c => new[] { c.Dimension.ToString(), c.Valor }).ToList(),
             Vig = req.VigenciaDias,
-            Proc = req.SubcategoriaCotizacionId is Guid sc && sc != Guid.Empty ? sc.ToString() : null
+            Proc = req.SubcategoriaCotizacionId is Guid sc && sc != Guid.Empty ? sc.ToString() : null,
+            ProcComp = req.SubcategoriaCompraId is Guid scc && scc != Guid.Empty ? scc.ToString() : null
         };
-        if (re.Cond.Count == 0 && re.Vig is null && re.Proc is null) { ext.Reglas.Remove(entity.Id.ToString()); }
+        if (re.Cond.Count == 0 && re.Vig is null && re.Proc is null && re.ProcComp is null) { ext.Reglas.Remove(entity.Id.ToString()); }
         else { ext.Reglas[entity.Id.ToString()] = re; }
         await PersistExtAsync(ext, tenantId, ct);
 
@@ -383,6 +390,8 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
     // ---- Ola D: precedencia del proceso de cotizacion (default modulo / por proveedor / por producto) ----
     private const string CotDefaultKey = "requerimientos.cotizacion_default";
     private const string CotProductoKey = "requerimientos.cotizacion_producto";
+    // Proceso de COMPRA por defecto del modulo (ultimo recurso del planificador al Ejecutar).
+    private const string CompraDefaultKey = "requerimientos.compra_default";
 
     public async Task<Guid?> GetCotizacionDefaultAsync(CancellationToken ct = default)
     {
@@ -397,6 +406,23 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == CotDefaultKey, ct);
         var json = subcategoriaId is Guid g && g != Guid.Empty ? g.ToString() : "";
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = CotDefaultKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<Guid?> GetCompraDefaultAsync(CancellationToken ct = default)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == CompraDefaultKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        return Guid.TryParse(val, out var g) ? g : null;
+    }
+
+    public async Task SetCompraDefaultAsync(Guid? subcategoriaId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == CompraDefaultKey, ct);
+        var json = subcategoriaId is Guid g && g != Guid.Empty ? g.ToString() : "";
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = CompraDefaultKey, ConfigValue = json }); }
         else { row.ConfigValue = json; }
         await _db.SaveChangesAsync(ct);
     }

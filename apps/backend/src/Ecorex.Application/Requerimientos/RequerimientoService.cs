@@ -419,17 +419,29 @@ public sealed class RequerimientoService : IRequerimientoService
         var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(r => r.Id == hijo.RequerimientoId, ct);
         if (padre is null) { return new EjecutarCompraResultado(false, "No se encontro la necesidad padre.", null, null, null); }
 
-        // El proceso de compra (subcategoria) lo define el ORIGEN de la necesidad.
+        // Proceso de COMPRA (subcategoria/flujo que corre al Ejecutar). Cadena de precedencia:
+        // 1. MATRIZ del proveedor (regla que aplica al producto, por el proveedor elegido en el hijo).
+        // 2. ORIGEN de la necesidad (comportamiento previo).
+        // 3. DEFAULT del modulo. Las capas 1 y 3 viven en TenantConfiguration (sin migracion).
         Guid? subcategoriaId = null;
-        if (padre.OrigenId is Guid oid)
+        // 1. Matriz: la regla ganadora del producto puede fijar el proceso de compra del proveedor del hijo.
+        if (hijo.ProveedorId is Guid provMatrizId)
+        {
+            var provsMatriz = await GetProveedoresMatrizParaProductoAsync(padre.Id, ct);
+            subcategoriaId = provsMatriz.FirstOrDefault(p => p.ProveedorId == provMatrizId)?.SubcategoriaCompraId;
+        }
+        // 2. Origen de la necesidad.
+        if (subcategoriaId is null && padre.OrigenId is Guid oid)
         {
             subcategoriaId = await _db.RequerimientoOrigenes.AsNoTracking()
                 .Where(o => o.Id == oid).Select(o => o.SubcategoriaCompraId).FirstOrDefaultAsync(ct);
         }
+        // 3. Default del modulo.
+        if (subcategoriaId is null) { subcategoriaId = await _config.GetCompraDefaultAsync(ct); }
         if (subcategoriaId is null)
         {
             return new EjecutarCompraResultado(false,
-                "El origen de esta necesidad no tiene un proceso de compra (subcategoria) configurado. Asignalo en Configuracion de Requerimientos.",
+                "No hay proceso de COMPRA para esta linea (ni en la matriz del proveedor, ni en el origen, ni el default del modulo). Asignalo en Configuracion de Requerimientos o en la matriz.",
                 null, null, await GetPlanificacionAsync(padre.Id, ct));
         }
 
@@ -987,7 +999,8 @@ public sealed class RequerimientoService : IRequerimientoService
         {
             if (!vistos.Add(r.ProveedorId)) { continue; }
             result.Add(new ReglaProveedorResueltoDto(
-                r.ProveedorId, r.ProveedorNombre ?? "(proveedor)", r.SubcategoriaCotizacionId, r.SubcategoriaNombre));
+                r.ProveedorId, r.ProveedorNombre ?? "(proveedor)", r.SubcategoriaCotizacionId, r.SubcategoriaNombre,
+                r.SubcategoriaCompraId, r.SubcategoriaCompraNombre));
         }
         return result;
     }

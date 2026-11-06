@@ -28,6 +28,12 @@ public sealed class AiInferenceService : IAiInferenceService
     // Tope de vueltas del bucle de herramientas: evita ciclos infinitos si el modelo insiste en llamar tools.
     private const int MaxToolRounds = 6;
 
+    // Herramientas que cuentan como CIERRE del cliente en el pipeline: registro comercial (crear_lead) y
+    // operativo (crear_actividad / crear_tarea). Si el modelo invoca cualquiera de estas, la red de
+    // seguridad de cierre NO lo re-pincha. ADR-0154.
+    internal static readonly IReadOnlySet<string> CloseToolNames =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "crear_actividad", "crear_tarea" };
+
     // Zona horaria del tenant demo (America/Bogota = UTC-5, sin horario de verano). Mientras el Tenant no
     // guarde su propia zona, anclamos aqui para que el agente calcule fechas relativas con el anio correcto.
     private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
@@ -493,8 +499,8 @@ CIUDAD:";
         string? lastText = null;
         // Red de seguridad de CIERRE: el modelo a veces afirma "ya te registre / un asesor te contactara"
         // sin invocar la herramienta de cierre, dejando al cliente FUERA del pipeline. Si detectamos ese
-        // caso lo forzamos a invocarla una sola vez.
-        var closeToolNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead" };
+        // caso lo forzamos a invocarla una sola vez. Las herramientas que cuentan como cierre estan en
+        // CloseToolNames (comercial + operativo). ADR-0154.
         var closeToolInvoked = false;
         var closeNudged = false;
 
@@ -521,10 +527,11 @@ CIUDAD:";
                     messages.Add(new AiToolMessage("assistant", completion.Text));
                     messages.Add(new AiToolMessage("user",
                         "[SISTEMA] Afirmaste que registraste/inscribiste al cliente o que un asesor lo contactara, " +
-                        "pero NO invocaste ninguna herramienta de cierre (crear_lead). " +
-                        "Es OBLIGATORIO: invoca AHORA la herramienta de cierre adecuada con los datos que ya tienes " +
-                        "(nombre y canal/tipo de cliente). Si te falta el nombre, pidelo en vez de afirmar el registro. " +
-                        "No respondas solo con texto."));
+                        "pero NO invocaste ninguna herramienta de cierre. " +
+                        "Es OBLIGATORIO: invoca AHORA la herramienta de cierre que te corresponda (por ejemplo " +
+                        "crear_actividad, crear_tarea o crear_lead, segun tus instrucciones) con los datos que ya " +
+                        "tienes. Si te falta el nombre, pidelo en vez de afirmar el registro. " +
+                        "Responde invocando la herramienta; NO respondas solo con texto ni expliques tu razonamiento."));
                     debugPrompts.Add(new AiDebugPrompt(
                         "Red de seguridad de cierre",
                         DateTimeOffset.UtcNow,
@@ -532,7 +539,34 @@ CIUDAD:";
                         completion.Text));
                     continue;
                 }
-                return (new AiChatResult(true, completion.Text ?? lastText, null, totalIn, totalOut), sessionCompleted);
+
+                // Blindaje anti-fuga del texto final hacia el cliente (ADR-0154):
+                //  - Si la red re-pincho (closeNudged) y AUN asi el modelo no invoco una herramienta de
+                //    cierre, su texto suele ser meta/razonamiento (justificaciones del tipo "ya use
+                //    crear_actividad, un lead seria redundante"), a veces en otro idioma. NO debe ir al cliente.
+                //  - Si el texto final menciona el NOMBRE de una herramienta registrada del agente, es una
+                //    fuga por construccion (el system_prompt prohibe que el cliente vea nombres de funciones).
+                // En ambos casos se suprime y se usa un acuse seguro; el texto fugado queda en bitacora.
+                var finalText = completion.Text;
+                var nudgeUnresolved = closeNudged && !closeToolInvoked;
+                var leakedToolName = ContainsToolName(finalText, ownerByTool.Keys);
+                if (nudgeUnresolved || leakedToolName)
+                {
+                    debugPrompts.Add(new AiDebugPrompt(
+                        "Red de cierre: fuga suprimida",
+                        DateTimeOffset.UtcNow,
+                        nudgeUnresolved
+                            ? "Tras el re-pinchazo el modelo no invoco una herramienta de cierre; se suprimio su texto (posible meta/razonamiento) y no se envio al cliente."
+                            : "El texto final mencionaba el nombre de una herramienta interna; se suprimio por fuga.",
+                        finalText));
+                    // En el re-pinchazo sin cierre NO reutilizamos el ultimo texto (suele ser la afirmacion
+                    // de cierre sin respaldo real); usamos un acuse neutro. Si solo hubo fuga de nombre,
+                    // intentamos recuperar el ultimo texto valido del cliente.
+                    finalText = nudgeUnresolved
+                        ? SafeClientText(null, ownerByTool.Keys)
+                        : SafeClientText(lastText, ownerByTool.Keys);
+                }
+                return (new AiChatResult(true, finalText ?? lastText, null, totalIn, totalOut), sessionCompleted);
             }
 
             // El modelo pidio una o mas herramientas: las registramos en el log y agregamos el turno assistant.
@@ -549,7 +583,7 @@ CIUDAD:";
             // Ejecuta cada herramienta in-process y agrega su resultado como mensaje "tool".
             foreach (var call in completion.ToolCalls)
             {
-                if (closeToolNames.Contains(call.Name)) { closeToolInvoked = true; }
+                if (CloseToolNames.Contains(call.Name)) { closeToolInvoked = true; }
                 var owner = ownerByTool.GetValueOrDefault(call.Name);
                 var exec = owner is null
                     ? new AgentToolResult(JsonSerializer.Serialize(new { ok = false, error = $"Herramienta no disponible o deshabilitada: {call.Name}" }), false)
@@ -572,7 +606,7 @@ CIUDAD:";
 
     // Detecta cuando el texto AFIRMA un cierre (registro / que un asesor lo contactara) para forzar
     // la herramienta de cierre si el modelo no la invoco. Insensible a acentos.
-    private static bool ClaimsCloseWithoutTool(string? text)
+    internal static bool ClaimsCloseWithoutTool(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) { return false; }
         var n = StripAccents(text.ToLowerInvariant());
@@ -583,6 +617,35 @@ CIUDAD:";
             || n.Contains("inscr")                   // quedaste inscrito / inscripcion
             || n.Contains("tu solicitud")
             || n.Contains("tu pedido");
+    }
+
+    // Fuga por construccion: el cliente JAMAS debe ver el nombre de una herramienta del agente. Si el
+    // texto final contiene literalmente el nombre de alguna herramienta registrada, lo tratamos como
+    // fuga. Se deriva de las herramientas REALES del agente (no de una lista fija) para cubrir cualquier
+    // toolset. ADR-0154.
+    internal static bool ContainsToolName(string? text, IEnumerable<string> toolNames)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return false; }
+        foreach (var name in toolNames)
+        {
+            if (!string.IsNullOrWhiteSpace(name) &&
+                text.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Texto seguro hacia el cliente: devuelve el candidato solo si tiene contenido y NO menciona
+    // herramientas internas; de lo contrario un acuse neutro que no promete falsamente el registro.
+    internal static string SafeClientText(string? candidate, IEnumerable<string> toolNames)
+    {
+        if (!string.IsNullOrWhiteSpace(candidate) && !ContainsToolName(candidate, toolNames))
+        {
+            return candidate.Trim();
+        }
+        return "Gracias por tu mensaje. Lo estoy gestionando y en breve te confirmo.";
     }
 
     private static string StripAccents(string s)

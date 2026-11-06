@@ -89,6 +89,16 @@ public interface IRuleDocumentService
     /// <summary>Reescribe los parametros (y el nombre) de una regla al enviar existente, por su vinculo.</summary>
     Task<RuleResult<FormSubmitRuleLinkDto>> UpdateFormSubmitTaskRuleAsync(Guid formSubmitRuleId, CreateFormSubmitTaskRuleRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>Garantiza (idempotente por VERBO dentro del formulario) una regla ON-SUBMIT que ejecuta
+    /// <paramref name="verbName"/> sobre la definicion dada. Crea el documento de reglas del formulario si falta,
+    /// la regla (o reusa la existente del mismo verbo, actualizando nombre/params) y el vinculo en
+    /// form_submit_rules. La regla nace/queda Active. La usan los modulos para auto-cablear su propio verbo al
+    /// enviar un formulario sin que el usuario arme la regla a mano (p.ej. Requerimientos Ola C). Devuelve el id
+    /// del vinculo FormSubmitRule.</summary>
+    Task<RuleResult<Guid>> EnsureFormSubmitVerbRuleAsync(
+        Guid definitionId, string verbName, string ruleName, string? paramsJson = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Quita el vinculo al enviar y borra la regla dedicada (si no tiene historial; si lo tiene,
     /// queda huerfana pero ya sin vinculo, asi que no vuelve a dispararse).</summary>
     Task<RuleResult<bool>> UnlinkFormSubmitAsync(Guid formSubmitRuleId, CancellationToken cancellationToken = default);

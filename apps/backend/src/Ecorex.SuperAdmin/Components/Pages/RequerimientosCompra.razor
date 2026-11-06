@@ -6,6 +6,8 @@
 @using Ecorex.Application.Preferences
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Components.Pages.Requerimientos
+@using Ecorex.SuperAdmin.Components.Shared
+@using Ecorex.SuperAdmin.Components.Shared.Requerimientos
 @using ClosedXML.Excel
 @inject IRequerimientoService Svc
 @inject IRequerimientoConfigService ConfigSvc
@@ -361,7 +363,7 @@ else
                                         case "proveedor": <span class="cd-muted">-</span> break;
                                         case "precio": <span class="cd-muted">-</span> break;
                                         case "acciones":
-                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenPlanificarGrupo(grp)" disabled="@_busy" title="Planificar/comprar las necesidades de este producto de una sola vez (un proveedor, se reparte a cada origen)">Planificar grupo</button>
+                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenPlanificarGrupoAsync(grp)" disabled="@_busy" title="Planificar/comprar las necesidades de este producto: una fila por origen, cada una con su proveedor y precio">Planificar grupo</button>
                                             break;
                                         default:
                                             {
@@ -647,12 +649,15 @@ else
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Descripcion (si no eliges item)
                     <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Producto a comprar" @bind="_aDescripcion" />
                 </label>
+                <datalist id="req-unidad-list">
+                    @foreach (var u in _unidades) { <option value="@u"></option> }
+                </datalist>
                 <div style="display:flex;gap:12px;">
                     <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);flex:1;">Cantidad
                         <input type="number" step="any" min="0" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_aCantidad" />
                     </label>
                     <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);flex:1;">Unidad
-                        <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="unid / caja / kg" @bind="_aUnidad" />
+                        <input list="req-unidad-list" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Elige o escribe (unid, caja, kg...)" @bind="_aUnidad" />
                     </label>
                 </div>
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Area solicitante
@@ -712,19 +717,107 @@ else
                 <strong style="font-size:14px;">Planificar: @_planProducto</strong>
                 <button class="btn btn-link btn-sm" @onclick="() => _showPlan = false">&times;</button>
             </div>
+            @* Pestanas: Detalle (necesidad[es]) | Planificacion -- mismo modal para individual y grupo *@
+            <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <button class="req-pgtab @(_planTab == "detalle" ? "on" : "")" @onclick='() => _planTab = "detalle"'>Detalle (@_planRegs.Count)</button>
+                <button class="req-pgtab @(_planTab == "cotizacion" ? "on" : "")" @onclick='() => _planTab = "cotizacion"'>Cotizacion@(_rfqsProducto.Count > 0 ? $" ({_rfqsProducto.Count})" : "")</button>
+                <button class="req-pgtab @(_planTab == "plan" ? "on" : "")" @onclick='() => _planTab = "plan"'>Planificacion</button>
+            </div>
+            @if (_planTab == "detalle")
+            {
+                <div style="padding:14px 18px;">
+                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">
+                        @if (_planIsGroup)
+                        {
+                            <text>Necesidades del MISMO producto que se agruparon en esta linea. Puedes sacar una del grupo con <strong>Dividir</strong> (se planificara aparte).</text>
+                        }
+                        else
+                        {
+                            <text>Necesidad que vas a planificar (origen, solicitante y actividad de donde vino el pedido).</text>
+                        }
+                    </p>
+                    <div class="cd-grid-wrap">
+                        <table class="cd-grid">
+                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th>Unidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th>@if (_planIsGroup && _canConfig) { <th></th> }</tr></thead>
+                            <tbody>
+                                @foreach (var pr in _planRegs)
+                                {
+                                    var prr = pr;
+                                    <tr>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.OrigenNombre) ? "(sin origen)" : prr.OrigenNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.SolicitanteNombre) ? "-" : prr.SolicitanteNombre)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.SourceTaskNumber) ? "-" : prr.SourceTaskNumber)</td>
+                                        <td class="num">@Fmt(prr.Cantidad)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(prr.UnidadMedida) ? "-" : prr.UnidadMedida)</td>
+                                        <td class="num">@Fmt(prr.CantidadPlanificada)</td>
+                                        <td class="num">@Fmt(prr.Cantidad - prr.CantidadPlanificada)</td>
+                                        <td>@(prr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
+                                        <td>@RequerimientoFilter.EstadoLabel(prr.Estado)</td>
+                                        @if (_planIsGroup && _canConfig)
+                                        {
+                                            <td style="white-space:nowrap;"><button class="btn btn-link btn-sm" @onclick="() => DividirDesdeGrupoAsync(prr)" disabled="@_busy" title="Sacar esta necesidad del grupo: se planificara por separado">Dividir</button></td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+            else
+            {
             <div style="padding:14px 18px;">
                 <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:12px;">
-                    <span>Cantidad total: <strong>@Fmt(_planCantidadPadre)</strong></span>
-                    <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong></span>
-                    <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong></span>
+                    @{ var _uSuf = string.IsNullOrWhiteSpace(PlanUnidad) ? "" : " " + PlanUnidad; }
+                    @if (!string.IsNullOrWhiteSpace(PlanUnidad)) { <span>Unidad: <strong>@PlanUnidad</strong></span> }
+                    <span>Cantidad total: <strong>@Fmt(TotalPlan)</strong>@_uSuf</span>
+                    <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong>@_uSuf</span>
+                    <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong>@_uSuf</span>
                     <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
                 </div>
 
+                @if (_planTab == "cotizacion")
+                {
+                <div style="font-size:12px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Proceso de cotizacion y candidatos para este producto. El envio al proveedor lo hace el <strong>flujo</strong> de cada proceso; aqui eliges el proceso que corre la RFQ, a quien pedir y comparas las ofertas que vuelven. Al usar una oferta pasas a <strong>Planificacion</strong>.</div>
+                @if (_canConfig)
+                {
+                    <div style="margin-bottom:12px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;padding:10px 12px;background:var(--surface-2,#f8fafc);">
+                        <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de cotizacion (RFQ) por producto</div>
+                        <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-bottom:8px;">Fija que flujo/subcategoria corre la RFQ de este producto. Gana sobre el proveedor, el origen y el default del modulo. Se recuerda para el producto.</div>
+                        @foreach (var p in PlanProductos())
+                        {
+                            var pp = p;
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                                <span style="font-size:12.5px;min-width:160px;color:var(--ink,#1f2937);">@pp.Label</span>
+                                <select class="form-select form-select-sm" style="max-width:280px;font-size:12.5px;"
+                                        value="@(_planProcEdit.TryGetValue(pp.Clave, out var pcur) ? pcur : "")"
+                                        @onchange="e => SetPlanProcesoAsync(pp.ItemId, pp.Desc, e.Value?.ToString())">
+                                    <option value="">(usa proveedor / origen / default)</option>
+                                    @foreach (var s in _subcats)
+                                    {
+                                        <option value="@s.Id">@s.Nombre</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+                }
+                <CotizacionesComparador ItemId="_planItemId" Descripcion="@_planDescripcion"
+                    Cantidad="@(RestanteActual > 0 ? RestanteActual : TotalPlan)"
+                    CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync"
+                    ShowBasket="true"
+                    FechaNecesidad="@(_planRegs.Where(r => r.FechaNecesidad != null).Select(r => r.FechaNecesidad).DefaultIfEmpty(null).Min())"
+                    DefaultOrigenIds="@(_planRegs.Where(r => r.OrigenId != null).Select(r => r.OrigenId!.Value).Distinct().ToList())" />
+                }
+
+                @if (_planTab == "plan")
+                {
                 <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
                     <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
                         <thead>
                             <tr style="background:var(--surface-2,#f8fafc);text-align:left;">
-                                <th style="padding:7px 10px;">Cantidad</th>
+                                @if (_planIsGroup) { <th style="padding:7px 10px;">Necesidad (origen)</th> }
+                                <th style="padding:7px 10px;">Cantidad@(string.IsNullOrWhiteSpace(PlanUnidad) ? "" : $" ({PlanUnidad})")</th>
                                 <th style="padding:7px 10px;">Fecha de compra</th>
                                 <th style="padding:7px 10px;">Despacho</th>
                                 <th style="padding:7px 10px;">Tiempo de entrega</th>
@@ -737,13 +830,29 @@ else
                         <tbody>
                             @if (_pHijos.Count == 0)
                             {
-                                <tr><td colspan="8" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
+                                <tr><td colspan="@(_planIsGroup ? 9 : 8)" style="padding:14px;text-align:center;color:var(--ink-3,#6b7280);">Sin divisiones. Agrega la primera compra programada.</td></tr>
                             }
                             @foreach (var h in _pHijos)
                             {
                                 var hi = h;
                                 <tr style="border-top:1px solid var(--line,#f1f5f9);">
-                                    <td style="padding:5px 8px;"><input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" /></td>
+                                    @if (_planIsGroup)
+                                    {
+                                        <td style="padding:5px 8px;">
+                                            <select class="cd-in" style="height:30px;min-width:160px;max-width:230px;font-size:12px;" @onchange="e => OnHijoReqChanged(hi, e)">
+                                                @foreach (var rg in _planRegs)
+                                                {
+                                                    <option value="@rg.Id" selected="@(hi.ReqId == rg.Id)">@(string.IsNullOrWhiteSpace(rg.OrigenNombre) ? "(sin origen)" : rg.OrigenNombre)@(string.IsNullOrWhiteSpace(rg.SourceTaskNumber) ? "" : $" / {rg.SourceTaskNumber}")</option>
+                                                }
+                                            </select>
+                                        </td>
+                                    }
+                                    <td style="padding:5px 8px;">
+                                        <div style="display:flex;align-items:center;gap:5px;">
+                                            <input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" />
+                                            @if (!string.IsNullOrWhiteSpace(PlanUnidad)) { <span style="font-size:11.5px;color:var(--ink-3,#6b7280);white-space:nowrap;">@PlanUnidad</span> }
+                                        </div>
+                                    </td>
                                     <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" /></td>
                                     <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" /></td>
                                     <td style="padding:5px 8px;"><input style="width:130px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="15 dias, inmediato" @bind="hi.Entrega" /></td>
@@ -825,7 +934,7 @@ else
                                 @if (_dynDefsHija.Count > 0)
                                 {
                                     <tr style="border-top:0;">
-                                        <td colspan="8" style="padding:2px 10px 8px 10px;">
+                                        <td colspan="@(_planIsGroup ? 9 : 8)" style="padding:2px 10px 8px 10px;">
                                             @if (hi.Id is null)
                                             {
                                                 <span style="font-size:11px;color:var(--ink-3,#6b7280);">Guarda la planificacion para capturar los campos propios de esta linea.</span>
@@ -868,14 +977,96 @@ else
                     </table>
                 </div>
                 <button class="btn btn-outline-secondary btn-sm" style="margin-top:10px;" @onclick="AddHijoRow">+ Agregar compra programada</button>
+                }
+
+                @if (_canConfig && _planTab == "cotizacion")
+                {
+                    <div style="margin-top:14px;border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                            <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);">Cotizar a varios proveedores (candidatos)</div>
+                            <button class="btn btn-outline-primary btn-sm" @onclick="ToggleCandidatos" disabled="@_busy">@(_showCandidatos ? "Ocultar" : "Elegir candidatos")</button>
+                        </div>
+                        <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin:4px 0 8px;">Pide el MISMO producto a varios proveedores a la vez (1 RFQ por proveedor, sin comprometer distribucion). Las respuestas caen en el comparador de arriba; al final adjudicas aqui asignando el proveedor/precio ganador al hijo.</div>
+                        @if (_matrizProvs.Count > 0)
+                        {
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--brand-soft,#eef2ff);border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+                                <div style="flex:1;min-width:200px;font-size:12px;color:var(--ink-2,#4b5563);">
+                                    <strong>Matriz:</strong> @(_matrizProvs.Count) proveedor(es) para este producto (@string.Join(", ", _matrizProvs.Select(p => p.ProveedorNombre))). El envio lo hace el flujo de cada proceso.
+                                </div>
+                                <button class="btn btn-primary btn-sm" @onclick="CotizarMatrizAsync" disabled="@_busy" title="Crea una RFQ candidata a CADA proveedor de la regla de la matriz; cada flujo de cotizacion envia por su canal.">Cotizar a la matriz (@_matrizProvs.Count)</button>
+                            </div>
+                        }
+                        @if (_showCandidatos)
+                        {
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                                <input list="req-cand-prov" class="form-control form-control-sm" style="max-width:260px;" placeholder="Proveedor del directorio..." @bind="_candProvInput" @bind:event="oninput" />
+                                <datalist id="req-cand-prov">
+                                    @foreach (var p in _proveedores) { <option value="@p.Nombre"></option> }
+                                </datalist>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="AddCandidato" disabled="@_busy">+ Agregar</button>
+                                <span style="font-size:12px;color:var(--ink-3,#6b7280);">Cantidad</span>
+                                <input type="number" min="0" step="any" class="form-control form-control-sm" style="width:110px;" placeholder="pendiente" @bind="_candCantidad" />
+                            </div>
+                            @if (_candSel.Count > 0)
+                            {
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                                    @foreach (var cand in _candSel)
+                                    {
+                                        var cc = cand;
+                                        <span style="display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft,#eef2ff);color:var(--brand,#4f46e5);border-radius:999px;padding:3px 10px;font-size:12px;">@cc.Nombre <button class="btn btn-link btn-sm" style="padding:0;color:inherit;line-height:1;" @onclick="() => RemoveCandidato(cc.Id)">&times;</button></span>
+                                    }
+                                </div>
+                                <button class="btn btn-primary btn-sm" @onclick="EnviarCandidatosAsync" disabled="@_busy">Enviar @_candSel.Count RFQ de cotizacion</button>
+                            }
+                        }
+                        @if (_rfqsProducto.Count > 0)
+                        {
+                            <div style="margin-top:12px;">
+                                <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Solicitudes de cotizacion (RFQ) de este producto (@_rfqsProducto.Count)</div>
+                                <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;">
+                                    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                                        <thead><tr style="text-align:left;color:var(--ink-3,#6b7280);background:var(--surface-2,#f8fafc);"><th style="padding:6px 10px;">RFQ</th><th style="padding:6px 10px;">Proveedor</th><th style="padding:6px 10px;">Estado</th><th style="padding:6px 10px;">Oferta</th><th style="padding:6px 10px;">Tarea</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var rq in _rfqsProducto)
+                                            {
+                                                var oferta = rq.Lineas.FirstOrDefault()?.PrecioUnitario;
+                                                <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                                    <td style="padding:6px 10px;font-weight:600;">@rq.Numero</td>
+                                                    <td style="padding:6px 10px;">@(rq.ProveedorNombre ?? "-")</td>
+                                                    <td style="padding:6px 10px;">@RfqEstadoLabel(rq.Estado)</td>
+                                                    <td style="padding:6px 10px;">@(oferta is decimal pv ? pv.ToString("#,##0.##") : "-")</td>
+                                                    <td style="padding:6px 10px;">@(rq.TaskNumber ?? "-")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
                 @if (_planError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_planError</div> }
             </div>
+            }
             <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                @if (_canConfig)
+                @if (_planTab == "detalle")
                 {
-                    <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
+                    <button class="btn btn-primary btn-sm" @onclick='() => _planTab = "cotizacion"' disabled="@_busy">Continuar &rarr;</button>
                 }
-                <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                else if (_planTab == "cotizacion")
+                {
+                    <button class="btn btn-outline-secondary btn-sm" style="margin-right:auto;" @onclick='() => _planTab = "detalle"' disabled="@_busy">&larr; Detalle</button>
+                    <button class="btn btn-primary btn-sm" @onclick='() => _planTab = "plan"' disabled="@_busy">Continuar a planificar &rarr;</button>
+                }
+                else
+                {
+                    @if (_canConfig)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
+                        <button class="btn btn-primary btn-sm" title="Agrupa las lineas marcadas POR PROVEEDOR y crea una Solicitud de Cotizacion (RFQ) por proveedor, con su tarea de flujo. Idempotente." @onclick="CotizarPorProveedorAsync" disabled="@(_busy || SelCount == 0)">Cotizar por proveedor (RFQ)@(SelCount > 0 ? $" ({SelCount})" : "")</button>
+                    }
+                    <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                }
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlan = false" disabled="@_busy">Cancelar</button>
             </div>
         </div>
@@ -885,13 +1076,20 @@ else
 @* ---- Planificar GRUPO (vista consolidada: una pasada para todas las necesidades del mismo producto) ---- *@
 @if (_showConfigModal)
 {
-    <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showConfigModal = false">
-        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+    <div style="position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showConfigModal = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;width:960px;max-width:95vw;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
                 <strong style="font-size:14px;">Configuracion del modulo</strong>
                 <button class="btn btn-link btn-sm" @onclick="() => _showConfigModal = false">&times;</button>
             </div>
-            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <button class="req-pgtab @(_cfgTab == "general" ? "on" : "")" @onclick='() => _cfgTab = "general"'>General</button>
+                <button class="req-pgtab @(_cfgTab == "origenes" ? "on" : "")" @onclick='() => _cfgTab = "origenes"'>Origenes (@_cfgOrigenes.Count)</button>
+                <button class="req-pgtab @(_cfgTab == "proveedores" ? "on" : "")" @onclick='() => _cfgTab = "proveedores"'>Matriz de proveedores (@_cfgReglas.Count)</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:14px;min-height:280px;">
+                @if (_cfgTab == "general")
+                {
                 <div>
                     <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:8px;">Modo de trabajo</div>
                     <label style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid @(_cfgModo == RequerimientoModo.Consolidado ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");border-radius:10px;cursor:pointer;margin-bottom:8px;background:@(_cfgModo == RequerimientoModo.Consolidado ? "var(--brand-soft,#eef2ff)" : "transparent");">
@@ -911,120 +1109,288 @@ else
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:8px;">Tip: en modo Consolidado puedes sacar un registro puntual de la consolidacion con el boton <strong>Dividir</strong> de su fila.</div>
                 </div>
                 <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
-                    <button class="btn btn-link btn-sm" style="padding:0;" @onclick="GoToConfigAvanzada">Configuracion avanzada (origenes y proveedores) &rarr;</button>
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Agente evaluador de cotizaciones</div>
+                    <select class="form-select form-select-sm" value="@(_cfgAgente?.ToString() ?? "")" @onchange="OnCfgAgenteChanged">
+                        <option value="">(sin agente: "Evaluar con IA" pedira configurarlo)</option>
+                        @foreach (var a in _agentes)
+                        {
+                            <option value="@a.Id" selected="@(_cfgAgente == a.Id)">@a.Nombre</option>
+                        }
+                    </select>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">El agente del <strong>modulo de agentes</strong> que compara las cotizaciones del comparador y propone la mejor opcion.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de cotizacion por defecto (RFQ)</div>
+                    <select class="form-select form-select-sm" @bind="_cfgCotDefault">
+                        <option value="">(sin default: usa el proceso del origen de la linea)</option>
+                        @foreach (var s in _subcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Flujo/subcategoria que corre la RFQ cuando ni el <strong>producto</strong> (en Planificar), ni el <strong>proveedor</strong> (matriz), ni el <strong>origen</strong> de la linea fijan uno. Es el ultimo recurso de la cadena.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proceso de compras por defecto</div>
+                    <select class="form-select form-select-sm" @bind="_cfgCompraDefault">
+                        <option value="">(sin default: usa el proceso de compra del origen de la linea)</option>
+                        @foreach (var s in _subcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Flujo/subcategoria que corre al <strong>Ejecutar</strong> la compra cuando ni la <strong>matriz</strong> del proveedor ni el <strong>origen</strong> de la linea fijan uno. Es el ultimo recurso de la cadena de compra.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Unidades de medida</div>
+                    <textarea class="form-control form-control-sm" rows="6" @bind="_cfgUnidades" placeholder="Una por linea (Unidad, Caja, Kilogramo...)" style="font-size:12.5px;font-family:inherit;"></textarea>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Una unidad por linea. Aparecen al crear una necesidad y en el verbo <strong>Generar requerimientos desde tabla</strong>. Si lo dejas vacio se usan las unidades comunes por defecto.</div>
                 </div>
                 @if (_cfgError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgError</div> }
+                }
+                else if (_cfgTab == "origenes")
+                {
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                        <p style="font-size:12px;color:var(--ink-3,#6b7280);margin:0;flex:1;">De donde llega cada necesidad y que subcategoria/proceso del modulo de Actividades ejecuta la compra de ese genero.</p>
+                        <button class="btn btn-primary btn-sm" @onclick="() => OpenCfgOrigen(null)" disabled="@_busy">+ Nuevo origen</button>
+                    </div>
+                    @if (_cfgOrigenes.Count == 0)
+                    {
+                        <div style="padding:24px;text-align:center;color:var(--ink-3,#6b7280);font-size:13px;border:1px dashed var(--line-2,#e5e7eb);border-radius:10px;">Sin origenes todavia. Crea el primero (p.ej. "Insumos de Oficina") con "+ Nuevo origen".</div>
+                    }
+                    else
+                    {
+                        <div style="overflow:auto;border:1px solid var(--line-2,#e5e7eb);border-radius:10px;">
+                            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                                <thead><tr style="background:var(--surface-2,#f8fafc);text-align:left;"><th style="padding:9px 12px;">Nombre</th><th style="padding:9px 12px;">Area</th><th style="padding:9px 12px;">Fuente</th><th style="padding:9px 12px;">Proceso de compra</th><th style="padding:9px 12px;">Activo</th><th style="padding:9px 12px;"></th></tr></thead>
+                                <tbody>
+                                    @foreach (var o in _cfgOrigenes)
+                                    {
+                                        var oo = o;
+                                        <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                            <td style="padding:9px 12px;font-weight:600;">@oo.Nombre</td>
+                                            <td style="padding:9px 12px;">@(string.IsNullOrWhiteSpace(oo.Area) ? "-" : oo.Area)</td>
+                                            <td style="padding:9px 12px;">@CfgFuenteLabel(oo)</td>
+                                            <td style="padding:9px 12px;">@(oo.SubcategoriaNombre ?? "(sin proceso)")</td>
+                                            <td style="padding:9px 12px;">@(oo.Activo ? "Si" : "No")</td>
+                                            <td style="padding:9px 12px;text-align:right;white-space:nowrap;">
+                                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenCfgOrigen(oo)" disabled="@_busy">Editar</button>
+                                                <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCfgOrigenAsync(oo.Id)" disabled="@_busy">Eliminar</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                        <p style="font-size:12px;color:var(--ink-3,#6b7280);margin:0;flex:1;">Asocia un proveedor del Directorio a una dimension del producto (referencia, marca, subgrupo, grupo o categoria). Al planificar, la regla MAS especifica que aplique sugiere el proveedor.</p>
+                        <button class="btn btn-primary btn-sm" @onclick="() => OpenCfgRegla(null)" disabled="@_busy">+ Nueva regla</button>
+                    </div>
+                    @if (_cfgReglas.Count == 0)
+                    {
+                        <div style="padding:24px;text-align:center;color:var(--ink-3,#6b7280);font-size:13px;border:1px dashed var(--line-2,#e5e7eb);border-radius:10px;">Sin reglas todavia. Agrega la primera: una o varias condiciones (p.ej. Marca=ACME Y Categoria=Portatiles) -> proveedor.</div>
+                    }
+                    else
+                    {
+                        <div style="display:flex;flex-direction:column;gap:12px;">
+                            @foreach (var grp in _cfgReglas.GroupBy(CondSig))
+                            {
+                                var first = grp.First();
+                                var baseRule = first;
+                                <div style="border:1px solid var(--line-2,#e5e7eb);border-radius:10px;overflow:hidden;">
+                                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px;background:var(--surface-2,#f8fafc);border-bottom:1px solid var(--line,#f1f5f9);">
+                                        <strong style="font-size:13px;flex:1;min-width:150px;">@CondicionesTexto(first)</strong>
+                                        <span style="font-size:11.5px;color:var(--ink-3,#6b7280);">@grp.Count() proveedor(es)</span>
+                                        <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenCfgReglaAddProv(baseRule)" disabled="@_busy" title="Agregar otro proveedor a esta misma regla (mismas condiciones)">+ Agregar proveedor</button>
+                                    </div>
+                                    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+                                        <thead><tr style="text-align:left;color:var(--ink-3,#6b7280);"><th style="padding:6px 12px;font-weight:600;">Proveedor</th><th style="padding:6px 12px;font-weight:600;">Proceso de cotizacion (envia el flujo)</th><th style="padding:6px 12px;font-weight:600;">Prioridad</th><th style="padding:6px 12px;font-weight:600;">Vigencia</th><th style="padding:6px 12px;font-weight:600;">Activo</th><th></th></tr></thead>
+                                        <tbody>
+                                            @foreach (var r in grp.OrderBy(x => x.Prioridad))
+                                            {
+                                                var rr = r;
+                                                <tr style="border-top:1px solid var(--line,#f1f5f9);">
+                                                    <td style="padding:7px 12px;font-weight:600;">@(rr.ProveedorNombre ?? "(proveedor)")@(rr.Aprendida ? " (aprendida)" : "")</td>
+                                                    <td style="padding:7px 12px;">@(rr.SubcategoriaNombre ?? "(precedencia del modulo)")</td>
+                                                    <td style="padding:7px 12px;">@rr.Prioridad</td>
+                                                    <td style="padding:7px 12px;">@(rr.VigenciaDias is int vd ? $"{vd} d" : "(del proveedor)")</td>
+                                                    <td style="padding:7px 12px;">@(rr.Activo ? "Si" : "No")</td>
+                                                    <td style="padding:7px 12px;text-align:right;white-space:nowrap;">
+                                                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => OpenCfgRegla(rr)" disabled="@_busy">Editar</button>
+                                                        <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => DeleteCfgReglaAsync(rr.Id)" disabled="@_busy">Eliminar</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (_cfgError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgError</div> }
+                }
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                <button class="btn btn-primary btn-sm" @onclick="SaveConfigAsync" disabled="@_busy">Guardar</button>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showConfigModal = false" disabled="@_busy">Cancelar</button>
+                @if (_cfgTab == "general")
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="SaveConfigAsync" disabled="@_busy">Guardar</button>
+                }
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showConfigModal = false" disabled="@_busy">Cerrar</button>
             </div>
         </div>
     </div>
 }
 
-@if (_showPlanGrupo)
+@* ---- Config: editor de origen (dentro del modal de configuracion) ---- *@
+@if (_cfgShowOrigen)
 {
-    <div style="position:fixed;inset:0;z-index:4000;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _showPlanGrupo = false">
-        <datalist id="req-grupo-prov-list">
-            @foreach (var p in _proveedores) { <option value="@p.Nombre"></option> }
-        </datalist>
-        <div style="background:var(--surface,#fff);border-radius:14px;width:min(820px,96vw);box-shadow:0 24px 64px rgba(15,23,42,.28);" @onclick:stopPropagation="true">
+    <div style="position:fixed;inset:0;z-index:1040;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _cfgShowOrigen = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
-                <strong style="font-size:14px;">Planificar grupo: @_pgProducto</strong>
-                <button class="btn btn-link btn-sm" @onclick="() => _showPlanGrupo = false">&times;</button>
+                <strong style="font-size:14px;">@(_cfgoId is null ? "Nuevo origen" : "Editar origen")</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _cfgShowOrigen = false">&times;</button>
             </div>
-            @* Pestanas: Detalle de los items agrupados | Planificacion *@
-            <div style="display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--line-2,#e5e7eb);">
-                <button class="req-pgtab @(_pgTab == "detalle" ? "on" : "")" @onclick='() => _pgTab = "detalle"'>Detalle (@_pgGrupo.Count)</button>
-                <button class="req-pgtab @(_pgTab == "plan" ? "on" : "")" @onclick='() => _pgTab = "plan"'>Planificacion</button>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Nombre
+                    <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Insumos de Oficina" @bind="_cfgoNombre" />
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Area solicitante
+                    <input class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" placeholder="Proyectos / Oficina / Inventario" @bind="_cfgoArea" />
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Tipo de fuente
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoTipoFuente">
+                        @foreach (var t in Enum.GetValues<RequerimientoFuenteTipo>())
+                        {
+                            <option value="@t">@CfgTipoFuenteLabel(t)</option>
+                        }
+                    </select>
+                </label>
+                @if (_cfgoTipoFuente == RequerimientoFuenteTipo.Formulario)
+                {
+                    <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Formulario que alimenta
+                        <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoFuenteRefId">
+                            <option value="">(elige un formulario)</option>
+                            @foreach (var f in _cfgForms)
+                            {
+                                <option value="@f.Id">@f.Nombre</option>
+                            }
+                        </select>
+                    </label>
+                }
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proceso de compra (subcategoria que ejecuta)
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoSubcategoriaId">
+                        <option value="">(sin proceso)</option>
+                        @foreach (var s in _cfgSubcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-2,#4b5563);">Proceso de cotizacion (subcategoria que pide precio)
+                    <select style="height:34px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;" @bind="_cfgoSubcategoriaCotizacionId">
+                        <option value="">(sin proceso de cotizacion)</option>
+                        @foreach (var s in _cfgSubcats)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;"><input type="checkbox" @bind="_cfgoActivo" /> Activo</label>
+                @if (_cfgoError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgoError</div> }
             </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="SaveCfgOrigenAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _cfgShowOrigen = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    </div>
+}
 
-            @if (_pgTab == "detalle")
-            {
-                <div style="padding:14px 18px;">
-                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Necesidades del MISMO producto que se agruparon en esta linea. Puedes sacar una del grupo con <strong>Dividir</strong> (se planificara aparte).</p>
-                    <div class="cd-grid-wrap">
-                        <table class="cd-grid">
-                            <thead><tr><th>Origen</th><th>Solicitante</th><th>Actividad</th><th class="num">Cantidad</th><th class="num">Planificado</th><th class="num">Restante</th><th>Fecha nec.</th><th>Estado</th><th></th></tr></thead>
-                            <tbody>
-                                @foreach (var d in _pgGrupo)
-                                {
-                                    var dr = d;
-                                    <tr>
-                                        <td>@(string.IsNullOrWhiteSpace(dr.OrigenNombre) ? "(sin origen)" : dr.OrigenNombre)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(dr.SolicitanteNombre) ? "-" : dr.SolicitanteNombre)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(dr.SourceTaskNumber) ? "-" : dr.SourceTaskNumber)</td>
-                                        <td class="num">@Fmt(dr.Cantidad)</td>
-                                        <td class="num">@Fmt(dr.CantidadPlanificada)</td>
-                                        <td class="num">@Fmt(dr.Cantidad - dr.CantidadPlanificada)</td>
-                                        <td>@(dr.FechaNecesidad?.ToString("dd/MM/yyyy") ?? "-")</td>
-                                        <td>@RequerimientoFilter.EstadoLabel(dr.Estado)</td>
-                                        <td style="white-space:nowrap;">
-                                            @if (_canConfig)
-                                            {
-                                                <button class="btn btn-link btn-sm" @onclick="() => DividirDesdeGrupoAsync(dr)" disabled="@_busy" title="Sacar esta necesidad del grupo: se planificara por separado">Dividir</button>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
+@* ---- Config: editor de regla de proveedor (dentro del modal de configuracion) ---- *@
+@if (_cfgShowRegla)
+{
+    <div style="position:fixed;inset:0;z-index:1050;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;" @onclick="() => _cfgShowRegla = false">
+        <div style="background:var(--surface,#fff);border-radius:12px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25);" @onclick:stopPropagation="true">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line-2,#e5e7eb);">
+                <strong style="font-size:14px;">@(_cfgrId is null ? "Nueva regla" : "Editar regla")</strong>
+                <button class="btn btn-link btn-sm" @onclick="() => _cfgShowRegla = false">&times;</button>
+            </div>
+            <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;max-height:72vh;overflow:auto;">
+                <datalist id="cfg-prov-list">
+                    @foreach (var p in _cfgProvs) { <option value="@p.Nombre"></option> }
+                </datalist>
+
+                <div>
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Condiciones <span style="font-weight:400;color:var(--ink-3,#6b7280);">(se cumplen TODAS; mas condiciones = regla mas especifica)</span></div>
+                    @foreach (var c in _cfgrCond)
+                    {
+                        var cc = c;
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+                            <select style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;min-width:135px;" value="@cc.Dim" @onchange="e => OnCondDimChanged(cc, e)">
+                                @foreach (var d in Enum.GetValues<RequerimientoDimension>()) { <option value="@d">@CfgDimensionLabel(d)</option> }
+                            </select>
+                            <select style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;flex:1;" @bind="cc.Valor">
+                                <option value="">(elige un valor)</option>
+                                @foreach (var v in DimValores(cc.Dim)) { <option value="@v.Id">@v.Nombre</option> }
+                            </select>
+                            <button class="btn btn-link btn-sm" style="color:#b91c1c;padding:0 6px;" @onclick="() => RemoveCfgCond(cc)" disabled="@(_cfgrCond.Count <= 1)" title="Quitar condicion">&times;</button>
+                        </div>
+                    }
+                    <button class="btn btn-link btn-sm" style="padding:0;" @onclick="AddCfgCond">+ Agregar condicion</button>
                 </div>
-            }
-            else
-            {
-                <div style="padding:14px 18px;">
-                    <p style="font-size:12.5px;color:var(--ink-2,#4b5563);margin:0 0 12px;">Defines proveedor/precio/fecha UNA sola vez y se crea una distribucion por cada necesidad del grupo (cada origen queda cubierto y se puede ejecutar). Total a planificar: <strong>@Fmt(_pgTotal)</strong>.</p>
-                    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 220px;">
-                            Proveedor (opcional)
-                            <input list="req-grupo-prov-list" class="form-control form-control-sm" value="@_pgProvNombre" @onchange="OnPgProvChanged" placeholder="Escribe o elige un proveedor del Directorio" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 130px;">
-                            Precio unit.
-                            <input type="number" step="any" class="form-control form-control-sm" @bind="_pgPrecio" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:0 0 160px;">
-                            Fecha programada
-                            <input type="date" class="form-control form-control-sm" @bind="_pgFecha" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;flex:1 1 180px;">
-                            Despacho / nota
-                            <input type="text" class="form-control form-control-sm" @bind="_pgDespacho" />
-                        </label>
+
+                <div>
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Proveedores de esta regla <span style="font-weight:400;color:var(--ink-3,#6b7280);">(uno o varios; cada uno con su proceso de cotizacion y su proceso de compra. El envio al proveedor lo hace el flujo de cada proceso).</span></div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        @foreach (var pe in _cfgrProvs2)
+                        {
+                            var ppe = pe;
+                            <div style="border:1px solid var(--line-2,#e5e7eb);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--surface-2,#f8fafc);">
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input list="cfg-prov-list" class="cd-in" style="height:34px;padding:0 10px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:13px;flex:1;" placeholder="Proveedor del Directorio" value="@ppe.ProvNombre" @onchange="e => OnCfgProvRowChanged(ppe, e)" />
+                                    @if (string.IsNullOrEmpty(ppe.Proveedor) && !string.IsNullOrWhiteSpace(ppe.ProvNombre))
+                                    {
+                                        <button class="btn btn-outline-primary btn-sm" style="white-space:nowrap;" @onclick="() => CrearProveedorEnDirectorioRowAsync(ppe)" disabled="@_busy" title="Crear/marcar este proveedor en el Directorio">+ Crear</button>
+                                    }
+                                    <button class="btn btn-link btn-sm" style="color:#b91c1c;padding:0 6px;" @onclick="() => RemoveCfgProvRow(ppe)" disabled="@(_cfgrProvs2.Count <= 1)" title="Quitar este proveedor de la regla">&times;</button>
+                                </div>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);flex:1;min-width:190px;">Proceso de cotizacion (RFQ) &mdash; lo envia el flujo
+                                        <select class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" @bind="ppe.Proceso">
+                                            <option value="">(usar la precedencia del modulo)</option>
+                                            @foreach (var s in _subcats) { <option value="@s.Id">@s.Nombre</option> }
+                                        </select>
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);flex:1;min-width:190px;">Proceso de compras &mdash; corre al Ejecutar
+                                        <select class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" @bind="ppe.ProcesoCompra">
+                                            <option value="">(usar la precedencia del modulo)</option>
+                                            @foreach (var s in _subcats) { <option value="@s.Id">@s.Nombre</option> }
+                                        </select>
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);width:120px;">Vigencia (dias)
+                                        <input type="number" min="0" step="1" class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" placeholder="(del proveedor)" @bind="ppe.Vigencia" />
+                                    </label>
+                                    <label style="display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2,#4b5563);width:100px;" title="A igual especificidad, menor gana">Prioridad
+                                        <input type="number" min="0" step="1" class="cd-in" style="height:32px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;font-size:12.5px;" @bind="ppe.Prioridad" />
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;height:32px;"><input type="checkbox" @bind="ppe.Activo" /> Activo</label>
+                                </div>
+                                @if (ppe.Aprendida) { <div style="font-size:11px;color:var(--ink-3,#6b7280);">(regla aprendida automaticamente)</div> }
+                            </div>
+                        }
                     </div>
-                    <div class="cd-grid-wrap">
-                        <table class="cd-grid">
-                            <thead><tr><th>Necesidad (origen)</th><th>Actividad</th><th class="num">Restante</th><th class="num">A planificar</th></tr></thead>
-                            <tbody>
-                                @foreach (var l in _pgLineas)
-                                {
-                                    var lin = l;
-                                    <tr>
-                                        <td>@(string.IsNullOrWhiteSpace(lin.Origen) ? "(sin origen)" : lin.Origen)</td>
-                                        <td>@(string.IsNullOrWhiteSpace(lin.Actividad) ? "-" : lin.Actividad)</td>
-                                        <td class="num">@Fmt(lin.Restante)</td>
-                                        <td class="num"><input type="number" step="any" style="width:110px;text-align:right;" class="form-control form-control-sm" @bind="lin.Cantidad" /></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                    @if (_pgError is not null) { <div style="color:#b91c1c;font-size:12.5px;margin-top:8px;">@_pgError</div> }
+                    <button class="btn btn-outline-primary btn-sm" style="margin-top:8px;" @onclick="AddCfgProvRow" disabled="@_busy">+ Agregar proveedor</button>
+                    <div style="font-size:11px;color:var(--ink-3,#6b7280);margin-top:6px;">Los contactos (p.ej. el jefe de compras) se capturan al cotizar.</div>
                 </div>
-            }
-            <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
-                @if (_pgTab == "detalle")
-                {
-                    <button class="btn btn-primary btn-sm" @onclick='() => _pgTab = "plan"' disabled="@_busy">Continuar a planificar &rarr;</button>
-                }
-                else
-                {
-                    <button class="btn btn-primary btn-sm" @onclick="GuardarPlanGrupoAsync" disabled="@_busy">Planificar grupo</button>
-                }
-                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlanGrupo = false" disabled="@_busy">Cancelar</button>
+                @if (_cfgrError is not null) { <div style="color:#b91c1c;font-size:12.5px;">@_cfgrError</div> }
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line-2,#e5e7eb);">
+                <button class="btn btn-primary btn-sm" @onclick="SaveCfgReglaAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _cfgShowRegla = false" disabled="@_busy">Cancelar</button>
             </div>
         </div>
     </div>
@@ -1208,6 +1574,11 @@ else
     </div>
 }
 
+@* Modal del Directorio para crear/marcar un proveedor sin salir de la matriz (reusa el flujo existente).
+   El TerceroModal usa z-index 1100; el modal de configuracion (1000) y sus editores (1040/1050) quedan por
+   DEBAJO para que el Directorio aparezca por encima al crear un proveedor. *@
+<TerceroModal @ref="_terceroModal" OnCreated="OnProveedorCreatedAsync" />
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -1238,34 +1609,86 @@ else
     private bool _showConfigModal;
     private RequerimientoModo _cfgModo;
     private string? _cfgError;
+    // Agente evaluador de cotizaciones (modulo de agentes) elegido en la config.
+    private Guid? _cfgAgente;
+    private List<RequerimientoOpcionDto> _agentes = new();
+    // Catalogo de unidades de medida del tenant (para el datalist del alta); _cfgUnidades = texto editable del modal.
+    private List<string> _unidades = new();
+    private string _cfgUnidades = "";
 
-    // ---- Planificar GRUPO (vista consolidada: una pasada para N necesidades del mismo producto) ----
-    private bool _showPlanGrupo;
-    private string _pgProducto = "";
-    private decimal _pgTotal;
-    private string _pgProvNombre = "";
-    private string _pgProv = "";   // id del proveedor como string ("" si ninguno)
-    private decimal _pgPrecio;
-    private DateTime? _pgFecha;
-    private string _pgDespacho = "";
-    private string? _pgError;
-    private List<PgLinea> _pgLineas = new();
-    // Pestana activa del modal: "detalle" (items agrupados) o "plan" (planificacion).
-    private string _pgTab = "detalle";
-    // Clave de consolidacion del grupo abierto + las necesidades (DTO) para la pestana Detalle.
-    private string _pgKey = "";
-    private List<RequerimientoDto> _pgGrupo = new();
-    private sealed class PgLinea
+    // ---- Config avanzada embebida en el modal (antes pagina /requerimientos-config) ----
+    private string _cfgTab = "general";                 // general | origenes | proveedores
+    private List<RequerimientoOrigenDto> _cfgOrigenes = new();
+    private List<RequerimientoOpcionDto> _cfgSubcats = new();
+    private List<RequerimientoOpcionDto> _cfgForms = new();
+    private List<RequerimientoReglaDto> _cfgReglas = new();
+    private List<RequerimientoOpcionDto> _cfgProvs = new();
+    // Editor de origen
+    private bool _cfgShowOrigen;
+    private string? _cfgoError;
+    private Guid? _cfgoId;
+    private string _cfgoNombre = "";
+    private string _cfgoArea = "";
+    private RequerimientoFuenteTipo _cfgoTipoFuente = RequerimientoFuenteTipo.Manual;
+    private string _cfgoFuenteRefId = "";
+    private string _cfgoSubcategoriaId = "";
+    private string _cfgoSubcategoriaCotizacionId = "";
+    private bool _cfgoActivo = true;
+    // Editor de regla (matriz de proveedores): varias condiciones (AND), proveedor del Directorio con
+    // contactos y dias de vigencia de la oferta.
+    private bool _cfgShowRegla;
+    private string? _cfgrError;
+    private Guid? _cfgrId;
+    private sealed class CondEdit { public RequerimientoDimension Dim = RequerimientoDimension.Marca; public string Valor = ""; }
+    private List<CondEdit> _cfgrCond = new();
+    private Dictionary<RequerimientoDimension, List<RequerimientoOpcionDto>> _cfgDimValores = new();
+    // Ola F (editor multi-proveedor): una regla = condiciones (arriba) + N proveedores (abajo), cada uno con su
+    // proceso/vigencia/prioridad/activo. Cada fila respalda una RequerimientoProveedorRegla (RuleId null = nueva).
+    private sealed class ReglaProvEdit
     {
-        public Guid ReqId;
-        public string Origen = "";
-        public string Actividad = "";
-        public decimal Restante;
-        public decimal Cantidad;   // cantidad a planificar en esta pasada (default = restante)
+        public Guid? RuleId;
+        public string Proveedor = "";     // Guid del tercero (texto)
+        public string ProvNombre = "";
+        public string Proceso = "";       // proceso de COTIZACION: Guid de subcategoria (texto); "" = precedencia del modulo
+        public string ProcesoCompra = ""; // proceso de COMPRA: Guid de subcategoria (texto); "" = precedencia del modulo
+        public int? Vigencia;
+        public int Prioridad = 100;
+        public bool Activo = true;
+        public bool Aprendida;
     }
+    private List<ReglaProvEdit> _cfgrProvs2 = new();
+    private HashSet<Guid> _cfgrOrigIds = new();   // ids de filas-regla del grupo al abrir (para borrar las quitadas)
+    private ReglaProvEdit? _cfgrCreatingRow;      // fila a la que se asignara el proveedor creado en el Directorio
+    // Vigencia default por proveedor (matriz agrupada) + edicion en linea.
+    private Dictionary<Guid, int> _cfgProvVig = new();
+    private Dictionary<Guid, string> _cfgProvVigEdit = new();
+    private Ecorex.SuperAdmin.Components.Shared.TerceroModal? _terceroModal;
+    // Ola D: proceso de cotizacion por defecto del modulo + por proveedor (matriz). _subcats = catalogo comun.
+    private List<RequerimientoOpcionDto> _subcats = new();
+    private string _cfgCotDefault = "";
+    private string _cfgCompraDefault = "";
+    private Dictionary<Guid, Guid> _cfgProvProc = new();
+    private Dictionary<Guid, string> _cfgProvProcEdit = new();
+    // Ola D: proceso de cotizacion por PRODUCTO (lo fija el comprador en Planificar). Mapa clave -> subcat.
+    private IReadOnlyDictionary<string, Guid> _planProcMap = new Dictionary<string, Guid>();
+    private Dictionary<string, string> _planProcEdit = new();
+    // Ola E: multi-candidato (cotizar el mismo producto a varios proveedores) + panel de estado RFQ.
+    private bool _showCandidatos;
+    private string _candProvInput = "";
+    private string _candCantidad = "";
+    private List<(Guid Id, string Nombre)> _candSel = new();
+    private List<RfqDto> _rfqsProducto = new();
+    // Ola F: proveedores que la MATRIZ resuelve para el producto abierto (para el fan-out de un clic).
+    private List<ReglaProveedorResueltoDto> _matrizProvs = new();
+
+    // Clave de consolidacion del grupo abierto (para recalcular el grupo tras un "Dividir").
+    private string _pgKey = "";
 
     // ---- Planificacion (division en hijos) ----
     private bool _showPlan;
+    private string _planTab = "detalle";      // pestana activa del modal (Detalle | plan)
+    private bool _planIsGroup;                 // true = se planifican varias necesidades (linea agrupada)
+    private List<RequerimientoDto> _planRegs = new();  // necesidad(es) que se planifican (1 individual, N grupo)
     private string? _planError;
     private Guid _planReqId;
     private string _planProducto = "";
@@ -1276,6 +1699,7 @@ else
     private sealed class HijoEdit
     {
         public Guid? Id;
+        public Guid ReqId;                     // necesidad (padre) a la que pertenece esta division (clave en modo grupo)
         public decimal Cantidad = 1;
         public DateTime? Fecha;
         public string Despacho = "";
@@ -1295,9 +1719,10 @@ else
         public Guid? ContactoId;               // contacto especifico elegido (Ola 11); null = el primero
         public List<ProveedorContactoItemDto> ContactosDisponibles = new();
     }
-    private static HijoEdit MapHijo(RequerimientoHijoDto h) => new()
+    private static HijoEdit MapHijo(RequerimientoHijoDto h, Guid reqId) => new()
     {
         Id = h.Id,
+        ReqId = reqId,
         Cantidad = h.Cantidad,
         Fecha = h.FechaProgramadaCompra?.DateTime,
         Despacho = h.CaracteristicasDespacho,
@@ -1321,8 +1746,11 @@ else
     private Guid? _cEditId;
     private string _cNombre = "", _cCargo = "", _cEmail = "", _cTel = "";
 
+    private decimal TotalPlan => _planIsGroup ? _planRegs.Sum(r => r.Cantidad) : _planCantidadPadre;
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
-    private decimal RestanteActual => _planCantidadPadre - PlanificadaActual;
+    private decimal RestanteActual => TotalPlan - PlanificadaActual;
+    // Unidad de medida del producto que se planifica (primera no vacia entre las necesidades; mismo producto = misma unidad).
+    private string PlanUnidad => _planRegs.Select(r => r.UnidadMedida).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u))?.Trim() ?? "";
 
     // ---- Constructor de filtros (arbol AND/OR anidado; se evalua en cliente) ----
     private const string FilterModule = "RequerimientosCompra";
@@ -1723,12 +2151,42 @@ else
     }
 
     // ---- Configuracion del modulo (modo Consolidado/Dividido) ----
-    private void OpenConfig()
+    private async Task OpenConfig()
     {
         _cfgError = null;
         _cfgModo = _modo;
+        _cfgTab = "general";
+        try
+        {
+            _agentes = (await ConfigSvc.ListAgentesAsync()).ToList();
+            _cfgAgente = await ConfigSvc.GetAgenteCotizacionesAsync();
+            _cfgUnidades = string.Join('\n', await ConfigSvc.GetUnidadesAsync());
+            _cfgCotDefault = (await ConfigSvc.GetCotizacionDefaultAsync())?.ToString() ?? "";
+            _cfgCompraDefault = (await ConfigSvc.GetCompraDefaultAsync())?.ToString() ?? "";
+            await LoadCfgAvanzadaAsync();
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
         _showConfigModal = true;
     }
+
+    // Carga los datos de las pestanas Origenes y Matriz de proveedores (antes la pagina /requerimientos-config).
+    private async Task LoadCfgAvanzadaAsync()
+    {
+        _cfgOrigenes = (await ConfigSvc.ListOrigenesAsync()).ToList();
+        _cfgSubcats = (await ConfigSvc.ListSubcategoriasAsync()).ToList();
+        _cfgForms = (await ConfigSvc.ListFormulariosAsync()).ToList();
+        _cfgReglas = (await ConfigSvc.ListReglasAsync()).ToList();
+        _cfgProvs = (await ConfigSvc.ListProveedoresAsync()).ToList();
+        _cfgProvVig = (await ConfigSvc.GetProveedorVigenciaMapAsync()).ToDictionary(k => k.Key, v => v.Value);
+        _cfgProvVigEdit = _cfgReglas.Select(r => r.ProveedorId).Distinct()
+            .ToDictionary(id => id, id => _cfgProvVig.TryGetValue(id, out var d) ? d.ToString() : "");
+        // Ola D: proceso de cotizacion fijado por proveedor (matriz).
+        _cfgProvProc = (await ConfigSvc.GetProveedorProcesoMapAsync()).ToDictionary(k => k.Key, v => v.Value);
+        _cfgProvProcEdit = _cfgReglas.Select(r => r.ProveedorId).Distinct()
+            .ToDictionary(id => id, id => _cfgProvProc.TryGetValue(id, out var s) ? s.ToString() : "");
+    }
+    private void OnCfgAgenteChanged(ChangeEventArgs e)
+        => _cfgAgente = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
     private async Task SaveConfigAsync()
     {
         _cfgError = null;
@@ -1736,6 +2194,11 @@ else
         try
         {
             await ConfigSvc.SetModoAsync(_cfgModo);
+            await ConfigSvc.SetAgenteCotizacionesAsync(_cfgAgente);
+            await ConfigSvc.SetUnidadesAsync(_cfgUnidades.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            await ConfigSvc.SetCotizacionDefaultAsync(Guid.TryParse(_cfgCotDefault, out var cdef) ? cdef : null);
+            await ConfigSvc.SetCompraDefaultAsync(Guid.TryParse(_cfgCompraDefault, out var cpdef) ? cpdef : null);
+            _unidades = (await ConfigSvc.GetUnidadesAsync()).ToList();
             _modo = _cfgModo;
             // El modo del modulo manda sobre la vista: al guardar, la grilla pasa al modo elegido.
             _consolidate = _modo == RequerimientoModo.Consolidado;
@@ -1746,7 +2209,403 @@ else
         catch (Exception ex) { _cfgError = ex.Message; }
         finally { _busy = false; }
     }
-    private void GoToConfigAvanzada() => Nav.NavigateTo("/requerimientos-config");
+    // ---- Config avanzada: origenes ----
+    private void OpenCfgOrigen(RequerimientoOrigenDto? o)
+    {
+        _cfgoError = null;
+        _cfgoId = o?.Id;
+        _cfgoNombre = o?.Nombre ?? "";
+        _cfgoArea = o?.Area ?? "";
+        _cfgoTipoFuente = o?.TipoFuente ?? RequerimientoFuenteTipo.Manual;
+        _cfgoFuenteRefId = o?.FuenteRefId?.ToString() ?? "";
+        _cfgoSubcategoriaId = o?.SubcategoriaCompraId?.ToString() ?? "";
+        _cfgoSubcategoriaCotizacionId = o?.SubcategoriaCotizacionId?.ToString() ?? "";
+        _cfgoActivo = o?.Activo ?? true;
+        _cfgShowOrigen = true;
+    }
+
+    private async Task SaveCfgOrigenAsync()
+    {
+        _cfgoError = null;
+        _busy = true;
+        try
+        {
+            var req = new SaveRequerimientoOrigenRequest(
+                _cfgoId, _cfgoNombre, _cfgoArea, _cfgoTipoFuente,
+                Guid.TryParse(_cfgoFuenteRefId, out var f) ? f : null,
+                Guid.TryParse(_cfgoSubcategoriaId, out var s) ? s : null,
+                Guid.TryParse(_cfgoSubcategoriaCotizacionId, out var sc) ? sc : null,
+                _cfgoActivo);
+            var saved = await ConfigSvc.SaveOrigenAsync(req);
+            if (saved is null) { _cfgoError = "No se pudo guardar."; return; }
+            _cfgShowOrigen = false;
+            _msg = $"Origen '{saved.Nombre}' guardado.";
+            await LoadCfgAvanzadaAsync();
+            _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
+        }
+        catch (Exception ex) { _cfgoError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteCfgOrigenAsync(Guid id)
+    {
+        _busy = true;
+        try { await ConfigSvc.DeleteOrigenAsync(id); await LoadCfgAvanzadaAsync(); }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // ---- Config avanzada: matriz de proveedores (reglas multi-dimension) ----
+    private async Task EnsureDimValoresAsync(RequerimientoDimension dim)
+    {
+        if (!_cfgDimValores.ContainsKey(dim))
+        {
+            _cfgDimValores[dim] = (await ConfigSvc.ListValoresDimensionAsync(dim)).ToList();
+        }
+    }
+    private List<RequerimientoOpcionDto> DimValores(RequerimientoDimension dim)
+        => _cfgDimValores.TryGetValue(dim, out var l) ? l : new();
+
+    // Ola F: el editor es a nivel de REGLA. Arriba las condiciones (compartidas); abajo TODOS los proveedores
+    // que comparten esas condiciones, cada uno con su proceso/vigencia/prioridad/activo.
+    private async Task OpenCfgRegla(RequerimientoReglaDto? r)
+    {
+        _cfgrError = null;
+        _cfgrCreatingRow = null;
+        _cfgrId = r?.Id;
+        _cfgrCond = r is { Condiciones.Count: > 0 }
+            ? r.Condiciones.Select(c => new CondEdit { Dim = c.Dimension, Valor = c.Valor }).ToList()
+            : new() { new CondEdit() };
+        foreach (var c in _cfgrCond) { await EnsureDimValoresAsync(c.Dim); }
+        if (r is null)
+        {
+            _cfgrProvs2 = new() { new ReglaProvEdit() };
+            _cfgrOrigIds = new();
+        }
+        else
+        {
+            var sig = CondSig(r);
+            var grupo = _cfgReglas.Where(x => CondSig(x) == sig).OrderBy(x => x.Prioridad).ToList();
+            _cfgrProvs2 = grupo.Select(MapReglaProv).ToList();
+            if (_cfgrProvs2.Count == 0) { _cfgrProvs2.Add(new ReglaProvEdit()); }
+            _cfgrOrigIds = grupo.Select(x => x.Id).ToHashSet();
+        }
+        _cfgShowRegla = true;
+    }
+
+    private static ReglaProvEdit MapReglaProv(RequerimientoReglaDto r) => new()
+    {
+        RuleId = r.Id,
+        Proveedor = r.ProveedorId.ToString(),
+        ProvNombre = r.ProveedorNombre ?? "",
+        Proceso = r.SubcategoriaCotizacionId?.ToString() ?? "",
+        ProcesoCompra = r.SubcategoriaCompraId?.ToString() ?? "",
+        Vigencia = r.VigenciaDias,
+        Prioridad = r.Prioridad,
+        Activo = r.Activo,
+        Aprendida = r.Aprendida,
+    };
+
+    // "+ Agregar proveedor" desde la tarjeta de la matriz: abre la regla y agrega una fila de proveedor en blanco.
+    private async Task OpenCfgReglaAddProv(RequerimientoReglaDto baseRule)
+    {
+        await OpenCfgRegla(baseRule);
+        _cfgrProvs2.Add(new ReglaProvEdit());
+    }
+
+    private void AddCfgProvRow() => _cfgrProvs2.Add(new ReglaProvEdit());
+    private void RemoveCfgProvRow(ReglaProvEdit row) { if (_cfgrProvs2.Count > 1) { _cfgrProvs2.Remove(row); } }
+
+    // Firma del juego de condiciones de una regla (para agrupar las filas de UNA misma regla en la matriz).
+    private static string CondSig(RequerimientoReglaDto r) => string.Join("|",
+        r.Condiciones.OrderBy(c => c.Dimension).ThenBy(c => c.Valor, StringComparer.OrdinalIgnoreCase)
+            .Select(c => $"{c.Dimension}:{c.Valor}"));
+
+    private async Task AddCfgCond()
+    {
+        var c = new CondEdit();
+        await EnsureDimValoresAsync(c.Dim);
+        _cfgrCond.Add(c);
+    }
+    private void RemoveCfgCond(CondEdit c) { if (_cfgrCond.Count > 1) { _cfgrCond.Remove(c); } }
+    private async Task OnCondDimChanged(CondEdit c, ChangeEventArgs e)
+    {
+        if (Enum.TryParse<RequerimientoDimension>(e.Value?.ToString(), out var d)) { c.Dim = d; c.Valor = ""; await EnsureDimValoresAsync(d); }
+    }
+
+    private void OnCfgProvRowChanged(ReglaProvEdit row, ChangeEventArgs e)
+    {
+        var txt = (e.Value?.ToString() ?? "").Trim();
+        row.ProvNombre = txt;
+        var match = _cfgProvs.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
+        row.Proveedor = match?.Id.ToString() ?? "";
+    }
+
+    // El proveedor no esta en el Directorio: se crea/ marca con el MISMO modal del Directorio. Al crearlo,
+    // OnProveedorCreatedAsync lo asigna a la fila que disparo la creacion.
+    private async Task CrearProveedorEnDirectorioRowAsync(ReglaProvEdit row)
+    {
+        _cfgrCreatingRow = row;
+        if (_terceroModal is not null) { await _terceroModal.OpenCreate(TerceroPerfil.Proveedor, row.ProvNombre); }
+    }
+    private async Task OnProveedorCreatedAsync(Guid id)
+    {
+        _cfgProvs = (await ConfigSvc.ListProveedoresAsync()).ToList();
+        var nombre = _cfgProvs.FirstOrDefault(p => p.Id == id)?.Nombre ?? "";
+        if (_cfgrCreatingRow is not null)
+        {
+            _cfgrCreatingRow.Proveedor = id.ToString();
+            if (!string.IsNullOrEmpty(nombre)) { _cfgrCreatingRow.ProvNombre = nombre; }
+            _cfgrCreatingRow = null;
+        }
+        await LoadCfgAvanzadaAsync();
+        StateHasChanged();
+    }
+
+    private async Task SaveCfgReglaAsync()
+    {
+        _cfgrError = null;
+        var cond = _cfgrCond.Where(c => !string.IsNullOrWhiteSpace(c.Valor))
+            .Select(c => new ReglaCondicion(c.Dim, c.Valor)).ToList();
+        if (cond.Count == 0) { _cfgrError = "Agrega al menos una condicion (dimension + valor)."; return; }
+
+        var filas = _cfgrProvs2.Where(p => Guid.TryParse(p.Proveedor, out _)).ToList();
+        if (filas.Count == 0) { _cfgrError = "Agrega al menos un proveedor del Directorio (o crealo con el boton)."; return; }
+        var dup = filas.GroupBy(p => p.Proveedor).FirstOrDefault(g => g.Count() > 1);
+        if (dup is not null) { _cfgrError = "Un proveedor esta repetido en esta regla; dejalo una sola vez."; return; }
+
+        _busy = true;
+        try
+        {
+            var keepIds = new HashSet<Guid>();
+            string? ultimo = null;
+            foreach (var p in filas)
+            {
+                var provId = Guid.Parse(p.Proveedor);
+                var proc = Guid.TryParse(p.Proceso, out var pg) ? (Guid?)pg : null;
+                var procComp = Guid.TryParse(p.ProcesoCompra, out var pgc) ? (Guid?)pgc : null;
+                var req = new SaveReglaRequest(p.RuleId, cond, provId, p.Prioridad, p.Activo, p.Vigencia, proc, procComp);
+                var saved = await ConfigSvc.SaveReglaAsync(req);
+                if (saved is null) { _cfgrError = "No se pudo guardar un proveedor de la regla."; return; }
+                keepIds.Add(saved.Id);
+                ultimo = saved.ProveedorNombre;
+            }
+            // Borra las filas-regla que estaban en el grupo y se quitaron del editor.
+            foreach (var oldId in _cfgrOrigIds.Where(x => !keepIds.Contains(x)).ToList())
+            {
+                await ConfigSvc.DeleteReglaAsync(oldId);
+            }
+            _cfgShowRegla = false;
+            _msg = filas.Count == 1 ? $"Regla guardada -> {ultimo}." : $"Regla guardada con {filas.Count} proveedores.";
+            await LoadCfgAvanzadaAsync();
+        }
+        catch (Exception ex) { _cfgrError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Dias de vigencia default por proveedor (edicion en linea en la matriz agrupada).
+    private async Task SaveProvVigenciaAsync(Guid provId)
+    {
+        _busy = true;
+        try
+        {
+            int? dias = _cfgProvVigEdit.TryGetValue(provId, out var txt) && int.TryParse(txt, out var d) && d > 0 ? d : null;
+            await ConfigSvc.SetProveedorVigenciaAsync(provId, dias);
+            _cfgProvVig = (await ConfigSvc.GetProveedorVigenciaMapAsync()).ToDictionary(k => k.Key, v => v.Value);
+            _msg = "Vigencia del proveedor actualizada.";
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Ola D: fija el proceso de cotizacion de un proveedor (capa "matriz" de la precedencia). Persiste al cambiar.
+    private async Task SaveProvProcesoAsync(Guid provId, string? val)
+    {
+        _busy = true;
+        try
+        {
+            var sub = Guid.TryParse(val, out var g) ? (Guid?)g : null;
+            await ConfigSvc.SetProveedorProcesoAsync(provId, sub);
+            _cfgProvProcEdit[provId] = sub?.ToString() ?? "";
+            _cfgProvProc = (await ConfigSvc.GetProveedorProcesoMapAsync()).ToDictionary(k => k.Key, v => v.Value);
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Ola D: productos distintos de la planificacion abierta (por clave), para fijar su proceso de cotizacion.
+    private List<(string Clave, string Label, Guid? ItemId, string Desc)> PlanProductos()
+        => _planRegs
+            .GroupBy(r => RequerimientoClave.Of(r.ItemId, r.Descripcion))
+            .Select(g => (g.Key, (g.First().ItemNombre ?? g.First().Descripcion ?? g.Key), g.First().ItemId, g.First().Descripcion ?? string.Empty))
+            .ToList();
+
+    // Carga los procesos de cotizacion fijados por producto para la planificacion abierta.
+    private async Task LoadPlanProcesosAsync()
+    {
+        try
+        {
+            _planProcMap = await ConfigSvc.GetProductoProcesoMapAsync();
+            _planProcEdit = PlanProductos()
+                .ToDictionary(p => p.Clave, p => _planProcMap.TryGetValue(p.Clave, out var s) ? s.ToString() : "");
+        }
+        catch { _planProcEdit = new(); }
+    }
+
+    // Ola D: fija el proceso de cotizacion de un PRODUCTO desde la planificacion ("producto en planificacion",
+    // la capa mas especifica de la precedencia). Persiste al cambiar.
+    private async Task SetPlanProcesoAsync(Guid? itemId, string? desc, string? val)
+    {
+        _busy = true;
+        try
+        {
+            var sub = Guid.TryParse(val, out var g) ? (Guid?)g : null;
+            await ConfigSvc.SetProductoProcesoAsync(itemId, desc, sub);
+            _planProcEdit[RequerimientoClave.Of(itemId, desc)] = sub?.ToString() ?? "";
+            _planProcMap = await ConfigSvc.GetProductoProcesoMapAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // ==================== Ola E: multi-candidato + panel de estado RFQ ====================
+    // Cotizar el MISMO producto a VARIOS proveedores (1 RFQ por proveedor, sin comprometer distribucion).
+    // Las respuestas caen en el comparador; la adjudicacion (asignar proveedor/precio ganador al hijo) se
+    // hace despues aqui mismo. El panel lista las RFQ ya existentes de este producto con su estado.
+    private void ToggleCandidatos() => _showCandidatos = !_showCandidatos;
+
+    private void AddCandidato()
+    {
+        var nombre = (_candProvInput ?? "").Trim();
+        if (nombre.Length == 0) { return; }
+        var prov = _proveedores.FirstOrDefault(p =>
+            string.Equals(p.Nombre, nombre, StringComparison.OrdinalIgnoreCase));
+        if (prov is null) { _planError = $"No encuentro el proveedor '{nombre}' en el directorio."; return; }
+        if (_candSel.Any(c => c.Id == prov.Id)) { _candProvInput = ""; return; }
+        _candSel.Add((prov.Id, prov.Nombre));
+        _candProvInput = "";
+        _planError = null;
+    }
+
+    private void RemoveCandidato(Guid id) => _candSel.RemoveAll(c => c.Id == id);
+
+    private void ResetCandidatos()
+    {
+        _showCandidatos = false;
+        _candProvInput = "";
+        _candCantidad = "";
+        _candSel = new();
+        _rfqsProducto = new();
+        _matrizProvs = new();
+    }
+
+    // Ola F: fan-out desde la matriz - crea una RFQ candidata a CADA proveedor de la regla (su proceso lo
+    // corre y ENVIA el flujo). Un clic. Omite los que ya tienen RFQ abierta (idempotente).
+    private async Task CotizarMatrizAsync()
+    {
+        _busy = true;
+        _planError = null;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.CotizarSegunMatrizAsync(_planReqId, actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo cotizar segun la matriz."; return; }
+            var avisos = res.Avisos.Count > 0 ? " | " + string.Join(" | ", res.Avisos) : "";
+            _msg = $"Matriz: se crearon {res.RfqCreados} RFQ de cotizacion" +
+                   (res.Omitidas > 0 ? $" ({res.Omitidas} omitidas, ya existian)." : ".") + avisos;
+            await LoadRfqsProductoAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task EnviarCandidatosAsync()
+    {
+        if (_candSel.Count == 0) { return; }
+        _busy = true;
+        _planError = null;
+        try
+        {
+            decimal? qty = decimal.TryParse(_candCantidad, out var q) && q > 0 ? q : null;
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.CotizarCandidatosAsync(
+                new CotizarCandidatosRequest(_planReqId, _candSel.Select(c => c.Id).ToList(), qty),
+                actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo cotizar a los candidatos."; return; }
+            _candSel.Clear();
+            _candCantidad = "";
+            _showCandidatos = false;
+            var avisos = res.Avisos.Count > 0 ? " | " + string.Join(" | ", res.Avisos) : "";
+            _msg = $"Se crearon {res.RfqCreados} RFQ de cotizacion" +
+                   (res.Omitidas > 0 ? $" ({res.Omitidas} omitidas, ya existian)." : ".") + avisos;
+            await LoadRfqsProductoAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task LoadRfqsProductoAsync()
+    {
+        try { _rfqsProducto = (await Svc.ListRfqPorProductoAsync(_planItemId, _planDescripcion)).ToList(); }
+        catch { _rfqsProducto = new(); }
+        try { _matrizProvs = (await Svc.GetProveedoresMatrizParaProductoAsync(_planReqId)).ToList(); }
+        catch { _matrizProvs = new(); }
+    }
+
+    private static string RfqEstadoLabel(RfqEstado e) => e switch
+    {
+        RfqEstado.Borrador => "Borrador",
+        RfqEstado.Enviada => "Enviada",
+        RfqEstado.Respondida => "Respondida",
+        RfqEstado.Comparada => "Comparada",
+        RfqEstado.Adjudicada => "Adjudicada",
+        RfqEstado.Cerrada => "Cerrada",
+        RfqEstado.Vencida => "Vencida",
+        RfqEstado.Cancelada => "Cancelada",
+        _ => e.ToString()
+    };
+
+    private async Task DeleteCfgReglaAsync(Guid id)
+    {
+        _busy = true;
+        try { await ConfigSvc.DeleteReglaAsync(id); await LoadCfgAvanzadaAsync(); }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string CfgDimensionLabel(RequerimientoDimension d) => d switch
+    {
+        RequerimientoDimension.Referencia => "Referencia (item)",
+        RequerimientoDimension.Marca => "Marca",
+        RequerimientoDimension.Subgrupo => "Subgrupo",
+        RequerimientoDimension.Grupo => "Grupo",
+        RequerimientoDimension.Categoria => "Categoria (tipo)",
+        _ => d.ToString()
+    };
+
+    // Resumen legible de las condiciones de una regla (AND): "Marca: ASUS + Categoria (tipo): Portatiles".
+    private static string CondicionesTexto(RequerimientoReglaDto r)
+        => r.Condiciones.Count == 0
+            ? "(sin condiciones)"
+            : string.Join(" + ", r.Condiciones.Select(c => $"{CfgDimensionLabel(c.Dimension)}: {c.ValorNombre ?? c.Valor}"));
+
+    private static string CfgTipoFuenteLabel(RequerimientoFuenteTipo t) => t switch
+    {
+        RequerimientoFuenteTipo.Manual => "Manual",
+        RequerimientoFuenteTipo.Formulario => "Formulario",
+        RequerimientoFuenteTipo.Contenedor => "Contenedor de datos",
+        _ => t.ToString()
+    };
+
+    private static string CfgFuenteLabel(RequerimientoOrigenDto o) => o.TipoFuente switch
+    {
+        RequerimientoFuenteTipo.Manual => "Manual",
+        RequerimientoFuenteTipo.Formulario => o.FuenteNombre is { } n ? $"Formulario: {n}" : "Formulario (sin elegir)",
+        RequerimientoFuenteTipo.Contenedor => "Contenedor",
+        _ => "-"
+    };
 
     // Override por registro: saca/mete una necesidad de la consolidacion (se planifica aparte).
     private async Task ToggleForzarDividirAsync(RequerimientoDto r)
@@ -1796,12 +2655,16 @@ else
         // Modo del modulo (Consolidado/Dividido): manda sobre el estado inicial de la vista consolidada.
         _modo = await ConfigSvc.GetModoAsync();
         _consolidate = _modo == RequerimientoModo.Consolidado;
+        // Catalogo de unidades de medida (comunes por defecto) para el datalist del alta.
+        try { _unidades = (await ConfigSvc.GetUnidadesAsync()).ToList(); } catch { }
         // Asegura que las columnas dinamicas esten en el orden aunque no hubiera prefs guardadas.
         foreach (var c in _dynCols) { if (!_order.Contains(c.Key)) { _order.Add(c.Key); } }
         await LoadSavedFiltersAsync();
         _origenes = (await Svc.ListOrigenesActivosAsync()).ToList();
         _items = (await Svc.ListItemsAsync()).ToList();
         _proveedores = (await Svc.ListProveedoresAsync()).ToList();
+        // Catalogo de subcategorias (procesos de cotizacion) para los selectores de precedencia (Ola D).
+        try { _subcats = (await ConfigSvc.ListSubcategoriasAsync()).ToList(); } catch { }
         await ReloadAsync();
     }
 
@@ -2403,37 +3266,6 @@ else
         finally { _busy = false; }
     }
 
-    // Abre el modal de plan de GRUPO para un producto consolidado (sus N necesidades).
-    private void OpenPlanificarGrupo(List<RequerimientoDto> grp)
-    {
-        _pgError = null;
-        _pgProducto = grp[0].ItemNombre ?? grp[0].Descripcion ?? "";
-        _pgKey = ConsolKey(grp[0]);
-        _pgProvNombre = ""; _pgProv = ""; _pgPrecio = 0; _pgFecha = null; _pgDespacho = "";
-        BuildPgFrom(grp);
-        _pgTab = "detalle";
-        _showPlanGrupo = true;
-    }
-
-    // (Re)construye las lineas de planificacion y el total a partir de las necesidades del grupo.
-    private void BuildPgFrom(List<RequerimientoDto> grp)
-    {
-        _pgGrupo = grp;
-        _pgLineas = grp.Select(r =>
-        {
-            var rest = r.Cantidad - r.CantidadPlanificada;
-            return new PgLinea
-            {
-                ReqId = r.Id,
-                Origen = r.OrigenNombre ?? "",
-                Actividad = r.SourceTaskNumber ?? "",
-                Restante = rest,
-                Cantidad = rest > 0 ? rest : 0,
-            };
-        }).ToList();
-        _pgTotal = _pgLineas.Sum(l => l.Restante > 0 ? l.Restante : 0);
-    }
-
     // Saca una necesidad del grupo (ForzarDividir) desde la pestana Detalle; recalcula el grupo restante.
     private async Task DividirDesdeGrupoAsync(RequerimientoDto r)
     {
@@ -2443,70 +3275,88 @@ else
             await Svc.SetForzarDividirAsync(r.Id, true);
             await ReloadAsync();
             var rem = _rows.Where(x => !x.ForzarDividir && ConsolKey(x) == _pgKey).ToList();
-            if (rem.Count >= 2) { BuildPgFrom(rem); }
-            else { _showPlanGrupo = false; _msg = $"'{r.ItemNombre ?? r.Descripcion}' se dividio: se planifica aparte."; }
-        }
-        catch (Exception ex) { _pgError = ex.Message; }
-        finally { _busy = false; }
-    }
-
-    private void OnPgProvChanged(ChangeEventArgs e)
-    {
-        var txt = (e.Value?.ToString() ?? "").Trim();
-        _pgProvNombre = txt;
-        var match = _proveedores.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
-        _pgProv = match is not null ? match.Id.ToString() : "";
-    }
-
-    private async Task GuardarPlanGrupoAsync()
-    {
-        _pgError = null;
-        var conCantidad = _pgLineas.Where(l => l.Cantidad > 0).ToList();
-        if (conCantidad.Count == 0) { _pgError = "Indica al menos una cantidad a planificar."; return; }
-        foreach (var l in conCantidad)
-        {
-            if (l.Cantidad > l.Restante)
+            if (rem.Count >= 2)
             {
-                _pgError = $"Una linea pide {Fmt(l.Cantidad)} pero su restante es {Fmt(l.Restante)}.";
-                return;
+                _planRegs = rem;
+                _planCantidadPadre = rem.Sum(x => x.Cantidad);
+                await BuildGroupHijosAsync(rem);
+                foreach (var h in _pHijos) { await FillContactoAsync(h); }
+                await LoadHijoDynValuesAsync();
             }
+            else { _showPlan = false; _msg = $"'{r.ItemNombre ?? r.Descripcion}' se dividio: se planifica aparte."; }
         }
-        _busy = true;
-        try
-        {
-            var req = new PlanificarGrupoRequest(
-                conCantidad.Select(l => new PlanificarGrupoLinea(l.ReqId, l.Cantidad)).ToList(),
-                Guid.TryParse(_pgProv, out var pv) ? pv : null,
-                null,
-                _pgPrecio,
-                _pgFecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
-                _pgDespacho,
-                null);
-            var res = await Svc.PlanificarGrupoAsync(req);
-            if (!res.Ok) { _pgError = res.Error ?? "No se pudo planificar el grupo."; return; }
-            _showPlanGrupo = false;
-            _msg = $"Plan de grupo: {res.HijosCreados} distribucion(es) creada(s) en {_pgProducto}.";
-            await ReloadAsync();
-        }
-        catch (Exception ex) { _pgError = ex.Message; }
+        catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
     }
 
     private async Task OpenPlanificarAsync(RequerimientoDto r)
     {
         _planError = null;
+        _planIsGroup = false;
+        _planRegs = new() { r };
+        _planTab = "detalle";
         _planReqId = r.Id;
         _planItemId = r.ItemId;
         _planDescripcion = r.Descripcion;
         var plan = await Svc.GetPlanificacionAsync(r.Id);
         _planProducto = plan?.Producto ?? r.Descripcion;
         _planCantidadPadre = plan?.CantidadPadre ?? r.Cantidad;
-        _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(MapHijo).ToList();
+        _pHijos = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(h => MapHijo(h, r.Id)).ToList();
         _showPlan = true;
         // Trae el contacto (nombre/correo/telefono) de los proveedores ya asignados.
         foreach (var h in _pHijos) { await FillContactoAsync(h); }
         // Valores de los campos dinamicos de las lineas (hijas) ya guardadas.
         await LoadHijoDynValuesAsync();
+        await LoadPlanProcesosAsync();
+        ResetCandidatos();
+        await LoadRfqsProductoAsync();
+    }
+
+    // Abre el MISMO modal de plan (rico) para una linea agrupada: una fila por necesidad/origen.
+    private async Task OpenPlanificarGrupoAsync(List<RequerimientoDto> grp)
+    {
+        _planError = null;
+        _planIsGroup = true;
+        _planRegs = grp;
+        _planTab = "detalle";
+        _planReqId = grp[0].Id;
+        _planItemId = grp[0].ItemId;
+        _planDescripcion = grp[0].Descripcion;
+        _planProducto = grp[0].ItemNombre ?? grp[0].Descripcion ?? "";
+        _planCantidadPadre = grp.Sum(r => r.Cantidad);
+        _pgKey = ConsolKey(grp[0]);
+        await BuildGroupHijosAsync(grp);
+        _showPlan = true;
+        foreach (var h in _pHijos) { await FillContactoAsync(h); }
+        await LoadHijoDynValuesAsync();
+        await LoadPlanProcesosAsync();
+        ResetCandidatos();
+        await LoadRfqsProductoAsync();
+    }
+
+    // Construye las filas del plan en modo grupo: trae las divisiones guardadas de cada necesidad,
+    // o siembra una fila por defecto (con el restante) para las que aun no tienen ninguna.
+    private async Task BuildGroupHijosAsync(List<RequerimientoDto> grp)
+    {
+        var hijos = new List<HijoEdit>();
+        foreach (var r in grp)
+        {
+            var plan = await Svc.GetPlanificacionAsync(r.Id);
+            var mapped = (plan?.Hijos ?? new List<RequerimientoHijoDto>()).Select(h => MapHijo(h, r.Id)).ToList();
+            if (mapped.Count == 0)
+            {
+                var rest = r.Cantidad - r.CantidadPlanificada;
+                hijos.Add(new HijoEdit { ReqId = r.Id, Cantidad = rest > 0 ? rest : 0, Fecha = r.FechaNecesidad?.DateTime });
+            }
+            else { hijos.AddRange(mapped); }
+        }
+        _pHijos = hijos;
+    }
+
+    // Cambia la necesidad (origen) a la que pertenece una division en modo grupo.
+    private void OnHijoReqChanged(HijoEdit h, ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var rid)) { h.ReqId = rid; }
     }
 
     private async Task LoadHijoDynValuesAsync()
@@ -2586,8 +3436,79 @@ else
     private void AddHijoRow()
     {
         var resta = RestanteActual;
-        _pHijos.Add(new HijoEdit { Cantidad = resta > 0 ? resta : 1 });
+        _pHijos.Add(new HijoEdit { Cantidad = resta > 0 ? resta : 1, ReqId = DefaultReqId });
     }
+
+    // Necesidad (padre) por defecto para una fila nueva: en grupo, la primera del grupo; en individual, el padre.
+    private Guid DefaultReqId => _planRegs.Count > 0 ? _planRegs[0].Id : _planReqId;
+
+    // Vuelca una cotizacion elegida en el comparador a la planificacion del REGISTRO: llena la primera linea
+    // vacia (sin proveedor y sin actividad) o agrega una nueva, con proveedor/precio/entrega/despacho de la oferta.
+    private async Task AplicarCotizacionIndividualAsync(CotizacionDto c)
+    {
+        // "Usar esta opcion" = TODA la planificacion pendiente va a este proveedor y precio (no solo una linea).
+        // Si aun no hay distribucion (o no quedan filas sin ejecutar), arma primero la distribucion por defecto.
+        var editables = _pHijos.Where(h => h.TaskItemId is null).ToList();
+        if (editables.Count == 0)
+        {
+            if (_planIsGroup)
+            {
+                await BuildGroupHijosAsync(_planRegs);
+            }
+            else if (_pHijos.Count == 0)
+            {
+                var resta = RestanteActual;
+                _pHijos.Add(new HijoEdit
+                {
+                    Cantidad = resta > 0 ? resta : 1,
+                    ReqId = DefaultReqId,
+                    Fecha = _planRegs.FirstOrDefault()?.FechaNecesidad?.DateTime,
+                });
+            }
+            editables = _pHijos.Where(h => h.TaskItemId is null).ToList();
+        }
+
+        // Aplica el proveedor/precio/entrega/despacho/contacto a cada fila pendiente (las ya ejecutadas no se tocan).
+        foreach (var row in editables)
+        {
+            row.Prov = c.ProveedorId.ToString();
+            row.ProvNombre = c.ProveedorNombre ?? "";
+            row.Precio = c.PrecioUnitario;
+            row.Entrega = c.TiempoEntrega;
+            row.Despacho = c.CaracteristicasDespacho;
+            row.ContactoId = c.ProveedorContactoId;
+        }
+
+        // Resuelve contacto + ultimo precio una sola vez (mismo proveedor y producto) y lo copia al resto.
+        if (editables.Count > 0)
+        {
+            var first = editables[0];
+            await FillContactoAsync(first);
+            foreach (var row in editables.Skip(1))
+            {
+                row.ContactosDisponibles = first.ContactosDisponibles;
+                row.ContactoId = first.ContactoId;
+                row.Contacto = first.Contacto;
+                row.Email = first.Email;
+                row.Telefono = first.Telefono;
+                row.ProvNombre = first.ProvNombre;
+                row.UltimoPrecio = first.UltimoPrecio;
+                row.UltimoPrecioFecha = first.UltimoPrecioFecha;
+            }
+        }
+
+        _planError = null;
+        _planTab = "plan";   // al usar una oferta, pasa a Planificacion para ver/ajustar la division
+        StateHasChanged();
+    }
+
+    private static HijoInput ToHijoInput(HijoEdit h) => new(
+        h.Id, h.Cantidad,
+        h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
+        h.Despacho, h.Entrega,
+        Guid.TryParse(h.Prov, out var pv) ? pv : null,
+        h.Precio,
+        h.ContactoId);
 
     private async Task GuardarPlanAsync()
     {
@@ -2595,18 +3516,33 @@ else
         _busy = true;
         try
         {
-            var req = new GuardarHijosRequest(_planReqId, _pHijos.Select(h => new HijoInput(
-                h.Id, h.Cantidad,
-                h.Fecha is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
-                h.Despacho, h.Entrega,
-                Guid.TryParse(h.Prov, out var pv) ? pv : null,
-                h.Precio,
-                h.ContactoId)).ToList());
-            var plan = await Svc.GuardarHijosAsync(req);
-            if (plan is null) { _planError = "No se pudo guardar."; return; }
-            _showPlan = false;
-            _msg = $"Planificacion guardada: {plan.Hijos.Count} division(es), sin planificar {Fmt(plan.CantidadSinPlanificar)}.";
-            await ReloadAsync();
+            if (_planIsGroup)
+            {
+                // Una llamada de reemplazo por cada necesidad (padre); las filas se agrupan por su ReqId.
+                var conCantidad = _pHijos.Where(h => h.Cantidad > 0).ToList();
+                if (conCantidad.Count == 0) { _planError = "Indica al menos una cantidad a planificar."; return; }
+                var totalDiv = 0; var sinPlan = 0m;
+                foreach (var g in conCantidad.GroupBy(h => h.ReqId))
+                {
+                    var req = new GuardarHijosRequest(g.Key, g.Select(ToHijoInput).ToList());
+                    var plan = await Svc.GuardarHijosAsync(req);
+                    if (plan is null) { _planError = "No se pudo guardar una de las necesidades."; return; }
+                    totalDiv += plan.Hijos.Count;
+                    sinPlan += plan.CantidadSinPlanificar;
+                }
+                _showPlan = false;
+                _msg = $"Plan de grupo guardado: {totalDiv} division(es) en {conCantidad.GroupBy(h => h.ReqId).Count()} necesidad(es), sin planificar {Fmt(sinPlan)}.";
+                await ReloadAsync();
+            }
+            else
+            {
+                var req = new GuardarHijosRequest(_planReqId, _pHijos.Select(ToHijoInput).ToList());
+                var plan = await Svc.GuardarHijosAsync(req);
+                if (plan is null) { _planError = "No se pudo guardar."; return; }
+                _showPlan = false;
+                _msg = $"Planificacion guardada: {plan.Hijos.Count} division(es), sin planificar {Fmt(plan.CantidadSinPlanificar)}.";
+                await ReloadAsync();
+            }
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }
@@ -2643,11 +3579,18 @@ else
                     ? $"Compra ejecutada: actividad {num} creada."
                     : "Compra ejecutada: actividad creada.";
             }
-            if (res.Plan is { } plan)
+            if (_planIsGroup)
+            {
+                // En grupo, reconstruye todas las necesidades (el plan devuelto es solo del padre ejecutado).
+                await BuildGroupHijosAsync(_planRegs);
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+            else if (res.Plan is { } plan)
             {
                 _planProducto = plan.Producto;
                 _planCantidadPadre = plan.CantidadPadre;
-                _pHijos = plan.Hijos.Select(MapHijo).ToList();
+                _pHijos = plan.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
                 await LoadHijoDynValuesAsync();
             }
@@ -2681,19 +3624,76 @@ else
                 if (!res.Ok) { _planError = res.Error ?? "No se pudo crear una cotizacion."; break; }
                 if (res.TaskNumber is { } n) { nums.Add(n); }
             }
-            var plan = await Svc.GetPlanificacionAsync(_planReqId);
-            if (plan is not null)
+            if (_planIsGroup)
             {
-                _planProducto = plan.Producto;
-                _planCantidadPadre = plan.CantidadPadre;
-                _pHijos = plan.Hijos.Select(MapHijo).ToList();
+                await BuildGroupHijosAsync(_planRegs);
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
                 await LoadHijoDynValuesAsync();
+            }
+            else
+            {
+                var plan = await Svc.GetPlanificacionAsync(_planReqId);
+                if (plan is not null)
+                {
+                    _planProducto = plan.Producto;
+                    _planCantidadPadre = plan.CantidadPadre;
+                    _pHijos = plan.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
+                    foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                    await LoadHijoDynValuesAsync();
+                }
             }
             if (_planError is null)
             {
                 _msg = $"Cotizacion creada para {ids.Count} linea(s){(nums.Count > 0 ? ": " + string.Join(", ", nums) : "")}.";
             }
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Cotiza por PROVEEDOR (RFQ, Ola A): agrupa las lineas marcadas por proveedor y crea una Solicitud de
+    // Cotizacion por proveedor (con su tarea portadora/flujo). Reusa la misma seleccion que "Cotizar seleccionadas".
+    private async Task CotizarPorProveedorAsync()
+    {
+        var ids = _pHijos.Where(h => h.Sel && h.Id is Guid && h.CotizacionTaskItemId is null).Select(h => h.Id!.Value).ToList();
+        if (ids.Count == 0) { _planError = "Marca al menos una linea para cotizar."; return; }
+        _planError = null; _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.CotizarPorProveedorAsync(new CotizarPorProveedorRequest(ids), actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo cotizar por proveedor."; return; }
+
+            // Refresca el estado de la planificacion (las lineas quedan enlazadas a su RFQ).
+            if (_planIsGroup)
+            {
+                await BuildGroupHijosAsync(_planRegs);
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+            else
+            {
+                var plan = await Svc.GetPlanificacionAsync(_planReqId);
+                if (plan is not null)
+                {
+                    _planProducto = plan.Producto;
+                    _planCantidadPadre = plan.CantidadPadre;
+                    _pHijos = plan.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
+                    foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                    await LoadHijoDynValuesAsync();
+                }
+            }
+
+            var nums = string.Join(", ", res.Rfqs.Select(r => $"{r.Numero} ({r.ProveedorNombre}, {r.LineasCount})"));
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"{res.RfqCreados} RFQ creada(s) con {res.LineasIncluidas} linea(s)");
+            if (!string.IsNullOrEmpty(nums)) { sb.Append(": " + nums); }
+            if (res.Omitidas > 0) { sb.Append($". {res.Omitidas} omitida(s)"); }
+            _msg = sb.ToString();
+            if (res.Avisos.Count > 0) { _planError = string.Join(" | ", res.Avisos); }
+            await LoadRfqsProductoAsync();
             await ReloadAsync();
         }
         catch (Exception ex) { _planError = ex.Message; }

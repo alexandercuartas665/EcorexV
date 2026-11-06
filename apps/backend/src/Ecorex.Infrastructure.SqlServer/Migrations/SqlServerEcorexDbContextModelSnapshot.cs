@@ -11495,6 +11495,104 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("requerimiento_compra_hijos", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoCotizacion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CaracteristicasDespacho")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)")
+                        .HasColumnName("caracteristicas_despacho");
+
+                    b.Property<string>("ClaveProducto")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("clave_producto");
+
+                    b.Property<string>("CondicionesPago")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("condiciones_pago");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("FechaCotizacion")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_cotizacion");
+
+                    b.Property<int>("Fuente")
+                        .HasColumnType("int")
+                        .HasColumnName("fuente");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Notas")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("notas");
+
+                    b.Property<decimal>("PrecioUnitario")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("precio_unitario");
+
+                    b.Property<Guid?>("ProveedorContactoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("proveedor_contacto_id");
+
+                    b.Property<Guid>("ProveedorId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("proveedor_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TiempoEntrega")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("tiempo_entrega");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("VigenciaHasta")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("vigencia_hasta");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_cotizaciones");
+
+                    b.HasIndex("TenantId", "ClaveProducto")
+                        .HasDatabaseName("ix_requerimiento_cotizaciones_tenant_id_clave_producto");
+
+                    b.HasIndex("TenantId", "ClaveProducto", "ProveedorId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_requerimiento_cotizaciones_tenant_id_clave_producto_proveedor_id");
+
+                    b.ToTable("requerimiento_cotizaciones", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoFieldDefinition", b =>
                 {
                     b.Property<Guid>("Id")
@@ -11758,6 +11856,214 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_requerimiento_proveedor_reglas_tenant_id_dimension_valor_dimension_proveedor_id");
 
                     b.ToTable("requerimiento_proveedor_reglas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfq", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Estado")
+                        .HasColumnType("int")
+                        .HasColumnName("estado");
+
+                    b.Property<DateTimeOffset?>("FechaEnvio")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_envio");
+
+                    b.Property<DateTimeOffset?>("FechaRespuesta")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_respuesta");
+
+                    b.Property<Guid?>("FormResponseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("form_response_id");
+
+                    b.Property<string>("Notas")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("notas");
+
+                    b.Property<string>("Numero")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("numero");
+
+                    b.Property<Guid?>("ProveedorContactoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("proveedor_contacto_id");
+
+                    b.Property<Guid>("ProveedorId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("proveedor_id");
+
+                    b.Property<string>("SolicitanteNombre")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("solicitante_nombre");
+
+                    b.Property<Guid?>("SolicitanteUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("solicitante_user_id");
+
+                    b.Property<Guid?>("TaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset?>("VigenciaHasta")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("vigencia_hasta");
+
+                    b.Property<Guid?>("WorkflowInstanceId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("workflow_instance_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_rfqs");
+
+                    b.HasIndex("TenantId", "Estado")
+                        .HasDatabaseName("ix_requerimiento_rfqs_tenant_id_estado");
+
+                    b.HasIndex("TenantId", "Numero")
+                        .IsUnique()
+                        .HasDatabaseName("ix_requerimiento_rfqs_tenant_id_numero");
+
+                    b.HasIndex("TenantId", "ProveedorId")
+                        .HasDatabaseName("ix_requerimiento_rfqs_tenant_id_proveedor_id");
+
+                    b.ToTable("requerimiento_rfqs", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfqLinea", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Cantidad")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("cantidad");
+
+                    b.Property<string>("ClaveProducto")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("clave_producto");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Descripcion")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<DateTimeOffset?>("FechaRequerida")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_requerida");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("LeadTime")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("lead_time");
+
+                    b.Property<string>("Marca")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)")
+                        .HasColumnName("marca");
+
+                    b.Property<string>("Nota")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("nota");
+
+                    b.Property<decimal?>("PrecioUnitario")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("precio_unitario");
+
+                    b.Property<Guid?>("RequerimientoCompraHijoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("requerimiento_compra_hijo_id");
+
+                    b.Property<Guid>("RequerimientoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("requerimiento_id");
+
+                    b.Property<Guid>("RfqId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("rfq_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("UnidadMedida")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("unidad_medida");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<int?>("VigenciaDias")
+                        .HasColumnType("int")
+                        .HasColumnName("vigencia_dias");
+
+                    b.HasKey("Id")
+                        .HasName("pk_requerimiento_rfq_lineas");
+
+                    b.HasIndex("RfqId")
+                        .HasDatabaseName("ix_requerimiento_rfq_lineas_rfq_id");
+
+                    b.HasIndex("TenantId", "RequerimientoCompraHijoId")
+                        .HasDatabaseName("ix_requerimiento_rfq_lineas_tenant_id_requerimiento_compra_hijo_id");
+
+                    b.HasIndex("TenantId", "RfqId")
+                        .HasDatabaseName("ix_requerimiento_rfq_lineas_tenant_id_rfq_id");
+
+                    b.ToTable("requerimiento_rfq_lineas", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.RetellAgentMap", b =>
@@ -20186,6 +20492,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("FieldDefinition");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfqLinea", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.RequerimientoRfq", "Rfq")
+                        .WithMany("Lineas")
+                        .HasForeignKey("RfqId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_requerimiento_rfq_lineas_requerimiento_rfqs_rfq_id");
+
+                    b.Navigation("Rfq");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RolPermiso", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Rol", "Rol")
@@ -21231,6 +21549,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoCompra", b =>
                 {
                     b.Navigation("Hijos");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoRfq", b =>
+                {
+                    b.Navigation("Lineas");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.SaasPlan", b =>

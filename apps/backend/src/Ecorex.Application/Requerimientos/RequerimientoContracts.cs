@@ -121,6 +121,170 @@ public sealed record PlanificarGrupoRequest(
 /// <summary>Resultado del plan de grupo.</summary>
 public sealed record PlanificarGrupoResult(bool Ok, string? Error, int HijosCreados);
 
+// ---- Ola 13: comparador de cotizaciones de proveedor ----
+
+/// <summary>Una oferta/cotizacion de un proveedor para un producto, con nombre resuelto y la variacion vs
+/// el ultimo precio del historico de ESE proveedor para el MISMO producto (sube/baja %).</summary>
+public sealed record CotizacionDto(
+    Guid Id,
+    Guid ProveedorId,
+    string? ProveedorNombre,
+    decimal PrecioUnitario,
+    string TiempoEntrega,
+    string CaracteristicasDespacho,
+    string CondicionesPago,
+    DateTimeOffset? VigenciaHasta,
+    string? Notas,
+    RequerimientoCotizacionFuente Fuente,
+    Guid? ProveedorContactoId,
+    decimal? UltimoPrecio,
+    decimal? VariacionPct,
+    DateTimeOffset? FechaCotizacion = null,
+    string? ContactoNombre = null,
+    string? ContactoTelefono = null,
+    string? ContactoCorreo = null,
+    // Dias que sostiene su cotizacion (resuelto: regla mas especifica que aplique, si no el default del
+    // proveedor). Null = sin vigencia configurada. La tarjeta lo usa para marcar "por vencer"/"vencida".
+    int? VigenciaDias = null,
+    // Punto #4 (landed cost): flete de la oferta. FleteMonto 0 = sin flete; FleteEsPorUnidad lo multiplica por
+    // la cantidad (si no, es fijo por orden). Se guarda aparte de la oferta (sin migracion).
+    decimal FleteMonto = 0m,
+    bool FleteEsPorUnidad = false);
+
+/// <summary>Alta/edicion de una oferta (Id null = alta). Identifica el producto por item o por descripcion.</summary>
+public sealed record SaveCotizacionRequest(
+    Guid? Id,
+    Guid? ItemId,
+    string Descripcion,
+    Guid ProveedorId,
+    decimal PrecioUnitario,
+    string? TiempoEntrega,
+    string? CaracteristicasDespacho,
+    string? CondicionesPago,
+    DateTimeOffset? VigenciaHasta,
+    string? Notas,
+    Guid? ProveedorContactoId = null,
+    DateTimeOffset? FechaCotizacion = null,
+    // Procedencia de la oferta. Default Manual (captura humana); la Ola C pasa Rfq cuando entra por la
+    // respuesta del proveedor a una Solicitud de Cotizacion.
+    RequerimientoCotizacionFuente Fuente = RequerimientoCotizacionFuente.Manual,
+    // Punto #4: flete de la oferta (0 = sin flete; EsPorUnidad lo multiplica por la cantidad).
+    decimal FleteMonto = 0m,
+    bool FleteEsPorUnidad = false);
+
+/// <summary>Una linea de una Solicitud de Cotizacion (RFQ): la distribucion que se le pide al proveedor, con
+/// su snapshot de lo pedido y (cuando responda) los campos de oferta.</summary>
+public sealed record RfqLineaDto(
+    Guid Id,
+    Guid? HijoId,
+    string Descripcion,
+    decimal Cantidad,
+    string UnidadMedida,
+    DateTimeOffset? FechaRequerida,
+    decimal? PrecioUnitario,
+    int? VigenciaDias,
+    string? LeadTime,
+    string? Marca,
+    string? Nota);
+
+/// <summary>Una Solicitud de Cotizacion (RFQ) a un proveedor, con su numero, estado, tarea portadora y lineas.</summary>
+public sealed record RfqDto(
+    Guid Id,
+    string Numero,
+    Guid ProveedorId,
+    string? ProveedorNombre,
+    RfqEstado Estado,
+    Guid? TaskItemId,
+    string? TaskNumber,
+    DateTimeOffset? FechaEnvio,
+    DateTimeOffset CreatedAt,
+    int LineasCount,
+    IReadOnlyList<RfqLineaDto> Lineas);
+
+/// <summary>Pide cotizar un conjunto de distribuciones (hijos) AGRUPANDOLAS por proveedor: crea una RFQ por
+/// proveedor con todas sus lineas y su tarea portadora (que dispara el flujo). Idempotente por hijo.</summary>
+public sealed record CotizarPorProveedorRequest(IReadOnlyList<Guid> HijoIds);
+
+/// <summary>Resultado de cotizar por proveedor: cuantas RFQ se crearon, lineas incluidas, omitidas y avisos.</summary>
+public sealed record CotizarPorProveedorResultado(
+    bool Ok,
+    string? Error,
+    int RfqCreados,
+    int LineasIncluidas,
+    int Omitidas,
+    IReadOnlyList<string> Avisos,
+    IReadOnlyList<RfqDto> Rfqs);
+
+/// <summary>Ola E - multi-candidato: cotiza el MISMO producto (el de la necesidad <see cref="RequerimientoId"/>) a
+/// VARIOS proveedores a la vez. Crea 1 RFQ por proveedor, cada una con una sola linea del producto (SIN
+/// distribucion: la adjudicacion se hace despues en el planificador). <see cref="Cantidad"/> null = cantidad
+/// pendiente (sin planificar) de la necesidad.</summary>
+public sealed record CotizarCandidatosRequest(
+    Guid RequerimientoId,
+    IReadOnlyList<Guid> ProveedorIds,
+    decimal? Cantidad = null);
+
+/// <summary>Resultado de cotizar a varios candidatos.</summary>
+public sealed record CotizarCandidatosResultado(
+    bool Ok,
+    string? Error,
+    int RfqCreados,
+    int Omitidas,
+    IReadOnlyList<string> Avisos,
+    IReadOnlyList<RfqDto> Rfqs);
+
+/// <summary>Ola F - un proveedor resuelto desde la MATRIZ para un producto: proveedor + su proceso de
+/// cotizacion (flujo/subcategoria). La regla mas especifica que aplica al producto puede traer VARIOS
+/// proveedores; el fan-out crea una RFQ candidata a cada uno y es el FLUJO de cada proceso quien envia.</summary>
+public sealed record ReglaProveedorResueltoDto(
+    Guid ProveedorId,
+    string ProveedorNombre,
+    Guid? SubcategoriaCotizacionId,
+    string? SubcategoriaNombre,
+    // Proceso de COMPRA (subcategoria que corre al Ejecutar) del proveedor en la regla ganadora. Null = default.
+    Guid? SubcategoriaCompraId = null,
+    string? SubcategoriaCompraNombre = null);
+
+/// <summary>Una entrada del ranking que devuelve el agente evaluador.</summary>
+public sealed record CotizacionRankItem(Guid ProveedorId, int Posicion, string Motivo);
+
+/// <summary>Resultado de la evaluacion por IA de las ofertas de un producto: mejor opcion + ranking + resumen.</summary>
+public sealed record EvaluacionCotizacionesDto(
+    bool Ok,
+    string? Error,
+    Guid? ProveedorGanadorId,
+    string Resumen,
+    IReadOnlyList<CotizacionRankItem> Ranking);
+
+// ---- Ola 14: comparacion TOTAL por proveedor (canasta del proyecto) ----
+
+/// <summary>Un proyecto/origen elegible como canasta para el total por proveedor, con cuantos articulos
+/// (claves de producto distintas) aporta. Alimenta el filtro "tareas" de la tarjeta de total.</summary>
+public sealed record BasketOrigenOpcionDto(Guid OrigenId, string Nombre, int Articulos);
+
+/// <summary>Una fila del total por proveedor sobre una canasta: cuantos articulos de la canasta cotiza el
+/// proveedor (cobertura), en cuantos tiene el precio mas bajo, la suma (precio*cantidad) de lo que SI cubre y
+/// el sobreprecio promedio (% por encima del mas barato, sobre los articulos que cubre; 0 = siempre el mas
+/// barato). El sobreprecio normaliza el precio por cobertura para comparar proveedores con alcances distintos.</summary>
+public sealed record BasketProveedorFilaDto(
+    Guid ProveedorId,
+    string ProveedorNombre,
+    int CubreCount,
+    int GanaCount,
+    decimal Total,
+    bool CubreTodo,
+    decimal SobreprecioPct);
+
+/// <summary>Total por proveedor sobre una canasta (uno o varios proyectos/origenes): numero de articulos en la
+/// canasta, el total de la "mejor canasta" (sumando el mas barato de cada articulo, mezclando proveedores) como
+/// piso de referencia, el ranking de proveedores y la lista de proyectos elegibles para el filtro. Hace visible
+/// el efecto "gana por articulo / pierde en el total".</summary>
+public sealed record BasketResumenProveedorDto(
+    int ArticulosEnCanasta,
+    decimal MejorCanastaTotal,
+    IReadOnlyList<BasketProveedorFilaDto> Proveedores,
+    IReadOnlyList<BasketOrigenOpcionDto> Origenes);
+
 /// <summary>Estado de la planificacion de una necesidad: cantidades y sus hijos.</summary>
 public sealed record PlanificacionDto(
     Guid RequerimientoId,
@@ -197,6 +361,40 @@ public interface IRequerimientoService
     /// Idempotente: si el hijo ya tiene actividad de cotizacion, no crea otra.</summary>
     Task<EjecutarCompraResultado> CotizarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default);
 
+    // ---- Cotizacion gobernada por flujo (RFQ): Ola A ----
+    /// <summary>Cotiza por PROVEEDOR: toma las distribuciones (hijos) indicadas, las AGRUPA por su proveedor y
+    /// crea una Solicitud de Cotizacion (RFQ) por proveedor con todas sus lineas y una tarea portadora (cuya
+    /// subcategoria de cotizacion dispara el flujo). Idempotente: salta hijos que ya esten en una RFQ abierta
+    /// y los que no tengan proveedor. Devuelve el resumen + las RFQ creadas.</summary>
+    Task<CotizarPorProveedorResultado> CotizarPorProveedorAsync(CotizarPorProveedorRequest req, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    /// <summary>Ola E - multi-candidato: cotiza el MISMO producto de una necesidad a VARIOS proveedores a la vez.
+    /// Crea 1 RFQ por proveedor con una sola linea del producto, SIN comprometer distribucion (la adjudicacion se
+    /// hace despues en el planificador). Reusa la precedencia de proceso (Ola D) y la inyeccion del formulario
+    /// (Ola B); las respuestas caen todas en el MISMO comparador por clave de producto. Idempotente por
+    /// (necesidad, proveedor) con RFQ abierta.</summary>
+    Task<CotizarCandidatosResultado> CotizarCandidatosAsync(CotizarCandidatosRequest req, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    /// <summary>Ola F - resuelve, desde la MATRIZ de proveedores, los proveedores (con su proceso de cotizacion)
+    /// que aplican al PRODUCTO de la necesidad indicada: la regla mas especifica que aplica puede tener VARIOS
+    /// proveedores. Para pre-mostrar el fan-out en el planificador. Vacio si el producto no tiene item o no hay
+    /// regla que aplique.</summary>
+    Task<IReadOnlyList<ReglaProveedorResueltoDto>> GetProveedoresMatrizParaProductoAsync(Guid requerimientoId, CancellationToken ct = default);
+
+    /// <summary>Ola F - fan-out desde la matriz: crea una RFQ CANDIDATA (Ola E) a CADA proveedor de la regla mas
+    /// especifica que aplica al producto de la necesidad, usando el proceso de cotizacion de cada proveedor (si lo
+    /// tiene en la regla; si no, cae a la precedencia del modulo). Idempotente (omite proveedores con RFQ abierta).
+    /// El envio al proveedor lo hace el FLUJO de cada proceso (el modulo solo lo dispara al crear la tarea).</summary>
+    Task<CotizarCandidatosResultado> CotizarSegunMatrizAsync(Guid requerimientoId, Guid actorUserId, string actorName, CancellationToken ct = default);
+
+    /// <summary>Lista las Solicitudes de Cotizacion (RFQ) recientes del tenant (numero, proveedor, estado,
+    /// tarea portadora y lineas). Para ver lo cotizado desde el modulo.</summary>
+    Task<IReadOnlyList<RfqDto>> ListRfqAsync(int max = 100, CancellationToken ct = default);
+
+    /// <summary>Lista las RFQ que incluyen el PRODUCTO indicado (por su item/descripcion, empatado por la clave
+    /// del comparador), con su estado y oferta. Para el panel "estado RFQ" del planificador (Ola E).</summary>
+    Task<IReadOnlyList<RfqDto>> ListRfqPorProductoAsync(Guid? itemId, string? descripcion, CancellationToken ct = default);
+
     /// <summary>Datos de contacto de un proveedor (nombre del contacto + correo + telefono) para el autocompletado.
     /// Si <paramref name="contactoId"/> es null usa el primer contacto; si no, usa ese contacto especifico.</summary>
     Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, Guid? contactoId, CancellationToken ct = default);
@@ -217,4 +415,34 @@ public interface IRequerimientoService
     /// Empareja por ItemId cuando existe; si no, por Descripcion del padre. Excluye la necesidad actual.
     /// Devuelve null si no hay historial. No persiste nada: sirve de referencia al planificar.</summary>
     Task<UltimoPrecioDto?> GetUltimoPrecioAsync(Guid? itemId, string descripcion, Guid proveedorId, Guid excluirRequerimientoId, CancellationToken ct = default);
+
+    // ---- Ola 13: comparador de cotizaciones de proveedor ----
+    /// <summary>Ofertas de proveedor registradas para un producto (item o descripcion), con la variacion de
+    /// cada una vs el ultimo precio del historico de ese proveedor. Ordenadas por precio ascendente.</summary>
+    Task<IReadOnlyList<CotizacionDto>> ListCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default);
+    /// <summary>Crea/actualiza una oferta de proveedor (upsert por producto+proveedor). Devuelve la lista refrescada.</summary>
+    Task<IReadOnlyList<CotizacionDto>> GuardarCotizacionAsync(SaveCotizacionRequest req, decimal cantidad, CancellationToken ct = default);
+    /// <summary>Elimina una oferta.</summary>
+    Task<bool> EliminarCotizacionAsync(Guid id, CancellationToken ct = default);
+    /// <summary>Siembra ofertas para el producto desde la matriz de proveedores + el ultimo precio del
+    /// historico (idempotente: no duplica proveedores que ya tengan oferta). Devuelve la lista refrescada.</summary>
+    Task<IReadOnlyList<CotizacionDto>> SembrarCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default);
+    /// <summary>Evalua las ofertas con el agente configurado en el modulo (modulo de agentes) y propone la
+    /// mejor opcion + ranking + resumen. Si no hay agente configurado o no hay ofertas, devuelve Ok=false.</summary>
+    Task<EvaluacionCotizacionesDto> EvaluarCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default);
+
+    // ---- Ola 14: total por proveedor sobre la canasta (proyecto/origen) ----
+    /// <summary>Suma, por proveedor, el total (precio*cantidad) de los articulos de una canasta: los origenes
+    /// indicados, o TODAS las tareas del tenant si la lista va vacia. Devuelve la cobertura (cotiza X de N
+    /// articulos), en cuantos tiene el precio mas bajo, el total por proveedor, el piso "mejor canasta"
+    /// (mezclando el mas barato de cada articulo) y la lista de proyectos para filtrar. Hace visible el efecto
+    /// "gana por articulo / pierde en el total". Tenant-scoped por el filtro global.</summary>
+    Task<BasketResumenProveedorDto> ResumenProveedorCanastaAsync(IReadOnlyList<Guid> origenIds, CancellationToken ct = default);
+
+    // ---- Punto #3: scorecard de confiabilidad del proveedor (delegado al config service) ----
+    /// <summary>Scorecards de confiabilidad por proveedor (promedios de puntualidad/calidad + conteo). Solo
+    /// proveedores con al menos una calificacion.</summary>
+    Task<IReadOnlyDictionary<Guid, ProveedorScoreDto>> GetProveedorScoresAsync(CancellationToken ct = default);
+    /// <summary>Registra una calificacion (puntualidad/calidad 1-5 + nota) de un proveedor y devuelve su score actualizado.</summary>
+    Task<ProveedorScoreDto> RateProveedorAsync(ProveedorRatingInput input, CancellationToken ct = default);
 }

@@ -181,6 +181,7 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ConvertirAFormularioVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CargarFilasDesdeGrillaVerb>();   // FEATURE C: cargar filas de una grilla a otra
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarRequerimientosDesdeTablaVerb>();  // Capa 10: necesidad de compra por fila
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.RegistrarRespuestaRfqVerb>();             // Capa 10 Ola C: respuesta del proveedor -> linea RFQ + comparador
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.DireccionarConciliadorVerb>();   // Conciliador: boton del form -> columna del renglon
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CompletarPasoFlujoVerb>();        // Flujo: boton del form cierra el paso actual (con campos obligatorios opcionales)
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ReiniciarFlujoTareaVerb>();       // Flujo: boton del form reinicia el ciclo reasignado al usuario de un campo (Rechazar/Redireccionar)

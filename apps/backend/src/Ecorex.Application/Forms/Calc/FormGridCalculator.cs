@@ -47,7 +47,12 @@ public sealed record FormGridColumn(
     // Columna CONSECUTIVA/auto-numerada (Kind="seq", DATO en options_json: "seq"): read-only, se recalcula
     // segun la POSICION de la fila y se guarda en la celda (para que imprima con {{col.id}}). Formato:
     // "num" = 1,2,3...; cualquier otro (o null) = letras A,B,C...Z,AA,AB... Null si la columna no es seq.
-    string? Seq = null)
+    string? Seq = null,
+    // Columna OCULTA (DATO en options_json: "hidden": true): existe en la definicion y su valor se CONSERVA y
+    // viaja en cada fila (round-trip al guardar), pero NO se pinta al usuario (ni encabezado ni celda) ni se
+    // exporta a Excel. Sirve para llevar una CLAVE tecnica por fila -p.ej. la clave de producto de una RFQ- sin
+    // que el proveedor la vea o la altere. False = columna normal (comportamiento previo).
+    bool Hidden = false)
 {
     /// <summary>La columna captura de una lista fija (Select).</summary>
     public bool IsSelect => string.Equals(Kind, "select", StringComparison.OrdinalIgnoreCase);
@@ -157,6 +162,8 @@ public static class FormGridCalculator
                 var groupBy = el.TryGetProperty("groupBy", out var pgb) ? pgb.GetString() : null;
                 // CAP 3: esta columna es la CLAVE de agrupacion visual de la grilla (opt-in de presentacion).
                 var groupRender = el.TryGetProperty("groupRender", out var pgr) && pgr.ValueKind == JsonValueKind.True;
+                // Columna oculta: se conserva el valor por fila pero no se pinta ni se exporta (clave tecnica).
+                var hidden = el.TryGetProperty("hidden", out var phid) && phid.ValueKind == JsonValueKind.True;
                 List<FormOption>? options = null;
                 if (el.TryGetProperty("options", out var po) && po.ValueKind == JsonValueKind.Array)
                 {
@@ -204,7 +211,8 @@ public static class FormGridCalculator
                     groupRender,
                     pills,
                     min,
-                    string.IsNullOrWhiteSpace(seq) ? null : seq.Trim().ToLowerInvariant()));
+                    string.IsNullOrWhiteSpace(seq) ? null : seq.Trim().ToLowerInvariant(),
+                    hidden));
             }
         }
         catch (JsonException) { /* columnas invalidas: tabla vacia */ }

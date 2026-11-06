@@ -47,6 +47,9 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                 "Id de la columna con la cantidad (default: cantidad)."),
             new RuleVerbParamDescriptor("unidadCol", "Columna unidad", RuleParamType.Text, Required: false,
                 "Id de la columna con la unidad de medida (default: unidad)."),
+            new RuleVerbParamDescriptor("unidadFija", "Unidad por defecto", RuleParamType.Select, Required: false,
+                "Unidad de medida que se aplica cuando la fila no trae ninguna (catalogo de unidades mas comunes).",
+                Options: RequerimientoUnidades.Comunes.Select(u => new RuleParamOption(u, u)).ToArray()),
             new RuleVerbParamDescriptor("fechaCol", "Columna fecha", RuleParamType.Text, Required: false,
                 "Id de la columna con la fecha requerida (default: fecha_requerida)."),
             new RuleVerbParamDescriptor("obsCol", "Columna observaciones", RuleParamType.Text, Required: false,
@@ -96,6 +99,7 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
         var unidadCol = context.GetStringParam("unidadCol") ?? "unidad";
         var fechaCol = context.GetStringParam("fechaCol") ?? "fecha_requerida";
         var obsCol = context.GetStringParam("obsCol") ?? "observaciones";
+        var unidadFija = context.GetStringParam("unidadFija");
 
         // Mapeo avanzado destino -> "kind:ref" (col|field|fixed). Sobrescribe/añade datos del destino.
         var mapeo = ReadMapeo(context);
@@ -180,6 +184,9 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                         break;
                 }
             }
+
+            // Unidad por defecto (del catalogo comun) cuando la fila no trajo ninguna.
+            if (string.IsNullOrWhiteSpace(unidad) && !string.IsNullOrWhiteSpace(unidadFija)) { unidad = unidadFija!; }
 
             // Descripcion final (override o producto), con las observaciones entre parentesis.
             var baseDesc = descripcionOverride ?? producto;

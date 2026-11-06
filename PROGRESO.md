@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-06 - Merge de la linea Requerimientos de Compra (rama requerimiento_compras -> tronco + espejo main, release v0.16.278, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Merge divergente `--no-ff` de `requerimiento_compras` (37 commits, culminaba en v0.16.254) sobre el tronco `fase-0/clon-backbone` (+62 commits desde la merge-base `6234c106`). Trae TODA la linea: APU->Requerimiento, consolidado, Planificar grupo, matriz de reglas, RFQ olas A-F, proceso de compras configurable y el comparador de cotizaciones con sus 4 puntos de decision (semaforo de entrega, costo financiero credito/pago, scorecard de confiabilidad, costo real con flete/landed + canasta).
+- CONFLICTOS resueltos a mano (solo 2; los ModelSnapshot de ambos proveedores auto-mergearon por union, git intercalo las migraciones por timestamp): (1) `AppVersion.cs` -> `0.16.278` (por encima del tronco 0.16.277 y de la rama 0.16.254); (2) `PROGRESO.md` -> conservados AMBOS bloques. Las 4 migraciones EF de la rama (AddRequerimientoCotizaciones, AddCotizacionContactoYFecha, AddRequerimientoRfq, AddRfqLineaHijoNullable, en PG y SqlServer) son de la base de cotizaciones/RFQ; los 4 puntos del comparador NO llevan esquema (estado en `TenantConfiguration` como JSON: ratings, fletes, prefs).
+- VERIFICADO: `dotnet build Ecorex.sln` verde (0 errores); `dotnet ef migrations list` lista ambos linajes (DocumentoAnalisis*/ConciliacionAsignacionHistorial del tronco + las 4 de Requerimientos). Sin secretos en el merge; los 3 HTML de `deploy/` de otra sesion quedaron sin tocar.
+- CAVEATS (backlog, NO bloquean): punto #3 (scorecard) hoy solo captura la calificacion desde la tarjeta del comparador, falta capturarla al cerrar/recibir la OC; punto #4 (flete) el save por UI quedo validado por el mismo patron que Precio + siembra SQL, falta confirmacion del save con el panel del navegador visible (sin bug conocido). Dato local (fila de flete en `tenant_configurations` key `requerimientos.cotizacion_fletes`) es solo local, NO en codigo.
+- SIGUIENTE: doble push tronco + espejo main; el CI (ADR-0018) corre gitleaks/build Release/format/tests/matriz dual en el PR. Deploy v0.16.278 lo autoriza el usuario por version, aparte de este merge. Relaciona [[comparador-cotizaciones-planificar]], [[worktree-requerimiento-compras]].
+
 ## 2026-11-06 - Red de seguridad de cierre del agente: no fugar razonamiento interno al cliente (ADR-0154, release v0.16.277, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. `dotnet build Ecorex.sln` verde (0 errores). `dotnet test` verde: 17/17 nuevas (`AiCloseSafetyNetTests`) + 1179/1179 de la suite Application.Tests. Sin migracion EF ni paquetes nuevos. Archivo de test nuevo solo-ASCII. ADR-0154. SIN deploy (el hand-off pide build+tests verdes, deploy solo con OK por version).
@@ -720,6 +728,552 @@
   restaurado a print-lienzo.
 - DEPLOY: NO. Queda el build local para que el usuario coloque 2 ActionButtons en el paso 13 de CANVAS-EMP.
 - Ver [[form-boton-imprimir-lienzo]].
+## 2026-11-06 - Costo real / flete (landed cost): punto #4 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.254. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: punto #4. La vigencia (parte del #4) YA estaba en el comparador; faltaba el costo real de traer el
+  material. Enfoque elegido: FLETE por oferta (fijo por orden o por unidad) plegado al TOTAL -> el comparador y la
+  canasta pasan a mostrar "total con flete" (landed). El mas barato por unitario puede perder al sumar el flete.
+- HECHO (SIN migracion; flete guardado aparte de la oferta, por id de cotizacion, en TenantConfiguration):
+  - CONTRATOS: FleteSpec + GetCotizacionFletesAsync/SetCotizacionFleteAsync (IRequerimientoConfigService).
+    CotizacionDto y SaveCotizacionRequest ganan FleteMonto + FleteEsPorUnidad.
+  - SERVICIO: store "requerimientos.cotizacion_fletes" = { cotizacionId: {M,U} }. MapCotizacionesAsync enriquece
+    cada oferta con su flete; GuardarCotizacionAsync persiste el flete por id tras guardar la oferta;
+    EliminarCotizacionAsync lo limpia. ResumenProveedorCanastaAsync suma al total del proveedor el flete de la
+    oferta MAS barata de cada clave (fijo, o por unidad * cantidad) -> canasta landed.
+  - UI (CotizacionesComparador.razor): form gana "Flete" (monto) + "Flete es" (fijo/por unidad). Tarjeta: "Total
+    con flete" + "+flete X" cuando hay flete; sello "Mejor con flete" en el menor total landed. CSS .rqc-flete.
+- VALIDADO E2E 5265/SKY (v0.16.254), grupo 2X16 (Dielco 1950, Omega 2050, Melexa 2100, cant 330). Con flete fijo
+  40.000 en Dielco: tarjeta "Total con flete 683.500 / +flete 40.000"; Omega queda "Mejor con flete" (676.500 < 683.500)
+  -> el landed voltea al ganador. Canasta: Dielco con flete 32.231.180 vs sin flete 32.191.180 = +40.000 EXACTO.
+  El form de edicion CARGA el flete (enriquecimiento ok). Build SuperAdmin 0 errores.
+- OJO (limite del harness, NO del codigo): el guardado por la UI no se pudo ejercer desde el navegador embebido
+  porque con la pane OCULTA los eventos sinteticos/form_input no disparan el @bind de Blazor (el campo Precio
+  tampoco persistio por esa via). El save del flete usa el MISMO patron que Precio (campo que si persiste con
+  usuario real) y que RateProveedorAsync. Para la demo se sembro el flete de Dielco por SQL (artefacto reversible,
+  key requerimientos.cotizacion_fletes).
+- SIGUIENTE: cerrados los 4 puntos. Pendientes menores: (a) sub-pieza del #3 (calificar al cerrar/recibir la compra);
+  (b) confirmar el save del flete con la pane visible. PROMPT a dev central y deploy, con OK por version del usuario.
+
+## 2026-11-06 - Scorecard de confiabilidad del proveedor: punto #3 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.253. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: punto #3. La confiabilidad NO se media (sin fecha real de entrega ni marca de calidad; solo 3 compras
+  ejecutadas -> derivar no sirve). Enfoque elegido: calificacion MANUAL (puntualidad + calidad 1-5) por el comprador,
+  promediada a estrellas en la tarjeta. Sin migracion: eventos de calificacion en TenantConfiguration (JSON).
+- HECHO:
+  - CONTRATOS: ProveedorRatingInput + ProveedorScoreDto (RequerimientoConfigContracts). Metodos GetProveedorScoresAsync
+    / RateProveedorAsync en IRequerimientoConfigService y expuestos tambien en IRequerimientoService (delegacion).
+  - SERVICIO (RequerimientoConfigService): store "requerimientos.proveedor_ratings" = lista de eventos
+    {P,Pu,Ca,N,At,By}; agregacion en memoria (promedio puntualidad/calidad, general=(pu+ca)/2, conteo, ultima nota).
+    RateProveedorAsync clampa 1-5, sella usuario (UserId) + fecha UTC, persiste y devuelve el score actualizado.
+  - UI (CotizacionesComparador.razor): fila de confiabilidad por tarjeta (estrellas + general + conteo, "sin
+    calificar" si no hay, "problemas" si general<=2) + boton "Calificar" que abre un form inline (2 filas de
+    estrellas 1-5 + nota). Carga los scores en LoadAsync y refresca tras guardar. CSS .rqc-rel/.rqc-stars/.rqc-rate*.
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.253): grupo 2X16. Califique Melexa (punt5/cal4) -> 4.5 (1);
+  Dielco (1/1) -> 1.0 (1) + "problemas"; Omega "sin calificar". 2a calif a Melexa (3/3) -> promedia a 3.8 (2)
+  (punt 4.0, cal 3.5). Persistencia confirmada en BD (3 eventos en el jsonb). Build SuperAdmin 0 errores.
+- PENDIENTE del #3 (sub-pieza): capturar la calificacion TAMBIEN al marcar/cerrar la compra como recibida (hoy solo
+  desde la tarjeta del comparador). Decidir con el usuario si se cablea ya o despues de los 4 puntos.
+- SIGUIENTE: punto #4 costo total real (flete/minimos/descuentos/vigencia). PROMPT a dev central y deploy con OK por version.
+
+## 2026-11-06 - Credito/pago en el comparador: punto #2 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.252. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: punto #2 de los 4 huecos. El condiciones_pago (Contado/Credito N dias) ya se mostraba pero no se
+  comparaba. Dato rico y parseable (241 ofertas: Contado=0, Credito 15/30/45). Enfoque elegido: marcar el mejor
+  credito + tasa de oportunidad que convierte el credito en un "precio efectivo" (sin tocar el total de la canasta).
+- HECHO (SIN migracion; comparador reutilizable + persistencia en el mismo jsonb de prefs):
+  - ParseCreditDays: "contado"/"anticipado" = 0; "credito N dias"/"N dias" = N; "N mes"/"N seman" escalado; null si
+    no es interpretable. Sello "mejor credito" en la oferta con mas dias (solo si hay variedad y >0).
+  - Precio efectivo: barra "Tasa de oportunidad [N]% mensual" (persistida en prefs, clave rate). efectivo =
+    precio * (1 - tasa/100 * dias/30) (credito desconocido = contado, sin descuento). Se muestra "efectivo $X/u"
+    por tarjeta y el sello "Mejor efectivo" en el menor efectivo (solo con tasa>0). Tasa 0 = solo marca el credito.
+  - Archivos: CotizacionesComparador.razor (parser/estado/efectivo/barra/sellos + lectura/guardado de rate en prefs),
+    su .razor.css (.rqc-finance/.rqc-efectivo/.rqc-eta-credit/.rqc-badge-credit).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.252): grupo 2X16 (Dielco contado 1950, Omega cred15 2050,
+  Melexa cred30 2100). Tasa 0: "mejor credito" en Melexa, sin efectivo. Tasa 2%: efectivos 1950/2030/2058, "Mejor
+  efectivo" en Dielco (contado sigue ganando). Tasa 8%: el ganador efectivo se voltea a Melexa (1932) -> el credito
+  supera el sobreprecio. Persistencia confirmada en BD (rate:2 en el jsonb). Build SuperAdmin 0 errores.
+- SIGUIENTE: punto #3 scorecard de confiabilidad del proveedor (cumplimiento/calidad/retrasos); luego #4 costo total
+  real (flete/minimos/descuentos/vigencia). PROMPT a dev central y deploy con OK por version.
+
+## 2026-11-06 - Semaforo de entrega en el comparador: punto #1 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.251. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: evaluando la herramienta "como jefe de compras" salieron 4 huecos para decidir que proveedor y
+  CUANDO. El #1 (mas importante): el comparador mostraba el tiempo de entrega como texto suelto ("4 dias") sin
+  cruzarlo contra la fecha de necesidad; el mas barato podia llegar tarde. Dato clave: solo 7 de 336 necesidades
+  traen fecha_necesidad, asi que el enfoque elegido fue: rankear por rapidez SIEMPRE + semaforo cuando hay plazo +
+  poder fijar el plazo ahi mismo (no depender del dato cargado).
+- HECHO (SIN migracion; todo en el comparador reutilizable + un parametro nuevo):
+  - PARSER de tiempo de entrega (texto->dias): ParseDeliveryDays interpreta "N dias", "inmediato"/"stock"=0,
+    "N semanas"=N*7, "N mes"=N*30; "A convenir"/no-numerico = null (no inventa llegada).
+  - RANKING por rapidez: sello "mas rapido" en la oferta de menor tiempo (solo si hay variedad de tiempos).
+  - SEMAFORO: barra "Necesito para [fecha] o en [N] dias" (sembrada de la fecha de necesidad mas temprana de lo
+    planificado via nuevo parametro FechaNecesidad; sobrescribible; fecha<->dias en sync). Por oferta: verde
+    "N d antes" (>=2 d margen), amarillo "justo" (0-1 d), rojo "tarde N d" (llega despues), gris "entrega sin
+    dato" (no parseable). Llegada estimada = hoy + dias de entrega.
+  - Archivos: CotizacionesComparador.razor (+parser/ranking/semaforo/barra), su .razor.css (.rqc-deadline/.rqc-eta*),
+    RequerimientosCompra.razor (pasa FechaNecesidad = min de las necesidades planificadas).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.251): grupo 2X16 (Dielco 6d, Omega 5d, Melexa 4d).
+  Sin plazo: solo Melezxa marcada "mas rapido". Plazo "en 5 dias" (11/11): Dielco rojo "tarde 1 d" (llega 12/11),
+  Omega amarillo "justo" (11/11), Melexa "mas rapido"+"justo" (10/11). Plazo "en 8 dias": los 3 verdes "N d antes".
+  Fecha y dias sincronizados. Build SuperAdmin 0 errores.
+- SIGUIENTE: punto #2 condiciones de pago/credito en la comparacion; luego #3 scorecard de confiabilidad del
+  proveedor; #4 costo total real (flete/minimos/descuentos/vigencia). PROMPT a dev central y deploy con OK por version.
+
+## 2026-11-06 - Comparador de cotizaciones: canasta total por proveedor + vistas Datos/Graficos + "Usar" aplica a toda la planificacion (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.250. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: 4 pedidos encadenados sobre el comparador de cotizaciones del planificador (tab Cotizacion):
+  comparar no solo por articulo sino por el TOTAL del proveedor en la canasta del proyecto; poder filtrar por
+  origen de proyecto; ver como datos o como graficos de forma persistente; y que "Usar esta opcion" mande TODA
+  la planificacion a ese proveedor (antes solo tocaba una linea).
+- HECHO (SIN migracion; agregacion en C#, prefs en jsonb existente de UserTablePreference):
+  - CANASTA POR PROVEEDOR: nuevo ResumenProveedorCanastaAsync (RequerimientoService) + DTOs
+    BasketResumenProveedorDto/BasketProveedorFilaDto/BasketOrigenOpcionDto (RequerimientoContracts). Suma por
+    clave de producto la cantidad de la canasta, cruza cotizaciones (precio>0), calcula min por (clave,prov) y
+    por clave, y agrega por proveedor: Cobertura (cuantas cubre), Gana en (en cuantas es el minimo), Total de la
+    canasta y Sobreprecio% normalizado. Respeta el filtro global por tenant; clave via RequerimientoClave.Of
+    (en memoria, no SQL).
+  - UI comparador (CotizacionesComparador.razor, reusable): panel "Comparacion total por proveedor" debajo del
+    comparador por articulo (params ShowBasket + DefaultOrigenIds). Filtro de canasta por origen (checkboxes con
+    conteo), toggle Datos/Graficos, y 5 graficos SVG/CSS puros (Total, Cobertura, Precio prom., Gana en, y Mapa
+    cobertura-vs-sobreprecio que resalta el proveedor ideal). Vista + grafico + filtro PERSISTEN por usuario
+    (IUserTablePrefsService, clave req.cotiz.basket.view, JSON {view,chart,sel}).
+  - "USAR ESTA OPCION" (AplicarCotizacionIndividualAsync en RequerimientosCompra.razor): aplica proveedor +
+    precio + entrega + despacho + contacto a TODAS las filas editables del plan (TaskItemId==null); si no hay
+    distribucion la arma por defecto (grupo: BuildGroupHijosAsync; individual: una fila con el restante);
+    resuelve contacto/ultimo precio una vez y lo copia a todas; respeta lineas ya ejecutadas; pasa a la pestana
+    Planificacion para revisar antes de Guardar.
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.250): panel de canasta renderiza y recomputa al filtrar;
+  toggle Datos/Graficos y los 5 graficos (incl. Mapa con Melexa resaltado como ideal); persistencia confirmada en
+  BD (prefs {"sel":[],"view":"graficos","chart":"mapa"}); "Usar esta opcion" en grupo 2X16 (4 necesidades) dejo
+  las 4 filas en Melexa/4 dias/$2100 (verificado por inspeccion de inputs). Build SuperAdmin 0 errores.
+- SIGUIENTE: atacar los 4 huecos para la decision de compra (en orden): (1) semaforo de entrega contra la fecha
+  de necesidad; (2) condiciones de pago/credito en la comparacion; (3) scorecard de confiabilidad del proveedor;
+  (4) costo total real (flete, minimos, descuentos por volumen, vigencia de la cotizacion). PROMPT de integracion
+  a dev central y deploy, con OK por version del usuario.
+
+## 2026-11-04 - Proceso de COMPRAS configurable (default modulo + matriz) y resuelto en el planificador (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.249. Commits e445887e (tab cotizacion->proceso) +
+  168dd444 (proceso de compras). Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: el usuario senalo que solo el proceso de COTIZACION (RFQ) era configurable; faltaba el proceso de
+  COMPRAS con la misma logica: default del modulo + en la matriz de proveedores + que llegue al planificador.
+  Ademas movi el selector "Proceso de cotizacion por producto" del pie de Planificacion al tab Cotizacion.
+- HECHO (espejo del proceso de cotizacion, SIN migracion, todo en TenantConfiguration):
+  - CONFIG DEL MODULO: nuevo "Proceso de compras por defecto" junto al de cotizacion (clave
+    requerimientos.compra_default). GetCompraDefaultAsync/SetCompraDefaultAsync.
+  - MATRIZ: cada proveedor de una regla gana un "Proceso de compras" ademas del de cotizacion. Se guarda en
+    ReglaExt.ProcComp dentro del blob matriz_ext. Contratos: SaveReglaRequest/RequerimientoReglaDto/
+    ReglaProveedorResueltoDto ganan SubcategoriaCompraId (opcional, compatible). UI: 2a columna de select en
+    cada fila del editor multi-proveedor (ReglaProvEdit.ProcesoCompra).
+  - PLANIFICADOR: EjecutarHijoAsync resuelve el proceso de compra con la cadena matriz del proveedor
+    (GetProveedoresMatrizParaProductoAsync, por el producto y el proveedor del hijo) > origen de la necesidad >
+    default del modulo (antes SOLO miraba el origen). Mensaje de error actualizado a la cadena completa.
+  - UI tab Cotizacion: el selector "Proceso de cotizacion (RFQ) por producto" se movio del pie de la pestana
+    Planificacion al tab Cotizacion (junto al comparador/candidatos).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.249): config muestra y PERSISTE "Proceso de compras por
+  defecto" (lo deje en "Pago a proveedor"); en la matriz, el editor de una regla muestra "Proceso de compras"
+  por proveedor y PERSISTE (INGETEL -> "Contratacion", Produvarios -> default). Build SuperAdmin 0 errores.
+  OJO dato dev (artefactos de prueba, reversibles por UI): compra_default=Pago a proveedor; INGETEL compra=Contratacion.
+- SIGUIENTE: lo que el usuario siga ajustando. Pendiente mayor: (opcional) proceso de compra POR PRODUCTO (hoy
+  compra = default/matriz/origen, sin capa producto como si tiene cotizacion); rondas/plantillas (Ola F fase 2);
+  adjudicacion del candidato; PROMPT de integracion a dev central; deploy con OK por version.
+
+## 2026-11-04 - RFQ Ola F (ajustes UX): editor de regla multi-proveedor + pestana Cotizacion en Planificar (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.247. Commit 8d92f230 (push a requerimiento_compras, SIN deploy).
+- CONTEXTO: dos ajustes del usuario sobre la Ola F. (1) "aun no puedo aplicar esta misma regla a varios
+  proveedores": el editor "Editar regla" editaba 1 proveedor a la vez (habia que reabrirlo con "+ Agregar
+  proveedor" desde la tarjeta). (2) En Planificar, lo de cotizacion (proceso + candidatos + comparador)
+  debia ir en OTRA pestana, no mezclado con la planificacion.
+- HECHO (solo RequerimientosCompra.razor + AppVersion):
+  - EDITOR MULTI-PROVEEDOR: "Editar regla" ahora es a nivel de REGLA. Condiciones compartidas arriba; abajo
+    una LISTA de proveedores (ReglaProvEdit), cada fila = proveedor del Directorio + proceso de cotizacion +
+    vigencia + prioridad + activo, con "+ Agregar proveedor" y quitar (x) dentro del editor. Al abrir carga
+    TODAS las filas que comparten la firma de condiciones (CondSig); Guardar RECONCILIA: alta/edita cada fila
+    (SaveReglaAsync con su RuleId) y BORRA (DeleteReglaAsync) las filas-regla del grupo que se quitaron.
+    Valida: >=1 condicion, >=1 proveedor, sin proveedor repetido. "+ Crear en Directorio" por fila
+    (OnProveedorCreatedAsync asigna a la fila que disparo la creacion). Se eliminaron los campos de 1 solo
+    proveedor (_cfgrProveedor/_cfgrProvNombre/_cfgrContactos/_cfgrVigencia/_cfgrPrioridad/_cfgrActivo/_cfgrProceso).
+  - PESTANA COTIZACION: el modal Planificar pasa de 2 a 3 pestanas: Detalle | Cotizacion (N) | Planificacion.
+    La pestana Cotizacion reune el comparador, "Cotizar a varios proveedores (candidatos)", el banner de la
+    matriz ("Cotizar a la matriz") y la lista de RFQ del producto. La pestana Planificacion queda SOLO con
+    la tabla de divisiones + "Proceso de cotizacion por producto". Al usar una oferta del comparador
+    (AplicarCotizacionIndividualAsync) salta a Planificacion. Footer navega Detalle->Cotizacion->Planificacion.
+    Implementado gateando bloques por _planTab (sin mover grandes bloques de markup).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.247): editor de "Marca: ASUS" abre con INGETEL +
+  Produvarios en UNA sola pantalla (cada uno su proceso); cambie vigencia de INGETEL 3->5 y Guardar -> ambos
+  persisten agrupados (INGETEL 5 d, Produvarios "Cotizacion de equipos"). Planificar de "PORTATIL ALTA GAMA
+  GAMER ASUS" muestra 3 pestanas; Cotizacion lista comparador + candidatos + "Matriz: 2 proveedor(es)" +
+  RFQ-0008/0009; Planificacion solo la tabla de divisiones. Build Ecorex.sln 0 errores.
+  OJO dato dev: quedo INGETEL vigencia=5 (era 3) en SKY como artefacto de la prueba de guardado; reversible por UI.
+- SIGUIENTE: lo que el usuario siga ajustando. Pendiente mayor: rondas/plantillas (Ola F fase 2) + adjudicacion
+  del candidato + PROMPT de integracion a dev central (acumula Ola F + estos ajustes) + deploy con OK.
+
+## 2026-11-03 - RFQ Ola F: matriz con N proveedores por regla + proceso de cotizacion por proveedor + cotizar a la matriz (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.246.
+- CONTEXTO: dos pedidos en uno. (1) En la Matriz de proveedores, una misma regla (condiciones por
+  marca/grupo/categoria/referencia) debe admitir VARIOS proveedores, y cada proveedor dentro de la regla
+  con SU PROPIO proceso de cotizacion. (2) Arrancar la Ola F: desde Planificar, "cotizar a la matriz"
+  hace fan-out automatico creando una RFQ candidata a TODOS los proveedores de la regla que gana.
+  CLAVE (restriccion del usuario): el ENVIO real al proveedor (voz/correo/WhatsApp) NO lo hace este modulo;
+  lo hace el FLUJO DE TRABAJO. El "proceso de cotizacion" de cada proveedor ES el flujo que envia: crear la
+  tarea portadora con esa subcategoria dispara el flujo. El modulo solo arma el fan-out y llama el flujo.
+- DECISIONES:
+  - Modelo de "regla con N proveedores" SIN migracion, consistente con el patron del modulo (side-car en
+    `TenantConfiguration`): una "regla" = GRUPO de filas `RequerimientoProveedorRegla` que comparten la misma
+    firma de condiciones (CondSig). Cada fila sigue siendo 1 proveedor + prioridad + vigencia + activo.
+  - El proceso por proveedor-en-regla se guarda en el side-car `requerimientos.matriz_ext` -> `ReglaExt.Proc`
+    (Guid de subcategoria como texto). No es child table ni columna nueva.
+  - Precedencia de proceso (extiende Ola D): proceso de la regla-proveedor (nuevo, gana) > producto >
+    matriz(proveedor tenant-wide, ProvCot) > origen > default del modulo.
+- HECHO:
+  - Contratos: `RequerimientoReglaDto` +`SubcategoriaCotizacionId`/`SubcategoriaNombre`; `SaveReglaRequest`
+    +`SubcategoriaCotizacionId`; nuevo `ReglaProveedorResueltoDto`; en `IRequerimientoService`:
+    `GetProveedoresMatrizParaProductoAsync` y `CotizarSegunMatrizAsync`.
+  - ConfigService: `ReglaExt.Proc`; `ListReglasAsync` resuelve nombre de la subcategoria; `SaveReglaAsync`
+    persiste `Proc` y conserva la fila si tiene Cond/Vig/Proc.
+  - Service: `CotizarCandidatosAsync` delega en `CotizarCandidatosCoreAsync(... procesoOverride ...)` nuevo
+    (precedencia con override por proveedor). `GetProveedoresMatrizParaProductoAsync`: aplica la matriz al
+    producto de la necesidad, elige la regla que mas condiciones cumple (desempate por prioridad) y devuelve
+    TODOS los proveedores de esa firma. `CotizarSegunMatrizAsync`: arma el override de proceso por proveedor
+    y hace fan-out candidato (reusa el core de la Ola E).
+  - UI (`RequerimientosCompra.razor`): editor de regla con selector "Proceso de cotizacion" (aclara que el
+    envio lo hace el flujo); la Matriz ahora agrupa por CondSig (1 tarjeta por regla) con "+ Agregar
+    proveedor" y tabla Proveedor | Proceso (envia el flujo) | Prioridad | Vigencia | Activo; en Planificar,
+    banner "Cotizar a la matriz (N)" cuando el producto cae en una regla.
+- VALIDADO E2E en 5265 (SKY, BD local copia de prod 5442/ecorex):
+  - Regla "Marca: ASUS" con 2 proveedores (INGETEL, Produvarios), Produvarios con proceso propio
+    "Cotizacion de equipos". Round-trip de config OK.
+  - Necesidad del item "PORTATIL ALTA GAMA GAMER ASUS" (marca ASUS) -> "Cotizar a la matriz (2)" ->
+    "Matriz: se crearon 2 RFQ de cotizacion."
+  - BD: RFQ-0008 (INGETEL, candidato, proceso "Contratacion" por fallback) y RFQ-0009 (Produvarios,
+    candidato, proceso "Cotizacion de equipos" por la regla); ambas con `requerimiento_compra_hijo_id=NULL`.
+  - Build Ecorex.sln 0 errores.
+- SIGUIENTE: rondas/plantillas de recordatorio de la Ola F y adjudicacion del candidato (asignar ganador al
+  hijo) a senal del usuario. El PROMPT de integracion a dev central acumula tambien la Ola F.
+- SIN deploy a prod (regla: OK por version). Push a `requerimiento_compras` (no al tronco).
+
+## 2026-11-02 - RFQ Ola E: multi-candidato (1 producto -> N proveedores) + panel de estado RFQ (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario.
+- CONTEXTO: en Planificar, cotizar el MISMO producto a VARIOS proveedores a la vez (1 RFQ por proveedor,
+  sin comprometer una distribucion) y ver el estado de todas las RFQ de ese producto sin salir del modal.
+  Las respuestas siguen cayendo en el comparador (Ola C); la adjudicacion (asignar proveedor/precio ganador
+  al hijo) se hace despues alli mismo.
+- HECHO:
+  - Dominio: `RequerimientoRfqLinea.RequerimientoCompraHijoId` ahora es `Guid?` (NULL en una RFQ de
+    CANDIDATO). Migracion dual `AddRfqLineaHijoNullable` (PG + SQL Server): `ALTER COLUMN ... DROP NOT NULL`.
+    Sin cambios de modelo mas alla de la nulabilidad.
+  - Contratos: `RfqLineaDto.HijoId` -> `Guid?`; nuevos `CotizarCandidatosRequest`/`CotizarCandidatosResultado`
+    y metodos `IRequerimientoService.CotizarCandidatosAsync` + `ListRfqPorProductoAsync(itemId, desc)`.
+  - Servicio: `CotizarCandidatosAsync` crea 1 RFQ (tarea portadora + 1 linea con hijo NULL) por proveedor,
+    reutiliza la precedencia de la Ola D para la subcategoria (producto > matriz > origen > default) y
+    siembra el formulario /f (Ola B) si esta activo; `ListRfqPorProductoAsync` lista las RFQ por clave.
+    Refactor compartido: `BuildRfqRow`/`PersistRfqSeedAsync` (siembra) y `MapRfqsAsync` (listado) para no
+    tocar el camino probado por-hijo.
+  - IDEMPOTENCIA (decidido aqui, mas estricto que el borrador): se omite un proveedor que YA tenga una RFQ
+    ABIERTA para esta necesidad+producto, sea candidata o de distribucion (hijo). "No mandar dos veces":
+    evita dos RFQ vivas al mismo proveedor por el mismo producto y no ensucia el comparador.
+  - UI (`RequerimientosCompra.razor`, pestana Planificacion): bloque "Cotizar a varios proveedores
+    (candidatos)" con datalist del directorio + chips + cantidad (pendiente por defecto) + "Enviar N RFQ";
+    y panel "Solicitudes de cotizacion (RFQ) de este producto" (RFQ, Proveedor, Estado, Oferta, Tarea).
+    Se refresca al abrir el modal y tras cotizar (candidatos o por-proveedor).
+- VALIDADO E2E en 5265 (SKY, BD local copia de prod 5442/ecorex):
+  - Producto "CABLE UTP CAT 6A": candidatos Produvarios + INGETEL -> RFQ-0006 (Produvarios) y RFQ-0007
+    (INGETEL) creadas (Enviada), con su tarea portadora; el panel lista RFQ-0003/0006/0007.
+  - Reenvio de los mismos dos -> "Se crearon 0 RFQ (2 omitidas, ya existian)" con el motivo por proveedor.
+  - BD: lineas de RFQ-0006/0007 con `requerimiento_compra_hijo_id = NULL`; RFQ-0003 (por-hijo) con hijo set.
+  - Build Ecorex.sln 0 errores; 1145 tests de Application verdes (antes de ampliar idempotencia).
+- SIGUIENTE: Ola F (envio auto/plantillas/rondas de cotizacion) y la adjudicacion del candidato (asignar el
+  ganador al hijo) a senal del usuario. El PROMPT de integracion a dev central ahora acumula tambien la Ola E.
+- SIN deploy a prod (regla: OK por version del usuario). Push a `requerimiento_compras` (no al tronco).
+
+## 2026-11-02 - RFQ Ola D: precedencia del proceso de cotizacion (producto > matriz > origen > default) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Ecorex.sln 0 errores, 1145
+  tests unitarios verdes. SIN MIGRACION (las 3 capas nuevas viven en TenantConfiguration, igual patron que
+  matriz_ext/requerimientos.rfq). SIN integrar al tronco (se acumula para el prompt de integracion a dev central).
+- PEDIDO (usuario): "Ola d" -> cadena de precedencia para QUE proceso de cotizacion (flujo/subcategoria) corre
+  cada RFQ. 2 decisiones (AskUserQuestion): (1) cadena = **producto (en Planificar) > matriz del proveedor >
+  origen de la linea (hoy) > default del modulo**; (2) el mapeo del formulario RFQ sigue UNICO por tenant (sin
+  override por proveedor por ahora).
+- HECHO:
+  * Fuente unica de clave: nuevo RequerimientoClave.Of(itemId, descripcion) (Application/Requerimientos);
+    RequerimientoService.ClaveProducto ahora delega ahi para que la clave calce en todo el modulo (incluida la
+    capa "producto" de la precedencia).
+  * IRequerimientoConfigService + RequerimientoConfigService: 3 capas nuevas, todas en TenantConfiguration:
+    - default del modulo: clave `requerimientos.cotizacion_default` (Get/SetCotizacionDefaultAsync).
+    - por proveedor (matriz): campo `ProvCot` dentro de `requerimientos.matriz_ext` (Get/SetProveedorProcesoMap/
+      Async); aditivo, conserva Reglas/Prov/Vig existentes.
+    - por producto: clave `requerimientos.cotizacion_producto` {claveProducto: subcatGuid}
+      (Get/SetProductoProcesoAsync por itemId/descripcion; GetProductoProcesoMapAsync).
+  * RequerimientoService.CotizarPorProveedorAsync: reemplaza el "primer origen que tenga proceso" por la cadena
+    producto -> matriz(proveedor) -> origen -> default; si ninguna capa resuelve, omite con aviso claro.
+  * UI (RequerimientosCompra.razor): (a) General -> selector "Proceso de cotizacion por defecto (RFQ)"; (b) Matriz
+    -> por proveedor, selector "Proceso de cotizacion" (persiste al cambiar, junto a los dias de vigencia); (c)
+    Planificar (pestana Planificacion) -> bloque "Proceso de cotizacion (RFQ) por producto" (un selector por
+    producto distinto del plan; persiste al cambiar). _subcats se carga en OnInitialized para el modal de plan.
+- VALIDADO E2E 5265/SKY (admin@sky-system.local): round-trip de las 3 capas confirmado en BD
+  (cotizacion_default=Cotizacion de equipos; matriz_ext.ProvCot INGETEL -> Visita tecnica; cotizacion_producto
+  {"d:cable utp cat 6a": Contratacion}). PRECEDENCIA probada en 2 niveles via RFQ reales:
+  * RFQ-0003 (CABLE UTP CAT 6A): tarea portadora subcategoria = **Contratacion** (capa PRODUCTO) ganando sobre
+    matriz(Visita tecnica), origen y default -> layer 1 > 2/3/4.
+  * RFQ-0005 (CONVERSOR, SIN entrada por producto): subcategoria = **Contratacion** (capa MATRIZ, tras fijar
+    INGETEL=Contratacion) ganando sobre origen(PROYECTOS) y default(Cotizacion de equipos) -> layer 2 > 3/4.
+  * GOTCHA util: un primer intento sobre CONVERSOR con INGETEL=Visita tecnica fallo con "El flujo esta pausado:
+    no se pueden iniciar instancias nuevas" -> confirma que el resolver SELECCIONO la subcategoria de la matriz;
+    el fallo es del motor de flujos (ajeno a Ola D). Por eso se reapunto la matriz a un flujo activo (Contratacion).
+- DATOS DE PRUEBA vivos en SKY (reversibles): config (default/matriz INGETEL/producto cable utp cat 6a), RFQ-0003
+  + RFQ-0005 + sus tareas portadoras, distribuciones de CABLE UTP CAT 6A y CONVERSOR (ambas Cotizada). Seq RFQ
+  tiene un hueco (0004) por el intento con flujo pausado.
+- SIGUIENTE: Ola E (multi-candidato por linea + ver estado RFQ en planeacion), Ola F (envio auto/plantillas/rondas)
+  a senal del usuario. El PROMPT de integracion a dev central ahora acumula tambien la Ola D.
+
+## 2026-11-02 - RFQ Ola C: la "vuelta" (respuesta del proveedor -> linea RFQ + comparador) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores. SIN MIGRACION
+  (enum nuevo + columnas de respuesta en el JSON de TenantConfiguration + regla/vinculo = filas de datos). SIN
+  integrar al tronco (se acumula para el prompt de integracion a dev central).
+- PEDIDO (usuario): "arranca la ola c" -> cuando el proveedor ENVIA el formulario de cotizacion, empatar su
+  respuesta por la clave oculta y volcarla a la linea del RFQ y al comparador/IA.
+- HECHO:
+  * Verbo REGISTRAR_RESPUESTA_RFQ (RegistrarRespuestaRfqVerb): al enviar, lee el mapeo de columnas (config del
+    tenant, unica fuente de verdad), resuelve el RFQ por FormResponseId, empata cada fila por clave oculta y (1)
+    escribe la linea (PrecioUnitario/VigenciaDias/LeadTime/Marca/Nota); (2) upsert de RequerimientoCotizacion por
+    (clave,proveedor) via IRequerimientoService.GuardarCotizacionAsync con Fuente=Rfq; (3) RFQ -> Respondida +
+    FechaRespuesta (+ VigenciaHasta minima). Idempotente (re-enviar re-escribe, no duplica).
+  * SIN ciclo de DI: el motor resuelve los verbos PEREZOSAMENTE (IServiceProvider.GetServices<IRuleVerb>() al
+    ejecutar), nunca en el constructor; FormResponseService solo depende de IRulesEngine. El verbo inyecta
+    IRequerimientoService/IRequerimientoConfigService/IApplicationDbContext igual que GenerarRequerimientosDesdeTabla.
+  * Enum RequerimientoCotizacionFuente.Rfq=3; SaveCotizacionRequest.Fuente (default Manual, preserva callers);
+    GuardarCotizacionAsync deja de forzar Manual (usa req.Fuente).
+  * RfqFormMapDto + columnas de RESPUESTA (ColPrecio/ColVigencia/ColLeadTime/ColMarca/ColNota); UI de config con
+    esos 5 selectores (precio obligatorio) en RequerimientosConfig.razor.
+  * Auto-cableado: IRuleDocumentService.EnsureFormSubmitVerbRuleAsync (generico, idempotente por verbo); al
+    guardar el mapeo RFQ se crea/actualiza el vinculo ON-SUBMIT del verbo sobre el formulario (sin armar la regla
+    a mano). El runtime ya lo corre (FormResponseService.SaveAsync tras commit, incl. /f publico).
+  * FIX pre-existente que BLOQUEABA el resultado visible: en RequerimientosCompra.razor el comparador recibia
+    Descripcion="_planDescripcion" (gotcha Blazor: para un parametro STRING el valor entre comillas sin @ es
+    LITERAL, no la variable; ItemId es Guid? por eso si tomaba la variable). Asi el comparador SIEMPRE consultaba
+    la clave bogus "d:_plandescripcion" (ahi quedaron atrapadas ofertas de prueba del 2026-10-29). Corregido a
+    Descripcion="@_planDescripcion".
+- VALIDADO E2E en 5265 (SKY SYSTEM): se mapeo ColPrecio=precio_unitario y se guardo (auto-cablea la regla; se
+  verifico fsr/rules Active). Se diligencio y ENVIO el "RFQ TEST (Ola B)" de T00217/RFQ-0002 con precio 12.500 ->
+  rule_execution_log Success(1); RfqLinea CABLE UTP CAT 6 precio 12.500; RequerimientoCotizacion
+  (d:cable utp cat 6, Produvarios, 12.500, fuente=3 Rfq); RFQ-0002 estado Respondida + fecha_respuesta. Tras el
+  fix del binding, el comparador del grupo CABLE UTP CAT 6 muestra la oferta Produvarios 12.500 ("Mejor precio",
+  +31.6% vs ult.), ya con la clave correcta.
+- SIGUIENTE: Ola D (precedencia + override de mapeo por proveedor), luego E (multi-candidato) y F (envio
+  automatico/plantillas/rondas). A la senal del usuario.
+- NOTA: quedaron 2 filas basura requerimiento_cotizaciones con clave literal "d:_plandescripcion" (ofertas de
+  prueba viejas); ya son inalcanzables (ningun producto normaliza a eso). No se borraron.
+
+## 2026-11-02 - RFQ Ola B: formulario inyectado con clave oculta (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores; 1145 tests
+  unitarios verdes. SIN MIGRACION (TenantConfiguration + FormResponse existente). Commit c1d90076, pusheado a
+  origin/requerimiento_compras. SIN integrar al tronco.
+- PEDIDO (usuario): "arranca la ola b" -> la "ida" del proceso de cotizacion gobernado: que el flujo presente al
+  proveedor un formulario ya cargado con las lineas que se cotizan, con una CLAVE oculta por fila para empatar la
+  respuesta despues.
+- HECHO:
+  * FormGridColumn.Hidden (FormGridCalculator.cs): columna de grilla que se CONSERVA en el dato y viaja en la
+    fila (round-trip), pero NO se pinta ni se exporta. El renderer la excluye de la vista (RenderGrid filtra
+    !Hidden; tambien ExportGridXlsx y DownloadGridTemplate). Aditivo (default false) => no cambia grillas previas.
+  * Config RFQ (IRequerimientoConfigService/RequerimientoConfigService): RfqFormMapDto (FormDefinitionId +
+    GridFieldCode + ColClave/ColDescripcion/ColCantidad/ColUnidad/ColFecha) en TenantConfiguration clave
+    "requerimientos.rfq" (sin migracion). ListGridFieldsAsync lista las grillas (GridDetail) y sus columnas de un
+    formulario para el configurador (marca las Hidden).
+  * RequerimientoService.CotizarPorProveedorAsync: carga el mapeo una vez (verifica la definicion Active); tras
+    crear cada RFQ, SeedRfqFormAsync siembra el FormResponse (Reference = numero de la tarea portadora,
+    IDEMPOTENTE por (definicion, reference): si el paso del flujo ya lo materializo se reusa) con una fila por
+    linea -clave de producto en la columna oculta + snapshot descripcion/cantidad/unidad/fecha- y enlaza
+    RequerimientoRfq.FormResponseId. Se escribe por el contexto (NO IFormResponseService) a proposito, para evitar
+    un ciclo de dependencias scoped con el motor de reglas (FormResponseService -> IRulesEngine -> verbo que usa
+    IRequerimientoService). Mismo formato { fieldCode: { value, type } }; el valor de la grilla es el arreglo JSON.
+  * UI: tarjeta "Formulario de cotizacion (RFQ)" en RequerimientosConfig.razor (elige formulario -> grilla ->
+    mapeo de columnas; la columna CLAVE marca "(oculta)"). Self-serve.
+- VALIDADO E2E en 5265 (SKY SYSTEM): se creo un formulario de prueba "RFQ TEST (Ola B)" con grilla lineas_rfq
+  (columna clave_prod Hidden + descripcion/cantidad/unidad/precio_unitario); se mapeo en la config (persiste en
+  requerimientos.rfq); "Cotizar por proveedor (RFQ)" sobre una distribucion Produvarios creo RFQ-0002 + tarea
+  T00217 + sembro el FormResponse (Reference=T00217) con value [{clave_prod:"d:cable utp cat 6",descripcion:"CABLE
+  UTP CAT 6",cantidad:"25.0000",unidad:"1"}] y enlazo form_response_id. La vista previa del formulario muestra
+  Descripcion/Cantidad/Unidad/Precio unitario pero NO la columna Clave (oculta). RfqLinea.clave_producto ==
+  grid.clave_prod (listo para el match-back de la Ola C).
+- DATOS DE PRUEBA en SKY dev (reversibles): formulario "RFQ TEST (Ola B)" (def bb000000-...001) + config
+  requerimientos.rfq apuntando a el; RFQ-0002 + tarea T00217 + FormResponse 01a19d43-...63; provider Produvarios
+  asignado al hijo 01a1874a-f6eb (25 und CABLE, quedo cotizada); (de Ola A) PROYECTOS.subcategoria_cotizacion_id.
+- SIGUIENTE: Ola C (la "vuelta"): al enviar el formulario, empatar por clave_prod -> escribir RfqLinea
+  (precio/vigencia/leadtime/marca/nota) + upsert de la cotizacion para el comparador/IA. Ola D: config con
+  precedencia (producto en planificacion > matriz > default del modulo) + override de mapeo por proveedor.
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy.
+
+## 2026-10-31 - Config del modulo unificada en el modal (origenes + matriz de proveedores embebidos) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM). Build Debug 0 errores. SIN MIGRACION, solo UI.
+- PEDIDO (usuario): dejar todo en "requerimientos-compra"; llevar las opciones de "requerimientos-config" al
+  boton de Configuracion del modulo; el modal debe ser mas ancho para soportar todo.
+- HECHO (RequerimientosCompra.razor):
+  * Modal de Configuracion ensanchado (max-width 520px -> width 960px / max-width 95vw) y convertido en pestanas:
+    **General** (Modo Consolidado/Dividido, Agente evaluador, Unidades de medida — lo que ya estaba) |
+    **Origenes** (tabla CRUD + editor) | **Matriz de proveedores** (tabla CRUD + editor).
+  * Se porto el contenido de la pagina /requerimientos-config DENTRO del modal: tablas de origenes y de reglas,
+    y los dos editores (origen / regla) como sub-modales (z-index 4300). Estado y metodos namespaced con prefijo
+    _cfg*/Cfg* (OpenCfgOrigen/SaveCfgOrigenAsync/DeleteCfgOrigenAsync, OpenCfgRegla/SaveCfgReglaAsync/
+    DeleteCfgReglaAsync, LoadCfgAvanzadaAsync, CfgDimensionLabel/CfgTipoFuenteLabel/CfgFuenteLabel) para no chocar
+    con los existentes (_origenes/_proveedores/DeleteAsync del propio modulo). Datos via ConfigSvc (mismo
+    IRequerimientoConfigService); al guardar un origen tambien se refresca el dropdown de alta (_origenes via
+    Svc.ListOrigenesActivosAsync). Se quito el enlace "Configuracion avanzada ->" (ya no hace falta).
+  * La pagina /requerimientos-config se deja intacta (sigue accesible por el menu); se puede ocultar ese enlace
+    duplicado si el usuario lo pide.
+- VALIDADO E2E en 5265 (SKY SYSTEM): modal 960px con 3 pestanas (General | Origenes (3) | Matriz (0)); tabla de
+  origenes con COMERCIAL/INSUMOS/PROYECTOS y Editar/Eliminar; "+ Nuevo origen" abre el editor (Nombre, Tipo de
+  fuente...); "+ Nueva regla" abre el editor con las 5 dimensiones y 2 proveedores.
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy.
+
+## 2026-10-31 - Unidades de medida: catalogo comun + columna en Planificar + verbo (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug 0 errores. SIN MIGRACION.
+- PEDIDO (usuario): en el modal de Planificar (pestana Detalle, junto a Cantidad) agregar las unidades de
+  medida; agregar las unidades mas comunes; y agregarlo tambien al verbo que configura el formulario.
+- HECHO:
+  * RequerimientoUnidades.cs (NUEVO): FUENTE UNICA del catalogo de unidades comunes (27: Unidad, Caja,
+    Paquete, Bulto, Docena, Par, Juego, Kit, Rollo, Resma, Metro, Metro cuadrado/cubico, Centimetro, Pulgada,
+    Kilogramo, Gramo, Libra, Tonelada, Litro, Mililitro, Galon, Caneca, Hora, Dia, Servicio, Global).
+  * Config por tenant SIN migracion: TenantConfiguration clave "requerimientos.unidades" (una por linea);
+    IRequerimientoConfigService + RequerimientoConfigService ganan GetUnidadesAsync (fallback a las comunes) y
+    SetUnidadesAsync (normaliza: recorta/descarta vacias/deduplica conservando orden).
+  * UI RequerimientosCompra.razor: (a) pestana Detalle del modal Planificar -> nueva columna "Unidad" junto a
+    Cantidad; (b) alta "Nueva necesidad" -> el campo Unidad pasa de texto libre a input con datalist
+    (#req-unidad-list) de las unidades comunes (sigue permitiendo escribir una propia); (c) modal
+    "Configuracion del modulo" -> editor textarea "Unidades de medida" (una por linea) que persiste el catalogo.
+  * Verbo GENERAR_REQUERIMIENTOS_DESDE_TABLA (el que configura el formulario que genera requerimientos): nuevo
+    parametro Select "unidadFija" (Unidad por defecto) con Options = RequerimientoUnidades.Comunes; se aplica a
+    la fila cuando no trae unidad propia.
+- VALIDADO E2E en 5265 (SKY SYSTEM): config -> textarea sembrado con las 27 unidades; Planificar de CABLE UTP
+  CAT 6A -> Detalle con cabeceras [..Cantidad, Unidad, Planificado..] y fila "1 | und"; "Nueva necesidad" ->
+  datalist #req-unidad-list con 27 opciones e input Unidad enlazado (list="req-unidad-list").
+- SEGUIMIENTO (mismo dia, pedido del usuario "en el modulo de planificacion tambien"): la unidad ahora tambien
+  se ve en la pestana "Planificacion" del modal (antes solo en "Detalle"): propiedad PlanUnidad (primera unidad
+  no vacia de las necesidades); (a) resumen superior -> chip "Unidad: und" + sufijo de unidad en Cantidad total /
+  Planificada / Sin planificar; (b) tabla de compras programadas -> cabecera "Cantidad (und)" y la unidad junto
+  al input de cantidad de cada fila. Build Debug 0 errores. VALIDADO E2E en 5265 (chip, cabecera y sufijo por fila).
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy.
+
+## 2026-10-30 - Tarjetas del comparador: fecha/hora cotizado + contacto (nombre/tel/correo) (worktree requerimiento_compras)
+
+- AGENTE: Claude Opus 4.8. SIN DEPLOY (dev 5265 SKY SYSTEM, BD ecorex 5442). Build Debug+Release 0 errores.
+- PEDIDO (usuario): en el modal de planeacion, las tarjetas del comparador deben mostrar la FECHA/HORA en
+  que se cotizo y el CONTACTO con quien se hablo (nombre, telefono, correo).
+- HECHO:
+  * Dominio: RequerimientoCotizacion + columna FechaCotizacion (DateTimeOffset?). El contacto NO agrego
+    columnas: reutiliza el ProveedorContactoId ya existente (TerceroContacto del Directorio).
+  * Contratos: CotizacionDto + FechaCotizacion, ContactoNombre, ContactoTelefono, ContactoCorreo (resueltos);
+    SaveCotizacionRequest + FechaCotizacion.
+  * Servicio: MapCotizacionesAsync resuelve el contacto por lote desde TerceroContactos y proyecta fecha;
+    GuardarCotizacionAsync fija FechaCotizacion (la dada, o conserva, o momento de captura); Sembrar pone now.
+  * Componente CotizacionesComparador.razor: tarjeta muestra "Cotizado dd/MM/yy HH:mm" + bloque Contacto
+    (nombre, tel tel:, correo mailto:). Form: input datetime-local + select de contactos del proveedor
+    (ListContactosAsync al cambiar proveedor) + 3 campos "nuevo contacto" que crean el TerceroContacto al
+    vuelo (GuardarContactoAsync) si no esta en la lista. CSS rqc-contacto/rqc-c-*.
+  * Migraciones DUALES: PG 20261030175310 + SQLServer 20261030175339 (AddCotizacionContactoYFecha), solo
+    agregan columna fecha_cotizacion a requerimiento_cotizaciones; ambos snapshots actualizados.
+- VALIDADO E2E en 5265 (SKY SYSTEM): la app auto-aplico la migracion PG al arrancar; edite la oferta de
+  Produvarios -> el combo cargo su contacto del Directorio "Andres Gil · 3117778899 · agil@produvarios.local",
+  fije fecha 28/10 10:30 -> la tarjeta quedo mostrando COTIZADO 28/10/26 10:30 y CONTACTO Andres Gil + tel +
+  correo clicables; INGETEL (sin editar) muestra "-" como corresponde.
+- PENDIENTE (requiere OK del usuario): integrar al tronco via prompt al dev principal + deploy (migracion dual).
+
+## 2026-10-29 - Planificar grupo usa el MISMO planificador rico (fusion real) (worktree requerimiento_compras)
+
+- PEDIDO (usuario): "la linea agrupada abre el modal viejo". La fusion anterior (64e56402) solo agrego
+  pestanas al modal INDIVIDUAL; el grupo seguia abriendo su planificador de "una pasada" (un solo
+  proveedor/precio repartido). Eleccion del usuario: "Mismo planificador rico (identicos)": el grupo debe
+  usar EXACTAMENTE la misma tabla de divisiones, con una fila por necesidad/origen, cada una con su propio
+  proveedor/precio/fecha/despacho, su comparador y Ejecutar/Cotizar por fila. Acepta que esto CAMBIA el
+  guardado del grupo de "una pasada" a por-linea.
+- HECHO (RequerimientosCompra.razor): se ELIMINO el modal `_showPlanGrupo` (markup + `PgLinea`, `_pg*`,
+  `BuildPgFrom`, `GuardarPlanGrupoAsync`, `AplicarCotizacionGrupo`, `OnPgProvChanged`). Ahora "Planificar
+  grupo" llama `OpenPlanificarGrupoAsync(grp)` que abre el MISMO `_showPlan` con `_planIsGroup=true` y
+  `_planRegs=grp`.
+  * `HijoEdit.ReqId` (necesidad/padre de cada division). `MapHijo(h, reqId)`. `BuildGroupHijosAsync`:
+    por cada necesidad trae sus hijos guardados (GetPlanificacionAsync) o siembra una fila default con el
+    restante; se concatenan en `_pHijos`.
+  * La tabla de divisiones gana, SOLO en grupo, una 1a columna "Necesidad (origen)" = `<select>` ligado a
+    `hi.ReqId` (OnHijoReqChanged); colspans 8->9 condicionales. `TotalPlan` = suma de cantidades del grupo.
+  * Guardado: `GuardarPlanAsync` se ramifica. En grupo agrupa `_pHijos` por `ReqId` y hace UNA llamada de
+    reemplazo `GuardarHijosAsync(GuardarHijosRequest(ReqId, lineas))` por cada padre (respeta la validacion
+    de suma <= cantidad del padre). Ejecutar/Cotizar en grupo reconstruyen via `BuildGroupHijosAsync`.
+  * "Dividir" (pestana Detalle) saca la necesidad del grupo y reconstruye el grupo restante en el mismo modal.
+- PRUEBAS: `dotnet build` SuperAdmin Release VERDE (0 errores). E2E live (5265 SKY SYSTEM): "Planificar grupo"
+  de CABLE UTP CAT 6 (x2) abre el modal rico; Detalle (2) lista las 2 necesidades; Planificacion muestra el
+  comparador (2 ofertas) + la tabla con la columna "Necesidad (origen)" sembrada una fila por origen
+  (PROYECTOS/T00214 -> 1, PROYECTOS -> 25). Aplique Produvarios a la fila T00214 y Guardar -> toast "Plan de
+  grupo guardado: 2 division(es) en 2 necesidad(es), sin planificar 0"; BD confirma 2 hijos en 2 padres
+  distintos (01a18487 con Produvarios/Medellin/8 dias/9500; 01a18706 sin prov/5000).
+- SIGUIENTE: integrar al tronco por el dev principal cuando el usuario lo indique. SIN push a
+  fase-0/clon-backbone, SIN deploy.
+
+## 2026-10-29 - Unificacion modal "Planificar" individual con el de grupo (worktree requerimiento_compras)
+
+- PEDIDO (usuario, repetido): "Planificar" (un registro) debe ser el MISMO modal que "Planificar grupo";
+  la unica diferencia aceptada es que el grupo tiene una pestana "Detalle" que deja ver todos los items
+  pedidos desde distintos origenes. Eleccion del usuario (Opcion A): mismo modal con pestanas, pero cada
+  boton conserva su propio planificador.
+- HECHO (RequerimientosCompra.razor, commit 64e56402): el modal `_showPlan` ahora usa el patron de pestanas
+  de "Planificar grupo": `_planTab` (detalle|plan) + `_planReg` (la necesidad).
+  * Pestana "Detalle" (nueva): tabla con origen/solicitante/actividad/cantidad/planificado/restante/fecha/
+    estado del registro; pie con "Continuar a planificar ->".
+  * Pestana "Planificacion": intacta -> stats + CotizacionesComparador + filas de compras programadas +
+    pie Cotizar seleccionadas / Guardar planificacion / Cancelar.
+  * Reusa las clases `req-pgtab` y `cd-grid` del grupo para que se vean iguales. Sin cambios en guardado
+    (GuardarPlanAsync y GuardarPlanGrupoAsync quedan igual) -> bajo riesgo.
+- PRUEBAS: `dotnet build` SuperAdmin Release VERDE (0 errores). E2E live (5265 SKY SYSTEM): el individual
+  abre en "Detalle" mostrando la necesidad (PROYECTOS / T00214 / 12), "Continuar" pasa a "Planificacion"
+  con el comparador (2 ofertas) y el planificador de divisiones; el pie muestra Guardar/Cotizar/Agregar.
+- SIGUIENTE: integrar al tronco por el dev principal cuando el usuario lo indique. SIN push a
+  fase-0/clon-backbone, SIN deploy.
+
+## 2026-10-29 - Comparador de cotizaciones con evaluacion por agente IA (worktree requerimiento_compras)
+
+- PEDIDO (usuario): al planificar la compra (modal de planificar GRUPO o REGISTRO) debe haber una zona que
+  traiga las cotizaciones de distintos proveedores, mostradas como TARJETAS, resaltando las DIFERENCIAS de
+  cada proveedor, y un AGENTE DE IA debe evaluar las opciones y proponer la mejor. Regla: "todo agente vive
+  en mi modulo de agentes" (se elige un AiAgent existente; la IA PROPONE y el humano aplica).
+- HECHO (componente reusable `CotizacionesComparador.razor` + `.razor.css`, usado en AMBOS modales):
+  * Tarjetas por proveedor con: precio/u + Total (precio*cantidad), tiempo de entrega, despacho,
+    condiciones de pago, vigencia, variacion % vs ultimo precio historico, y badge de fuente
+    (manual/historico/matriz). Resalta "Mejor precio" (el mas barato) y "Recomendado por IA (#n)" + motivo.
+  * Captura manual de ofertas (+ Agregar oferta: proveedor por datalist filtrado a perfil Proveedor, precio,
+    entrega, despacho, pago, vigencia, notas) -> persiste en tabla nueva; editar/eliminar por tarjeta.
+  * "Sembrar": trae candidatos de la matriz de proveedores + historico (idempotente).
+  * "Evaluar con IA": arma una tabla de texto con las ofertas y llama al agente elegido via la ruta GOBERNADA
+    `IAiInferenceService.TestChatAsync` (registra AiUsageLog, respeta cupo); parsea el ranking y marca el
+    ganador. Sin agente configurado -> muestra "Configura un agente evaluador en la Configuracion del modulo".
+  * "Usar esta opcion": vuelca la oferta a una fila del plan (individual: proveedor/precio/entrega/despacho +
+    resuelve contacto; grupo: setea proveedor/precio/despacho compartidos de la pasada).
+  * Selector de agente evaluador en la Configuracion del modulo (persistido en TenantConfiguration, SIN
+    migracion de ese ajuste): key `requerimientos.agente_cotizaciones`; lista los AiAgent activos del tenant.
+- DATOS: entidad nueva `RequerimientoCotizacion` + enum `RequerimientoCotizacionFuente` (Manual/Historico/
+  Matriz). Migracion DUAL `AddRequerimientoCotizaciones` (PG 20261029212112 + SQL Server 20261029212340) +
+  ambos snapshots. Fix de paso: `ListProveedoresAsync` ahora filtra por `(Perfiles & Proveedor)`.
+- PRUEBAS: `dotnet build Ecorex.sln` VERDE (0 errores). 10 fakes de IApplicationDbContext en los tests
+  actualizados con el nuevo DbSet. E2E live (dev 5265 como SKY SYSTEM, BD ecorex 5442, migracion aplicada al
+  arrancar): tarjetas renderizan en modal individual Y de grupo; "Mejor precio" salta al mas barato; oferta
+  manual persiste y recarga; datalist de proveedor filtrado OK; "Usar esta opcion" llena la fila del plan con
+  contacto resuelto y actualiza los totales del header; "Evaluar con IA" sin agente muestra el mensaje de
+  configuracion. NO ejecutado: ranking IA real -> SKY no tiene AiAgent/proveedor configurado (brecha de datos
+  del entorno, no de codigo; el selector lista agentes en tenants que si los tienen: BITCODE/AGRO/SOLDARCO).
+- SIGUIENTE: integracion al tronco por el dev principal (prompt entregado). SIN push a fase-0/clon-backbone,
+  SIN deploy. Para probar la IA real: configurar un agente evaluador en un tenant con proveedor IA activo.
+- DECISIONES: IA PROPONE, humano aplica (no auto-aplica el ganador); comparar por precio/u+total, entrega+
+  despacho, pago+vigencia y variacion vs ultimo precio; agente elegido de los existentes (modulo de agentes).
 
 ## 2026-10-29 - v0.16.245: TRACE del envio a YCloud (curl + respuesta) gateado por env
 
@@ -17304,3 +17858,35 @@ Borrado ATOMICO por SQL (una transaccion, backup previo ecorex-2026-10-09-0940).
 Verificacion post: items=0, terceros=0, task_items=0, workflow_instances=0, citas_ligadas=0.
 NO se toco: usuarios, tableros, formularios, flujos (definiciones), contenedores, menus, config de items
 (grupos/tipos/campos). Excepcion ETL (sin AdminAuditLog).
+
+## 2026-10-31 - requerimiento_compras: matriz inteligente + vigencia (commit ef5bffd1)
+
+Rama `requerimiento_compras` (worktree aislado, puerto 5265, tenant SKY SYSTEM). SIN deploy, SIN push a
+fase-0/clon-backbone. Pedido del usuario: mas inteligencia al editor de la matriz de proveedores.
+- Reglas con VARIAS condiciones combinadas con AND; gana la mas especifica (mas condiciones), desempate
+  por menor Prioridad.
+- Proveedor en autocompletar desde el Directorio; "+ Crear en Directorio" reusa el TerceroModal (perfil
+  Proveedor + nombre prellenado) y trae sus contactos asociados al crearlo.
+- Matriz agrupada por proveedor con "Dias que sostiene una cotizacion" editable por proveedor; ademas dias
+  de vigencia por regla (la regla gana sobre el default del proveedor).
+- Tarjetas de cotizacion marcan vigencia: ambar "por vencer" y rojo "vencida" (FechaCotizacion + dias).
+- Sin migracion: metadatos en TenantConfiguration key requerimientos.matriz_ext. Fix z-index para que el
+  TerceroModal (1100) quede encima del modal de config (1000) y del editor de regla (1050).
+- 7 archivos: RequerimientoConfigContracts/Service, RequerimientoContracts/Service, RequerimientosCompra.razor,
+  RequerimientosConfig.razor, CotizacionesComparador.razor. Validado E2E en 5265/SKY. Pusheado a origin.
+- FALTA (a senal del usuario): PROMPT de integracion a dev central (acumula 06f84d9d/681f0164/f784db0b/
+  ef5bffd1) + deploy.
+
+## 2026-11-02 - requerimiento_compras: proceso de cotizacion gobernado (RFQ) - Ola A (commit 777e4619)
+
+Rama `requerimiento_compras` (worktree, 5265, SKY SYSTEM). SIN deploy, SIN push a fase-0/clon-backbone.
+Diseno acordado con el usuario: la cotizacion pasa a ser un RFQ gobernado sobre el motor de flujos YA
+existente (no motor nuevo). 4 decisiones: RFQ por proveedor, multi-candidato por linea, mapeo de inyeccion
+en el nodo-formulario del flujo (+override por proveedor), entidad RFQ. La adjudicacion NO vive en el flujo:
+el jefe de compras arma la compra en planeacion cuando llegan los valores.
+
+Ola A (hecha): entidad RequerimientoRfq + RequerimientoRfqLinea + enum RfqEstado; migracion dual
+AddRequerimientoRfq (PG+SQL, 2 tablas aditivas, aplicada a dev al arrancar); servicio CotizarPorProveedorAsync
+(agrupa por proveedor, crea 1 RFQ/proveedor con su tarea portadora que dispara el flujo, idempotente) +
+ListRfqAsync; UI boton "Cotizar por proveedor (RFQ)" en Planificar. 10 fakes de tests + 2 DbSets.
+Validado E2E 5265/SKY: RFQ-0001 (Produvarios, 1 linea, tarea T00216). Siguientes: Olas B-F.

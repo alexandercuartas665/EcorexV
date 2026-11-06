@@ -1,0 +1,1090 @@
+@* =====================================================================================================
+   Comparador de cotizaciones de proveedor (Ola 13). Reutilizable en el modal de Planificar registro y en
+   el de Planificar grupo. Trae las ofertas del producto (tarjetas), resalta diferencias, deja capturarlas
+   a mano / sembrarlas (matriz + historico) y pide a un agente del modulo de agentes que proponga la mejor.
+   "Usar esta opcion" devuelve la oferta al padre (OnUsar) para volcarla a la planificacion.
+   ===================================================================================================== *@
+@using Ecorex.Application.Requerimientos
+@using Ecorex.Application.Preferences
+@using Ecorex.Domain.Enums
+@inject IRequerimientoService Svc
+@inject IUserTablePrefsService Prefs
+
+<div class="rqc-wrap">
+    <div class="rqc-head">
+        <strong class="rqc-title">Comparador de cotizaciones</strong>
+        <span class="rqc-count">@_ofertas.Count oferta(s)</span>
+        <div class="rqc-head-actions">
+            @if (CanEdit)
+            {
+                <button class="btn btn-outline-secondary btn-sm" @onclick="SembrarAsync" disabled="@_busy"
+                        title="Trae proveedores de la matriz y el ultimo precio del historico como ofertas iniciales">Sembrar</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="AbrirNueva" disabled="@_busy">+ Agregar oferta</button>
+            }
+            <button class="btn btn-primary btn-sm" @onclick="EvaluarAsync" disabled="@(_busy || _ofertas.Count == 0)"
+                    title="Un agente de IA compara las ofertas y propone la mejor">
+                @(_busyEval ? "Evaluando..." : "Evaluar con IA")
+            </button>
+        </div>
+    </div>
+
+    @if (_error is not null) { <div class="rqc-msg rqc-err">@_error</div> }
+    @if (_info is not null) { <div class="rqc-msg rqc-info">@_info</div> }
+    @if (_evaluado && !string.IsNullOrWhiteSpace(_resumen))
+    {
+        <div class="rqc-msg rqc-ai"><span class="rqc-ai-chip">IA</span> @_resumen</div>
+    }
+
+    @if (_ofertas.Count > 0)
+    {
+        <div class="rqc-deadline">
+            <span class="rqc-deadline-lbl" title="El semaforo de cada oferta compara su tiempo de entrega estimado contra este plazo">Necesito para</span>
+            <input type="date" class="form-control form-control-sm rqc-deadline-date"
+                   value="@(_targetDate?.ToString("yyyy-MM-dd"))" @onchange="OnTargetDateChanged" />
+            <span class="rqc-deadline-or">o en</span>
+            <input type="number" min="0" step="1" class="form-control form-control-sm rqc-deadline-days"
+                   value="@_targetDaysShown" @onchange="OnTargetDaysChanged" placeholder="dias" />
+            <span class="rqc-deadline-or">dias</span>
+            @if (_targetDate is { } td)
+            {
+                <span class="rqc-deadline-hint">entrega estimada vs @td.ToString("dd/MM/yy")@(_targetFromNeed ? " (fecha de necesidad)" : "")</span>
+            }
+            else
+            {
+                <span class="rqc-deadline-hint">sin plazo: las ofertas solo se rankean por rapidez</span>
+            }
+        </div>
+        <div class="rqc-deadline rqc-finance">
+            <span class="rqc-deadline-lbl" title="Descuenta del precio el valor de pagar a credito, a tu tasa de oportunidad (costo del dinero)">Tasa de oportunidad</span>
+            <input type="number" min="0" step="0.1" class="form-control form-control-sm rqc-finance-rate"
+                   value="@_oppRate.ToString("0.##", Inv)" @onchange="OnRateChanged" />
+            <span class="rqc-deadline-or">% mensual</span>
+            @if (_oppRate > 0m)
+            {
+                <span class="rqc-deadline-hint">precio efectivo = precio ajustado por el credito (mas dias de credito = mas barato en caja)</span>
+            }
+            else
+            {
+                <span class="rqc-deadline-hint">0 = solo marca el mejor credito; pon una tasa para ver el precio efectivo</span>
+            }
+        </div>
+    }
+
+    @if (_ofertas.Count == 0)
+    {
+        <div class="rqc-empty">
+            Sin cotizaciones para este producto.
+            @if (CanEdit) { <text>Usa <strong>Sembrar</strong> para traerlas de la matriz/historico o <strong>+ Agregar oferta</strong>.</text> }
+        </div>
+    }
+    else
+    {
+        <div class="rqc-cards">
+            @foreach (var o in _ofertas)
+            {
+                var oc = o;
+                var esMejorPrecio = o.PrecioUnitario > 0m && o.PrecioUnitario == _minPrecio;
+                var esGanador = _evaluado && _ganador == o.ProveedorId;
+                (int Pos, string Motivo)? rk = _rank.TryGetValue(o.ProveedorId, out var rv) ? rv : null;
+                var vig = Vig(oc);
+                var vigBorde = vig == VigEstado.Vencida ? "#dc2626" : vig == VigEstado.PorVencer ? "#d97706" : "";
+                var dd = ParseDeliveryDays(oc.TiempoEntrega);
+                <div class="rqc-card @(esGanador ? "rqc-win" : "")" style="@(vigBorde.Length > 0 ? $"border-left:3px solid {vigBorde};" : "")">
+                    <div class="rqc-card-top">
+                        <span class="rqc-prov">@(string.IsNullOrWhiteSpace(o.ProveedorNombre) ? "(proveedor)" : o.ProveedorNombre)</span>
+                        <div class="rqc-badges">
+                            @if (esGanador) { <span class="rqc-badge rqc-badge-ai">Recomendado por IA@(rk is { } rr ? $" (#{rr.Pos})" : "")</span> }
+                            else if (rk is { } rr2) { <span class="rqc-badge rqc-badge-rank">#@rr2.Pos</span> }
+                            @if (esMejorPrecio) { <span class="rqc-badge rqc-badge-low">Mejor precio</span> }
+                            @if (EsMejorLanded(oc)) { <span class="rqc-badge rqc-badge-low" title="Menor total una vez sumado el flete (costo real de traerlo)">Mejor con flete</span> }
+                            @if (EsMejorEfectivo(oc)) { <span class="rqc-badge rqc-badge-credit" title="Menor precio una vez ajustado por el credito a tu tasa de oportunidad">Mejor efectivo</span> }
+                            @if (vig == VigEstado.Vencida) { <span class="rqc-badge" style="background:rgba(220,38,38,.12);color:#b91c1c;" title="Paso los dias de vigencia; puede que ya no sea valida">Vencida</span> }
+                            else if (vig == VigEstado.PorVencer) { <span class="rqc-badge" style="background:rgba(217,119,6,.14);color:#b45309;" title="Cerca de vencer su vigencia">Por vencer</span> }
+                            <span class="rqc-badge rqc-badge-src">@FuenteLbl(o.Fuente)</span>
+                        </div>
+                    </div>
+
+                    <div class="rqc-rel">
+                        @{ var score = _scores.TryGetValue(o.ProveedorId, out var sc) ? sc : null; }
+                        @if (score is { } s)
+                        {
+                            <span class="rqc-stars" title="@($"Puntualidad {s.Puntualidad.ToString("0.0", Inv)} - Calidad {s.Calidad.ToString("0.0", Inv)}" + (s.UltimaNota is { } nn ? $" - Ultima nota: {nn}" : ""))">@Stars(s.General)</span>
+                            <span class="rqc-rel-num">@s.General.ToString("0.0", Inv)</span>
+                            <span class="rqc-rel-cnt">(@s.Calificaciones)</span>
+                            @if (s.General <= 2m) { <span class="rqc-eta rqc-eta-late" title="Confiabilidad baja">&#9888; problemas</span> }
+                        }
+                        else
+                        {
+                            <span class="rqc-rel-none">sin calificar</span>
+                        }
+                        @if (CanEdit) { <button class="rqc-rel-btn" @onclick="() => AbrirCalificar(oc)" disabled="@_rateBusy" title="Calificar la confiabilidad de este proveedor">Calificar</button> }
+                    </div>
+
+                    @if (_rateProvId == o.ProveedorId)
+                    {
+                        <div class="rqc-rate">
+                            <div class="rqc-rate-title">Calificar a @_rateProvNombre</div>
+                            <div class="rqc-rate-row">
+                                <span class="rqc-rate-k">Puntualidad</span>
+                                <div class="rqc-rate-stars">
+                                    @for (var i = 1; i <= 5; i++) { var n = i; <button type="button" class="rqc-rate-star @(_ratePunt >= n ? "on" : "")" @onclick="() => _ratePunt = n">&#9733;</button> }
+                                </div>
+                            </div>
+                            <div class="rqc-rate-row">
+                                <span class="rqc-rate-k">Calidad</span>
+                                <div class="rqc-rate-stars">
+                                    @for (var i = 1; i <= 5; i++) { var n = i; <button type="button" class="rqc-rate-star @(_rateCal >= n ? "on" : "")" @onclick="() => _rateCal = n">&#9733;</button> }
+                                </div>
+                            </div>
+                            <input class="form-control form-control-sm rqc-rate-nota" @bind="_rateNota" placeholder="Nota (opcional): entrego tarde, calidad ok..." />
+                            @if (_rateError is not null) { <div class="rqc-msg rqc-err">@_rateError</div> }
+                            <div class="rqc-rate-actions">
+                                <button class="btn btn-primary btn-sm" @onclick="GuardarCalificacionAsync" disabled="@_rateBusy">Guardar calificacion</button>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarCalificar" disabled="@_rateBusy">Cancelar</button>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="rqc-price">
+                        <span class="rqc-unit">@Money(o.PrecioUnitario)<small>/u</small></span>
+                        @if (o.FleteMonto > 0m)
+                        {
+                            <span class="rqc-total">Total con flete <strong>@Money(TotalLanded(oc))</strong></span>
+                            <span class="rqc-flete" title="@FleteTip(oc)">
+                                +flete @Money(FleteTotal(oc))@(oc.FleteEsPorUnidad ? " (por u)" : "")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
+                        }
+                        @if (_oppRate > 0m && Efectivo(oc) is { } ef)
+                        {
+                            <span class="rqc-efectivo @(EsMejorEfectivo(oc) ? "best" : "")"
+                                  title="@($"Precio ajustado por el credito a {_oppRate.ToString("0.##", Inv)}% mensual (nominal {Money(o.PrecioUnitario)})")">
+                                efectivo @Money(ef)<small>/u</small>
+                            </span>
+                        }
+                        @if (o.VariacionPct is { } v && o.UltimoPrecio is { } up)
+                        {
+                            <span class="rqc-var @(v > 0 ? "up" : v < 0 ? "down" : "")" title="@($"Ultimo precio historico: {Money(up)}")">
+                                @(v > 0 ? "▲" : v < 0 ? "▼" : "=") @Math.Abs(v)% vs ult.
+                            </span>
+                        }
+                    </div>
+
+                    <div class="rqc-meta">
+                        <div><span class="rqc-k">Cotizado</span><span class="rqc-v">@FechaHora(o.FechaCotizacion)</span></div>
+                        <div><span class="rqc-k">Entrega</span><span class="rqc-v rqc-entrega">
+                            <span>@Dash(o.TiempoEntrega)</span>
+                            @if (EsMasRapido(dd)) { <span class="rqc-eta rqc-eta-fast" title="El tiempo de entrega mas corto entre las ofertas">&#9889; mas rapido</span> }
+                            @if (_targetDate is { } td) { var sm = Semaforo(dd, td); <span class="rqc-eta rqc-eta-@sm.Cls" title="@sm.Tip">@sm.Txt</span> }
+                        </span></div>
+                        <div><span class="rqc-k">Despacho</span><span class="rqc-v">@Dash(o.CaracteristicasDespacho)</span></div>
+                        <div><span class="rqc-k">Pago</span><span class="rqc-v rqc-entrega">
+                            <span>@Dash(o.CondicionesPago)</span>
+                            @if (EsMejorCredito(ParseCreditDays(oc.CondicionesPago))) { <span class="rqc-eta rqc-eta-credit" title="Mas dias de credito: mejor para tu flujo de caja">mejor credito</span> }
+                        </span></div>
+                        <div><span class="rqc-k">Vigencia</span><span class="rqc-v" style="@(vigBorde.Length > 0 ? $"color:{vigBorde};font-weight:600;" : "")">@VigenciaTexto(oc, vig)</span></div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(o.ContactoNombre) || !string.IsNullOrWhiteSpace(o.ContactoTelefono) || !string.IsNullOrWhiteSpace(o.ContactoCorreo))
+                    {
+                        <div class="rqc-contacto">
+                            <span class="rqc-k">Contacto</span>
+                            <div class="rqc-contacto-v">
+                                @if (!string.IsNullOrWhiteSpace(o.ContactoNombre)) { <span class="rqc-c-nom">@o.ContactoNombre</span> }
+                                @if (!string.IsNullOrWhiteSpace(o.ContactoTelefono)) { <a class="rqc-c-line" href="tel:@o.ContactoTelefono">@o.ContactoTelefono</a> }
+                                @if (!string.IsNullOrWhiteSpace(o.ContactoCorreo)) { <a class="rqc-c-line" href="mailto:@o.ContactoCorreo">@o.ContactoCorreo</a> }
+                            </div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(o.Notas)) { <div class="rqc-notas">@o.Notas</div> }
+                    @if (esGanador && rk is { Motivo: var mtv } && !string.IsNullOrWhiteSpace(mtv)) { <div class="rqc-motivo">@mtv</div> }
+
+                    <div class="rqc-card-actions">
+                        <button class="btn btn-primary btn-sm" @onclick="() => UsarAsync(oc)" disabled="@_busy">Usar esta opcion</button>
+                        @if (CanEdit)
+                        {
+                            <button class="btn btn-link btn-sm" @onclick="() => AbrirEdicion(oc)" disabled="@_busy">Editar</button>
+                            <button class="btn btn-link btn-sm rqc-del" @onclick="() => EliminarAsync(oc.Id)" disabled="@_busy">Eliminar</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (ShowBasket)
+    {
+        <div class="rqc-basket">
+            <div class="rqc-basket-head">
+                <strong class="rqc-basket-title">Comparacion total por proveedor</strong>
+                <div class="rqc-basket-tools">
+                <div class="rqc-basket-seg" role="group" aria-label="Vista">
+                    <button type="button" class="rqc-basket-segbtn @(_view == "datos" ? "on" : "")" @onclick='() => SetViewAsync("datos")' disabled="@_basketBusy">Datos</button>
+                    <button type="button" class="rqc-basket-segbtn @(_view == "graficos" ? "on" : "")" @onclick='() => SetViewAsync("graficos")' disabled="@_basketBusy">Graficos</button>
+                </div>
+                <div class="rqc-basket-filtro">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => _basketFiltroOpen = !_basketFiltroOpen" disabled="@_basketBusy">
+                        @FiltroLabel() <span class="rqc-basket-caret">&#9662;</span>
+                    </button>
+                    @if (_basketFiltroOpen)
+                    {
+                        <div class="rqc-basket-menu">
+                            <label class="rqc-basket-opt">
+                                <input type="checkbox" checked="@(_basketSel.Count == 0)" @onchange="SelTodasAsync" />
+                                <span>Todas las tareas</span>
+                            </label>
+                            <div class="rqc-basket-sep"></div>
+                            @foreach (var o in _basket?.Origenes ?? (IReadOnlyList<BasketOrigenOpcionDto>)Array.Empty<BasketOrigenOpcionDto>())
+                            {
+                                var oo = o;
+                                <label class="rqc-basket-opt">
+                                    <input type="checkbox" checked="@_basketSel.Contains(oo.OrigenId)" @onchange="() => ToggleOrigenAsync(oo.OrigenId)" />
+                                    <span>@oo.Nombre</span>
+                                    <span class="rqc-basket-cnt" title="Articulos en la tarea">@oo.Articulos</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                </div>
+                </div>
+            </div>
+            <div class="rqc-basket-sub">Suma, por proveedor, el precio x cantidad de los articulos de la canasta. Un proveedor puede ganar por articulo y perder en el total.</div>
+
+            @if (_basketBusy)
+            {
+                <div class="rqc-basket-empty">Calculando total por proveedor...</div>
+            }
+            else if (_basket is null || _basket.ArticulosEnCanasta == 0)
+            {
+                <div class="rqc-basket-empty">Sin articulos en la canasta seleccionada.</div>
+            }
+            else
+            {
+                <div class="rqc-basket-meta">
+                    <span>Articulos en la canasta: <strong>@_basket.ArticulosEnCanasta</strong></span>
+                    <span title="Sumando el articulo mas barato de cada producto, mezclando proveedores (piso teorico)">Mejor canasta posible: <strong>@Money(_basket.MejorCanastaTotal)</strong></span>
+                </div>
+                @if (_view == "datos")
+                {
+                <div class="rqc-basket-tbl-wrap">
+                    <table class="rqc-basket-tbl">
+                        <thead>
+                            <tr>
+                                <th>Proveedor</th>
+                                <th class="num" title="En cuantos articulos de la canasta tiene oferta">Cobertura</th>
+                                <th class="num" title="En cuantos articulos tiene el precio mas bajo">Gana en</th>
+                                <th class="num">Total canasta</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in _basket.Proveedores)
+                            {
+                                var esMejor = p.CubreTodo && MejorTotalCubreTodo is { } mt && p.Total == mt;
+                                <tr class="@(esMejor ? "rqc-basket-win" : "")">
+                                    <td>
+                                        <span class="rqc-basket-prov">@p.ProveedorNombre</span>
+                                        @if (esMejor) { <span class="rqc-badge rqc-badge-low">Mejor total</span> }
+                                    </td>
+                                    <td class="num @(p.CubreTodo ? "" : "rqc-basket-partial")">@p.CubreCount/@_basket.ArticulosEnCanasta</td>
+                                    <td class="num">@p.GanaCount</td>
+                                    <td class="num"><strong>@Money(p.Total)</strong>@if (!p.CubreTodo) { <small class="rqc-basket-partialnote"> parcial</small> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                }
+                else
+                {
+                <div class="rqc-chart">
+                    <div class="rqc-chart-head">
+                        <div class="rqc-chart-title">@ChartTitle() <span class="rqc-chart-hint">@ChartHint()</span></div>
+                        <select class="form-select form-select-sm rqc-chart-pick" value="@_chartKind" @onchange="e => SetChartAsync(e.Value?.ToString())">
+                            <option value="total">Total por proveedor</option>
+                            <option value="cobertura">Cobertura</option>
+                            <option value="precio">Competitividad de precio</option>
+                            <option value="gana">Gana en</option>
+                            <option value="mapa">Mapa cobertura vs. precio</option>
+                        </select>
+                    </div>
+
+                    @if (_chartKind == "mapa")
+                    {
+                        <div class="rqc-map">
+                            <div class="rqc-map-yaxis"><span>Mas barato</span><span>Mas caro</span></div>
+                            <div class="rqc-map-plot">
+                                <div class="rqc-map-grid rqc-map-gy1"></div>
+                                <div class="rqc-map-grid rqc-map-gy2"></div>
+                                <div class="rqc-map-grid rqc-map-gy3"></div>
+                                <div class="rqc-map-gx rqc-map-gx1"></div>
+                                <div class="rqc-map-gx rqc-map-gx2"></div>
+                                <div class="rqc-map-gx rqc-map-gx3"></div>
+                                <div class="rqc-map-ideal">proveedor ideal &#8599;</div>
+                                @foreach (var pt in ScatterPts())
+                                {
+                                    <div class="rqc-map-pt @(pt.Ideal ? "ideal" : pt.Partial ? "partial" : "full")"
+                                         style="left:@FmtPct(pt.XPct)%; top:@FmtPct(pt.YPct)%;" title="@pt.Name">
+                                        <span class="rqc-map-dot"></span>
+                                        <span class="rqc-map-lbl">@pt.Name</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="rqc-map-xaxis"><span>Menos cobertura</span><span>Cubre todo</span></div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="rqc-chart-bars">
+                            @foreach (var row in ChartRows())
+                            {
+                                <div class="rqc-chart-row">
+                                    <div class="rqc-chart-lbl" title="@row.Name">
+                                        <span class="rqc-chart-name">@row.Name</span>
+                                        @if (row.Cov is { } cov) { <span class="rqc-chart-cov @(row.CovPartial ? "partial" : "")">@cov</span> }
+                                    </div>
+                                    <div class="rqc-chart-track">
+                                        <div class="rqc-chart-bar @row.Cls" style="width:@FmtPct(row.Pct)%;"></div>
+                                        <div class="rqc-chart-val">@row.Val</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                }
+                <div class="rqc-basket-note">Para hallar el proveedor ideal combina las vistas: <strong>Cobertura</strong> (cuanto puede surtir), <strong>Competitividad</strong> (que tan cerca del mejor precio, menor es mejor) y el <strong>Mapa</strong> (arriba-derecha). El total de cada proveedor suma solo lo que cotiza; "Gana en" es en cuantos articulos tiene el precio mas bajo.</div>
+            }
+        </div>
+    }
+
+    @if (_showForm && CanEdit)
+    {
+        <div class="rqc-form">
+            <div class="rqc-form-title">@(_editId is null ? "Nueva oferta" : "Editar oferta")</div>
+            <datalist id="rqc-prov-list">
+                @foreach (var p in _provs) { <option value="@p.Nombre"></option> }
+            </datalist>
+            <div class="rqc-form-grid">
+                <label class="rqc-f rqc-f-wide">Proveedor
+                    <input list="rqc-prov-list" class="form-control form-control-sm" value="@_fProvNombre" @onchange="OnFormProvChanged" placeholder="Escribe o elige del Directorio" />
+                </label>
+                <label class="rqc-f">Precio unit.
+                    <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fPrecio" />
+                </label>
+                <label class="rqc-f">Flete
+                    <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fFleteMonto" placeholder="0 = incluido" />
+                </label>
+                <label class="rqc-f">Flete es
+                    <select class="form-select form-select-sm" @bind="_fFletePorUnidad">
+                        <option value="false">fijo por orden</option>
+                        <option value="true">por unidad</option>
+                    </select>
+                </label>
+                <label class="rqc-f">Fecha/hora cotizado
+                    <input type="datetime-local" class="form-control form-control-sm" @bind="_fFechaCotiz" />
+                </label>
+                <label class="rqc-f rqc-f-wide">Contacto con quien se hablo
+                    <select class="form-select form-select-sm" @bind="_fContactoId" disabled="@(string.IsNullOrEmpty(_fProv))">
+                        <option value="">@(_contactos.Count == 0 ? "(sin contactos; captura uno abajo)" : "Elige un contacto del proveedor")</option>
+                        @foreach (var ct in _contactos)
+                        {
+                            <option value="@ct.Id">@ct.Nombre@(string.IsNullOrWhiteSpace(ct.Telefono) ? "" : $" · {ct.Telefono}")@(string.IsNullOrWhiteSpace(ct.Email) ? "" : $" · {ct.Email}")</option>
+                        }
+                    </select>
+                </label>
+                <label class="rqc-f">Nuevo contacto: nombre
+                    <input class="form-control form-control-sm" @bind="_fNewContNombre" placeholder="si no esta en la lista" />
+                </label>
+                <label class="rqc-f">Nuevo: telefono
+                    <input class="form-control form-control-sm" @bind="_fNewContTel" />
+                </label>
+                <label class="rqc-f">Nuevo: correo
+                    <input type="email" class="form-control form-control-sm" @bind="_fNewContMail" />
+                </label>
+                <label class="rqc-f">Tiempo de entrega
+                    <input class="form-control form-control-sm" @bind="_fEntrega" placeholder="15 dias, inmediato" />
+                </label>
+                <label class="rqc-f">Despacho
+                    <input class="form-control form-control-sm" @bind="_fDespacho" placeholder="transportadora, lugar" />
+                </label>
+                <label class="rqc-f">Condiciones de pago
+                    <input class="form-control form-control-sm" @bind="_fPago" placeholder="contado, credito 30 dias" />
+                </label>
+                <label class="rqc-f">Vigencia hasta
+                    <input type="date" class="form-control form-control-sm" @bind="_fVigencia" />
+                </label>
+                <label class="rqc-f rqc-f-wide">Notas
+                    <input class="form-control form-control-sm" @bind="_fNotas" />
+                </label>
+            </div>
+            @if (_formError is not null) { <div class="rqc-msg rqc-err">@_formError</div> }
+            <div class="rqc-form-actions">
+                <button class="btn btn-primary btn-sm" @onclick="GuardarOfertaAsync" disabled="@_busy">Guardar oferta</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showForm = false" disabled="@_busy">Cancelar</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid? ItemId { get; set; }
+    [Parameter] public string Descripcion { get; set; } = "";
+    [Parameter] public decimal Cantidad { get; set; }
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public EventCallback<CotizacionDto> OnUsar { get; set; }
+    // Ola 14: muestra la "Comparacion total por proveedor" debajo del comparador por articulo. La canasta por
+    // defecto son los origenes/proyectos de las necesidades abiertas (DefaultOrigenIds); el filtro deja cambiarla.
+    [Parameter] public bool ShowBasket { get; set; }
+    [Parameter] public IReadOnlyList<Guid>? DefaultOrigenIds { get; set; }
+    // Ola 15: fecha de necesidad mas temprana de lo que se planifica. Siembra el plazo del semaforo de entrega
+    // (el comprador puede sobrescribirlo aqui). Null = no hay fecha y el semaforo solo rankea por rapidez.
+    [Parameter] public DateTimeOffset? FechaNecesidad { get; set; }
+
+    private List<CotizacionDto> _ofertas = new();
+    private List<RequerimientoOpcionDto> _provs = new();
+    private decimal _minPrecio;
+    // Ola 15: semaforo de entrega. _targetDate = plazo contra el que se mide (sembrado de FechaNecesidad,
+    // sobrescribible). _fastestDays/_hasVariedEta alimentan el sello "mas rapido" (ranking por rapidez).
+    private DateTime? _targetDate;
+    private bool _targetTouched;      // el usuario fijo el plazo a mano -> no re-sembrar desde FechaNecesidad
+    private bool _targetFromNeed;     // el plazo viene de la fecha de necesidad (para el hint)
+    private int? _fastestDays;        // menor tiempo de entrega (en dias) parseado entre las ofertas
+    private bool _hasVariedEta;       // hay al menos 2 tiempos de entrega distintos (si no, no hay "mas rapido")
+    // Ola 15 (punto #2): credito/pago. _bestCreditDays = mas dias de credito; _oppRate = tasa de oportunidad
+    // mensual (%) para el "precio efectivo" (descuenta el valor del credito); _minEfectivo = menor efectivo.
+    private int? _bestCreditDays;
+    private bool _hasVariedCredit;
+    private decimal _oppRate;         // % mensual; 0 = sin ajuste (solo marca el mejor credito)
+    private decimal? _minEfectivo;
+    // Punto #4: landed cost (flete sumado al total). _minLanded = menor total con flete; _anyFlete = hay fletes.
+    private decimal? _minLanded;
+    private bool _anyFlete;
+    // Punto #3: scorecard de confiabilidad por proveedor + formulario de calificacion inline.
+    private IReadOnlyDictionary<Guid, ProveedorScoreDto> _scores = new Dictionary<Guid, ProveedorScoreDto>();
+    private Guid? _rateProvId;        // proveedor que se esta calificando (form abierto); null = cerrado
+    private string _rateProvNombre = "";
+    private int _ratePunt = 5;
+    private int _rateCal = 5;
+    private string _rateNota = "";
+    private bool _rateBusy;
+    private string? _rateError;
+    private bool _busy;
+    private bool _busyEval;
+    private string? _error;
+    private string? _info;
+
+    // Evaluacion por IA.
+    private bool _evaluado;
+    private Guid? _ganador;
+    private string _resumen = "";
+    private Dictionary<Guid, (int, string)> _rank = new();
+
+    // Formulario de alta/edicion.
+    private bool _showForm;
+    private Guid? _editId;
+    private string _fProv = "";
+    private string _fProvNombre = "";
+    private decimal _fPrecio;
+    private decimal _fFleteMonto;        // punto #4: flete de la oferta
+    private bool _fFletePorUnidad;       // true = por unidad (x cantidad); false = fijo por orden
+    private string _fEntrega = "";
+    private string _fDespacho = "";
+    private string _fPago = "";
+    private DateTime? _fVigencia;
+    private string _fNotas = "";
+    private DateTime? _fFechaCotiz;
+    private string _fContactoId = "";
+    private string _fNewContNombre = "";
+    private string _fNewContTel = "";
+    private string _fNewContMail = "";
+    private List<ProveedorContactoItemDto> _contactos = new();
+    private string? _formError;
+
+    // Ola 14: total por proveedor sobre la canasta (proyecto/origen).
+    private BasketResumenProveedorDto? _basket;
+    private List<Guid> _basketSel = new();     // origenes elegidos; vacio = todas las tareas
+    private bool _basketBusy;
+    private bool _basketFiltroOpen;
+    private bool _basketInit;
+
+    // Preferencias de la tarjeta (persistidas por usuario en jsonb): vista + tipo de grafico + filtro recordado.
+    private string _view = "datos";            // "datos" | "graficos"
+    private string _chartKind = "total";       // total | cobertura | precio | gana | mapa
+    private List<Guid>? _prefSel;              // filtro recordado (null = nunca se toco -> usa DefaultOrigenIds)
+    private const string PrefKey = "req.cotiz.basket.view";
+    private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+    private static bool IsChart(string s) => s is "total" or "cobertura" or "precio" or "gana" or "mapa";
+
+    // El mas barato entre los proveedores que cubren TODA la canasta (la lista viene ordenada: cubre-todo
+    // primero, total asc), para marcar "Mejor total". Null si ninguno cubre todos los articulos.
+    private decimal? MejorTotalCubreTodo
+        => _basket?.Proveedores.Where(p => p.CubreTodo).Select(p => (decimal?)p.Total).FirstOrDefault();
+
+    private static string FmtPct(double d)
+        => Math.Max(0, Math.Min(100, d)).ToString("0.##", Inv);
+
+    // ---- Datos para las vistas de grafico (barras y mapa). Una fila lista por proveedor segun el tipo. ----
+    private sealed record ChartRow(string Name, string? Cov, bool CovPartial, double Pct, string Cls, string Val);
+
+    private IReadOnlyList<ChartRow> ChartRows()
+    {
+        var rows = new List<ChartRow>();
+        if (_basket is null || _basket.Proveedores.Count == 0) { return rows; }
+        var n = _basket.ArticulosEnCanasta;
+        switch (_chartKind)
+        {
+            case "cobertura":
+                foreach (var p in _basket.Proveedores.OrderByDescending(p => p.CubreCount).ThenBy(p => p.ProveedorNombre, StringComparer.OrdinalIgnoreCase))
+                {
+                    rows.Add(new(p.ProveedorNombre, null, false, n > 0 ? (double)p.CubreCount / n * 100 : 0,
+                        p.CubreTodo ? "win" : "cover", $"{p.CubreCount}/{n}" + (p.CubreTodo ? " (todo)" : "")));
+                }
+                break;
+            case "precio":
+                var maxPrem = (double)_basket.Proveedores.Select(p => p.SobreprecioPct).DefaultIfEmpty(0m).Max();
+                foreach (var p in _basket.Proveedores.OrderBy(p => p.SobreprecioPct).ThenByDescending(p => p.CubreCount))
+                {
+                    var prem = (double)p.SobreprecioPct;
+                    rows.Add(new(p.ProveedorNombre, $"{p.CubreCount}/{n}", !p.CubreTodo,
+                        maxPrem > 0 ? prem / maxPrem * 100 : (prem <= 0 ? 4 : 0),
+                        prem <= 0 ? "win" : "premium",
+                        prem <= 0 ? "0% (mas barato)" : "+" + p.SobreprecioPct.ToString("0.#", Inv) + "%"));
+                }
+                break;
+            case "gana":
+                var maxGana = _basket.Proveedores.Select(p => p.GanaCount).DefaultIfEmpty(0).Max();
+                foreach (var p in _basket.Proveedores.OrderByDescending(p => p.GanaCount).ThenBy(p => p.ProveedorNombre, StringComparer.OrdinalIgnoreCase))
+                {
+                    rows.Add(new(p.ProveedorNombre, $"{p.CubreCount}/{n}", !p.CubreTodo,
+                        maxGana > 0 ? (double)p.GanaCount / maxGana * 100 : 0, "gana", p.GanaCount.ToString(Inv)));
+                }
+                break;
+            default: // total
+                var maxTotal = _basket.Proveedores.Select(p => p.Total).DefaultIfEmpty(0m).Max();
+                var mejor = MejorTotalCubreTodo;
+                foreach (var p in _basket.Proveedores)
+                {
+                    var cls = (p.CubreTodo && mejor is { } mt && p.Total == mt) ? "win" : (p.CubreTodo ? "full" : "partial");
+                    rows.Add(new(p.ProveedorNombre, $"{p.CubreCount}/{n}", !p.CubreTodo,
+                        maxTotal > 0m ? (double)(p.Total / maxTotal) * 100 : 0, cls, Money(p.Total)));
+                }
+                break;
+        }
+        return rows;
+    }
+
+    // Mapa de dispersion: X = cobertura %, Y = sobreprecio % (0 arriba = mas barato). Ideal = arriba-derecha.
+    private sealed record ScatterPt(string Name, double XPct, double YPct, bool Partial, bool Ideal);
+
+    private IReadOnlyList<ScatterPt> ScatterPts()
+    {
+        var pts = new List<ScatterPt>();
+        if (_basket is null || _basket.Proveedores.Count == 0) { return pts; }
+        var n = _basket.ArticulosEnCanasta;
+        var maxPrem = (double)_basket.Proveedores.Select(p => p.SobreprecioPct).DefaultIfEmpty(0m).Max();
+        // Ideal = mejor compromiso cobertura vs. precio (mayor cobertura normalizada menos sobreprecio normalizado).
+        var ideal = _basket.Proveedores
+            .OrderByDescending(p => (n > 0 ? (double)p.CubreCount / n : 0) - (maxPrem > 0 ? (double)p.SobreprecioPct / maxPrem : 0))
+            .Select(p => (Guid?)p.ProveedorId).FirstOrDefault();
+        foreach (var p in _basket.Proveedores)
+        {
+            // Insetado (6..94 en X, 8..92 en Y) para que ningun punto quede recortado en el borde del plano.
+            var x = n > 0 ? (double)p.CubreCount / n : 0;                    // 0..1 (cobertura)
+            var yr = maxPrem > 0 ? (double)p.SobreprecioPct / maxPrem : 0;   // 0..1 (0 = mas barato)
+            pts.Add(new(p.ProveedorNombre, 6 + x * 88, 8 + yr * 84, !p.CubreTodo, p.ProveedorId == ideal));
+        }
+        return pts;
+    }
+
+    private string ChartTitle() => _chartKind switch
+    {
+        "cobertura" => "Cobertura por proveedor",
+        "precio" => "Competitividad de precio",
+        "gana" => "Gana en",
+        "mapa" => "Mapa cobertura vs. precio",
+        _ => "Total por proveedor",
+    };
+    private string ChartHint() => _chartKind switch
+    {
+        "cobertura" => "(cuantos articulos del canasto puede surtir; mas cobertura = menos ordenes)",
+        "precio" => "(sobreprecio promedio sobre lo que cubre; MENOR es mejor)",
+        "gana" => "(en cuantos articulos tiene el precio mas bajo)",
+        "mapa" => "(arriba-derecha = cubre mucho y barato: el proveedor ideal)",
+        _ => "(la barra es el $ de lo que cada proveedor cubre; la cobertura va al lado)",
+    };
+
+    private string _loadedKey = "\0";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!ShowBasket || _basketInit) { return; }
+        _basketInit = true;
+
+        // Preferencias (jsonb): { "view": "...", "chart": "...", "sel": ["guid", ...] }. "sel" ausente = nunca
+        // se toco el filtro; entonces la canasta arranca en los proyectos del producto abierto (DefaultOrigenIds).
+        try
+        {
+            var json = await Prefs.GetAsync(PrefKey);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var r = doc.RootElement;
+                if (r.TryGetProperty("view", out var v) && v.GetString() is { } sv && (sv == "datos" || sv == "graficos")) { _view = sv; }
+                if (r.TryGetProperty("chart", out var c) && c.GetString() is { } sc && IsChart(sc)) { _chartKind = sc; }
+                if (r.TryGetProperty("sel", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    var lst = new List<Guid>();
+                    foreach (var el in s.EnumerateArray())
+                    {
+                        if (el.GetString() is { } g && Guid.TryParse(g, out var gid)) { lst.Add(gid); }
+                    }
+                    _prefSel = lst;
+                }
+                if (r.TryGetProperty("rate", out var rt) && rt.ValueKind == System.Text.Json.JsonValueKind.Number && rt.TryGetDecimal(out var rr) && rr >= 0m) { _oppRate = rr; }
+            }
+        }
+        catch { /* preferencia no critica: cae a datos/total y canasta por defecto */ }
+
+        _basketSel = _prefSel is { } ps ? new List<Guid>(ps) : (DefaultOrigenIds ?? Array.Empty<Guid>()).Distinct().ToList();
+        await LoadBasketAsync();
+    }
+
+    private async Task SavePrefsAsync()
+    {
+        try
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["view"] = _view,
+                ["chart"] = _chartKind,
+                ["sel"] = _prefSel?.Select(g => g.ToString()).ToList(),
+                ["rate"] = _oppRate,
+            };
+            await Prefs.SaveAsync(PrefKey, System.Text.Json.JsonSerializer.Serialize(payload));
+        }
+        catch { /* persistir es best-effort; la UI ya refleja el cambio */ }
+    }
+
+    private async Task SetViewAsync(string view)
+    {
+        if ((view != "datos" && view != "graficos") || _view == view) { return; }
+        _view = view;
+        await SavePrefsAsync();
+    }
+
+    private async Task SetChartAsync(string? kind)
+    {
+        if (kind is null || !IsChart(kind) || _chartKind == kind) { return; }
+        _chartKind = kind;
+        await SavePrefsAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = (ItemId?.ToString() ?? "") + "|" + (Descripcion ?? "").Trim().ToLowerInvariant();
+        if (key != _loadedKey)
+        {
+            _loadedKey = key;
+            _targetTouched = false;   // producto nuevo: vuelve a sembrarse del plazo de la necesidad
+            await LoadAsync();
+        }
+        // Siembra/actualiza el plazo desde la fecha de necesidad mientras el usuario no lo haya tocado.
+        if (!_targetTouched)
+        {
+            _targetDate = FechaNecesidad?.LocalDateTime.Date;
+            _targetFromNeed = _targetDate is not null;
+        }
+    }
+
+    private async Task LoadBasketAsync()
+    {
+        _basketBusy = true;
+        try { _basket = await Svc.ResumenProveedorCanastaAsync(_basketSel); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _basketBusy = false; }
+    }
+
+    private string FiltroLabel()
+    {
+        if (_basketSel.Count == 0) { return "Canasta: todas las tareas"; }
+        if (_basketSel.Count == 1)
+        {
+            var nom = _basket?.Origenes.FirstOrDefault(o => o.OrigenId == _basketSel[0])?.Nombre;
+            return "Canasta: " + (string.IsNullOrWhiteSpace(nom) ? "1 tarea" : nom);
+        }
+        return $"Canasta: {_basketSel.Count} tareas";
+    }
+
+    private async Task SelTodasAsync()
+    {
+        _basketSel = new();
+        _prefSel = new();              // filtro recordado = todas las tareas
+        await LoadBasketAsync();
+        await SavePrefsAsync();
+    }
+
+    private async Task ToggleOrigenAsync(Guid id)
+    {
+        if (!_basketSel.Remove(id)) { _basketSel.Add(id); }
+        _prefSel = new List<Guid>(_basketSel);   // recuerda la seleccion exacta
+        await LoadBasketAsync();
+        await SavePrefsAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null; _info = null;
+        _evaluado = false; _ganador = null; _resumen = ""; _rank = new();
+        _showForm = false;
+        try
+        {
+            _ofertas = (await Svc.ListCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
+            if (_provs.Count == 0) { _provs = (await Svc.ListProveedoresAsync()).ToList(); }
+            _scores = await Svc.GetProveedorScoresAsync();
+            RecalcMin();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void RecalcMin()
+    {
+        _minPrecio = _ofertas.Where(o => o.PrecioUnitario > 0m)
+            .Select(o => o.PrecioUnitario).DefaultIfEmpty(0m).Min();
+        // Ranking por rapidez: menor tiempo de entrega parseado; "mas rapido" solo si hay variedad.
+        var ds = _ofertas.Select(o => ParseDeliveryDays(o.TiempoEntrega)).Where(d => d.HasValue).Select(d => d!.Value).ToList();
+        _fastestDays = ds.Count > 0 ? ds.Min() : (int?)null;
+        _hasVariedEta = ds.Distinct().Count() >= 2;
+        // Credito: mas dias de credito; "mejor credito" solo si hay variedad.
+        var cds = _ofertas.Select(o => ParseCreditDays(o.CondicionesPago)).Where(d => d.HasValue).Select(d => d!.Value).ToList();
+        _bestCreditDays = cds.Count > 0 ? cds.Max() : (int?)null;
+        _hasVariedCredit = cds.Distinct().Count() >= 2;
+        // Landed cost: flete sumado al total; menor total con flete entre las ofertas con precio.
+        _anyFlete = _ofertas.Any(o => o.FleteMonto > 0m);
+        var landeds = _ofertas.Where(o => o.PrecioUnitario > 0m).Select(TotalLanded).ToList();
+        _minLanded = landeds.Count > 0 ? landeds.Min() : (decimal?)null;
+        RecalcEfectivo();
+    }
+
+    // ---- Punto #4: landed cost (total con flete) ----
+    private decimal FleteTotal(CotizacionDto o) => o.FleteEsPorUnidad ? o.FleteMonto * Cantidad : o.FleteMonto;
+    private decimal TotalLanded(CotizacionDto o) => o.PrecioUnitario * Cantidad + FleteTotal(o);
+    private bool EsMejorLanded(CotizacionDto o)
+        => _anyFlete && _minLanded is { } mn && o.PrecioUnitario > 0m && TotalLanded(o) == mn;
+
+    private string FleteTip(CotizacionDto o)
+        => o.FleteEsPorUnidad
+            ? $"Flete {Money(o.FleteMonto)}/u x {Money(Cantidad)} = {Money(FleteTotal(o))} (landed = precio x cantidad + flete)"
+            : $"Flete fijo por orden: {Money(o.FleteMonto)} (landed = precio x cantidad + flete)";
+
+    private void RecalcEfectivo()
+    {
+        if (_oppRate <= 0m) { _minEfectivo = null; return; }
+        var efs = _ofertas.Select(Efectivo).Where(e => e.HasValue).Select(e => e!.Value).ToList();
+        _minEfectivo = efs.Count > 0 ? efs.Min() : (decimal?)null;
+    }
+
+    // ---- Ola 15: tiempo de entrega (texto libre) -> dias; ranking por rapidez; semaforo contra el plazo. ----
+
+    // Interpreta "5 dias", "inmediato", "2 semanas", "1 mes" -> numero de dias. Null si no es interpretable
+    // (ej. "A convenir") para no inventar una fecha de llegada.
+    private static int? ParseDeliveryDays(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return null; }
+        var t = s.Trim().ToLowerInvariant();
+        if (t.Contains("inmediat") || t.Contains("hoy") || t.Contains("stock") || t.Contains("disponible") || t.Contains("entrega inmediata")) { return 0; }
+        if (t.Contains("convenir") || t.Contains("acordar") || t.Contains("negociar")) { return null; }
+        var m = System.Text.RegularExpressions.Regex.Match(t, @"\d+([.,]\d+)?");
+        if (!m.Success || !double.TryParse(m.Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, Inv, out var n)) { return null; }
+        if (t.Contains("seman")) { n *= 7; }
+        else if (t.Contains("mes")) { n *= 30; }
+        return (int)Math.Round(n);
+    }
+
+    private bool EsMasRapido(int? dd)
+        => _hasVariedEta && dd is { } d && _fastestDays is { } f && d == f;
+
+    // Resultado del semaforo para una oferta dado el plazo: clase CSS, texto corto y tooltip.
+    private readonly record struct EtaSemaforo(string Cls, string Txt, string Tip);
+
+    private EtaSemaforo Semaforo(int? dd, DateTime target)
+    {
+        if (dd is not { } d)
+        {
+            return new("na", "entrega sin dato", "El tiempo de entrega no es un numero (ej. 'A convenir'): no se puede estimar la llegada");
+        }
+        var arrival = DateTime.Today.AddDays(d);
+        var slack = (target.Date - arrival.Date).Days;
+        if (slack < 0)
+        {
+            return new("late", $"tarde {-slack} d", $"Llega aprox. {arrival:dd/MM/yy}, {-slack} dia(s) DESPUES del plazo {target:dd/MM/yy}");
+        }
+        if (slack <= 1)
+        {
+            return new("tight", "justo", $"Llega aprox. {arrival:dd/MM/yy}, casi sin margen frente al plazo {target:dd/MM/yy}");
+        }
+        return new("ok", $"{slack} d antes", $"Llega aprox. {arrival:dd/MM/yy}, {slack} dia(s) de margen frente al plazo {target:dd/MM/yy}");
+    }
+
+    // ---- Ola 15 (punto #2): condiciones de pago -> dias de credito; precio efectivo por tasa de oportunidad. ----
+
+    // "Contado"/"Anticipado" -> 0; "Credito 30 dias"/"30 dias"/"a 45" -> N; null si no es interpretable.
+    private static int? ParseCreditDays(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return null; }
+        var t = s.Trim().ToLowerInvariant();
+        if (t.Contains("contado") || t.Contains("anticip") || t.Contains("inmediat") || t.Contains("de contado")) { return 0; }
+        var m = System.Text.RegularExpressions.Regex.Match(t, @"\d+");
+        if (!m.Success || !int.TryParse(m.Value, out var n)) { return null; }
+        if (t.Contains("mes")) { n *= 30; }
+        else if (t.Contains("seman")) { n *= 7; }
+        return n;
+    }
+
+    private bool EsMejorCredito(int? cd)
+        => _hasVariedCredit && cd is { } d && _bestCreditDays is { } b && d == b && d > 0;
+
+    // Precio efectivo = descuenta el valor del credito a la tasa de oportunidad (mas dias = mas barato en caja).
+    // Credito desconocido se trata como contado (sin descuento). Null si no hay precio o no hay tasa.
+    private decimal? Efectivo(CotizacionDto o)
+    {
+        if (_oppRate <= 0m || o.PrecioUnitario <= 0m) { return null; }
+        var dias = ParseCreditDays(o.CondicionesPago) ?? 0;
+        return Math.Round(o.PrecioUnitario * (1m - (_oppRate / 100m) * (dias / 30m)), 2);
+    }
+
+    private bool EsMejorEfectivo(CotizacionDto o)
+        => _oppRate > 0m && _minEfectivo is { } mn && Efectivo(o) is { } e && e == mn;
+
+    // ---- Punto #3: scorecard de confiabilidad (estrellas) + captura de calificacion ----
+    private static string Stars(decimal g)
+    {
+        var full = (int)Math.Round(g, MidpointRounding.AwayFromZero);
+        full = Math.Max(0, Math.Min(5, full));
+        return new string('★', full) + new string('☆', 5 - full);
+    }
+
+    private void AbrirCalificar(CotizacionDto o)
+    {
+        _rateProvId = o.ProveedorId;
+        _rateProvNombre = o.ProveedorNombre ?? "(proveedor)";
+        _ratePunt = 5; _rateCal = 5; _rateNota = ""; _rateError = null;
+    }
+
+    private void CerrarCalificar() { _rateProvId = null; _rateError = null; }
+
+    private async Task GuardarCalificacionAsync()
+    {
+        if (_rateProvId is not Guid pid) { return; }
+        _rateBusy = true; _rateError = null;
+        try
+        {
+            await Svc.RateProveedorAsync(new ProveedorRatingInput(pid, _ratePunt, _rateCal,
+                string.IsNullOrWhiteSpace(_rateNota) ? null : _rateNota.Trim()));
+            _scores = await Svc.GetProveedorScoresAsync();
+            _rateProvId = null;
+        }
+        catch (Exception ex) { _rateError = ex.Message; }
+        finally { _rateBusy = false; }
+    }
+
+    private void OnRateChanged(ChangeEventArgs e)
+    {
+        var txt = e.Value?.ToString();
+        _oppRate = decimal.TryParse(txt, System.Globalization.NumberStyles.Any, Inv, out var r) && r >= 0m ? r
+                 : decimal.TryParse(txt, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.CurrentCulture, out var r2) && r2 >= 0m ? r2
+                 : 0m;
+        RecalcEfectivo();
+        _ = SavePrefsAsync();
+    }
+
+    private int? _targetDaysShown => _targetDate is { } d ? (int)Math.Round((d.Date - DateTime.Today).TotalDays) : (int?)null;
+
+    private void OnTargetDateChanged(ChangeEventArgs e)
+    {
+        var txt = e.Value?.ToString();
+        _targetTouched = true; _targetFromNeed = false;
+        _targetDate = DateTime.TryParse(txt, out var d) ? d.Date : null;
+    }
+
+    private void OnTargetDaysChanged(ChangeEventArgs e)
+    {
+        var txt = e.Value?.ToString();
+        _targetTouched = true; _targetFromNeed = false;
+        _targetDate = int.TryParse(txt, out var n) && n >= 0 ? DateTime.Today.AddDays(n) : null;
+    }
+
+    private async Task SembrarAsync()
+    {
+        _busy = true; _error = null; _info = null;
+        try
+        {
+            var antes = _ofertas.Count;
+            _ofertas = (await Svc.SembrarCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
+            RecalcMin();
+            var nuevas = _ofertas.Count - antes;
+            _info = nuevas > 0 ? $"Se sembraron {nuevas} oferta(s) desde la matriz/historico." : "No se encontraron proveedores nuevos para sembrar.";
+            if (ShowBasket) { await LoadBasketAsync(); }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task EvaluarAsync()
+    {
+        _busyEval = true; _error = null; _info = null;
+        try
+        {
+            var ev = await Svc.EvaluarCotizacionesAsync(ItemId, Descripcion, Cantidad);
+            if (!ev.Ok) { _error = ev.Error ?? "No se pudo evaluar."; _evaluado = false; return; }
+            _ganador = ev.ProveedorGanadorId;
+            _resumen = ev.Resumen;
+            _rank = ev.Ranking.ToDictionary(r => r.ProveedorId, r => (r.Posicion, r.Motivo));
+            _evaluado = true;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busyEval = false; }
+    }
+
+    private async Task UsarAsync(CotizacionDto o)
+    {
+        if (OnUsar.HasDelegate) { await OnUsar.InvokeAsync(o); }
+    }
+
+    private void AbrirNueva()
+    {
+        _editId = null; _fProv = ""; _fProvNombre = ""; _fPrecio = 0m;
+        _fFleteMonto = 0m; _fFletePorUnidad = false;
+        _fEntrega = ""; _fDespacho = ""; _fPago = ""; _fVigencia = null; _fNotas = "";
+        _fFechaCotiz = DateTime.Now; _fContactoId = ""; _fNewContNombre = ""; _fNewContTel = ""; _fNewContMail = "";
+        _contactos = new();
+        _formError = null; _showForm = true;
+    }
+
+    private async Task AbrirEdicion(CotizacionDto o)
+    {
+        _editId = o.Id;
+        _fProv = o.ProveedorId.ToString();
+        _fProvNombre = o.ProveedorNombre ?? "";
+        _fPrecio = o.PrecioUnitario;
+        _fFleteMonto = o.FleteMonto; _fFletePorUnidad = o.FleteEsPorUnidad;
+        _fEntrega = o.TiempoEntrega;
+        _fDespacho = o.CaracteristicasDespacho;
+        _fPago = o.CondicionesPago;
+        _fVigencia = o.VigenciaHasta?.DateTime;
+        _fNotas = o.Notas ?? "";
+        _fFechaCotiz = o.FechaCotizacion?.LocalDateTime ?? DateTime.Now;
+        _fContactoId = o.ProveedorContactoId?.ToString() ?? "";
+        _fNewContNombre = ""; _fNewContTel = ""; _fNewContMail = "";
+        _formError = null; _showForm = true;
+        await CargarContactosAsync(o.ProveedorId);
+    }
+
+    private async Task OnFormProvChanged(ChangeEventArgs e)
+    {
+        var txt = (e.Value?.ToString() ?? "").Trim();
+        _fProvNombre = txt;
+        var match = _provs.FirstOrDefault(p => string.Equals(p.Nombre, txt, StringComparison.OrdinalIgnoreCase));
+        _fProv = match?.Id.ToString() ?? "";
+        _fContactoId = "";
+        await CargarContactosAsync(match?.Id);
+    }
+
+    private async Task CargarContactosAsync(Guid? proveedorId)
+    {
+        _contactos = proveedorId is Guid pid
+            ? (await Svc.ListContactosAsync(pid)).ToList()
+            : new();
+    }
+
+    private async Task GuardarOfertaAsync()
+    {
+        _formError = null;
+        if (!Guid.TryParse(_fProv, out var provId))
+        {
+            _formError = "Elige un proveedor del Directorio (perfil Proveedor).";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            // Contacto: el elegido de la lista, o uno nuevo capturado al vuelo (se crea en el Directorio del proveedor).
+            Guid? contactoId = Guid.TryParse(_fContactoId, out var cguid) ? cguid : null;
+            if (contactoId is null && !string.IsNullOrWhiteSpace(_fNewContNombre))
+            {
+                var nuevo = await Svc.GuardarContactoAsync(provId,
+                    new ContactoInput(null, _fNewContNombre.Trim(), null,
+                        string.IsNullOrWhiteSpace(_fNewContMail) ? null : _fNewContMail.Trim(),
+                        string.IsNullOrWhiteSpace(_fNewContTel) ? null : _fNewContTel.Trim()));
+                contactoId = nuevo.Id;
+            }
+            var req = new SaveCotizacionRequest(
+                _editId, ItemId, Descripcion ?? "", provId, _fPrecio,
+                _fEntrega, _fDespacho, _fPago,
+                _fVigencia is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
+                _fNotas, contactoId,
+                _fFechaCotiz is { } fc ? new DateTimeOffset(fc, TimeSpan.Zero) : null,
+                RequerimientoCotizacionFuente.Manual,
+                _fFleteMonto, _fFletePorUnidad);
+            _ofertas = (await Svc.GuardarCotizacionAsync(req, Cantidad)).ToList();
+            RecalcMin();
+            _evaluado = false; _ganador = null; _rank = new();
+            _showForm = false;
+            if (ShowBasket) { await LoadBasketAsync(); }
+        }
+        catch (Exception ex) { _formError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task EliminarAsync(Guid id)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            await Svc.EliminarCotizacionAsync(id);
+            _ofertas = (await Svc.ListCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
+            RecalcMin();
+            _evaluado = false; _ganador = null; _rank = new();
+            if (ShowBasket) { await LoadBasketAsync(); }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private static string FuenteLbl(RequerimientoCotizacionFuente f) => f switch
+    {
+        RequerimientoCotizacionFuente.Historico => "historico",
+        RequerimientoCotizacionFuente.Matriz => "matriz",
+        _ => "manual"
+    };
+
+    private static string Dash(string? s) => string.IsNullOrWhiteSpace(s) ? "-" : s!;
+    private static string Money(decimal d) => d.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+    private static string FechaHora(DateTimeOffset? d) => d is { } v ? v.LocalDateTime.ToString("dd/MM/yy HH:mm") : "-";
+
+    // Estado de vigencia de una oferta por los dias configurados (regla/proveedor) contados desde la fecha cotizada.
+    private enum VigEstado { NA, Vigente, PorVencer, Vencida }
+    private static VigEstado Vig(CotizacionDto o)
+    {
+        if (o.VigenciaDias is not int dias || dias <= 0 || o.FechaCotizacion is not { } fc) { return VigEstado.NA; }
+        var expiry = fc.LocalDateTime.AddDays(dias);
+        var leftDays = (expiry - DateTime.Now).TotalDays;
+        if (leftDays < 0) { return VigEstado.Vencida; }
+        if (leftDays <= Math.Max(1, dias * 0.2)) { return VigEstado.PorVencer; }
+        return VigEstado.Vigente;
+    }
+
+    // Texto de la celda Vigencia: si hay dias configurados muestra "N dias -> vence dd/MM/yy"; si no, la fecha manual.
+    private static string VigenciaTexto(CotizacionDto o, VigEstado vig)
+    {
+        if (o.VigenciaDias is int dias && dias > 0 && o.FechaCotizacion is { } fc)
+        {
+            var expiry = fc.LocalDateTime.AddDays(dias);
+            var sufijo = vig == VigEstado.Vencida ? " (vencida)" : vig == VigEstado.PorVencer ? " (por vencer)" : "";
+            return $"{dias} d -> {expiry:dd/MM/yy}{sufijo}";
+        }
+        return o.VigenciaHasta is { } vh ? vh.ToString("dd/MM/yy") : "-";
+    }
+}

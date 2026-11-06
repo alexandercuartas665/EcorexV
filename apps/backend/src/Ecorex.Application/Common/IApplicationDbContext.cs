@@ -292,9 +292,14 @@ public interface IApplicationDbContext
     DbSet<RequerimientoProveedorRegla> RequerimientoProveedorReglas { get; }
     DbSet<RequerimientoCompra> RequerimientosCompra { get; }
     DbSet<RequerimientoCompraHijo> RequerimientoCompraHijos { get; }
+    // Ofertas/cotizaciones de proveedor para el comparador de compras (Ola 13).
+    DbSet<RequerimientoCotizacion> RequerimientoCotizaciones { get; }
     // Campos DINAMICOS del modulo (definicion por tenant + valores por dueno padre/hijo, EAV) (Ola 12).
     DbSet<RequerimientoFieldDefinition> RequerimientoFieldDefinitions { get; }
     DbSet<RequerimientoFieldValue> RequerimientoFieldValues { get; }
+    // Solicitudes de Cotizacion (RFQ) gobernadas por flujo: una por proveedor con N lineas (Ola A cotizacion).
+    DbSet<RequerimientoRfq> RequerimientoRfqs { get; }
+    DbSet<RequerimientoRfqLinea> RequerimientoRfqLineas { get; }
 
     // Disenador de acciones por filtro de contactos (ADR-0056): workflow 1:1 con TerceroFiltro,
     // sus pasos secuenciales y las ventanas de horario por paso. El motor de ejecucion es Fase 2.

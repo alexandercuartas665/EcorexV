@@ -212,3 +212,29 @@
 .rqc-f { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; flex: 1 1 150px; }
 .rqc-f-wide { flex: 1 1 100%; }
 .rqc-form-actions { display: flex; gap: 6px; margin-top: 10px; }
+
+/* ---- Ola 15: barra de plazo + semaforo de entrega ---- */
+.rqc-deadline {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 10px;
+    padding: 7px 10px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 8px;
+    background: var(--surface-2, #f8fafc); font-size: 11.5px;
+}
+.rqc-deadline-lbl { font-weight: 700; color: var(--ink-1, #1f2937); }
+.rqc-deadline-or { color: var(--ink-3, #9ca3af); }
+.rqc-deadline-date { width: 148px; }
+.rqc-deadline-days { width: 68px; }
+.rqc-deadline-hint { color: var(--ink-3, #9ca3af); font-size: 10.5px; margin-left: auto; }
+
+.rqc-entrega { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.rqc-eta {
+    font-size: 9.5px; font-weight: 700; border-radius: 999px; padding: 1px 6px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 3px;
+}
+.rqc-eta::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.rqc-eta-fast { color: #b45309; background: rgba(217, 119, 6, .14); }
+.rqc-eta-fast::before { display: none; }
+.rqc-eta-ok { color: #0f7a58; background: rgba(15, 122, 88, .13); }
+.rqc-eta-tight { color: #b45309; background: rgba(217, 119, 6, .16); }
+.rqc-eta-late { color: #b91c1c; background: rgba(220, 38, 38, .13); }
+.rqc-eta-na { color: #6b7280; background: #f1f5f9; }
+.rqc-eta-na::before { opacity: .5; }

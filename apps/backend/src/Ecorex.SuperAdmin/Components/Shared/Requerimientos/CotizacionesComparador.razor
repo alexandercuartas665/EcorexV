@@ -35,6 +35,27 @@
         <div class="rqc-msg rqc-ai"><span class="rqc-ai-chip">IA</span> @_resumen</div>
     }
 
+    @if (_ofertas.Count > 0)
+    {
+        <div class="rqc-deadline">
+            <span class="rqc-deadline-lbl" title="El semaforo de cada oferta compara su tiempo de entrega estimado contra este plazo">Necesito para</span>
+            <input type="date" class="form-control form-control-sm rqc-deadline-date"
+                   value="@(_targetDate?.ToString("yyyy-MM-dd"))" @onchange="OnTargetDateChanged" />
+            <span class="rqc-deadline-or">o en</span>
+            <input type="number" min="0" step="1" class="form-control form-control-sm rqc-deadline-days"
+                   value="@_targetDaysShown" @onchange="OnTargetDaysChanged" placeholder="dias" />
+            <span class="rqc-deadline-or">dias</span>
+            @if (_targetDate is { } td)
+            {
+                <span class="rqc-deadline-hint">entrega estimada vs @td.ToString("dd/MM/yy")@(_targetFromNeed ? " (fecha de necesidad)" : "")</span>
+            }
+            else
+            {
+                <span class="rqc-deadline-hint">sin plazo: las ofertas solo se rankean por rapidez</span>
+            }
+        </div>
+    }
+
     @if (_ofertas.Count == 0)
     {
         <div class="rqc-empty">
@@ -53,6 +74,7 @@
                 (int Pos, string Motivo)? rk = _rank.TryGetValue(o.ProveedorId, out var rv) ? rv : null;
                 var vig = Vig(oc);
                 var vigBorde = vig == VigEstado.Vencida ? "#dc2626" : vig == VigEstado.PorVencer ? "#d97706" : "";
+                var dd = ParseDeliveryDays(oc.TiempoEntrega);
                 <div class="rqc-card @(esGanador ? "rqc-win" : "")" style="@(vigBorde.Length > 0 ? $"border-left:3px solid {vigBorde};" : "")">
                     <div class="rqc-card-top">
                         <span class="rqc-prov">@(string.IsNullOrWhiteSpace(o.ProveedorNombre) ? "(proveedor)" : o.ProveedorNombre)</span>
@@ -79,7 +101,11 @@
 
                     <div class="rqc-meta">
                         <div><span class="rqc-k">Cotizado</span><span class="rqc-v">@FechaHora(o.FechaCotizacion)</span></div>
-                        <div><span class="rqc-k">Entrega</span><span class="rqc-v">@Dash(o.TiempoEntrega)</span></div>
+                        <div><span class="rqc-k">Entrega</span><span class="rqc-v rqc-entrega">
+                            <span>@Dash(o.TiempoEntrega)</span>
+                            @if (EsMasRapido(dd)) { <span class="rqc-eta rqc-eta-fast" title="El tiempo de entrega mas corto entre las ofertas">&#9889; mas rapido</span> }
+                            @if (_targetDate is { } td) { var sm = Semaforo(dd, td); <span class="rqc-eta rqc-eta-@sm.Cls" title="@sm.Tip">@sm.Txt</span> }
+                        </span></div>
                         <div><span class="rqc-k">Despacho</span><span class="rqc-v">@Dash(o.CaracteristicasDespacho)</span></div>
                         <div><span class="rqc-k">Pago</span><span class="rqc-v">@Dash(o.CondicionesPago)</span></div>
                         <div><span class="rqc-k">Vigencia</span><span class="rqc-v" style="@(vigBorde.Length > 0 ? $"color:{vigBorde};font-weight:600;" : "")">@VigenciaTexto(oc, vig)</span></div>
@@ -326,10 +352,20 @@
     // defecto son los origenes/proyectos de las necesidades abiertas (DefaultOrigenIds); el filtro deja cambiarla.
     [Parameter] public bool ShowBasket { get; set; }
     [Parameter] public IReadOnlyList<Guid>? DefaultOrigenIds { get; set; }
+    // Ola 15: fecha de necesidad mas temprana de lo que se planifica. Siembra el plazo del semaforo de entrega
+    // (el comprador puede sobrescribirlo aqui). Null = no hay fecha y el semaforo solo rankea por rapidez.
+    [Parameter] public DateTimeOffset? FechaNecesidad { get; set; }
 
     private List<CotizacionDto> _ofertas = new();
     private List<RequerimientoOpcionDto> _provs = new();
     private decimal _minPrecio;
+    // Ola 15: semaforo de entrega. _targetDate = plazo contra el que se mide (sembrado de FechaNecesidad,
+    // sobrescribible). _fastestDays/_hasVariedEta alimentan el sello "mas rapido" (ranking por rapidez).
+    private DateTime? _targetDate;
+    private bool _targetTouched;      // el usuario fijo el plazo a mano -> no re-sembrar desde FechaNecesidad
+    private bool _targetFromNeed;     // el plazo viene de la fecha de necesidad (para el hint)
+    private int? _fastestDays;        // menor tiempo de entrega (en dias) parseado entre las ofertas
+    private bool _hasVariedEta;       // hay al menos 2 tiempos de entrega distintos (si no, no hay "mas rapido")
     private bool _busy;
     private bool _busyEval;
     private string? _error;
@@ -543,7 +579,14 @@
         if (key != _loadedKey)
         {
             _loadedKey = key;
+            _targetTouched = false;   // producto nuevo: vuelve a sembrarse del plazo de la necesidad
             await LoadAsync();
+        }
+        // Siembra/actualiza el plazo desde la fecha de necesidad mientras el usuario no lo haya tocado.
+        if (!_targetTouched)
+        {
+            _targetDate = FechaNecesidad?.LocalDateTime.Date;
+            _targetFromNeed = _targetDate is not null;
         }
     }
 
@@ -598,8 +641,72 @@
     }
 
     private void RecalcMin()
-        => _minPrecio = _ofertas.Where(o => o.PrecioUnitario > 0m)
+    {
+        _minPrecio = _ofertas.Where(o => o.PrecioUnitario > 0m)
             .Select(o => o.PrecioUnitario).DefaultIfEmpty(0m).Min();
+        // Ranking por rapidez: menor tiempo de entrega parseado; "mas rapido" solo si hay variedad.
+        var ds = _ofertas.Select(o => ParseDeliveryDays(o.TiempoEntrega)).Where(d => d.HasValue).Select(d => d!.Value).ToList();
+        _fastestDays = ds.Count > 0 ? ds.Min() : (int?)null;
+        _hasVariedEta = ds.Distinct().Count() >= 2;
+    }
+
+    // ---- Ola 15: tiempo de entrega (texto libre) -> dias; ranking por rapidez; semaforo contra el plazo. ----
+
+    // Interpreta "5 dias", "inmediato", "2 semanas", "1 mes" -> numero de dias. Null si no es interpretable
+    // (ej. "A convenir") para no inventar una fecha de llegada.
+    private static int? ParseDeliveryDays(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return null; }
+        var t = s.Trim().ToLowerInvariant();
+        if (t.Contains("inmediat") || t.Contains("hoy") || t.Contains("stock") || t.Contains("disponible") || t.Contains("entrega inmediata")) { return 0; }
+        if (t.Contains("convenir") || t.Contains("acordar") || t.Contains("negociar")) { return null; }
+        var m = System.Text.RegularExpressions.Regex.Match(t, @"\d+([.,]\d+)?");
+        if (!m.Success || !double.TryParse(m.Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, Inv, out var n)) { return null; }
+        if (t.Contains("seman")) { n *= 7; }
+        else if (t.Contains("mes")) { n *= 30; }
+        return (int)Math.Round(n);
+    }
+
+    private bool EsMasRapido(int? dd)
+        => _hasVariedEta && dd is { } d && _fastestDays is { } f && d == f;
+
+    // Resultado del semaforo para una oferta dado el plazo: clase CSS, texto corto y tooltip.
+    private readonly record struct EtaSemaforo(string Cls, string Txt, string Tip);
+
+    private EtaSemaforo Semaforo(int? dd, DateTime target)
+    {
+        if (dd is not { } d)
+        {
+            return new("na", "entrega sin dato", "El tiempo de entrega no es un numero (ej. 'A convenir'): no se puede estimar la llegada");
+        }
+        var arrival = DateTime.Today.AddDays(d);
+        var slack = (target.Date - arrival.Date).Days;
+        if (slack < 0)
+        {
+            return new("late", $"tarde {-slack} d", $"Llega aprox. {arrival:dd/MM/yy}, {-slack} dia(s) DESPUES del plazo {target:dd/MM/yy}");
+        }
+        if (slack <= 1)
+        {
+            return new("tight", "justo", $"Llega aprox. {arrival:dd/MM/yy}, casi sin margen frente al plazo {target:dd/MM/yy}");
+        }
+        return new("ok", $"{slack} d antes", $"Llega aprox. {arrival:dd/MM/yy}, {slack} dia(s) de margen frente al plazo {target:dd/MM/yy}");
+    }
+
+    private int? _targetDaysShown => _targetDate is { } d ? (int)Math.Round((d.Date - DateTime.Today).TotalDays) : (int?)null;
+
+    private void OnTargetDateChanged(ChangeEventArgs e)
+    {
+        var txt = e.Value?.ToString();
+        _targetTouched = true; _targetFromNeed = false;
+        _targetDate = DateTime.TryParse(txt, out var d) ? d.Date : null;
+    }
+
+    private void OnTargetDaysChanged(ChangeEventArgs e)
+    {
+        var txt = e.Value?.ToString();
+        _targetTouched = true; _targetFromNeed = false;
+        _targetDate = int.TryParse(txt, out var n) && n >= 0 ? DateTime.Today.AddDays(n) : null;
+    }
 
     private async Task SembrarAsync()
     {

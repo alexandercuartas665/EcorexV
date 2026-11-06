@@ -806,6 +806,7 @@ else
                     Cantidad="@(RestanteActual > 0 ? RestanteActual : TotalPlan)"
                     CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync"
                     ShowBasket="true"
+                    FechaNecesidad="@(_planRegs.Where(r => r.FechaNecesidad != null).Select(r => r.FechaNecesidad).DefaultIfEmpty(null).Min())"
                     DefaultOrigenIds="@(_planRegs.Where(r => r.OrigenId != null).Select(r => r.OrigenId!.Value).Distinct().ToList())" />
                 }
 

@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-06 - Semaforo de entrega en el comparador: punto #1 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.251. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: evaluando la herramienta "como jefe de compras" salieron 4 huecos para decidir que proveedor y
+  CUANDO. El #1 (mas importante): el comparador mostraba el tiempo de entrega como texto suelto ("4 dias") sin
+  cruzarlo contra la fecha de necesidad; el mas barato podia llegar tarde. Dato clave: solo 7 de 336 necesidades
+  traen fecha_necesidad, asi que el enfoque elegido fue: rankear por rapidez SIEMPRE + semaforo cuando hay plazo +
+  poder fijar el plazo ahi mismo (no depender del dato cargado).
+- HECHO (SIN migracion; todo en el comparador reutilizable + un parametro nuevo):
+  - PARSER de tiempo de entrega (texto->dias): ParseDeliveryDays interpreta "N dias", "inmediato"/"stock"=0,
+    "N semanas"=N*7, "N mes"=N*30; "A convenir"/no-numerico = null (no inventa llegada).
+  - RANKING por rapidez: sello "mas rapido" en la oferta de menor tiempo (solo si hay variedad de tiempos).
+  - SEMAFORO: barra "Necesito para [fecha] o en [N] dias" (sembrada de la fecha de necesidad mas temprana de lo
+    planificado via nuevo parametro FechaNecesidad; sobrescribible; fecha<->dias en sync). Por oferta: verde
+    "N d antes" (>=2 d margen), amarillo "justo" (0-1 d), rojo "tarde N d" (llega despues), gris "entrega sin
+    dato" (no parseable). Llegada estimada = hoy + dias de entrega.
+  - Archivos: CotizacionesComparador.razor (+parser/ranking/semaforo/barra), su .razor.css (.rqc-deadline/.rqc-eta*),
+    RequerimientosCompra.razor (pasa FechaNecesidad = min de las necesidades planificadas).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.251): grupo 2X16 (Dielco 6d, Omega 5d, Melexa 4d).
+  Sin plazo: solo Melezxa marcada "mas rapido". Plazo "en 5 dias" (11/11): Dielco rojo "tarde 1 d" (llega 12/11),
+  Omega amarillo "justo" (11/11), Melexa "mas rapido"+"justo" (10/11). Plazo "en 8 dias": los 3 verdes "N d antes".
+  Fecha y dias sincronizados. Build SuperAdmin 0 errores.
+- SIGUIENTE: punto #2 condiciones de pago/credito en la comparacion; luego #3 scorecard de confiabilidad del
+  proveedor; #4 costo total real (flete/minimos/descuentos/vigencia). PROMPT a dev central y deploy con OK por version.
+
 ## 2026-11-06 - Comparador de cotizaciones: canasta total por proveedor + vistas Datos/Graficos + "Usar" aplica a toda la planificacion (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.250. Push a requerimiento_compras, SIN deploy.

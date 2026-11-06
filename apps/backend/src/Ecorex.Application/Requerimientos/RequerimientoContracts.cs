@@ -249,6 +249,35 @@ public sealed record EvaluacionCotizacionesDto(
     string Resumen,
     IReadOnlyList<CotizacionRankItem> Ranking);
 
+// ---- Ola 14: comparacion TOTAL por proveedor (canasta del proyecto) ----
+
+/// <summary>Un proyecto/origen elegible como canasta para el total por proveedor, con cuantos articulos
+/// (claves de producto distintas) aporta. Alimenta el filtro "tareas" de la tarjeta de total.</summary>
+public sealed record BasketOrigenOpcionDto(Guid OrigenId, string Nombre, int Articulos);
+
+/// <summary>Una fila del total por proveedor sobre una canasta: cuantos articulos de la canasta cotiza el
+/// proveedor (cobertura), en cuantos tiene el precio mas bajo, la suma (precio*cantidad) de lo que SI cubre y
+/// el sobreprecio promedio (% por encima del mas barato, sobre los articulos que cubre; 0 = siempre el mas
+/// barato). El sobreprecio normaliza el precio por cobertura para comparar proveedores con alcances distintos.</summary>
+public sealed record BasketProveedorFilaDto(
+    Guid ProveedorId,
+    string ProveedorNombre,
+    int CubreCount,
+    int GanaCount,
+    decimal Total,
+    bool CubreTodo,
+    decimal SobreprecioPct);
+
+/// <summary>Total por proveedor sobre una canasta (uno o varios proyectos/origenes): numero de articulos en la
+/// canasta, el total de la "mejor canasta" (sumando el mas barato de cada articulo, mezclando proveedores) como
+/// piso de referencia, el ranking de proveedores y la lista de proyectos elegibles para el filtro. Hace visible
+/// el efecto "gana por articulo / pierde en el total".</summary>
+public sealed record BasketResumenProveedorDto(
+    int ArticulosEnCanasta,
+    decimal MejorCanastaTotal,
+    IReadOnlyList<BasketProveedorFilaDto> Proveedores,
+    IReadOnlyList<BasketOrigenOpcionDto> Origenes);
+
 /// <summary>Estado de la planificacion de una necesidad: cantidades y sus hijos.</summary>
 public sealed record PlanificacionDto(
     Guid RequerimientoId,
@@ -394,4 +423,12 @@ public interface IRequerimientoService
     /// <summary>Evalua las ofertas con el agente configurado en el modulo (modulo de agentes) y propone la
     /// mejor opcion + ranking + resumen. Si no hay agente configurado o no hay ofertas, devuelve Ok=false.</summary>
     Task<EvaluacionCotizacionesDto> EvaluarCotizacionesAsync(Guid? itemId, string descripcion, decimal cantidad, CancellationToken ct = default);
+
+    // ---- Ola 14: total por proveedor sobre la canasta (proyecto/origen) ----
+    /// <summary>Suma, por proveedor, el total (precio*cantidad) de los articulos de una canasta: los origenes
+    /// indicados, o TODAS las tareas del tenant si la lista va vacia. Devuelve la cobertura (cotiza X de N
+    /// articulos), en cuantos tiene el precio mas bajo, el total por proveedor, el piso "mejor canasta"
+    /// (mezclando el mas barato de cada articulo) y la lista de proyectos para filtrar. Hace visible el efecto
+    /// "gana por articulo / pierde en el total". Tenant-scoped por el filtro global.</summary>
+    Task<BasketResumenProveedorDto> ResumenProveedorCanastaAsync(IReadOnlyList<Guid> origenIds, CancellationToken ct = default);
 }

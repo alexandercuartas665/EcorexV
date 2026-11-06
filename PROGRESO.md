@@ -2,6 +2,39 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-06 - Comparador de cotizaciones: canasta total por proveedor + vistas Datos/Graficos + "Usar" aplica a toda la planificacion (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.250. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: 4 pedidos encadenados sobre el comparador de cotizaciones del planificador (tab Cotizacion):
+  comparar no solo por articulo sino por el TOTAL del proveedor en la canasta del proyecto; poder filtrar por
+  origen de proyecto; ver como datos o como graficos de forma persistente; y que "Usar esta opcion" mande TODA
+  la planificacion a ese proveedor (antes solo tocaba una linea).
+- HECHO (SIN migracion; agregacion en C#, prefs en jsonb existente de UserTablePreference):
+  - CANASTA POR PROVEEDOR: nuevo ResumenProveedorCanastaAsync (RequerimientoService) + DTOs
+    BasketResumenProveedorDto/BasketProveedorFilaDto/BasketOrigenOpcionDto (RequerimientoContracts). Suma por
+    clave de producto la cantidad de la canasta, cruza cotizaciones (precio>0), calcula min por (clave,prov) y
+    por clave, y agrega por proveedor: Cobertura (cuantas cubre), Gana en (en cuantas es el minimo), Total de la
+    canasta y Sobreprecio% normalizado. Respeta el filtro global por tenant; clave via RequerimientoClave.Of
+    (en memoria, no SQL).
+  - UI comparador (CotizacionesComparador.razor, reusable): panel "Comparacion total por proveedor" debajo del
+    comparador por articulo (params ShowBasket + DefaultOrigenIds). Filtro de canasta por origen (checkboxes con
+    conteo), toggle Datos/Graficos, y 5 graficos SVG/CSS puros (Total, Cobertura, Precio prom., Gana en, y Mapa
+    cobertura-vs-sobreprecio que resalta el proveedor ideal). Vista + grafico + filtro PERSISTEN por usuario
+    (IUserTablePrefsService, clave req.cotiz.basket.view, JSON {view,chart,sel}).
+  - "USAR ESTA OPCION" (AplicarCotizacionIndividualAsync en RequerimientosCompra.razor): aplica proveedor +
+    precio + entrega + despacho + contacto a TODAS las filas editables del plan (TaskItemId==null); si no hay
+    distribucion la arma por defecto (grupo: BuildGroupHijosAsync; individual: una fila con el restante);
+    resuelve contacto/ultimo precio una vez y lo copia a todas; respeta lineas ya ejecutadas; pasa a la pestana
+    Planificacion para revisar antes de Guardar.
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.250): panel de canasta renderiza y recomputa al filtrar;
+  toggle Datos/Graficos y los 5 graficos (incl. Mapa con Melexa resaltado como ideal); persistencia confirmada en
+  BD (prefs {"sel":[],"view":"graficos","chart":"mapa"}); "Usar esta opcion" en grupo 2X16 (4 necesidades) dejo
+  las 4 filas en Melexa/4 dias/$2100 (verificado por inspeccion de inputs). Build SuperAdmin 0 errores.
+- SIGUIENTE: atacar los 4 huecos para la decision de compra (en orden): (1) semaforo de entrega contra la fecha
+  de necesidad; (2) condiciones de pago/credito en la comparacion; (3) scorecard de confiabilidad del proveedor;
+  (4) costo total real (flete, minimos, descuentos por volumen, vigencia de la cotizacion). PROMPT de integracion
+  a dev central y deploy, con OK por version del usuario.
+
 ## 2026-11-04 - Proceso de COMPRAS configurable (default modulo + matriz) y resuelto en el planificador (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.249. Commits e445887e (tab cotizacion->proceso) +

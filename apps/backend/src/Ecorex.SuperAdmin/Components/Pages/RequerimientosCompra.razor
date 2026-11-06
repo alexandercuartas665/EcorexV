@@ -804,7 +804,9 @@ else
                 }
                 <CotizacionesComparador ItemId="_planItemId" Descripcion="@_planDescripcion"
                     Cantidad="@(RestanteActual > 0 ? RestanteActual : TotalPlan)"
-                    CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync" />
+                    CanEdit="_canConfig" OnUsar="AplicarCotizacionIndividualAsync"
+                    ShowBasket="true"
+                    DefaultOrigenIds="@(_planRegs.Where(r => r.OrigenId != null).Select(r => r.OrigenId!.Value).Distinct().ToList())" />
                 }
 
                 @if (_planTab == "plan")
@@ -3443,20 +3445,57 @@ else
     // vacia (sin proveedor y sin actividad) o agrega una nueva, con proveedor/precio/entrega/despacho de la oferta.
     private async Task AplicarCotizacionIndividualAsync(CotizacionDto c)
     {
-        var row = _pHijos.FirstOrDefault(h => h.TaskItemId is null && string.IsNullOrWhiteSpace(h.Prov));
-        if (row is null)
+        // "Usar esta opcion" = TODA la planificacion pendiente va a este proveedor y precio (no solo una linea).
+        // Si aun no hay distribucion (o no quedan filas sin ejecutar), arma primero la distribucion por defecto.
+        var editables = _pHijos.Where(h => h.TaskItemId is null).ToList();
+        if (editables.Count == 0)
         {
-            var resta = RestanteActual;
-            row = new HijoEdit { Cantidad = resta > 0 ? resta : 1, ReqId = DefaultReqId };
-            _pHijos.Add(row);
+            if (_planIsGroup)
+            {
+                await BuildGroupHijosAsync(_planRegs);
+            }
+            else if (_pHijos.Count == 0)
+            {
+                var resta = RestanteActual;
+                _pHijos.Add(new HijoEdit
+                {
+                    Cantidad = resta > 0 ? resta : 1,
+                    ReqId = DefaultReqId,
+                    Fecha = _planRegs.FirstOrDefault()?.FechaNecesidad?.DateTime,
+                });
+            }
+            editables = _pHijos.Where(h => h.TaskItemId is null).ToList();
         }
-        row.Prov = c.ProveedorId.ToString();
-        row.ProvNombre = c.ProveedorNombre ?? "";
-        row.Precio = c.PrecioUnitario;
-        row.Entrega = c.TiempoEntrega;
-        row.Despacho = c.CaracteristicasDespacho;
-        row.ContactoId = c.ProveedorContactoId;
-        await FillContactoAsync(row);
+
+        // Aplica el proveedor/precio/entrega/despacho/contacto a cada fila pendiente (las ya ejecutadas no se tocan).
+        foreach (var row in editables)
+        {
+            row.Prov = c.ProveedorId.ToString();
+            row.ProvNombre = c.ProveedorNombre ?? "";
+            row.Precio = c.PrecioUnitario;
+            row.Entrega = c.TiempoEntrega;
+            row.Despacho = c.CaracteristicasDespacho;
+            row.ContactoId = c.ProveedorContactoId;
+        }
+
+        // Resuelve contacto + ultimo precio una sola vez (mismo proveedor y producto) y lo copia al resto.
+        if (editables.Count > 0)
+        {
+            var first = editables[0];
+            await FillContactoAsync(first);
+            foreach (var row in editables.Skip(1))
+            {
+                row.ContactosDisponibles = first.ContactosDisponibles;
+                row.ContactoId = first.ContactoId;
+                row.Contacto = first.Contacto;
+                row.Email = first.Email;
+                row.Telefono = first.Telefono;
+                row.ProvNombre = first.ProvNombre;
+                row.UltimoPrecio = first.UltimoPrecio;
+                row.UltimoPrecioFecha = first.UltimoPrecioFecha;
+            }
+        }
+
         _planError = null;
         _planTab = "plan";   // al usar una oferta, pasa a Planificacion para ver/ajustar la division
         StateHasChanged();

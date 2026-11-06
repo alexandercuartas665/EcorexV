@@ -1311,6 +1311,107 @@ public sealed class RequerimientoService : IRequerimientoService
         return await MapCotizacionesAsync(rows, itemId, descripcion, ct);
     }
 
+    // ---- Ola 14: total por proveedor sobre la canasta (proyecto/origen) ----
+    // Suma, por proveedor, precio*cantidad de los articulos de la canasta y expone cobertura + en cuantos gana.
+    // La clave de producto se calcula en memoria (no es traducible a SQL), asi que se trae la proyeccion minima
+    // de las necesidades (4 campos) y se agrupa en C#. Todo pasa por el filtro global de tenant.
+    public async Task<BasketResumenProveedorDto> ResumenProveedorCanastaAsync(
+        IReadOnlyList<Guid> origenIds, CancellationToken ct = default)
+    {
+        var reqAll = await _db.RequerimientosCompra.AsNoTracking()
+            .Select(r => new { r.OrigenId, r.ItemId, r.Descripcion, r.Cantidad })
+            .ToListAsync(ct);
+
+        // 1) Proyectos (origenes) elegibles para el filtro: los que tienen necesidades, con su # de articulos
+        //    (claves distintas). Las necesidades sin origen no son una "tarea" filtrable (solo entran en "todas").
+        var porOrigen = new Dictionary<Guid, HashSet<string>>();
+        foreach (var r in reqAll)
+        {
+            if (r.OrigenId is not Guid oid) { continue; }
+            if (!porOrigen.TryGetValue(oid, out var set)) { set = new(); porOrigen[oid] = set; }
+            set.Add(ClaveProducto(r.ItemId, r.Descripcion));
+        }
+        var origenKeys = porOrigen.Keys.ToList();
+        var origenNombres = await _db.RequerimientoOrigenes.AsNoTracking()
+            .Where(o => origenKeys.Contains(o.Id))
+            .ToDictionaryAsync(o => o.Id, o => o.Nombre, ct);
+        var origenesOpc = porOrigen
+            .Select(kv => new BasketOrigenOpcionDto(kv.Key,
+                origenNombres.TryGetValue(kv.Key, out var n) ? n : "(origen)", kv.Value.Count))
+            .OrderBy(o => o.Nombre, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // 2) Canasta seleccionada: cantidad total por clave de producto (vacio = todas las tareas).
+        var sel = origenIds is { Count: > 0 }
+            ? reqAll.Where(r => r.OrigenId is Guid g && origenIds.Contains(g))
+            : reqAll;
+        var qtyPorClave = new Dictionary<string, decimal>();
+        foreach (var r in sel)
+        {
+            var clave = ClaveProducto(r.ItemId, r.Descripcion);
+            qtyPorClave[clave] = (qtyPorClave.TryGetValue(clave, out var q) ? q : 0m) + r.Cantidad;
+        }
+        var claves = qtyPorClave.Keys.ToList();
+        if (claves.Count == 0)
+        {
+            return new BasketResumenProveedorDto(0, 0m, Array.Empty<BasketProveedorFilaDto>(), origenesOpc);
+        }
+
+        // 3) Cotizaciones de esos articulos (precio > 0). Si hubiera varias por (clave, proveedor), la mas barata.
+        var cots = await _db.RequerimientoCotizaciones.AsNoTracking()
+            .Where(c => claves.Contains(c.ClaveProducto) && c.PrecioUnitario > 0m)
+            .Select(c => new { c.ClaveProducto, c.ProveedorId, c.PrecioUnitario })
+            .ToListAsync(ct);
+
+        var precio = new Dictionary<(string Clave, Guid Prov), decimal>();
+        foreach (var c in cots)
+        {
+            var k = (c.ClaveProducto, c.ProveedorId);
+            if (!precio.TryGetValue(k, out var p) || c.PrecioUnitario < p) { precio[k] = c.PrecioUnitario; }
+        }
+        // El mas barato por articulo (para "gana en" y la "mejor canasta posible").
+        var minPorClave = new Dictionary<string, decimal>();
+        foreach (var kv in precio)
+        {
+            if (!minPorClave.TryGetValue(kv.Key.Clave, out var m) || kv.Value < m) { minPorClave[kv.Key.Clave] = kv.Value; }
+        }
+
+        // 4) Agregado por proveedor: cobertura, en cuantos gana, total de lo que cubre y suma del sobreprecio
+        //    (cuanto por encima del mas barato esta en cada articulo que cubre) para el % promedio.
+        var acc = new Dictionary<Guid, (int Cubre, int Gana, decimal Total, decimal SumPrem)>();
+        foreach (var kv in precio)
+        {
+            var (clave, prov) = kv.Key;
+            var qty = qtyPorClave.TryGetValue(clave, out var q) ? q : 0m;
+            var cur = acc.TryGetValue(prov, out var a) ? a : (Cubre: 0, Gana: 0, Total: 0m, SumPrem: 0m);
+            cur.Cubre += 1;
+            cur.Total += kv.Value * qty;
+            if (minPorClave.TryGetValue(clave, out var mn))
+            {
+                if (kv.Value == mn) { cur.Gana += 1; }
+                if (mn > 0m) { cur.SumPrem += (kv.Value - mn) / mn; }
+            }
+            acc[prov] = cur;
+        }
+
+        var provIds = acc.Keys.ToList();
+        var provNom = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+
+        var n = claves.Count;
+        var filas = acc
+            .Select(kv => new BasketProveedorFilaDto(
+                kv.Key, provNom.TryGetValue(kv.Key, out var nm) ? nm : "(proveedor)",
+                kv.Value.Cubre, kv.Value.Gana, kv.Value.Total, kv.Value.Cubre >= n,
+                kv.Value.Cubre > 0 ? Math.Round(kv.Value.SumPrem / kv.Value.Cubre * 100m, 1) : 0m))
+            // Cobertura total primero; dentro de cada grupo el total mas bajo arriba.
+            .OrderByDescending(f => f.CubreTodo).ThenBy(f => f.Total)
+            .ToList();
+
+        var mejorCanasta = minPorClave.Sum(kv => kv.Value * (qtyPorClave.TryGetValue(kv.Key, out var q) ? q : 0m));
+        return new BasketResumenProveedorDto(n, mejorCanasta, filas, origenesOpc);
+    }
+
     private async Task<IReadOnlyList<CotizacionDto>> MapCotizacionesAsync(
         List<RequerimientoCotizacion> rows, Guid? itemId, string descripcion, CancellationToken ct)
     {

@@ -5,8 +5,10 @@
    "Usar esta opcion" devuelve la oferta al padre (OnUsar) para volcarla a la planificacion.
    ===================================================================================================== *@
 @using Ecorex.Application.Requerimientos
+@using Ecorex.Application.Preferences
 @using Ecorex.Domain.Enums
 @inject IRequerimientoService Svc
+@inject IUserTablePrefsService Prefs
 
 <div class="rqc-wrap">
     <div class="rqc-head">
@@ -109,6 +111,151 @@
         </div>
     }
 
+    @if (ShowBasket)
+    {
+        <div class="rqc-basket">
+            <div class="rqc-basket-head">
+                <strong class="rqc-basket-title">Comparacion total por proveedor</strong>
+                <div class="rqc-basket-tools">
+                <div class="rqc-basket-seg" role="group" aria-label="Vista">
+                    <button type="button" class="rqc-basket-segbtn @(_view == "datos" ? "on" : "")" @onclick='() => SetViewAsync("datos")' disabled="@_basketBusy">Datos</button>
+                    <button type="button" class="rqc-basket-segbtn @(_view == "graficos" ? "on" : "")" @onclick='() => SetViewAsync("graficos")' disabled="@_basketBusy">Graficos</button>
+                </div>
+                <div class="rqc-basket-filtro">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => _basketFiltroOpen = !_basketFiltroOpen" disabled="@_basketBusy">
+                        @FiltroLabel() <span class="rqc-basket-caret">&#9662;</span>
+                    </button>
+                    @if (_basketFiltroOpen)
+                    {
+                        <div class="rqc-basket-menu">
+                            <label class="rqc-basket-opt">
+                                <input type="checkbox" checked="@(_basketSel.Count == 0)" @onchange="SelTodasAsync" />
+                                <span>Todas las tareas</span>
+                            </label>
+                            <div class="rqc-basket-sep"></div>
+                            @foreach (var o in _basket?.Origenes ?? (IReadOnlyList<BasketOrigenOpcionDto>)Array.Empty<BasketOrigenOpcionDto>())
+                            {
+                                var oo = o;
+                                <label class="rqc-basket-opt">
+                                    <input type="checkbox" checked="@_basketSel.Contains(oo.OrigenId)" @onchange="() => ToggleOrigenAsync(oo.OrigenId)" />
+                                    <span>@oo.Nombre</span>
+                                    <span class="rqc-basket-cnt" title="Articulos en la tarea">@oo.Articulos</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                </div>
+                </div>
+            </div>
+            <div class="rqc-basket-sub">Suma, por proveedor, el precio x cantidad de los articulos de la canasta. Un proveedor puede ganar por articulo y perder en el total.</div>
+
+            @if (_basketBusy)
+            {
+                <div class="rqc-basket-empty">Calculando total por proveedor...</div>
+            }
+            else if (_basket is null || _basket.ArticulosEnCanasta == 0)
+            {
+                <div class="rqc-basket-empty">Sin articulos en la canasta seleccionada.</div>
+            }
+            else
+            {
+                <div class="rqc-basket-meta">
+                    <span>Articulos en la canasta: <strong>@_basket.ArticulosEnCanasta</strong></span>
+                    <span title="Sumando el articulo mas barato de cada producto, mezclando proveedores (piso teorico)">Mejor canasta posible: <strong>@Money(_basket.MejorCanastaTotal)</strong></span>
+                </div>
+                @if (_view == "datos")
+                {
+                <div class="rqc-basket-tbl-wrap">
+                    <table class="rqc-basket-tbl">
+                        <thead>
+                            <tr>
+                                <th>Proveedor</th>
+                                <th class="num" title="En cuantos articulos de la canasta tiene oferta">Cobertura</th>
+                                <th class="num" title="En cuantos articulos tiene el precio mas bajo">Gana en</th>
+                                <th class="num">Total canasta</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in _basket.Proveedores)
+                            {
+                                var esMejor = p.CubreTodo && MejorTotalCubreTodo is { } mt && p.Total == mt;
+                                <tr class="@(esMejor ? "rqc-basket-win" : "")">
+                                    <td>
+                                        <span class="rqc-basket-prov">@p.ProveedorNombre</span>
+                                        @if (esMejor) { <span class="rqc-badge rqc-badge-low">Mejor total</span> }
+                                    </td>
+                                    <td class="num @(p.CubreTodo ? "" : "rqc-basket-partial")">@p.CubreCount/@_basket.ArticulosEnCanasta</td>
+                                    <td class="num">@p.GanaCount</td>
+                                    <td class="num"><strong>@Money(p.Total)</strong>@if (!p.CubreTodo) { <small class="rqc-basket-partialnote"> parcial</small> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                }
+                else
+                {
+                <div class="rqc-chart">
+                    <div class="rqc-chart-head">
+                        <div class="rqc-chart-title">@ChartTitle() <span class="rqc-chart-hint">@ChartHint()</span></div>
+                        <select class="form-select form-select-sm rqc-chart-pick" value="@_chartKind" @onchange="e => SetChartAsync(e.Value?.ToString())">
+                            <option value="total">Total por proveedor</option>
+                            <option value="cobertura">Cobertura</option>
+                            <option value="precio">Competitividad de precio</option>
+                            <option value="gana">Gana en</option>
+                            <option value="mapa">Mapa cobertura vs. precio</option>
+                        </select>
+                    </div>
+
+                    @if (_chartKind == "mapa")
+                    {
+                        <div class="rqc-map">
+                            <div class="rqc-map-yaxis"><span>Mas barato</span><span>Mas caro</span></div>
+                            <div class="rqc-map-plot">
+                                <div class="rqc-map-grid rqc-map-gy1"></div>
+                                <div class="rqc-map-grid rqc-map-gy2"></div>
+                                <div class="rqc-map-grid rqc-map-gy3"></div>
+                                <div class="rqc-map-gx rqc-map-gx1"></div>
+                                <div class="rqc-map-gx rqc-map-gx2"></div>
+                                <div class="rqc-map-gx rqc-map-gx3"></div>
+                                <div class="rqc-map-ideal">proveedor ideal &#8599;</div>
+                                @foreach (var pt in ScatterPts())
+                                {
+                                    <div class="rqc-map-pt @(pt.Ideal ? "ideal" : pt.Partial ? "partial" : "full")"
+                                         style="left:@FmtPct(pt.XPct)%; top:@FmtPct(pt.YPct)%;" title="@pt.Name">
+                                        <span class="rqc-map-dot"></span>
+                                        <span class="rqc-map-lbl">@pt.Name</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="rqc-map-xaxis"><span>Menos cobertura</span><span>Cubre todo</span></div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="rqc-chart-bars">
+                            @foreach (var row in ChartRows())
+                            {
+                                <div class="rqc-chart-row">
+                                    <div class="rqc-chart-lbl" title="@row.Name">
+                                        <span class="rqc-chart-name">@row.Name</span>
+                                        @if (row.Cov is { } cov) { <span class="rqc-chart-cov @(row.CovPartial ? "partial" : "")">@cov</span> }
+                                    </div>
+                                    <div class="rqc-chart-track">
+                                        <div class="rqc-chart-bar @row.Cls" style="width:@FmtPct(row.Pct)%;"></div>
+                                        <div class="rqc-chart-val">@row.Val</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                }
+                <div class="rqc-basket-note">Para hallar el proveedor ideal combina las vistas: <strong>Cobertura</strong> (cuanto puede surtir), <strong>Competitividad</strong> (que tan cerca del mejor precio, menor es mejor) y el <strong>Mapa</strong> (arriba-derecha). El total de cada proveedor suma solo lo que cotiza; "Gana en" es en cuantos articulos tiene el precio mas bajo.</div>
+            }
+        </div>
+    }
+
     @if (_showForm && CanEdit)
     {
         <div class="rqc-form">
@@ -175,6 +322,10 @@
     [Parameter] public decimal Cantidad { get; set; }
     [Parameter] public bool CanEdit { get; set; }
     [Parameter] public EventCallback<CotizacionDto> OnUsar { get; set; }
+    // Ola 14: muestra la "Comparacion total por proveedor" debajo del comparador por articulo. La canasta por
+    // defecto son los origenes/proyectos de las necesidades abiertas (DefaultOrigenIds); el filtro deja cambiarla.
+    [Parameter] public bool ShowBasket { get; set; }
+    [Parameter] public IReadOnlyList<Guid>? DefaultOrigenIds { get; set; }
 
     private List<CotizacionDto> _ofertas = new();
     private List<RequerimientoOpcionDto> _provs = new();
@@ -209,7 +360,182 @@
     private List<ProveedorContactoItemDto> _contactos = new();
     private string? _formError;
 
+    // Ola 14: total por proveedor sobre la canasta (proyecto/origen).
+    private BasketResumenProveedorDto? _basket;
+    private List<Guid> _basketSel = new();     // origenes elegidos; vacio = todas las tareas
+    private bool _basketBusy;
+    private bool _basketFiltroOpen;
+    private bool _basketInit;
+
+    // Preferencias de la tarjeta (persistidas por usuario en jsonb): vista + tipo de grafico + filtro recordado.
+    private string _view = "datos";            // "datos" | "graficos"
+    private string _chartKind = "total";       // total | cobertura | precio | gana | mapa
+    private List<Guid>? _prefSel;              // filtro recordado (null = nunca se toco -> usa DefaultOrigenIds)
+    private const string PrefKey = "req.cotiz.basket.view";
+    private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+    private static bool IsChart(string s) => s is "total" or "cobertura" or "precio" or "gana" or "mapa";
+
+    // El mas barato entre los proveedores que cubren TODA la canasta (la lista viene ordenada: cubre-todo
+    // primero, total asc), para marcar "Mejor total". Null si ninguno cubre todos los articulos.
+    private decimal? MejorTotalCubreTodo
+        => _basket?.Proveedores.Where(p => p.CubreTodo).Select(p => (decimal?)p.Total).FirstOrDefault();
+
+    private static string FmtPct(double d)
+        => Math.Max(0, Math.Min(100, d)).ToString("0.##", Inv);
+
+    // ---- Datos para las vistas de grafico (barras y mapa). Una fila lista por proveedor segun el tipo. ----
+    private sealed record ChartRow(string Name, string? Cov, bool CovPartial, double Pct, string Cls, string Val);
+
+    private IReadOnlyList<ChartRow> ChartRows()
+    {
+        var rows = new List<ChartRow>();
+        if (_basket is null || _basket.Proveedores.Count == 0) { return rows; }
+        var n = _basket.ArticulosEnCanasta;
+        switch (_chartKind)
+        {
+            case "cobertura":
+                foreach (var p in _basket.Proveedores.OrderByDescending(p => p.CubreCount).ThenBy(p => p.ProveedorNombre, StringComparer.OrdinalIgnoreCase))
+                {
+                    rows.Add(new(p.ProveedorNombre, null, false, n > 0 ? (double)p.CubreCount / n * 100 : 0,
+                        p.CubreTodo ? "win" : "cover", $"{p.CubreCount}/{n}" + (p.CubreTodo ? " (todo)" : "")));
+                }
+                break;
+            case "precio":
+                var maxPrem = (double)_basket.Proveedores.Select(p => p.SobreprecioPct).DefaultIfEmpty(0m).Max();
+                foreach (var p in _basket.Proveedores.OrderBy(p => p.SobreprecioPct).ThenByDescending(p => p.CubreCount))
+                {
+                    var prem = (double)p.SobreprecioPct;
+                    rows.Add(new(p.ProveedorNombre, $"{p.CubreCount}/{n}", !p.CubreTodo,
+                        maxPrem > 0 ? prem / maxPrem * 100 : (prem <= 0 ? 4 : 0),
+                        prem <= 0 ? "win" : "premium",
+                        prem <= 0 ? "0% (mas barato)" : "+" + p.SobreprecioPct.ToString("0.#", Inv) + "%"));
+                }
+                break;
+            case "gana":
+                var maxGana = _basket.Proveedores.Select(p => p.GanaCount).DefaultIfEmpty(0).Max();
+                foreach (var p in _basket.Proveedores.OrderByDescending(p => p.GanaCount).ThenBy(p => p.ProveedorNombre, StringComparer.OrdinalIgnoreCase))
+                {
+                    rows.Add(new(p.ProveedorNombre, $"{p.CubreCount}/{n}", !p.CubreTodo,
+                        maxGana > 0 ? (double)p.GanaCount / maxGana * 100 : 0, "gana", p.GanaCount.ToString(Inv)));
+                }
+                break;
+            default: // total
+                var maxTotal = _basket.Proveedores.Select(p => p.Total).DefaultIfEmpty(0m).Max();
+                var mejor = MejorTotalCubreTodo;
+                foreach (var p in _basket.Proveedores)
+                {
+                    var cls = (p.CubreTodo && mejor is { } mt && p.Total == mt) ? "win" : (p.CubreTodo ? "full" : "partial");
+                    rows.Add(new(p.ProveedorNombre, $"{p.CubreCount}/{n}", !p.CubreTodo,
+                        maxTotal > 0m ? (double)(p.Total / maxTotal) * 100 : 0, cls, Money(p.Total)));
+                }
+                break;
+        }
+        return rows;
+    }
+
+    // Mapa de dispersion: X = cobertura %, Y = sobreprecio % (0 arriba = mas barato). Ideal = arriba-derecha.
+    private sealed record ScatterPt(string Name, double XPct, double YPct, bool Partial, bool Ideal);
+
+    private IReadOnlyList<ScatterPt> ScatterPts()
+    {
+        var pts = new List<ScatterPt>();
+        if (_basket is null || _basket.Proveedores.Count == 0) { return pts; }
+        var n = _basket.ArticulosEnCanasta;
+        var maxPrem = (double)_basket.Proveedores.Select(p => p.SobreprecioPct).DefaultIfEmpty(0m).Max();
+        // Ideal = mejor compromiso cobertura vs. precio (mayor cobertura normalizada menos sobreprecio normalizado).
+        var ideal = _basket.Proveedores
+            .OrderByDescending(p => (n > 0 ? (double)p.CubreCount / n : 0) - (maxPrem > 0 ? (double)p.SobreprecioPct / maxPrem : 0))
+            .Select(p => (Guid?)p.ProveedorId).FirstOrDefault();
+        foreach (var p in _basket.Proveedores)
+        {
+            // Insetado (6..94 en X, 8..92 en Y) para que ningun punto quede recortado en el borde del plano.
+            var x = n > 0 ? (double)p.CubreCount / n : 0;                    // 0..1 (cobertura)
+            var yr = maxPrem > 0 ? (double)p.SobreprecioPct / maxPrem : 0;   // 0..1 (0 = mas barato)
+            pts.Add(new(p.ProveedorNombre, 6 + x * 88, 8 + yr * 84, !p.CubreTodo, p.ProveedorId == ideal));
+        }
+        return pts;
+    }
+
+    private string ChartTitle() => _chartKind switch
+    {
+        "cobertura" => "Cobertura por proveedor",
+        "precio" => "Competitividad de precio",
+        "gana" => "Gana en",
+        "mapa" => "Mapa cobertura vs. precio",
+        _ => "Total por proveedor",
+    };
+    private string ChartHint() => _chartKind switch
+    {
+        "cobertura" => "(cuantos articulos del canasto puede surtir; mas cobertura = menos ordenes)",
+        "precio" => "(sobreprecio promedio sobre lo que cubre; MENOR es mejor)",
+        "gana" => "(en cuantos articulos tiene el precio mas bajo)",
+        "mapa" => "(arriba-derecha = cubre mucho y barato: el proveedor ideal)",
+        _ => "(la barra es el $ de lo que cada proveedor cubre; la cobertura va al lado)",
+    };
+
     private string _loadedKey = "\0";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!ShowBasket || _basketInit) { return; }
+        _basketInit = true;
+
+        // Preferencias (jsonb): { "view": "...", "chart": "...", "sel": ["guid", ...] }. "sel" ausente = nunca
+        // se toco el filtro; entonces la canasta arranca en los proyectos del producto abierto (DefaultOrigenIds).
+        try
+        {
+            var json = await Prefs.GetAsync(PrefKey);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var r = doc.RootElement;
+                if (r.TryGetProperty("view", out var v) && v.GetString() is { } sv && (sv == "datos" || sv == "graficos")) { _view = sv; }
+                if (r.TryGetProperty("chart", out var c) && c.GetString() is { } sc && IsChart(sc)) { _chartKind = sc; }
+                if (r.TryGetProperty("sel", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    var lst = new List<Guid>();
+                    foreach (var el in s.EnumerateArray())
+                    {
+                        if (el.GetString() is { } g && Guid.TryParse(g, out var gid)) { lst.Add(gid); }
+                    }
+                    _prefSel = lst;
+                }
+            }
+        }
+        catch { /* preferencia no critica: cae a datos/total y canasta por defecto */ }
+
+        _basketSel = _prefSel is { } ps ? new List<Guid>(ps) : (DefaultOrigenIds ?? Array.Empty<Guid>()).Distinct().ToList();
+        await LoadBasketAsync();
+    }
+
+    private async Task SavePrefsAsync()
+    {
+        try
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["view"] = _view,
+                ["chart"] = _chartKind,
+                ["sel"] = _prefSel?.Select(g => g.ToString()).ToList(),
+            };
+            await Prefs.SaveAsync(PrefKey, System.Text.Json.JsonSerializer.Serialize(payload));
+        }
+        catch { /* persistir es best-effort; la UI ya refleja el cambio */ }
+    }
+
+    private async Task SetViewAsync(string view)
+    {
+        if ((view != "datos" && view != "graficos") || _view == view) { return; }
+        _view = view;
+        await SavePrefsAsync();
+    }
+
+    private async Task SetChartAsync(string? kind)
+    {
+        if (kind is null || !IsChart(kind) || _chartKind == kind) { return; }
+        _chartKind = kind;
+        await SavePrefsAsync();
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -219,6 +545,41 @@
             _loadedKey = key;
             await LoadAsync();
         }
+    }
+
+    private async Task LoadBasketAsync()
+    {
+        _basketBusy = true;
+        try { _basket = await Svc.ResumenProveedorCanastaAsync(_basketSel); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _basketBusy = false; }
+    }
+
+    private string FiltroLabel()
+    {
+        if (_basketSel.Count == 0) { return "Canasta: todas las tareas"; }
+        if (_basketSel.Count == 1)
+        {
+            var nom = _basket?.Origenes.FirstOrDefault(o => o.OrigenId == _basketSel[0])?.Nombre;
+            return "Canasta: " + (string.IsNullOrWhiteSpace(nom) ? "1 tarea" : nom);
+        }
+        return $"Canasta: {_basketSel.Count} tareas";
+    }
+
+    private async Task SelTodasAsync()
+    {
+        _basketSel = new();
+        _prefSel = new();              // filtro recordado = todas las tareas
+        await LoadBasketAsync();
+        await SavePrefsAsync();
+    }
+
+    private async Task ToggleOrigenAsync(Guid id)
+    {
+        if (!_basketSel.Remove(id)) { _basketSel.Add(id); }
+        _prefSel = new List<Guid>(_basketSel);   // recuerda la seleccion exacta
+        await LoadBasketAsync();
+        await SavePrefsAsync();
     }
 
     private async Task LoadAsync()
@@ -250,6 +611,7 @@
             RecalcMin();
             var nuevas = _ofertas.Count - antes;
             _info = nuevas > 0 ? $"Se sembraron {nuevas} oferta(s) desde la matriz/historico." : "No se encontraron proveedores nuevos para sembrar.";
+            if (ShowBasket) { await LoadBasketAsync(); }
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }
@@ -351,6 +713,7 @@
             RecalcMin();
             _evaluado = false; _ganador = null; _rank = new();
             _showForm = false;
+            if (ShowBasket) { await LoadBasketAsync(); }
         }
         catch (Exception ex) { _formError = ex.Message; }
         finally { _busy = false; }
@@ -365,6 +728,7 @@
             _ofertas = (await Svc.ListCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
             RecalcMin();
             _evaluado = false; _ganador = null; _rank = new();
+            if (ShowBasket) { await LoadBasketAsync(); }
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _busy = false; }

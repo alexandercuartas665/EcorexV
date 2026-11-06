@@ -238,3 +238,16 @@
 .rqc-eta-late { color: #b91c1c; background: rgba(220, 38, 38, .13); }
 .rqc-eta-na { color: #6b7280; background: #f1f5f9; }
 .rqc-eta-na::before { opacity: .5; }
+
+/* Punto #2: credito / precio efectivo */
+.rqc-finance { margin-top: -4px; }
+.rqc-finance-rate { width: 72px; }
+.rqc-eta-credit { color: #0369a1; background: rgba(3, 105, 161, .12); }
+.rqc-eta-credit::before { display: none; }
+.rqc-badge-credit { color: #0369a1; background: rgba(3, 105, 161, .13); }
+.rqc-efectivo {
+    font-size: 11px; font-weight: 700; color: #0369a1; font-variant-numeric: tabular-nums;
+    padding: 1px 6px; border-radius: 6px; background: rgba(3, 105, 161, .09);
+}
+.rqc-efectivo small { font-size: 9px; font-weight: 600; opacity: .7; }
+.rqc-efectivo.best { color: #0f7a58; background: rgba(15, 122, 88, .13); }

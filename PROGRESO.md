@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-06 - Credito/pago en el comparador: punto #2 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.252. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: punto #2 de los 4 huecos. El condiciones_pago (Contado/Credito N dias) ya se mostraba pero no se
+  comparaba. Dato rico y parseable (241 ofertas: Contado=0, Credito 15/30/45). Enfoque elegido: marcar el mejor
+  credito + tasa de oportunidad que convierte el credito en un "precio efectivo" (sin tocar el total de la canasta).
+- HECHO (SIN migracion; comparador reutilizable + persistencia en el mismo jsonb de prefs):
+  - ParseCreditDays: "contado"/"anticipado" = 0; "credito N dias"/"N dias" = N; "N mes"/"N seman" escalado; null si
+    no es interpretable. Sello "mejor credito" en la oferta con mas dias (solo si hay variedad y >0).
+  - Precio efectivo: barra "Tasa de oportunidad [N]% mensual" (persistida en prefs, clave rate). efectivo =
+    precio * (1 - tasa/100 * dias/30) (credito desconocido = contado, sin descuento). Se muestra "efectivo $X/u"
+    por tarjeta y el sello "Mejor efectivo" en el menor efectivo (solo con tasa>0). Tasa 0 = solo marca el credito.
+  - Archivos: CotizacionesComparador.razor (parser/estado/efectivo/barra/sellos + lectura/guardado de rate en prefs),
+    su .razor.css (.rqc-finance/.rqc-efectivo/.rqc-eta-credit/.rqc-badge-credit).
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.252): grupo 2X16 (Dielco contado 1950, Omega cred15 2050,
+  Melexa cred30 2100). Tasa 0: "mejor credito" en Melexa, sin efectivo. Tasa 2%: efectivos 1950/2030/2058, "Mejor
+  efectivo" en Dielco (contado sigue ganando). Tasa 8%: el ganador efectivo se voltea a Melexa (1932) -> el credito
+  supera el sobreprecio. Persistencia confirmada en BD (rate:2 en el jsonb). Build SuperAdmin 0 errores.
+- SIGUIENTE: punto #3 scorecard de confiabilidad del proveedor (cumplimiento/calidad/retrasos); luego #4 costo total
+  real (flete/minimos/descuentos/vigencia). PROMPT a dev central y deploy con OK por version.
+
 ## 2026-11-06 - Semaforo de entrega en el comparador: punto #1 de la decision de compra (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.251. Push a requerimiento_compras, SIN deploy.

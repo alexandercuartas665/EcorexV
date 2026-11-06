@@ -54,6 +54,20 @@
                 <span class="rqc-deadline-hint">sin plazo: las ofertas solo se rankean por rapidez</span>
             }
         </div>
+        <div class="rqc-deadline rqc-finance">
+            <span class="rqc-deadline-lbl" title="Descuenta del precio el valor de pagar a credito, a tu tasa de oportunidad (costo del dinero)">Tasa de oportunidad</span>
+            <input type="number" min="0" step="0.1" class="form-control form-control-sm rqc-finance-rate"
+                   value="@_oppRate.ToString("0.##", Inv)" @onchange="OnRateChanged" />
+            <span class="rqc-deadline-or">% mensual</span>
+            @if (_oppRate > 0m)
+            {
+                <span class="rqc-deadline-hint">precio efectivo = precio ajustado por el credito (mas dias de credito = mas barato en caja)</span>
+            }
+            else
+            {
+                <span class="rqc-deadline-hint">0 = solo marca el mejor credito; pon una tasa para ver el precio efectivo</span>
+            }
+        </div>
     }
 
     @if (_ofertas.Count == 0)
@@ -82,6 +96,7 @@
                             @if (esGanador) { <span class="rqc-badge rqc-badge-ai">Recomendado por IA@(rk is { } rr ? $" (#{rr.Pos})" : "")</span> }
                             else if (rk is { } rr2) { <span class="rqc-badge rqc-badge-rank">#@rr2.Pos</span> }
                             @if (esMejorPrecio) { <span class="rqc-badge rqc-badge-low">Mejor precio</span> }
+                            @if (EsMejorEfectivo(oc)) { <span class="rqc-badge rqc-badge-credit" title="Menor precio una vez ajustado por el credito a tu tasa de oportunidad">Mejor efectivo</span> }
                             @if (vig == VigEstado.Vencida) { <span class="rqc-badge" style="background:rgba(220,38,38,.12);color:#b91c1c;" title="Paso los dias de vigencia; puede que ya no sea valida">Vencida</span> }
                             else if (vig == VigEstado.PorVencer) { <span class="rqc-badge" style="background:rgba(217,119,6,.14);color:#b45309;" title="Cerca de vencer su vigencia">Por vencer</span> }
                             <span class="rqc-badge rqc-badge-src">@FuenteLbl(o.Fuente)</span>
@@ -91,6 +106,13 @@
                     <div class="rqc-price">
                         <span class="rqc-unit">@Money(o.PrecioUnitario)<small>/u</small></span>
                         <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
+                        @if (_oppRate > 0m && Efectivo(oc) is { } ef)
+                        {
+                            <span class="rqc-efectivo @(EsMejorEfectivo(oc) ? "best" : "")"
+                                  title="@($"Precio ajustado por el credito a {_oppRate.ToString("0.##", Inv)}% mensual (nominal {Money(o.PrecioUnitario)})")">
+                                efectivo @Money(ef)<small>/u</small>
+                            </span>
+                        }
                         @if (o.VariacionPct is { } v && o.UltimoPrecio is { } up)
                         {
                             <span class="rqc-var @(v > 0 ? "up" : v < 0 ? "down" : "")" title="@($"Ultimo precio historico: {Money(up)}")">
@@ -107,7 +129,10 @@
                             @if (_targetDate is { } td) { var sm = Semaforo(dd, td); <span class="rqc-eta rqc-eta-@sm.Cls" title="@sm.Tip">@sm.Txt</span> }
                         </span></div>
                         <div><span class="rqc-k">Despacho</span><span class="rqc-v">@Dash(o.CaracteristicasDespacho)</span></div>
-                        <div><span class="rqc-k">Pago</span><span class="rqc-v">@Dash(o.CondicionesPago)</span></div>
+                        <div><span class="rqc-k">Pago</span><span class="rqc-v rqc-entrega">
+                            <span>@Dash(o.CondicionesPago)</span>
+                            @if (EsMejorCredito(ParseCreditDays(oc.CondicionesPago))) { <span class="rqc-eta rqc-eta-credit" title="Mas dias de credito: mejor para tu flujo de caja">mejor credito</span> }
+                        </span></div>
                         <div><span class="rqc-k">Vigencia</span><span class="rqc-v" style="@(vigBorde.Length > 0 ? $"color:{vigBorde};font-weight:600;" : "")">@VigenciaTexto(oc, vig)</span></div>
                     </div>
                     @if (!string.IsNullOrWhiteSpace(o.ContactoNombre) || !string.IsNullOrWhiteSpace(o.ContactoTelefono) || !string.IsNullOrWhiteSpace(o.ContactoCorreo))
@@ -366,6 +391,12 @@
     private bool _targetFromNeed;     // el plazo viene de la fecha de necesidad (para el hint)
     private int? _fastestDays;        // menor tiempo de entrega (en dias) parseado entre las ofertas
     private bool _hasVariedEta;       // hay al menos 2 tiempos de entrega distintos (si no, no hay "mas rapido")
+    // Ola 15 (punto #2): credito/pago. _bestCreditDays = mas dias de credito; _oppRate = tasa de oportunidad
+    // mensual (%) para el "precio efectivo" (descuenta el valor del credito); _minEfectivo = menor efectivo.
+    private int? _bestCreditDays;
+    private bool _hasVariedCredit;
+    private decimal _oppRate;         // % mensual; 0 = sin ajuste (solo marca el mejor credito)
+    private decimal? _minEfectivo;
     private bool _busy;
     private bool _busyEval;
     private string? _error;
@@ -536,6 +567,7 @@
                     }
                     _prefSel = lst;
                 }
+                if (r.TryGetProperty("rate", out var rt) && rt.ValueKind == System.Text.Json.JsonValueKind.Number && rt.TryGetDecimal(out var rr) && rr >= 0m) { _oppRate = rr; }
             }
         }
         catch { /* preferencia no critica: cae a datos/total y canasta por defecto */ }
@@ -553,6 +585,7 @@
                 ["view"] = _view,
                 ["chart"] = _chartKind,
                 ["sel"] = _prefSel?.Select(g => g.ToString()).ToList(),
+                ["rate"] = _oppRate,
             };
             await Prefs.SaveAsync(PrefKey, System.Text.Json.JsonSerializer.Serialize(payload));
         }
@@ -648,6 +681,18 @@
         var ds = _ofertas.Select(o => ParseDeliveryDays(o.TiempoEntrega)).Where(d => d.HasValue).Select(d => d!.Value).ToList();
         _fastestDays = ds.Count > 0 ? ds.Min() : (int?)null;
         _hasVariedEta = ds.Distinct().Count() >= 2;
+        // Credito: mas dias de credito; "mejor credito" solo si hay variedad.
+        var cds = _ofertas.Select(o => ParseCreditDays(o.CondicionesPago)).Where(d => d.HasValue).Select(d => d!.Value).ToList();
+        _bestCreditDays = cds.Count > 0 ? cds.Max() : (int?)null;
+        _hasVariedCredit = cds.Distinct().Count() >= 2;
+        RecalcEfectivo();
+    }
+
+    private void RecalcEfectivo()
+    {
+        if (_oppRate <= 0m) { _minEfectivo = null; return; }
+        var efs = _ofertas.Select(Efectivo).Where(e => e.HasValue).Select(e => e!.Value).ToList();
+        _minEfectivo = efs.Count > 0 ? efs.Min() : (decimal?)null;
     }
 
     // ---- Ola 15: tiempo de entrega (texto libre) -> dias; ranking por rapidez; semaforo contra el plazo. ----
@@ -690,6 +735,46 @@
             return new("tight", "justo", $"Llega aprox. {arrival:dd/MM/yy}, casi sin margen frente al plazo {target:dd/MM/yy}");
         }
         return new("ok", $"{slack} d antes", $"Llega aprox. {arrival:dd/MM/yy}, {slack} dia(s) de margen frente al plazo {target:dd/MM/yy}");
+    }
+
+    // ---- Ola 15 (punto #2): condiciones de pago -> dias de credito; precio efectivo por tasa de oportunidad. ----
+
+    // "Contado"/"Anticipado" -> 0; "Credito 30 dias"/"30 dias"/"a 45" -> N; null si no es interpretable.
+    private static int? ParseCreditDays(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) { return null; }
+        var t = s.Trim().ToLowerInvariant();
+        if (t.Contains("contado") || t.Contains("anticip") || t.Contains("inmediat") || t.Contains("de contado")) { return 0; }
+        var m = System.Text.RegularExpressions.Regex.Match(t, @"\d+");
+        if (!m.Success || !int.TryParse(m.Value, out var n)) { return null; }
+        if (t.Contains("mes")) { n *= 30; }
+        else if (t.Contains("seman")) { n *= 7; }
+        return n;
+    }
+
+    private bool EsMejorCredito(int? cd)
+        => _hasVariedCredit && cd is { } d && _bestCreditDays is { } b && d == b && d > 0;
+
+    // Precio efectivo = descuenta el valor del credito a la tasa de oportunidad (mas dias = mas barato en caja).
+    // Credito desconocido se trata como contado (sin descuento). Null si no hay precio o no hay tasa.
+    private decimal? Efectivo(CotizacionDto o)
+    {
+        if (_oppRate <= 0m || o.PrecioUnitario <= 0m) { return null; }
+        var dias = ParseCreditDays(o.CondicionesPago) ?? 0;
+        return Math.Round(o.PrecioUnitario * (1m - (_oppRate / 100m) * (dias / 30m)), 2);
+    }
+
+    private bool EsMejorEfectivo(CotizacionDto o)
+        => _oppRate > 0m && _minEfectivo is { } mn && Efectivo(o) is { } e && e == mn;
+
+    private void OnRateChanged(ChangeEventArgs e)
+    {
+        var txt = e.Value?.ToString();
+        _oppRate = decimal.TryParse(txt, System.Globalization.NumberStyles.Any, Inv, out var r) && r >= 0m ? r
+                 : decimal.TryParse(txt, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.CurrentCulture, out var r2) && r2 >= 0m ? r2
+                 : 0m;
+        RecalcEfectivo();
+        _ = SavePrefsAsync();
     }
 
     private int? _targetDaysShown => _targetDate is { } d ? (int)Math.Round((d.Date - DateTime.Today).TotalDays) : (int?)null;

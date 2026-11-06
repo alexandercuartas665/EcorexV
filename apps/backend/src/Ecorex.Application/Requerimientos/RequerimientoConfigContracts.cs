@@ -110,6 +110,10 @@ public sealed record RfqGridFieldDto(string FieldCode, string Label, IReadOnlyLi
 /// calidad en escala 1-5, con nota opcional. Se captura desde la tarjeta del comparador.</summary>
 public sealed record ProveedorRatingInput(Guid ProveedorId, int Puntualidad, int Calidad, string? Nota);
 
+/// <summary>Flete de una oferta (punto #4, landed cost): monto y si es por unidad (se multiplica por la
+/// cantidad) o fijo por orden. Se guarda aparte de la oferta (sin migracion), por id de cotizacion.</summary>
+public sealed record FleteSpec(decimal Monto, bool PorUnidad);
+
 /// <summary>Scorecard agregado de confiabilidad de un proveedor: promedios de puntualidad/calidad, el general
 /// y cuantas calificaciones lo respaldan. Se arma sobre las calificaciones guardadas (sin migracion, en
 /// TenantConfiguration). General &lt;= 2 marca "problemas".</summary>
@@ -172,6 +176,12 @@ public interface IRequerimientoConfigService
     /// <summary>Registra una calificacion (puntualidad/calidad 1-5 + nota) de un proveedor y devuelve su score
     /// actualizado. La captura la hace el comprador desde la tarjeta del comparador.</summary>
     Task<ProveedorScoreDto> RateProveedorAsync(ProveedorRatingInput input, CancellationToken ct = default);
+
+    // ---- Punto #4: flete por oferta (landed cost), guardado aparte de la oferta (sin migracion) ----
+    /// <summary>Fletes por id de cotizacion. Solo incluye ofertas con flete definido (monto &gt; 0).</summary>
+    Task<IReadOnlyDictionary<Guid, FleteSpec>> GetCotizacionFletesAsync(CancellationToken ct = default);
+    /// <summary>Fija (monto &gt; 0) o limpia (monto &lt;= 0) el flete de una cotizacion.</summary>
+    Task SetCotizacionFleteAsync(Guid cotizacionId, decimal monto, bool porUnidad, CancellationToken ct = default);
 
     // ---- Ola D: precedencia del PROCESO de cotizacion (subcategoria/flujo que corre la RFQ) ----
     // Cadena de resolucion al "Cotizar por proveedor": producto (en planificacion) > matriz del proveedor >

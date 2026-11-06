@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-06 - Costo real / flete (landed cost): punto #4 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.254. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: punto #4. La vigencia (parte del #4) YA estaba en el comparador; faltaba el costo real de traer el
+  material. Enfoque elegido: FLETE por oferta (fijo por orden o por unidad) plegado al TOTAL -> el comparador y la
+  canasta pasan a mostrar "total con flete" (landed). El mas barato por unitario puede perder al sumar el flete.
+- HECHO (SIN migracion; flete guardado aparte de la oferta, por id de cotizacion, en TenantConfiguration):
+  - CONTRATOS: FleteSpec + GetCotizacionFletesAsync/SetCotizacionFleteAsync (IRequerimientoConfigService).
+    CotizacionDto y SaveCotizacionRequest ganan FleteMonto + FleteEsPorUnidad.
+  - SERVICIO: store "requerimientos.cotizacion_fletes" = { cotizacionId: {M,U} }. MapCotizacionesAsync enriquece
+    cada oferta con su flete; GuardarCotizacionAsync persiste el flete por id tras guardar la oferta;
+    EliminarCotizacionAsync lo limpia. ResumenProveedorCanastaAsync suma al total del proveedor el flete de la
+    oferta MAS barata de cada clave (fijo, o por unidad * cantidad) -> canasta landed.
+  - UI (CotizacionesComparador.razor): form gana "Flete" (monto) + "Flete es" (fijo/por unidad). Tarjeta: "Total
+    con flete" + "+flete X" cuando hay flete; sello "Mejor con flete" en el menor total landed. CSS .rqc-flete.
+- VALIDADO E2E 5265/SKY (v0.16.254), grupo 2X16 (Dielco 1950, Omega 2050, Melexa 2100, cant 330). Con flete fijo
+  40.000 en Dielco: tarjeta "Total con flete 683.500 / +flete 40.000"; Omega queda "Mejor con flete" (676.500 < 683.500)
+  -> el landed voltea al ganador. Canasta: Dielco con flete 32.231.180 vs sin flete 32.191.180 = +40.000 EXACTO.
+  El form de edicion CARGA el flete (enriquecimiento ok). Build SuperAdmin 0 errores.
+- OJO (limite del harness, NO del codigo): el guardado por la UI no se pudo ejercer desde el navegador embebido
+  porque con la pane OCULTA los eventos sinteticos/form_input no disparan el @bind de Blazor (el campo Precio
+  tampoco persistio por esa via). El save del flete usa el MISMO patron que Precio (campo que si persiste con
+  usuario real) y que RateProveedorAsync. Para la demo se sembro el flete de Dielco por SQL (artefacto reversible,
+  key requerimientos.cotizacion_fletes).
+- SIGUIENTE: cerrados los 4 puntos. Pendientes menores: (a) sub-pieza del #3 (calificar al cerrar/recibir la compra);
+  (b) confirmar el save del flete con la pane visible. PROMPT a dev central y deploy, con OK por version del usuario.
+
 ## 2026-11-06 - Scorecard de confiabilidad del proveedor: punto #3 de la decision de compra (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.253. Push a requerimiento_compras, SIN deploy.

@@ -276,3 +276,9 @@
 .rqc-rate-star.on { color: #f59e0b; }
 .rqc-rate-nota { font-size: 11.5px; }
 .rqc-rate-actions { display: flex; gap: 6px; margin-top: 2px; }
+
+/* Punto #4: flete / landed cost */
+.rqc-flete {
+    font-size: 10.5px; font-weight: 700; color: #7c3aed; font-variant-numeric: tabular-nums;
+    padding: 1px 6px; border-radius: 6px; background: rgba(124, 58, 237, .1);
+}

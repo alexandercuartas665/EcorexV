@@ -145,7 +145,11 @@ public sealed record CotizacionDto(
     string? ContactoCorreo = null,
     // Dias que sostiene su cotizacion (resuelto: regla mas especifica que aplique, si no el default del
     // proveedor). Null = sin vigencia configurada. La tarjeta lo usa para marcar "por vencer"/"vencida".
-    int? VigenciaDias = null);
+    int? VigenciaDias = null,
+    // Punto #4 (landed cost): flete de la oferta. FleteMonto 0 = sin flete; FleteEsPorUnidad lo multiplica por
+    // la cantidad (si no, es fijo por orden). Se guarda aparte de la oferta (sin migracion).
+    decimal FleteMonto = 0m,
+    bool FleteEsPorUnidad = false);
 
 /// <summary>Alta/edicion de una oferta (Id null = alta). Identifica el producto por item o por descripcion.</summary>
 public sealed record SaveCotizacionRequest(
@@ -163,7 +167,10 @@ public sealed record SaveCotizacionRequest(
     DateTimeOffset? FechaCotizacion = null,
     // Procedencia de la oferta. Default Manual (captura humana); la Ola C pasa Rfq cuando entra por la
     // respuesta del proveedor a una Solicitud de Cotizacion.
-    RequerimientoCotizacionFuente Fuente = RequerimientoCotizacionFuente.Manual);
+    RequerimientoCotizacionFuente Fuente = RequerimientoCotizacionFuente.Manual,
+    // Punto #4: flete de la oferta (0 = sin flete; EsPorUnidad lo multiplica por la cantidad).
+    decimal FleteMonto = 0m,
+    bool FleteEsPorUnidad = false);
 
 /// <summary>Una linea de una Solicitud de Cotizacion (RFQ): la distribucion que se le pide al proveedor, con
 /// su snapshot de lo pedido y (cuando responda) los campos de oferta.</summary>

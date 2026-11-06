@@ -1367,14 +1367,18 @@ public sealed class RequerimientoService : IRequerimientoService
         // 3) Cotizaciones de esos articulos (precio > 0). Si hubiera varias por (clave, proveedor), la mas barata.
         var cots = await _db.RequerimientoCotizaciones.AsNoTracking()
             .Where(c => claves.Contains(c.ClaveProducto) && c.PrecioUnitario > 0m)
-            .Select(c => new { c.ClaveProducto, c.ProveedorId, c.PrecioUnitario })
+            .Select(c => new { c.Id, c.ClaveProducto, c.ProveedorId, c.PrecioUnitario })
             .ToListAsync(ct);
 
+        // Punto #4: flete por oferta, para plegar el landed cost al total por proveedor.
+        var fletes = await _config.GetCotizacionFletesAsync(ct);
+
         var precio = new Dictionary<(string Clave, Guid Prov), decimal>();
+        var ofertaMin = new Dictionary<(string Clave, Guid Prov), Guid>();  // id de la oferta mas barata (para su flete)
         foreach (var c in cots)
         {
             var k = (c.ClaveProducto, c.ProveedorId);
-            if (!precio.TryGetValue(k, out var p) || c.PrecioUnitario < p) { precio[k] = c.PrecioUnitario; }
+            if (!precio.TryGetValue(k, out var p) || c.PrecioUnitario < p) { precio[k] = c.PrecioUnitario; ofertaMin[k] = c.Id; }
         }
         // El mas barato por articulo (para "gana en" y la "mejor canasta posible").
         var minPorClave = new Dictionary<string, decimal>();
@@ -1393,6 +1397,11 @@ public sealed class RequerimientoService : IRequerimientoService
             var cur = acc.TryGetValue(prov, out var a) ? a : (Cubre: 0, Gana: 0, Total: 0m, SumPrem: 0m);
             cur.Cubre += 1;
             cur.Total += kv.Value * qty;
+            // Landed: suma el flete de la oferta mas barata de esta clave (por unidad -> * cantidad; si no, fijo).
+            if (ofertaMin.TryGetValue(kv.Key, out var oid) && fletes.TryGetValue(oid, out var fs))
+            {
+                cur.Total += fs.PorUnidad ? fs.Monto * qty : fs.Monto;
+            }
             if (minPorClave.TryGetValue(clave, out var mn))
             {
                 if (kv.Value == mn) { cur.Gana += 1; }
@@ -1430,6 +1439,8 @@ public sealed class RequerimientoService : IRequerimientoService
         var reglasVig = await _config.ListReglasAsync(ct);
         var provVig = await _config.GetProveedorVigenciaMapAsync(ct);
         var itemDims = itemId is Guid iid ? await ItemDimValuesAsync(iid, ct) : null;
+        // Punto #4: flete por oferta (landed cost), guardado aparte de la entidad.
+        var fletes = await _config.GetCotizacionFletesAsync(ct);
         // Contacto (con quien se hablo) resuelto por lote desde el Directorio, para pintar nombre/tel/correo.
         var contIds = rows.Where(r => r.ProveedorContactoId is not null)
             .Select(r => r.ProveedorContactoId!.Value).Distinct().ToList();
@@ -1451,11 +1462,13 @@ public sealed class RequerimientoService : IRequerimientoService
                 cNom = ci.Nombre; cTel = ci.Tel; cMail = ci.Mail;
             }
             var vigDias = ResolverVigenciaDias(reglasVig, provVig, itemDims, c.ProveedorId);
+            var flete = fletes.TryGetValue(c.Id, out var fs) ? fs : null;
             list.Add(new CotizacionDto(
                 c.Id, c.ProveedorId, provs.TryGetValue(c.ProveedorId, out var pn) ? pn : null,
                 c.PrecioUnitario, c.TiempoEntrega, c.CaracteristicasDespacho, c.CondicionesPago,
                 c.VigenciaHasta, c.Notas, c.Fuente, c.ProveedorContactoId, ult?.Precio, varPct,
-                c.FechaCotizacion, cNom, cTel, cMail, vigDias));
+                c.FechaCotizacion, cNom, cTel, cMail, vigDias,
+                flete?.Monto ?? 0m, flete?.PorUnidad ?? false));
         }
         // Mas barato primero (los de precio 0 = sin precio al final).
         return list
@@ -1505,6 +1518,8 @@ public sealed class RequerimientoService : IRequerimientoService
         // la Ola C pasa Rfq cuando la oferta entra por la respuesta del proveedor al formulario de cotizacion.
         entity.Fuente = req.Fuente;
         await _db.SaveChangesAsync(ct);
+        // Punto #4: flete (landed cost) guardado aparte, por id de cotizacion (sin migracion).
+        await _config.SetCotizacionFleteAsync(entity.Id, req.FleteMonto, req.FleteEsPorUnidad, ct);
         return await ListCotizacionesAsync(req.ItemId, req.Descripcion, cantidad, ct);
     }
 
@@ -1514,6 +1529,8 @@ public sealed class RequerimientoService : IRequerimientoService
         if (c is null) { return false; }
         _db.RequerimientoCotizaciones.Remove(c);
         await _db.SaveChangesAsync(ct);
+        // Punto #4: limpia el flete asociado a la oferta eliminada.
+        await _config.SetCotizacionFleteAsync(id, 0m, false, ct);
         return true;
     }
 

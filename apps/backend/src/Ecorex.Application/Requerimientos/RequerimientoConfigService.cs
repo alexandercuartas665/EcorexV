@@ -457,6 +457,45 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         return Aggregate(input.ProveedorId, mine);
     }
 
+    // ---- Punto #4: flete por oferta (landed cost), guardado en TenantConfiguration por id de cotizacion ----
+    private const string FletesKey = "requerimientos.cotizacion_fletes";
+    private sealed class FletesStore { public Dictionary<string, FleteRow> F { get; set; } = new(); }
+    private sealed class FleteRow { public decimal M { get; set; } public bool U { get; set; } }
+
+    private async Task<FletesStore> LoadFletesAsync(CancellationToken ct)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == FletesKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(val)) { return new FletesStore(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<FletesStore>(val!) ?? new FletesStore(); }
+        catch { return new FletesStore(); }
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, FleteSpec>> GetCotizacionFletesAsync(CancellationToken ct = default)
+    {
+        var store = await LoadFletesAsync(ct);
+        var map = new Dictionary<Guid, FleteSpec>();
+        foreach (var kv in store.F)
+        {
+            if (Guid.TryParse(kv.Key, out var g) && kv.Value.M > 0m) { map[g] = new FleteSpec(kv.Value.M, kv.Value.U); }
+        }
+        return map;
+    }
+
+    public async Task SetCotizacionFleteAsync(Guid cotizacionId, decimal monto, bool porUnidad, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var store = await LoadFletesAsync(ct);
+        var key = cotizacionId.ToString();
+        if (monto > 0m) { store.F[key] = new FleteRow { M = Math.Round(monto, 2), U = porUnidad }; }
+        else { store.F.Remove(key); }
+        var json = System.Text.Json.JsonSerializer.Serialize(store);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == FletesKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = FletesKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+    }
+
     // ---- Ola D: precedencia del proceso de cotizacion (default modulo / por proveedor / por producto) ----
     private const string CotDefaultKey = "requerimientos.cotizacion_default";
     private const string CotProductoKey = "requerimientos.cotizacion_producto";

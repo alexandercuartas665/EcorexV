@@ -96,6 +96,7 @@
                             @if (esGanador) { <span class="rqc-badge rqc-badge-ai">Recomendado por IA@(rk is { } rr ? $" (#{rr.Pos})" : "")</span> }
                             else if (rk is { } rr2) { <span class="rqc-badge rqc-badge-rank">#@rr2.Pos</span> }
                             @if (esMejorPrecio) { <span class="rqc-badge rqc-badge-low">Mejor precio</span> }
+                            @if (EsMejorLanded(oc)) { <span class="rqc-badge rqc-badge-low" title="Menor total una vez sumado el flete (costo real de traerlo)">Mejor con flete</span> }
                             @if (EsMejorEfectivo(oc)) { <span class="rqc-badge rqc-badge-credit" title="Menor precio una vez ajustado por el credito a tu tasa de oportunidad">Mejor efectivo</span> }
                             @if (vig == VigEstado.Vencida) { <span class="rqc-badge" style="background:rgba(220,38,38,.12);color:#b91c1c;" title="Paso los dias de vigencia; puede que ya no sea valida">Vencida</span> }
                             else if (vig == VigEstado.PorVencer) { <span class="rqc-badge" style="background:rgba(217,119,6,.14);color:#b45309;" title="Cerca de vencer su vigencia">Por vencer</span> }
@@ -146,7 +147,17 @@
 
                     <div class="rqc-price">
                         <span class="rqc-unit">@Money(o.PrecioUnitario)<small>/u</small></span>
-                        <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
+                        @if (o.FleteMonto > 0m)
+                        {
+                            <span class="rqc-total">Total con flete <strong>@Money(TotalLanded(oc))</strong></span>
+                            <span class="rqc-flete" title="@FleteTip(oc)">
+                                +flete @Money(FleteTotal(oc))@(oc.FleteEsPorUnidad ? " (por u)" : "")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
+                        }
                         @if (_oppRate > 0m && Efectivo(oc) is { } ef)
                         {
                             <span class="rqc-efectivo @(EsMejorEfectivo(oc) ? "best" : "")"
@@ -362,6 +373,15 @@
                 <label class="rqc-f">Precio unit.
                     <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fPrecio" />
                 </label>
+                <label class="rqc-f">Flete
+                    <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fFleteMonto" placeholder="0 = incluido" />
+                </label>
+                <label class="rqc-f">Flete es
+                    <select class="form-select form-select-sm" @bind="_fFletePorUnidad">
+                        <option value="false">fijo por orden</option>
+                        <option value="true">por unidad</option>
+                    </select>
+                </label>
                 <label class="rqc-f">Fecha/hora cotizado
                     <input type="datetime-local" class="form-control form-control-sm" @bind="_fFechaCotiz" />
                 </label>
@@ -438,6 +458,9 @@
     private bool _hasVariedCredit;
     private decimal _oppRate;         // % mensual; 0 = sin ajuste (solo marca el mejor credito)
     private decimal? _minEfectivo;
+    // Punto #4: landed cost (flete sumado al total). _minLanded = menor total con flete; _anyFlete = hay fletes.
+    private decimal? _minLanded;
+    private bool _anyFlete;
     // Punto #3: scorecard de confiabilidad por proveedor + formulario de calificacion inline.
     private IReadOnlyDictionary<Guid, ProveedorScoreDto> _scores = new Dictionary<Guid, ProveedorScoreDto>();
     private Guid? _rateProvId;        // proveedor que se esta calificando (form abierto); null = cerrado
@@ -464,6 +487,8 @@
     private string _fProv = "";
     private string _fProvNombre = "";
     private decimal _fPrecio;
+    private decimal _fFleteMonto;        // punto #4: flete de la oferta
+    private bool _fFletePorUnidad;       // true = por unidad (x cantidad); false = fijo por orden
     private string _fEntrega = "";
     private string _fDespacho = "";
     private string _fPago = "";
@@ -736,8 +761,23 @@
         var cds = _ofertas.Select(o => ParseCreditDays(o.CondicionesPago)).Where(d => d.HasValue).Select(d => d!.Value).ToList();
         _bestCreditDays = cds.Count > 0 ? cds.Max() : (int?)null;
         _hasVariedCredit = cds.Distinct().Count() >= 2;
+        // Landed cost: flete sumado al total; menor total con flete entre las ofertas con precio.
+        _anyFlete = _ofertas.Any(o => o.FleteMonto > 0m);
+        var landeds = _ofertas.Where(o => o.PrecioUnitario > 0m).Select(TotalLanded).ToList();
+        _minLanded = landeds.Count > 0 ? landeds.Min() : (decimal?)null;
         RecalcEfectivo();
     }
+
+    // ---- Punto #4: landed cost (total con flete) ----
+    private decimal FleteTotal(CotizacionDto o) => o.FleteEsPorUnidad ? o.FleteMonto * Cantidad : o.FleteMonto;
+    private decimal TotalLanded(CotizacionDto o) => o.PrecioUnitario * Cantidad + FleteTotal(o);
+    private bool EsMejorLanded(CotizacionDto o)
+        => _anyFlete && _minLanded is { } mn && o.PrecioUnitario > 0m && TotalLanded(o) == mn;
+
+    private string FleteTip(CotizacionDto o)
+        => o.FleteEsPorUnidad
+            ? $"Flete {Money(o.FleteMonto)}/u x {Money(Cantidad)} = {Money(FleteTotal(o))} (landed = precio x cantidad + flete)"
+            : $"Flete fijo por orden: {Money(o.FleteMonto)} (landed = precio x cantidad + flete)";
 
     private void RecalcEfectivo()
     {
@@ -916,6 +956,7 @@
     private void AbrirNueva()
     {
         _editId = null; _fProv = ""; _fProvNombre = ""; _fPrecio = 0m;
+        _fFleteMonto = 0m; _fFletePorUnidad = false;
         _fEntrega = ""; _fDespacho = ""; _fPago = ""; _fVigencia = null; _fNotas = "";
         _fFechaCotiz = DateTime.Now; _fContactoId = ""; _fNewContNombre = ""; _fNewContTel = ""; _fNewContMail = "";
         _contactos = new();
@@ -928,6 +969,7 @@
         _fProv = o.ProveedorId.ToString();
         _fProvNombre = o.ProveedorNombre ?? "";
         _fPrecio = o.PrecioUnitario;
+        _fFleteMonto = o.FleteMonto; _fFletePorUnidad = o.FleteEsPorUnidad;
         _fEntrega = o.TiempoEntrega;
         _fDespacho = o.CaracteristicasDespacho;
         _fPago = o.CondicionesPago;
@@ -983,7 +1025,9 @@
                 _fEntrega, _fDespacho, _fPago,
                 _fVigencia is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
                 _fNotas, contactoId,
-                _fFechaCotiz is { } fc ? new DateTimeOffset(fc, TimeSpan.Zero) : null);
+                _fFechaCotiz is { } fc ? new DateTimeOffset(fc, TimeSpan.Zero) : null,
+                RequerimientoCotizacionFuente.Manual,
+                _fFleteMonto, _fFletePorUnidad);
             _ofertas = (await Svc.GuardarCotizacionAsync(req, Cantidad)).ToList();
             RecalcMin();
             _evaluado = false; _ganador = null; _rank = new();

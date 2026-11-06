@@ -251,3 +251,28 @@
 }
 .rqc-efectivo small { font-size: 9px; font-weight: 600; opacity: .7; }
 .rqc-efectivo.best { color: #0f7a58; background: rgba(15, 122, 88, .13); }
+
+/* Punto #3: scorecard de confiabilidad del proveedor */
+.rqc-rel { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 2px 0 4px; font-size: 11px; }
+.rqc-stars { color: #f59e0b; font-size: 12px; letter-spacing: 1px; }
+.rqc-rel-num { font-weight: 800; color: var(--ink-1, #1f2937); font-variant-numeric: tabular-nums; }
+.rqc-rel-cnt { color: var(--ink-3, #9ca3af); }
+.rqc-rel-none { color: var(--ink-3, #9ca3af); font-style: italic; }
+.rqc-rel-btn {
+    margin-left: auto; border: 1px solid var(--line-2, #d1d5db); background: var(--surface, #fff);
+    color: var(--ink-2, #4b5563); font-size: 10.5px; font-weight: 600; border-radius: 6px; padding: 1px 8px; cursor: pointer;
+}
+.rqc-rel-btn:hover:not(:disabled) { background: var(--surface-2, #f8fafc); }
+
+.rqc-rate {
+    border: 1px dashed var(--line-2, #d1d5db); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+    background: var(--surface-2, #f8fafc); display: flex; flex-direction: column; gap: 6px;
+}
+.rqc-rate-title { font-size: 11.5px; font-weight: 700; }
+.rqc-rate-row { display: flex; align-items: center; gap: 8px; }
+.rqc-rate-k { font-size: 11px; color: var(--ink-2, #4b5563); width: 76px; }
+.rqc-rate-stars { display: flex; gap: 2px; }
+.rqc-rate-star { border: none; background: none; cursor: pointer; font-size: 18px; line-height: 1; color: #d1d5db; padding: 0; }
+.rqc-rate-star.on { color: #f59e0b; }
+.rqc-rate-nota { font-size: 11.5px; }
+.rqc-rate-actions { display: flex; gap: 6px; margin-top: 2px; }

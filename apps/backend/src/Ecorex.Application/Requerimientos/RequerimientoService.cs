@@ -1315,6 +1315,13 @@ public sealed class RequerimientoService : IRequerimientoService
     // Suma, por proveedor, precio*cantidad de los articulos de la canasta y expone cobertura + en cuantos gana.
     // La clave de producto se calcula en memoria (no es traducible a SQL), asi que se trae la proyeccion minima
     // de las necesidades (4 campos) y se agrupa en C#. Todo pasa por el filtro global de tenant.
+    // Punto #3: scorecard de confiabilidad (delegado al config service, que lo guarda en TenantConfiguration).
+    public Task<IReadOnlyDictionary<Guid, ProveedorScoreDto>> GetProveedorScoresAsync(CancellationToken ct = default)
+        => _config.GetProveedorScoresAsync(ct);
+
+    public Task<ProveedorScoreDto> RateProveedorAsync(ProveedorRatingInput input, CancellationToken ct = default)
+        => _config.RateProveedorAsync(input, ct);
+
     public async Task<BasketResumenProveedorDto> ResumenProveedorCanastaAsync(
         IReadOnlyList<Guid> origenIds, CancellationToken ct = default)
     {

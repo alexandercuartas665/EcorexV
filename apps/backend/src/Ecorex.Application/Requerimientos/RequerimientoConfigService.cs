@@ -387,6 +387,76 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         await PersistExtAsync(ext, tid, ct);
     }
 
+    // ---- Punto #3: scorecard de confiabilidad del proveedor (calificacion manual) ----
+    // Se guardan los eventos de calificacion en TenantConfiguration (sin migracion); el score se agrega en memoria.
+    private const string RatingsKey = "requerimientos.proveedor_ratings";
+    private sealed class RatingStore { public List<RatingEvent> Events { get; set; } = new(); }
+    private sealed class RatingEvent
+    {
+        public string P { get; set; } = "";   // proveedorId
+        public int Pu { get; set; }            // puntualidad 1-5
+        public int Ca { get; set; }            // calidad 1-5
+        public string? N { get; set; }         // nota
+        public string At { get; set; } = "";   // fecha (ISO)
+        public string? By { get; set; }        // userId que califico
+    }
+
+    private async Task<RatingStore> LoadRatingsAsync(CancellationToken ct)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == RatingsKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(val)) { return new RatingStore(); }
+        try { return System.Text.Json.JsonSerializer.Deserialize<RatingStore>(val!) ?? new RatingStore(); }
+        catch { return new RatingStore(); }
+    }
+
+    private static ProveedorScoreDto Aggregate(Guid prov, IReadOnlyList<RatingEvent> evs)
+    {
+        var n = evs.Count;
+        var pu = Math.Round((decimal)evs.Average(e => e.Pu), 1);
+        var ca = Math.Round((decimal)evs.Average(e => e.Ca), 1);
+        var gen = Math.Round((pu + ca) / 2m, 1);
+        var last = evs.OrderByDescending(e => e.At).First();
+        DateTimeOffset? lastAt = DateTimeOffset.TryParse(last.At, null, System.Globalization.DateTimeStyles.RoundtripKind, out var d) ? d : null;
+        return new ProveedorScoreDto(prov, n, pu, ca, gen, string.IsNullOrWhiteSpace(last.N) ? null : last.N, lastAt);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, ProveedorScoreDto>> GetProveedorScoresAsync(CancellationToken ct = default)
+    {
+        var store = await LoadRatingsAsync(ct);
+        var map = new Dictionary<Guid, ProveedorScoreDto>();
+        foreach (var grp in store.Events.Where(e => Guid.TryParse(e.P, out _)).GroupBy(e => Guid.Parse(e.P)))
+        {
+            map[grp.Key] = Aggregate(grp.Key, grp.ToList());
+        }
+        return map;
+    }
+
+    public async Task<ProveedorScoreDto> RateProveedorAsync(ProveedorRatingInput input, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { throw new InvalidOperationException("Sin tenant."); }
+        if (input.ProveedorId == Guid.Empty) { throw new InvalidOperationException("Proveedor invalido."); }
+        int Clamp(int v) => Math.Max(1, Math.Min(5, v));
+        var ev = new RatingEvent
+        {
+            P = input.ProveedorId.ToString(),
+            Pu = Clamp(input.Puntualidad),
+            Ca = Clamp(input.Calidad),
+            N = string.IsNullOrWhiteSpace(input.Nota) ? null : input.Nota!.Trim(),
+            At = DateTimeOffset.UtcNow.ToString("O"),
+            By = _tenant.UserId?.ToString(),
+        };
+        var store = await LoadRatingsAsync(ct);
+        store.Events.Add(ev);
+        var json = System.Text.Json.JsonSerializer.Serialize(store);
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == RatingsKey, ct);
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = RatingsKey, ConfigValue = json }); }
+        else { row.ConfigValue = json; }
+        await _db.SaveChangesAsync(ct);
+        var mine = store.Events.Where(e => e.P == ev.P).ToList();
+        return Aggregate(input.ProveedorId, mine);
+    }
+
     // ---- Ola D: precedencia del proceso de cotizacion (default modulo / por proveedor / por producto) ----
     private const string CotDefaultKey = "requerimientos.cotizacion_default";
     private const string CotProductoKey = "requerimientos.cotizacion_producto";

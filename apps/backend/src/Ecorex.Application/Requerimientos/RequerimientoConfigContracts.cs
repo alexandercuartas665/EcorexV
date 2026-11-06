@@ -106,6 +106,17 @@ public sealed record RfqGridFieldDto(string FieldCode, string Label, IReadOnlyLi
 /// Configuracion del modulo de Requerimientos (Capa 10): ORIGENES (Ola 1) + MATRIZ de proveedores (Ola 4).
 /// Tenant-scoped por el filtro global.
 /// </summary>
+/// <summary>Una calificacion que el comprador le da a un proveedor tras una compra (punto #3): puntualidad y
+/// calidad en escala 1-5, con nota opcional. Se captura desde la tarjeta del comparador.</summary>
+public sealed record ProveedorRatingInput(Guid ProveedorId, int Puntualidad, int Calidad, string? Nota);
+
+/// <summary>Scorecard agregado de confiabilidad de un proveedor: promedios de puntualidad/calidad, el general
+/// y cuantas calificaciones lo respaldan. Se arma sobre las calificaciones guardadas (sin migracion, en
+/// TenantConfiguration). General &lt;= 2 marca "problemas".</summary>
+public sealed record ProveedorScoreDto(
+    Guid ProveedorId, int Calificaciones, decimal Puntualidad, decimal Calidad, decimal General,
+    string? UltimaNota, DateTimeOffset? UltimaFecha);
+
 public interface IRequerimientoConfigService
 {
     Task<IReadOnlyList<RequerimientoOrigenDto>> ListOrigenesAsync(CancellationToken ct = default);
@@ -153,6 +164,14 @@ public interface IRequerimientoConfigService
     Task<IReadOnlyDictionary<Guid, int>> GetProveedorVigenciaMapAsync(CancellationToken ct = default);
     /// <summary>Fija (o limpia, con null) los dias de vigencia default de un proveedor.</summary>
     Task SetProveedorVigenciaAsync(Guid proveedorId, int? dias, CancellationToken ct = default);
+
+    // ---- Punto #3: scorecard de confiabilidad del proveedor (calificacion manual, sin migracion) ----
+    /// <summary>Scorecards de confiabilidad por proveedor (promedios de puntualidad/calidad y conteo). Solo
+    /// incluye proveedores con al menos una calificacion. Config por tenant en TenantConfiguration.</summary>
+    Task<IReadOnlyDictionary<Guid, ProveedorScoreDto>> GetProveedorScoresAsync(CancellationToken ct = default);
+    /// <summary>Registra una calificacion (puntualidad/calidad 1-5 + nota) de un proveedor y devuelve su score
+    /// actualizado. La captura la hace el comprador desde la tarjeta del comparador.</summary>
+    Task<ProveedorScoreDto> RateProveedorAsync(ProveedorRatingInput input, CancellationToken ct = default);
 
     // ---- Ola D: precedencia del PROCESO de cotizacion (subcategoria/flujo que corre la RFQ) ----
     // Cadena de resolucion al "Cotizar por proveedor": producto (en planificacion) > matriz del proveedor >

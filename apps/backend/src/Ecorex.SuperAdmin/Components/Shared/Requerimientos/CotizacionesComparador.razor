@@ -103,6 +103,47 @@
                         </div>
                     </div>
 
+                    <div class="rqc-rel">
+                        @{ var score = _scores.TryGetValue(o.ProveedorId, out var sc) ? sc : null; }
+                        @if (score is { } s)
+                        {
+                            <span class="rqc-stars" title="@($"Puntualidad {s.Puntualidad.ToString("0.0", Inv)} - Calidad {s.Calidad.ToString("0.0", Inv)}" + (s.UltimaNota is { } nn ? $" - Ultima nota: {nn}" : ""))">@Stars(s.General)</span>
+                            <span class="rqc-rel-num">@s.General.ToString("0.0", Inv)</span>
+                            <span class="rqc-rel-cnt">(@s.Calificaciones)</span>
+                            @if (s.General <= 2m) { <span class="rqc-eta rqc-eta-late" title="Confiabilidad baja">&#9888; problemas</span> }
+                        }
+                        else
+                        {
+                            <span class="rqc-rel-none">sin calificar</span>
+                        }
+                        @if (CanEdit) { <button class="rqc-rel-btn" @onclick="() => AbrirCalificar(oc)" disabled="@_rateBusy" title="Calificar la confiabilidad de este proveedor">Calificar</button> }
+                    </div>
+
+                    @if (_rateProvId == o.ProveedorId)
+                    {
+                        <div class="rqc-rate">
+                            <div class="rqc-rate-title">Calificar a @_rateProvNombre</div>
+                            <div class="rqc-rate-row">
+                                <span class="rqc-rate-k">Puntualidad</span>
+                                <div class="rqc-rate-stars">
+                                    @for (var i = 1; i <= 5; i++) { var n = i; <button type="button" class="rqc-rate-star @(_ratePunt >= n ? "on" : "")" @onclick="() => _ratePunt = n">&#9733;</button> }
+                                </div>
+                            </div>
+                            <div class="rqc-rate-row">
+                                <span class="rqc-rate-k">Calidad</span>
+                                <div class="rqc-rate-stars">
+                                    @for (var i = 1; i <= 5; i++) { var n = i; <button type="button" class="rqc-rate-star @(_rateCal >= n ? "on" : "")" @onclick="() => _rateCal = n">&#9733;</button> }
+                                </div>
+                            </div>
+                            <input class="form-control form-control-sm rqc-rate-nota" @bind="_rateNota" placeholder="Nota (opcional): entrego tarde, calidad ok..." />
+                            @if (_rateError is not null) { <div class="rqc-msg rqc-err">@_rateError</div> }
+                            <div class="rqc-rate-actions">
+                                <button class="btn btn-primary btn-sm" @onclick="GuardarCalificacionAsync" disabled="@_rateBusy">Guardar calificacion</button>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="CerrarCalificar" disabled="@_rateBusy">Cancelar</button>
+                            </div>
+                        </div>
+                    }
+
                     <div class="rqc-price">
                         <span class="rqc-unit">@Money(o.PrecioUnitario)<small>/u</small></span>
                         <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
@@ -397,6 +438,15 @@
     private bool _hasVariedCredit;
     private decimal _oppRate;         // % mensual; 0 = sin ajuste (solo marca el mejor credito)
     private decimal? _minEfectivo;
+    // Punto #3: scorecard de confiabilidad por proveedor + formulario de calificacion inline.
+    private IReadOnlyDictionary<Guid, ProveedorScoreDto> _scores = new Dictionary<Guid, ProveedorScoreDto>();
+    private Guid? _rateProvId;        // proveedor que se esta calificando (form abierto); null = cerrado
+    private string _rateProvNombre = "";
+    private int _ratePunt = 5;
+    private int _rateCal = 5;
+    private string _rateNota = "";
+    private bool _rateBusy;
+    private string? _rateError;
     private bool _busy;
     private bool _busyEval;
     private string? _error;
@@ -667,6 +717,7 @@
         {
             _ofertas = (await Svc.ListCotizacionesAsync(ItemId, Descripcion, Cantidad)).ToList();
             if (_provs.Count == 0) { _provs = (await Svc.ListProveedoresAsync()).ToList(); }
+            _scores = await Svc.GetProveedorScoresAsync();
             RecalcMin();
         }
         catch (Exception ex) { _error = ex.Message; }
@@ -766,6 +817,38 @@
 
     private bool EsMejorEfectivo(CotizacionDto o)
         => _oppRate > 0m && _minEfectivo is { } mn && Efectivo(o) is { } e && e == mn;
+
+    // ---- Punto #3: scorecard de confiabilidad (estrellas) + captura de calificacion ----
+    private static string Stars(decimal g)
+    {
+        var full = (int)Math.Round(g, MidpointRounding.AwayFromZero);
+        full = Math.Max(0, Math.Min(5, full));
+        return new string('★', full) + new string('☆', 5 - full);
+    }
+
+    private void AbrirCalificar(CotizacionDto o)
+    {
+        _rateProvId = o.ProveedorId;
+        _rateProvNombre = o.ProveedorNombre ?? "(proveedor)";
+        _ratePunt = 5; _rateCal = 5; _rateNota = ""; _rateError = null;
+    }
+
+    private void CerrarCalificar() { _rateProvId = null; _rateError = null; }
+
+    private async Task GuardarCalificacionAsync()
+    {
+        if (_rateProvId is not Guid pid) { return; }
+        _rateBusy = true; _rateError = null;
+        try
+        {
+            await Svc.RateProveedorAsync(new ProveedorRatingInput(pid, _ratePunt, _rateCal,
+                string.IsNullOrWhiteSpace(_rateNota) ? null : _rateNota.Trim()));
+            _scores = await Svc.GetProveedorScoresAsync();
+            _rateProvId = null;
+        }
+        catch (Exception ex) { _rateError = ex.Message; }
+        finally { _rateBusy = false; }
+    }
 
     private void OnRateChanged(ChangeEventArgs e)
     {

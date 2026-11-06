@@ -431,4 +431,11 @@ public interface IRequerimientoService
     /// (mezclando el mas barato de cada articulo) y la lista de proyectos para filtrar. Hace visible el efecto
     /// "gana por articulo / pierde en el total". Tenant-scoped por el filtro global.</summary>
     Task<BasketResumenProveedorDto> ResumenProveedorCanastaAsync(IReadOnlyList<Guid> origenIds, CancellationToken ct = default);
+
+    // ---- Punto #3: scorecard de confiabilidad del proveedor (delegado al config service) ----
+    /// <summary>Scorecards de confiabilidad por proveedor (promedios de puntualidad/calidad + conteo). Solo
+    /// proveedores con al menos una calificacion.</summary>
+    Task<IReadOnlyDictionary<Guid, ProveedorScoreDto>> GetProveedorScoresAsync(CancellationToken ct = default);
+    /// <summary>Registra una calificacion (puntualidad/calidad 1-5 + nota) de un proveedor y devuelve su score actualizado.</summary>
+    Task<ProveedorScoreDto> RateProveedorAsync(ProveedorRatingInput input, CancellationToken ct = default);
 }

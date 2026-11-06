@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-06 - Scorecard de confiabilidad del proveedor: punto #3 de la decision de compra (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.253. Push a requerimiento_compras, SIN deploy.
+- CONTEXTO: punto #3. La confiabilidad NO se media (sin fecha real de entrega ni marca de calidad; solo 3 compras
+  ejecutadas -> derivar no sirve). Enfoque elegido: calificacion MANUAL (puntualidad + calidad 1-5) por el comprador,
+  promediada a estrellas en la tarjeta. Sin migracion: eventos de calificacion en TenantConfiguration (JSON).
+- HECHO:
+  - CONTRATOS: ProveedorRatingInput + ProveedorScoreDto (RequerimientoConfigContracts). Metodos GetProveedorScoresAsync
+    / RateProveedorAsync en IRequerimientoConfigService y expuestos tambien en IRequerimientoService (delegacion).
+  - SERVICIO (RequerimientoConfigService): store "requerimientos.proveedor_ratings" = lista de eventos
+    {P,Pu,Ca,N,At,By}; agregacion en memoria (promedio puntualidad/calidad, general=(pu+ca)/2, conteo, ultima nota).
+    RateProveedorAsync clampa 1-5, sella usuario (UserId) + fecha UTC, persiste y devuelve el score actualizado.
+  - UI (CotizacionesComparador.razor): fila de confiabilidad por tarjeta (estrellas + general + conteo, "sin
+    calificar" si no hay, "problemas" si general<=2) + boton "Calificar" que abre un form inline (2 filas de
+    estrellas 1-5 + nota). Carga los scores en LoadAsync y refresca tras guardar. CSS .rqc-rel/.rqc-stars/.rqc-rate*.
+- VALIDADO E2E 5265/SKY (admin@sky-system.local, v0.16.253): grupo 2X16. Califique Melexa (punt5/cal4) -> 4.5 (1);
+  Dielco (1/1) -> 1.0 (1) + "problemas"; Omega "sin calificar". 2a calif a Melexa (3/3) -> promedia a 3.8 (2)
+  (punt 4.0, cal 3.5). Persistencia confirmada en BD (3 eventos en el jsonb). Build SuperAdmin 0 errores.
+- PENDIENTE del #3 (sub-pieza): capturar la calificacion TAMBIEN al marcar/cerrar la compra como recibida (hoy solo
+  desde la tarjeta del comparador). Decidir con el usuario si se cablea ya o despues de los 4 puntos.
+- SIGUIENTE: punto #4 costo total real (flete/minimos/descuentos/vigencia). PROMPT a dev central y deploy con OK por version.
+
 ## 2026-11-06 - Credito/pago en el comparador: punto #2 de la decision de compra (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.252. Push a requerimiento_compras, SIN deploy.

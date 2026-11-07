@@ -82,6 +82,10 @@ public interface IBrowserRunService
     /// <summary>Cierra corridas que quedaron "Running" colgadas (p.ej. el servidor se reinicio a mitad).
     /// Lo llama el worker; los timeouts por accion los maneja el canal, esto es la red de seguridad.</summary>
     Task SweepAsync(CancellationToken ct = default);
+
+    /// <summary>Backfill del historico NEWTON: rellena fecha/NIT/totales de las filas sin enriquecer re-parseando
+    /// el {CUFE}.xml ya guardado en el gestor de archivos (blob), sin re-descargar de NEWTON.</summary>
+    Task<(int Enriquecidas, int SinArchivo, int Total)> BackfillNewtonDesdeBlobAsync(Guid tenantId, CancellationToken ct = default);
 }
 
 public sealed class BrowserRunService(
@@ -1208,8 +1212,9 @@ public sealed class BrowserRunService(
 
         int total = docsRoot.GetArrayLength();
         int xmlBajados = 0, pdfBajados = 0, pdfOmitidos = 0, errores = 0, i = 0;
-        // Aterrizaje: por doc, CUFE + si tiene representacion grafica (PDF en disco) + eventos RADIAN del listado.
-        var landed = new List<(string Cufe, string EventId, bool PdfOk, bool E30, bool E31, bool E32, bool E33, bool E34)>();
+        // Aterrizaje: por doc, CUFE + si tiene representacion grafica (PDF en disco) + los datos de negocio
+        // parseados del XML (Doc, para enriquecer la fuente NEWTON y materializar fantasmas) + eventos RADIAN.
+        var landed = new List<(string Cufe, string EventId, bool PdfOk, DianDoc? Doc, bool E30, bool E31, bool E32, bool E33, bool E34)>();
         // Diagnostico (como eventos_muestra del legacy): cuantos docs traen events[] y una muestra del 1er evento,
         // para poder ajustar el mapeo contra la forma real que devuelva NEWTON.
         int conEventos = 0; string muestraEvento = "";
@@ -1247,12 +1252,13 @@ public sealed class BrowserRunService(
                     using var xr = await GetAsync($"{urlBase}/documentos-electronicos/{eventId}/xml");
                     if (xr.IsSuccessStatusCode) { xml = await xr.Content.ReadAsStringAsync(ct); }
                 }
-                // CUFE para nombrar / aterrizar: del XML (si se bajo); si no, del mapeo EventId->Cufe ya guardado.
-                string cufe = "";
+                // CUFE y datos de negocio: del XML (si se bajo); si no, el CUFE del mapeo EventId->Cufe ya guardado.
+                DianDoc? parsed = null;
                 if (!string.IsNullOrWhiteSpace(xml))
                 {
-                    try { cufe = DianUblParser.ParseXml(xml!, nuestroNit)?.Cufe ?? ""; } catch { }
+                    try { parsed = DianUblParser.ParseXml(xml!, nuestroNit); } catch { }
                 }
+                string cufe = parsed?.Cufe ?? "";
                 if (string.IsNullOrWhiteSpace(cufe) && cufePorEvento.TryGetValue(eventId, out var mappedCufe)) { cufe = mappedCufe; }
                 var nombre = SafeName(string.IsNullOrWhiteSpace(cufe) ? eventId : cufe);
 
@@ -1282,7 +1288,7 @@ public sealed class BrowserRunService(
                 if (!string.IsNullOrWhiteSpace(cufe))
                 {
                     var (e30, e31, e32, e33, e34) = MapEventos(doc);
-                    landed.Add((cufe, eventId, File.Exists(pdfPath), e30, e31, e32, e33, e34));
+                    landed.Add((cufe, eventId, File.Exists(pdfPath), parsed, e30, e31, e32, e33, e34));
                 }
             }
             catch { errores++; }
@@ -1301,9 +1307,13 @@ public sealed class BrowserRunService(
 
                 if (cfg.MarcarPlataforma)
                 {
-                    // Dedup por CUFE; si vino repetido, basta con que alguno tenga PDF.
+                    // Dedup por CUFE; si vino repetido, basta con que alguno tenga PDF, y se toma el primer XML
+                    // parseado disponible para enriquecer (proveedor, fecha, totales).
                     var porCufe = landed.GroupBy(x => x.Cufe)
-                        .ToDictionary(g => g.Key, g => (EventId: g.First().EventId, PdfOk: g.Any(x => x.PdfOk)));
+                        .ToDictionary(g => g.Key, g => (
+                            EventId: g.First().EventId,
+                            PdfOk: g.Any(x => x.PdfOk),
+                            Doc: g.Select(x => x.Doc).FirstOrDefault(d => d is not null)));
                     var cufes = porCufe.Keys.ToList();
                     var existentes = await fdb.ConciliacionDianNewtonDummies
                         .Where(n => cufes.Contains(n.Cufe)).ToListAsync(ct);
@@ -1315,16 +1325,19 @@ public sealed class BrowserRunService(
                         {
                             ex.EventId = info.EventId;
                             if (info.PdfOk) { ex.GuidPdf = guidPdf; } // solo marca; nunca borra un PDF ya registrado
+                            EnriquecerNewton(ex, info.Doc);
                         }
                         else
                         {
-                            fdb.ConciliacionDianNewtonDummies.Add(new ConciliacionDianNewtonDummy
+                            var nd = new ConciliacionDianNewtonDummy
                             {
                                 TenantId = tenantId,
                                 Cufe = cufe,
                                 EventId = info.EventId,
                                 GuidPdf = guidPdf,
-                            });
+                            };
+                            EnriquecerNewton(nd, info.Doc);
+                            fdb.ConciliacionDianNewtonDummies.Add(nd);
                         }
                         plataforma++;
                     }
@@ -1391,6 +1404,70 @@ public sealed class BrowserRunService(
             + (errores > 0 ? $", {errores} con error" : "") + ".";
         await RecordStepRunAsync(db, flowId, step.Name, true, xmlBajados, pdfBajados, 0, detalle, ct);
         return new StepRunResult(true, false, null, null, null, xmlBajados, pdfBajados, 0, detalle);
+    }
+
+    /// <summary>Backfill: rellena los datos de negocio (fecha, NIT, emisor, totales) de las filas de la fuente
+    /// NEWTON que aun no los tienen, re-parseando el {CUFE}.xml YA GUARDADO en el gestor de archivos (blob),
+    /// SIN re-descargar de NEWTON. Habilita que el historico participe de la comparacion DIAN/NEWTON por periodo.
+    /// Idempotente: solo toca filas sin NIT emisor (aun no enriquecidas). Devuelve (enriquecidas, sin archivo,
+    /// total pendientes).</summary>
+    public async Task<(int Enriquecidas, int SinArchivo, int Total)> BackfillNewtonDesdeBlobAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+        var files = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+
+        // Filas aun sin enriquecer (proxy: sin NIT emisor). Tenant explicito (no dependemos del filtro ambiente).
+        var pendientes = await db.ConciliacionDianNewtonDummies.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && n.Cufe != "" && n.NitEmisor == "")
+            .ToListAsync(ct);
+
+        int enriquecidas = 0, sinArchivo = 0, hechas = 0;
+        foreach (var n in pendientes)
+        {
+            FileStorageContent? content = null;
+            try
+            {
+                var archivos = await files.ListAsync("ConciliacionDian", n.Cufe, "NEWTON_XML", ct);
+                var first = archivos.FirstOrDefault();
+                if (first is not null) { content = await files.ReadAsync(first.Id, ct); }
+            }
+            catch { /* best-effort por fila */ }
+
+            if (content is null) { sinArchivo++; continue; }
+            DianDoc? d = null;
+            // nuestroNit vacio: en facturas RECIBIDAS el emisor es AccountingSupplierParty, que el parser toma igual.
+            try { d = DianUblParser.ParseXml(Encoding.UTF8.GetString(content.Content), ""); } catch { }
+            if (d is null || string.IsNullOrWhiteSpace(d.NitEmisor)) { sinArchivo++; continue; }
+            EnriquecerNewton(n, d);
+            enriquecidas++;
+            if (++hechas % 200 == 0) { await db.SaveChangesAsync(ct); }
+        }
+        if (enriquecidas > 0) { await db.SaveChangesAsync(ct); }
+        log.LogInformation("Backfill NEWTON: {Enr} enriquecidas, {Sin} sin archivo, de {Tot} pendientes (tenant {T}).",
+            enriquecidas, sinArchivo, pendientes.Count, tenantId);
+        return (enriquecidas, sinArchivo, pendientes.Count);
+    }
+
+    // Copia los datos de negocio parseados del XML a la fila de la fuente NEWTON (para materializar fantasmas
+    // con datos reales y acotar por periodo via FechaDoc). Si no hubo XML (d == null) deja la fila como estaba.
+    private static void EnriquecerNewton(ConciliacionDianNewtonDummy n, DianDoc? d)
+    {
+        if (d is null) { return; }
+        n.TipoDoc = d.TipoDoc;
+        n.FechaDoc = d.Fecha;
+        n.NombreEmisor = d.NombreEmisor;
+        n.NitEmisor = d.NitEmisor;
+        n.NumeroFactura = d.NumFactura;
+        n.SubtotalBruto = d.SubtotalBruto;
+        n.DescuentoComercial = d.Descuento;
+        n.SubtotalNeto = d.SubtotalNeto;
+        n.Iva = d.Iva;
+        n.TotalAntesRet = d.TotalAntesRet;
+        n.RetencionFuente = d.Retefuente;
+        n.RetencionIca = d.ReteIca;
+        n.Total = d.Total;
+        n.TipoPago = d.TipoPago;
     }
 
     // Eventos RADIAN que NEWTON ya trae en el listado (?include=events). Calca ColumnaEvento del legacy:

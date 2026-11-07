@@ -92,11 +92,14 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         Guid documentoId, EstadoConciliacionDian estado, ConciliacionDianFiltro filtro, CancellationToken ct = default)
     {
         await using var db = _dbFactory.Create();
+        var doc = await db.ConciliacionDianDocumentos.AsNoTracking().FirstOrDefaultAsync(d => d.Id == documentoId, ct);
+        var newton = doc is null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : await NewtonCufesPeriodoAsync(db, doc.Anio, doc.Mes, ct);
         var rows = await db.ConciliacionDianRenglones.AsNoTracking()
             .Where(r => r.DocumentoId == documentoId && r.Estado == estado)
             .OrderBy(r => r.FechaEmision).ThenBy(r => r.NombreProveedor)
             .ToListAsync(ct);
-        return rows.Where(r => PasaFiltro(r, filtro)).Select(MapRenglon).ToList();
+        return rows.Where(r => PasaFiltro(r, filtro)).Select(r => MapRenglon(r, Presencia(r, newton))).ToList();
     }
 
     public async Task<IReadOnlyDictionary<EstadoConciliacionDian, int>> ContarPorEstadoAsync(
@@ -118,11 +121,17 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         var rows = await db.ConciliacionDianRenglones.AsNoTracking()
             .Where(r => r.Estado == EstadoConciliacionDian.Conciliar)
             .ToListAsync(ct);
+        // Presencia contra NEWTON tenant-wide (esta vista cruza periodos). Los fantasmas (solo NEWTON) NO son
+        // facturas DIAN por autorizar: se excluyen.
+        var newton = (await db.ConciliacionDianNewtonDummies.AsNoTracking()
+                .Where(n => n.Cufe != "").Select(n => n.Cufe).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         return rows
+            .Where(r => r.Origen != OrigenRenglonConciliacionDian.Newton)
             .Where(SinOrdenCompraValida)
             .Where(r => PasaFiltro(r, filtro))
             .OrderByDescending(r => r.FechaEmision)
-            .Select(MapRenglon)
+            .Select(r => MapRenglon(r, Presencia(r, newton)))
             .ToList();
     }
 
@@ -176,47 +185,106 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         var bot = await _db.ConciliacionDianBotDummies.AsNoTracking()
             .Where(b => b.FechaDoc.Year == doc.Anio && b.FechaDoc.Month == doc.Mes && b.Cufe != "")
             .ToListAsync(ct);
-        if (bot.Count == 0) { return 0; }
 
-        // Idempotente: no re-insertar CUFE ya presente en este documento (no pisa aprobaciones/estados hechos).
+        // Renglones existentes del documento (TRACKED: para poder PROMOVER un fantasma si la DIAN ya trae el CUFE).
         var existentes = await _db.ConciliacionDianRenglones
             .Where(r => r.DocumentoId == documentoId)
-            .Select(r => r.Cufe)
             .ToListAsync(ct);
-        var yaHay = existentes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var porCufe = new Dictionary<string, ConciliacionDianRenglon>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in existentes) { porCufe[r.Cufe] = r; }
 
         var nuevos = 0;
+        var promovidos = 0;
+
+        // 1) DIAN: idempotente por CUFE. Si el CUFE ya esta como FANTASMA (solo NEWTON), se PROMUEVE a DIAN
+        //    (se llenan los datos de la DIAN y pasa a Origen=DIAN). Si ya era DIAN, no se pisa su trabajo.
         foreach (var b in bot)
         {
-            if (yaHay.Contains(b.Cufe)) { continue; }
+            if (porCufe.TryGetValue(b.Cufe, out var ex))
+            {
+                if (ex.Origen == OrigenRenglonConciliacionDian.Newton)
+                {
+                    AplicarDatosBot(ex, b);
+                    ex.Origen = OrigenRenglonConciliacionDian.Dian;
+                    promovidos++;
+                }
+                continue;
+            }
+            var nr = new ConciliacionDianRenglon
+            {
+                TenantId = tenantId,
+                DocumentoId = documentoId,
+                Estado = EstadoConciliacionDian.Conciliar,
+                Origen = OrigenRenglonConciliacionDian.Dian,
+                Cufe = b.Cufe,
+            };
+            AplicarDatosBot(nr, b);
+            _db.ConciliacionDianRenglones.Add(nr);
+            porCufe[b.Cufe] = nr;
+            nuevos++;
+        }
+
+        // 2) FANTASMAS: CUFE que estan en NEWTON en el periodo (con datos parseados) y NO quedaron como renglon.
+        //    Se materializan con Origen=NEWTON y los datos de NEWTON; PlataformaProveedor si tienen PDF.
+        var (nDesde, nHasta) = PeriodoRango(doc.Anio, doc.Mes);
+        var newton = await _db.ConciliacionDianNewtonDummies.AsNoTracking()
+            .Where(n => n.Cufe != "" && n.FechaDoc >= nDesde && n.FechaDoc < nHasta)
+            .ToListAsync(ct);
+        foreach (var n in newton)
+        {
+            if (porCufe.ContainsKey(n.Cufe)) { continue; }
             _db.ConciliacionDianRenglones.Add(new ConciliacionDianRenglon
             {
                 TenantId = tenantId,
                 DocumentoId = documentoId,
                 Estado = EstadoConciliacionDian.Conciliar,
-                Cufe = b.Cufe,
-                TipoDocDian = b.TipoDoc,
-                FechaEmision = b.FechaDoc,
-                NombreProveedor = b.NombreEmisor,
-                NitProveedor = b.NitEmisor,
-                NumFacturaProveedor = b.PrefijoFolio,
+                Origen = OrigenRenglonConciliacionDian.Newton,
+                Cufe = n.Cufe,
+                TipoDocDian = n.TipoDoc,
+                FechaEmision = n.FechaDoc,
+                NombreProveedor = n.NombreEmisor,
+                NitProveedor = n.NitEmisor,
+                NumFacturaProveedor = n.NumeroFactura,
                 NumFacturaSoldarco = string.Empty,
-                OrdenCompraSoldarco = b.IdCompra,
-                SubtotalBruto = b.SubtotalBruto,
-                DescuentoComercial = b.DescuentoComercial,
-                SubtotalNeto = b.Subtotal,
-                IvaDescontable = b.Iva,
-                TotalAntesRetenciones = b.TotalAntesRet,
-                RetRetefuente = b.RetencionFuente,
-                RetIca = b.RetencionIca,
-                TotalFactura = b.Total,
-                TipoPago = b.TipoPago,
+                OrdenCompraSoldarco = string.Empty,
+                SubtotalBruto = n.SubtotalBruto,
+                DescuentoComercial = n.DescuentoComercial,
+                SubtotalNeto = n.SubtotalNeto,
+                IvaDescontable = n.Iva,
+                TotalAntesRetenciones = n.TotalAntesRet,
+                RetRetefuente = n.RetencionFuente,
+                RetIca = n.RetencionIca,
+                TotalFactura = n.Total,
+                TipoPago = n.TipoPago,
+                PlataformaProveedor = !string.IsNullOrEmpty(n.GuidPdf),
             });
-            yaHay.Add(b.Cufe);
+            porCufe[n.Cufe] = null!; // marca de presencia; no se vuelve a leer la entidad
             nuevos++;
         }
-        if (nuevos > 0) { await _db.SaveChangesAsync(ct); }
+
+        if (nuevos > 0 || promovidos > 0) { await _db.SaveChangesAsync(ct); }
         return nuevos;
+    }
+
+    // Copia los datos de la factura del bot DIAN al renglon (alta o promocion de un fantasma). No toca el
+    // estado de trabajo (aprobacion, NumFacturaSoldarco), solo los datos del documento DIAN.
+    private static void AplicarDatosBot(ConciliacionDianRenglon r, ConciliacionDianBotDummy b)
+    {
+        r.TipoDocDian = b.TipoDoc;
+        r.FechaEmision = b.FechaDoc;
+        r.NombreProveedor = b.NombreEmisor;
+        r.NitProveedor = b.NitEmisor;
+        r.NumFacturaProveedor = b.PrefijoFolio;
+        r.OrdenCompraSoldarco = b.IdCompra;
+        r.SubtotalBruto = b.SubtotalBruto;
+        r.DescuentoComercial = b.DescuentoComercial;
+        r.SubtotalNeto = b.Subtotal;
+        r.IvaDescontable = b.Iva;
+        r.TotalAntesRetenciones = b.TotalAntesRet;
+        r.RetRetefuente = b.RetencionFuente;
+        r.RetIca = b.RetencionIca;
+        r.TotalFactura = b.Total;
+        r.TipoPago = b.TipoPago;
     }
 
     public async Task<ConciliacionCruceResult> CruzarAsync(Guid documentoId, CancellationToken ct = default)
@@ -570,11 +638,37 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     private static ConciliacionDianDocumentoDto MapDoc(ConciliacionDianDocumento d) =>
         new(d.Id, d.Consecutivo, d.Anio, d.Mes, d.Estado, d.CreatedAt);
 
-    private static ConciliacionDianRenglonDto MapRenglon(ConciliacionDianRenglon r) =>
+    private static ConciliacionDianRenglonDto MapRenglon(ConciliacionDianRenglon r, PresenciaConciliacionDian presencia) =>
         new(r.Id, r.Estado, r.TipoDocDian, r.FechaEmision, r.NombreProveedor, r.NitProveedor,
             r.NumFacturaProveedor, r.NumFacturaSoldarco, r.OrdenCompraSoldarco, r.SubtotalBruto,
             r.DescuentoComercial, r.SubtotalNeto, r.IvaDescontable, r.TotalAntesRetenciones, r.RetRetefuente,
             r.RetIca, r.TotalFactura, r.TipoPago, r.FacturaAprobada, r.PlataformaProveedor, r.RutEscaneado,
             r.Evento30, r.Evento31, r.Evento32, r.Evento33, r.Evento34, r.Seleccionado, r.Cufe, r.MarkerColor,
-            r.MarkerNote, r.AssignedTenantUserId, r.Rechazado);
+            r.MarkerNote, r.AssignedTenantUserId, r.Rechazado, r.Origen, presencia);
+
+    // Presencia DIAN vs NEWTON de un renglon, dado el conjunto de CUFE que estan en NEWTON (del periodo).
+    // Origen=NEWTON => fantasma (solo NEWTON). Origen=DIAN => Ambos si su CUFE esta en NEWTON, si no SoloDian.
+    private static PresenciaConciliacionDian Presencia(ConciliacionDianRenglon r, HashSet<string> newtonCufes) =>
+        r.Origen == OrigenRenglonConciliacionDian.Newton
+            ? PresenciaConciliacionDian.SoloNewton
+            : (newtonCufes.Contains(r.Cufe) ? PresenciaConciliacionDian.Ambos : PresenciaConciliacionDian.SoloDian);
+
+    // CUFE que estan en NEWTON dentro de un periodo (Anio/Mes), por FechaDoc. Case-insensitive para el cruce.
+    // Comparacion por RANGO (no EXTRACT): las filas sin fecha parseada quedan en '-infinity' y EXTRACT(year)
+    // desbordaria el int (PG 22003); el rango las descarta sin tocar la funcion.
+    private static async Task<HashSet<string>> NewtonCufesPeriodoAsync(IApplicationDbContext db, int anio, int mes, CancellationToken ct)
+    {
+        var (desde, hasta) = PeriodoRango(anio, mes);
+        return (await db.ConciliacionDianNewtonDummies.AsNoTracking()
+                .Where(n => n.Cufe != "" && n.FechaDoc >= desde && n.FechaDoc < hasta)
+                .Select(n => n.Cufe).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    // Rango [primer dia del mes, primer dia del mes siguiente) en UTC, para filtrar por periodo sin EXTRACT.
+    private static (DateTimeOffset Desde, DateTimeOffset Hasta) PeriodoRango(int anio, int mes)
+    {
+        var desde = new DateTimeOffset(anio, mes, 1, 0, 0, 0, TimeSpan.Zero);
+        return (desde, desde.AddMonths(1));
+    }
 }

@@ -331,6 +331,10 @@ public sealed record EjecutarCompraResultado(
 /// <summary>Resultado simple (ok/error) de una accion del modulo (enviar a orden de compra, liberar).</summary>
 public sealed record RequerimientoOpResult(bool Ok, string? Error);
 
+/// <summary>Resultado de gestionar la Orden de compra: UNA actividad (OC) por proveedor con sus N articulos.
+/// Devuelve cuantas OC se crearon y sus numeros de tarea.</summary>
+public sealed record OrdenCompraResultado(bool Ok, string? Error, int OrdenesCreadas, IReadOnlyList<string> Numeros);
+
 /// <summary>
 /// Operativa del modulo de Requerimientos (Capa 10, Ola 2): recepcion (alta manual) + listado para la
 /// grilla + agrupacion por producto. La ingesta automatica desde formularios se define en una fase
@@ -391,6 +395,13 @@ public interface IRequerimientoService
     /// <summary>Libera una division que estaba EnOrdenCompra y la vuelve editable (ConProveedor/Planificado). Solo
     /// se permite si NO se ha emitido la tarea de gestion (TaskItemId null); una vez gestionada, no se libera.</summary>
     Task<RequerimientoOpResult> LiberarOrdenCompraAsync(Guid hijoId, CancellationToken ct = default);
+
+    /// <summary>Gestiona la compra de las divisiones indicadas CONSOLIDANDO por proveedor: crea UNA sola actividad
+    /// (orden de compra) por proveedor, con TODOS sus articulos listados, enlaza esa tarea a cada division y las pasa
+    /// a Ejecutado (el padre pasa a Ejecutado cuando todas sus divisiones lo estan). Toma solo las que esten
+    /// EnOrdenCompra y sin actividad. Proceso de compra por proveedor: el de la matriz/origen si es uniforme para
+    /// todas sus lineas, si no el default del modulo. Aprende la matriz item->proveedor por linea.</summary>
+    Task<OrdenCompraResultado> GestionarOrdenCompraAsync(IReadOnlyList<Guid> hijoIds, Guid actorUserId, string actorName, CancellationToken ct = default);
 
     // ---- Ola 8: cotizar + contacto del proveedor ----
     /// <summary>Pide la COTIZACION de un registro HIJO: crea una Actividad (TaskItem) con la subcategoria de

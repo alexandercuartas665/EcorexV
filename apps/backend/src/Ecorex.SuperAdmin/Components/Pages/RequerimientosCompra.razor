@@ -1091,7 +1091,7 @@ else
                                         @{ var _gPend = _lin.Count(x => x.HijoId is not null && x.TaskItemId is null && x.Estado == RequerimientoEstado.EnOrdenCompra); }
                                         @if (_canConfig && _gPend > 0)
                                         {
-                                            <button class="btn btn-primary btn-sm" style="margin-top:6px;" title="Emite la tarea de gestion de compra para TODAS las lineas de este proveedor que estan en orden de compra" @onclick="() => GestionarGrupoAsync(_lin)" disabled="@_busy">Gestionar compra (@_gPend)</button>
+                                            <button class="btn btn-primary btn-sm" style="margin-top:6px;" title="Crea UNA sola orden de compra (actividad) para este proveedor con todos sus articulos en orden de compra" @onclick="() => GestionarGrupoAsync(_lin)" disabled="@_busy">Gestionar compra (@_gPend)</button>
                                         }
                                     </div>
                                 </div>
@@ -1129,17 +1129,13 @@ else
                                                     }
                                                     else if (l.Estado == RequerimientoEstado.EnOrdenCompra)
                                                     {
-                                                        @if (_canConfig && l.HijoId is not null)
-                                                        {
-                                                            <div style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                                                                <button class="btn btn-primary btn-sm" title="Emitir la tarea de gestion de compra para esta linea" @onclick="() => GestionarHijoAsync(l.HijoId!.Value)" disabled="@_busy">Gestionar compra</button>
-                                                                <button class="btn btn-link btn-sm" title="Liberar (volver a editar en Planificacion)" @onclick="() => LiberarHijoAsync(l.HijoId!.Value)" disabled="@_busy">Liberar</button>
-                                                            </div>
-                                                        }
-                                                        else
-                                                        {
+                                                        <div style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                                             <span style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fde68a;padding:2px 8px;border-radius:999px;">En orden de compra</span>
-                                                        }
+                                                            @if (_canConfig && l.HijoId is not null)
+                                                            {
+                                                                <button class="btn btn-link btn-sm" title="Liberar (volver a editar en Planificacion)" @onclick="() => LiberarHijoAsync(l.HijoId!.Value)" disabled="@_busy">Liberar</button>
+                                                            }
+                                                        </div>
                                                     }
                                                     else if (l.CotizacionTaskItemId is not null)
                                                     {
@@ -3969,42 +3965,26 @@ else
         finally { _busy = false; }
     }
 
-    // Gestionar compra (emitir la tarea de gestion) de UNA linea; vive en la pestana Orden de compra.
-    private async Task GestionarHijoAsync(Guid hid)
-    {
-        _planError = null; _busy = true;
-        try
-        {
-            var actor = await ActorAsync();
-            var actorName = await ActorNameAsync();
-            var res = await Svc.EjecutarHijoAsync(hid, actor, actorName);
-            if (!res.Ok) { _planError = res.Error ?? "No se pudo gestionar la compra."; }
-            else { _msg = res.TaskNumber is { } num ? $"Compra gestionada: actividad {num} creada." : "Compra gestionada: actividad creada."; }
-            await RefreshPlanTrasMutacionAsync();
-        }
-        catch (Exception ex) { _planError = ex.Message; }
-        finally { _busy = false; }
-    }
-
-    // Gestionar compra de TODAS las lineas de un proveedor que estan en orden de compra (varias de una).
+    // Gestionar compra CONSOLIDADA: toma las lineas EnOrdenCompra de un proveedor y crea UNA sola orden de compra
+    // (actividad) por proveedor con todos sus articulos. Vive en la pestana Orden de compra.
     private async Task GestionarGrupoAsync(List<OcLineVM> lineas)
     {
         var ids = lineas.Where(l => l.HijoId is Guid && l.TaskItemId is null && l.Estado == RequerimientoEstado.EnOrdenCompra)
                         .Select(l => l.HijoId!.Value).ToList();
         if (ids.Count == 0) { _planError = "No hay lineas en orden de compra para gestionar."; return; }
         _planError = null; _busy = true;
-        var nums = new List<string>();
         try
         {
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
-            foreach (var id in ids)
+            var res = await Svc.GestionarOrdenCompraAsync(ids, actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo gestionar la orden de compra."; }
+            else
             {
-                var res = await Svc.EjecutarHijoAsync(id, actor, actorName);
-                if (!res.Ok) { _planError = res.Error ?? "No se pudo gestionar una linea."; break; }
-                if (res.TaskNumber is { } n) { nums.Add(n); }
+                _msg = res.Numeros.Count > 0
+                    ? $"Orden(es) de compra creada(s): {string.Join(", ", res.Numeros)} ({ids.Count} articulo(s))."
+                    : "Orden de compra creada.";
             }
-            if (nums.Count > 0) { _msg = $"Gestionada(s) {nums.Count} compra(s): {string.Join(", ", nums)}."; }
             await RefreshPlanTrasMutacionAsync();
         }
         catch (Exception ex) { _planError = ex.Message; }

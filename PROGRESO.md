@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-07 - OC consolidada: UNA sola orden de compra (actividad) por proveedor (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.283. Rama requerimiento_compras. Pusheada. SIN deploy. Build verde.
+- PETICION: "consolida una sola OC por proveedor" -> antes "Gestionar compra (N)" creaba N tareas (una por linea); ahora
+  debe crear UNA sola actividad por proveedor con todos sus articulos (no se le compra de a un articulo).
+- HECHO (SIN migracion; patron de CotizarPorProveedorAsync = 1 tarea portadora con N lineas):
+  - Servicio GestionarOrdenCompraAsync(hijoIds): agrupa por proveedor, crea UNA TaskItem "Orden de compra: {Prov}
+    (N articulos)" cuya descripcion lista cada articulo (cant @ precio = subtotal, fecha, entrega, despacho) + Total OC,
+    enlaza esa MISMA tarea a cada hijo del proveedor y los pasa a Ejecutado; rollup del padre; aprende matriz por linea.
+    Proceso de compra por proveedor: el de matriz/origen si es UNIFORME para todas sus lineas, si no el default del modulo.
+    OrdenCompraResultado(ok,error,OrdenesCreadas,Numeros).
+  - UI: el boton por proveedor "Gestionar compra (N)" llama al consolidador (una OC). Se quito el "Gestionar compra"
+    por linea (la gestion es a nivel proveedor); por linea queda badge "En orden de compra" + "Liberar".
+  - EjecutarHijoAsync (per-linea) queda en el servicio pero el UI ya no lo usa para gestionar.
+- VALIDADO E2E (5265/SKY): BANDEJA 15" -> Controles Empresariales, 3 lineas enviadas a OC -> "Gestionar compra (3)" ->
+  UNA tarea T00228; en BD las 3 lineas comparten el mismo task_item_id (estado Ejecutado) y la tarea lista los 3
+  articulos + Total OC 259.350.
+- SIGUIENTE: opcional PDF/documento de la OC por proveedor; indicadores (cobertura "sin cotizar"). PENDIENTE heredado:
+  #3 calificar al recibir; modulo de indicadores (plan en curso).
+
 ## 2026-11-07 - Entrega numerica + rediseno Ejecutar->Orden de compra (bloquear/liberar/gestionar) (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.282. Rama requerimiento_compras. SIN deploy. Build verde (0 errores).

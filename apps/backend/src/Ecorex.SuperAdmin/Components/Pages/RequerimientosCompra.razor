@@ -840,7 +840,7 @@ else
                                     @if (_planIsGroup)
                                     {
                                         <td style="padding:5px 8px;">
-                                            <select class="cd-in" style="height:30px;min-width:160px;max-width:230px;font-size:12px;" @onchange="e => OnHijoReqChanged(hi, e)">
+                                            <select class="cd-in" style="height:30px;min-width:160px;max-width:230px;font-size:12px;" @onchange="e => OnHijoReqChanged(hi, e)" disabled="@HiLocked(hi)">
                                                 @foreach (var rg in _planRegs)
                                                 {
                                                     <option value="@rg.Id" selected="@(hi.ReqId == rg.Id)">@(string.IsNullOrWhiteSpace(rg.OrigenNombre) ? "(sin origen)" : rg.OrigenNombre)@(string.IsNullOrWhiteSpace(rg.SourceTaskNumber) ? "" : $" / {rg.SourceTaskNumber}")</option>
@@ -850,19 +850,24 @@ else
                                     }
                                     <td style="padding:5px 8px;">
                                         <div style="display:flex;align-items:center;gap:5px;">
-                                            <input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" />
+                                            <input type="number" step="any" min="0" style="width:90px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Cantidad" @bind:after="StateHasChanged" disabled="@HiLocked(hi)" />
                                             @if (!string.IsNullOrWhiteSpace(PlanUnidad)) { <span style="font-size:11.5px;color:var(--ink-3,#6b7280);white-space:nowrap;">@PlanUnidad</span> }
                                         </div>
                                     </td>
-                                    <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" /></td>
-                                    <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" /></td>
-                                    <td style="padding:5px 8px;"><input style="width:130px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="15 dias, inmediato" @bind="hi.Entrega" /></td>
+                                    <td style="padding:5px 8px;"><input type="date" style="height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" @bind="hi.Fecha" disabled="@HiLocked(hi)" /></td>
+                                    <td style="padding:5px 8px;"><input style="width:150px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="transportadora, lugar..." @bind="hi.Despacho" disabled="@HiLocked(hi)" /></td>
+                                    <td style="padding:5px 8px;">
+                                        <div style="display:flex;align-items:center;gap:5px;">
+                                            <input type="number" min="0" step="1" style="width:78px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="dias" title="Dias de entrega. 0 = inmediato." @bind="hi.EntregaDias" disabled="@HiLocked(hi)" />
+                                            <span style="font-size:11px;color:var(--ink-3,#6b7280);white-space:nowrap;">@(hi.EntregaDias is 0 ? "inmediato" : "dias")</span>
+                                        </div>
+                                    </td>
                                     <td style="padding:5px 8px;min-width:240px;">
                                         <div style="display:flex;align-items:center;gap:6px;">
-                                            <input list="req-prov-list" style="width:200px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="Escribe el proveedor..." value="@hi.ProvNombre" @onchange="e => OnProvChanged(hi, e)" />
+                                            <input list="req-prov-list" style="width:200px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;" placeholder="Escribe el proveedor..." value="@hi.ProvNombre" @onchange="e => OnProvChanged(hi, e)" disabled="@HiLocked(hi)" />
                                             @if (_planItemId is not null)
                                             {
-                                                <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@_busy">Sugerir</button>
+                                                <button class="btn btn-link btn-sm" title="Sugerir proveedor por la matriz" @onclick="() => SugerirAsync(hi)" disabled="@(_busy || HiLocked(hi))">Sugerir</button>
                                             }
                                         </div>
                                         @if (!string.IsNullOrWhiteSpace(hi.Prov))
@@ -894,7 +899,7 @@ else
                                         }
                                     </td>
                                     <td style="padding:5px 8px;text-align:right;">
-                                        <input type="number" step="any" min="0" style="width:100px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" @bind="hi.Precio" @bind:after="StateHasChanged" />
+                                        <input type="number" step="any" min="0" style="width:100px;height:30px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" @bind="hi.Precio" @bind:after="StateHasChanged" disabled="@HiLocked(hi)" />
                                         @if (hi.UltimoPrecio is { } up && up > 0)
                                         {
                                             <div style="font-size:11px;color:var(--ink-3,#6b7280);margin-top:3px;white-space:nowrap;">
@@ -919,13 +924,21 @@ else
                                             }
                                             @if (hi.TaskItemId is not null)
                                             {
-                                                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#0f7a58;background:rgba(15,122,88,.12);padding:3px 8px;border-radius:999px;">Ejecutada</span>
+                                                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#0f7a58;background:rgba(15,122,88,.12);padding:3px 8px;border-radius:999px;" title="La compra ya tiene su tarea de gestion emitida">Gestionada</span>
+                                            }
+                                            else if (hi.Estado == RequerimientoEstado.EnOrdenCompra)
+                                            {
+                                                <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fde68a;padding:3px 8px;border-radius:999px;" title="Enviada a la pestana Orden de compra; bloqueada hasta gestionarla">En orden de compra</span>
+                                                @if (_canConfig && hi.Id is not null)
+                                                {
+                                                    <button class="btn btn-link btn-sm" title="Quitarla de la orden de compra y volver a editarla (solo si aun no se ha gestionado)" @onclick="() => LiberarHijoAsync(hi.Id!.Value)" disabled="@_busy">Liberar</button>
+                                                }
                                             }
                                             else if (hi.Id is not null && _canConfig)
                                             {
-                                                <button class="btn btn-outline-secondary btn-sm" title="Crear la actividad de compra con el proceso del origen" @onclick="() => EjecutarAsync(hi)" disabled="@_busy">Ejecutar</button>
+                                                <button class="btn btn-outline-primary btn-sm" title="Bloquea la linea y la envia a la pestana Orden de compra para gestionarla" @onclick="() => EnviarOcAsync(hi)" disabled="@_busy">Enviar a orden de compra</button>
                                             }
-                                            @if (hi.TaskItemId is null)
+                                            @if (hi.TaskItemId is null && hi.Estado != RequerimientoEstado.EnOrdenCompra)
                                             {
                                                 <button class="btn btn-link btn-sm" style="color:#b91c1c;" @onclick="() => _pHijos.Remove(hi)">Quitar</button>
                                             }
@@ -982,34 +995,77 @@ else
 
                 @if (_planTab == "oc")
                 {
-                    var _ocConProv = _pHijos.Where(h => !string.IsNullOrWhiteSpace(h.ProvNombre)).ToList();
-                    var _ocSinProv = _pHijos.Count - _ocConProv.Count;
-                    var _ocProvs = _ocConProv.Select(h => h.ProvNombre.Trim())
+                    var _ocAll = BuildOcLines();
+                    if (_ocMode == "global")
+                    {
+                        // Solo los proveedores que estan en ESTE planificador (el articulo que se abrio):
+                        // para cada uno, todos sus articulos planificados (de otras necesidades tambien).
+                        var _planProvIds = _pHijos
+                            .Select(h => Guid.TryParse(h.Prov, out var gid) ? gid : (Guid?)null)
+                            .Where(g => g != null).Select(g => g!.Value).ToHashSet();
+                        _ocAll = _ocAll.Where(l => l.ProvId is Guid pid && _planProvIds.Contains(pid)).ToList();
+                    }
+                    var _ocShowCol1 = _ocMode == "global" ? true : _planIsGroup;
+                    var _ocCol1Label = _ocMode == "global" ? "Producto" : "Necesidad (origen)";
+                    var _ocSinProv = _ocMode == "global" ? 0 : (_pHijos.Count - _ocAll.Count);
+                    var _ocProvs = _ocAll.Select(l => l.Prov.Trim())
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
-                    var _ocVisibles = string.IsNullOrWhiteSpace(_ocProvFilter)
-                        ? _ocConProv
-                        : _ocConProv.Where(h => string.Equals(h.ProvNombre.Trim(), _ocProvFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+                    // Tras el filtro de proveedor: las fechas disponibles reflejan al proveedor elegido.
+                    var _ocTrasProv = string.IsNullOrWhiteSpace(_ocProvFilter)
+                        ? _ocAll
+                        : _ocAll.Where(l => string.Equals(l.Prov.Trim(), _ocProvFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+                    var _ocFechas = _ocTrasProv.Where(l => l.Fecha != null)
+                        .Select(l => l.Fecha!.Value.Date).Distinct().OrderBy(d => d).ToList();
+                    var _ocVisibles = string.IsNullOrWhiteSpace(_ocFechaFilter)
+                        ? _ocTrasProv
+                        : _ocTrasProv.Where(l => l.Fecha is { } fx && fx.ToString("yyyy-MM-dd") == _ocFechaFilter).ToList();
                     var _ocGrupos = _ocVisibles
-                        .GroupBy(h => h.ProvNombre.Trim(), StringComparer.OrdinalIgnoreCase)
+                        .GroupBy(l => l.Prov.Trim(), StringComparer.OrdinalIgnoreCase)
                         .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase).ToList();
 
-                    if (_ocConProv.Count == 0)
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                        <div style="display:inline-flex;border:1px solid var(--line-2,#e5e7eb);border-radius:8px;overflow:hidden;">
+                            <button @onclick="SetOcModeGrupo" style="font-size:12px;padding:5px 12px;cursor:pointer;border:0;background:@(_ocMode == "grupo" ? "var(--brand,#4f46e5)" : "#fff");color:@(_ocMode == "grupo" ? "#fff" : "var(--ink-2,#374151)");font-weight:@(_ocMode == "grupo" ? "700" : "500");">Solo este articulo</button>
+                            <button @onclick="SetOcModeGlobalAsync" style="font-size:12px;padding:5px 12px;cursor:pointer;border:0;border-left:1px solid var(--line-2,#e5e7eb);background:@(_ocMode == "global" ? "var(--brand,#4f46e5)" : "#fff");color:@(_ocMode == "global" ? "#fff" : "var(--ink-2,#374151)");font-weight:@(_ocMode == "global" ? "700" : "500");">Todo lo de estos proveedores</button>
+                        </div>
+                        <span style="font-size:11.5px;color:var(--ink-3,#6b7280);">@(_ocMode == "global" ? "Todos los articulos planificados con los proveedores de este articulo (normalmente le compras varios articulos a cada proveedor)." : "Solo lo planificado para este articulo.")</span>
+                    </div>
+
+                    @if (_ocGlobalBusy)
+                    {
+                        <div style="padding:22px;text-align:center;color:var(--ink-3,#6b7280);">Cargando lo planificado por proveedor...</div>
+                    }
+                    else if (_ocAll.Count == 0)
                     {
                         <div style="padding:22px;text-align:center;color:var(--ink-3,#6b7280);border:1px dashed var(--line-2,#e5e7eb);border-radius:8px;">
-                            Aun no hay compras programadas con proveedor asignado. Asigna un proveedor en "Planificacion" y volveras a ver aqui la orden de compra por proveedor.
+                            @(_ocMode == "global"
+                                ? "Aun no hay compras programadas con proveedor en ninguna necesidad. Asigna proveedores en la planificacion."
+                                : "Aun no hay compras programadas con proveedor asignado. Asigna un proveedor en \"Planificacion\" y volveras a ver aqui la orden de compra por proveedor.")
                         </div>
                     }
                     else
                     {
                         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
                             <span style="font-size:12px;color:var(--ink-3,#6b7280);">Proveedor:</span>
-                            <button @onclick='() => _ocProvFilter = ""' style="font-size:12px;padding:4px 12px;border-radius:999px;cursor:pointer;border:1px solid @(string.IsNullOrWhiteSpace(_ocProvFilter) ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");background:@(string.IsNullOrWhiteSpace(_ocProvFilter) ? "var(--brand-soft,#eef2ff)" : "#fff");color:@(string.IsNullOrWhiteSpace(_ocProvFilter) ? "var(--brand,#4f46e5)" : "var(--ink-2,#374151)");font-weight:@(string.IsNullOrWhiteSpace(_ocProvFilter) ? "700" : "500");">Todos (@_ocProvs.Count)</button>
+                            <button @onclick='() => { _ocProvFilter = ""; _ocFechaFilter = ""; }' style="font-size:12px;padding:4px 12px;border-radius:999px;cursor:pointer;border:1px solid @(string.IsNullOrWhiteSpace(_ocProvFilter) ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");background:@(string.IsNullOrWhiteSpace(_ocProvFilter) ? "var(--brand-soft,#eef2ff)" : "#fff");color:@(string.IsNullOrWhiteSpace(_ocProvFilter) ? "var(--brand,#4f46e5)" : "var(--ink-2,#374151)");font-weight:@(string.IsNullOrWhiteSpace(_ocProvFilter) ? "700" : "500");">Todos (@_ocProvs.Count)</button>
                             @foreach (var p in _ocProvs)
                             {
                                 var pp = p;
                                 var act = string.Equals(_ocProvFilter, pp, StringComparison.OrdinalIgnoreCase);
-                                <button @onclick="() => _ocProvFilter = pp" style="font-size:12px;padding:4px 12px;border-radius:999px;cursor:pointer;border:1px solid @(act ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");background:@(act ? "var(--brand-soft,#eef2ff)" : "#fff");color:@(act ? "var(--brand,#4f46e5)" : "var(--ink-2,#374151)");font-weight:@(act ? "700" : "500");">@pp</button>
+                                <button @onclick='() => { _ocProvFilter = pp; _ocFechaFilter = ""; }' style="font-size:12px;padding:4px 12px;border-radius:999px;cursor:pointer;border:1px solid @(act ? "var(--brand,#4f46e5)" : "var(--line-2,#e5e7eb)");background:@(act ? "var(--brand-soft,#eef2ff)" : "#fff");color:@(act ? "var(--brand,#4f46e5)" : "var(--ink-2,#374151)");font-weight:@(act ? "700" : "500");">@pp</button>
+                            }
+                            @if (_ocFechas.Count > 0)
+                            {
+                                <span style="font-size:12px;color:var(--ink-3,#6b7280);margin-left:10px;">Fecha planeada:</span>
+                                <select @onchange="OnOcFechaChanged" style="height:30px;font-size:12px;padding:0 8px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;">
+                                    <option value="" selected="@string.IsNullOrWhiteSpace(_ocFechaFilter)">Todas (@_ocFechas.Count)</option>
+                                    @foreach (var d in _ocFechas)
+                                    {
+                                        var ds = d.ToString("yyyy-MM-dd");
+                                        <option value="@ds" selected="@(_ocFechaFilter == ds)">@d.ToString("dd/MM/yyyy")</option>
+                                    }
+                                </select>
                             }
                         </div>
 
@@ -1032,13 +1088,18 @@ else
                                     <div style="text-align:right;white-space:nowrap;">
                                         <div style="font-size:11px;color:var(--ink-3,#6b7280);">@_lin.Count linea@(_lin.Count == 1 ? "" : "s")</div>
                                         <div style="font-size:16px;font-weight:800;color:var(--brand,#4f46e5);font-variant-numeric:tabular-nums;">@Fmt(_sub)</div>
+                                        @{ var _gPend = _lin.Count(x => x.HijoId is not null && x.TaskItemId is null && x.Estado == RequerimientoEstado.EnOrdenCompra); }
+                                        @if (_canConfig && _gPend > 0)
+                                        {
+                                            <button class="btn btn-primary btn-sm" style="margin-top:6px;" title="Emite la tarea de gestion de compra para TODAS las lineas de este proveedor que estan en orden de compra" @onclick="() => GestionarGrupoAsync(_lin)" disabled="@_busy">Gestionar compra (@_gPend)</button>
+                                        }
                                     </div>
                                 </div>
                                 <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
                                     <thead>
                                         <tr style="text-align:left;color:var(--ink-3,#6b7280);">
-                                            @if (_planIsGroup) { <th style="padding:6px 10px;font-weight:600;">Necesidad (origen)</th> }
-                                            <th style="padding:6px 10px;font-weight:600;">Cantidad@(string.IsNullOrWhiteSpace(PlanUnidad) ? "" : $" ({PlanUnidad})")</th>
+                                            @if (_ocShowCol1) { <th style="padding:6px 10px;font-weight:600;">@_ocCol1Label</th> }
+                                            <th style="padding:6px 10px;font-weight:600;">Cantidad@(_ocMode == "grupo" && !string.IsNullOrWhiteSpace(PlanUnidad) ? $" ({PlanUnidad})" : "")</th>
                                             <th style="padding:6px 10px;font-weight:600;">Fecha compra</th>
                                             <th style="padding:6px 10px;font-weight:600;">Despacho</th>
                                             <th style="padding:6px 10px;font-weight:600;">Entrega</th>
@@ -1050,22 +1111,35 @@ else
                                     <tbody>
                                         @foreach (var l in _lin)
                                         {
-                                            var reg = _planRegs.FirstOrDefault(r => r.Id == l.ReqId);
                                             <tr style="border-top:1px solid var(--line,#f1f5f9);">
-                                                @if (_planIsGroup)
+                                                @if (_ocShowCol1)
                                                 {
-                                                    <td style="padding:6px 10px;">@(string.IsNullOrWhiteSpace(reg?.OrigenNombre) ? "(sin origen)" : reg!.OrigenNombre)@(string.IsNullOrWhiteSpace(reg?.SourceTaskNumber) ? "" : $" / {reg!.SourceTaskNumber}")</td>
+                                                    <td style="padding:6px 10px;">@(string.IsNullOrWhiteSpace(l.Col1) ? "-" : l.Col1)</td>
                                                 }
-                                                <td style="padding:6px 10px;">@Fmt(l.Cantidad)@(string.IsNullOrWhiteSpace(PlanUnidad) ? "" : $" {PlanUnidad}")</td>
+                                                <td style="padding:6px 10px;">@Fmt(l.Cantidad)@(string.IsNullOrWhiteSpace(l.Unidad) ? "" : $" {l.Unidad}")</td>
                                                 <td style="padding:6px 10px;">@(l.Fecha is { } f ? f.ToString("dd/MM/yyyy") : "-")</td>
                                                 <td style="padding:6px 10px;">@(string.IsNullOrWhiteSpace(l.Despacho) ? "-" : l.Despacho)</td>
-                                                <td style="padding:6px 10px;">@(string.IsNullOrWhiteSpace(l.Entrega) ? "-" : l.Entrega)</td>
+                                                <td style="padding:6px 10px;">@EntregaTexto(l.Entrega)</td>
                                                 <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(l.Precio)</td>
                                                 <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(l.Cantidad * l.Precio)</td>
                                                 <td style="padding:6px 10px;">
                                                     @if (l.TaskItemId is not null)
                                                     {
-                                                        <span style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#0f7a58;background:rgba(15,122,88,.12);padding:2px 8px;border-radius:999px;">Ejecutada</span>
+                                                        <span style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#0f7a58;background:rgba(15,122,88,.12);padding:2px 8px;border-radius:999px;" title="La compra ya tiene su tarea de gestion emitida">Gestionada</span>
+                                                    }
+                                                    else if (l.Estado == RequerimientoEstado.EnOrdenCompra)
+                                                    {
+                                                        @if (_canConfig && l.HijoId is not null)
+                                                        {
+                                                            <div style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                                                                <button class="btn btn-primary btn-sm" title="Emitir la tarea de gestion de compra para esta linea" @onclick="() => GestionarHijoAsync(l.HijoId!.Value)" disabled="@_busy">Gestionar compra</button>
+                                                                <button class="btn btn-link btn-sm" title="Liberar (volver a editar en Planificacion)" @onclick="() => LiberarHijoAsync(l.HijoId!.Value)" disabled="@_busy">Liberar</button>
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fde68a;padding:2px 8px;border-radius:999px;">En orden de compra</span>
+                                                        }
                                                     }
                                                     else if (l.CotizacionTaskItemId is not null)
                                                     {
@@ -1073,7 +1147,7 @@ else
                                                     }
                                                     else
                                                     {
-                                                        <span style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#6b7280;background:rgba(107,114,128,.12);padding:2px 8px;border-radius:999px;">Planificada</span>
+                                                        <span style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#6b7280;background:rgba(107,114,128,.12);padding:2px 8px;border-radius:999px;" title="Enviala desde Planificacion para poder gestionarla aqui">Planificada</span>
                                                     }
                                                 </td>
                                             </tr>
@@ -1081,7 +1155,7 @@ else
                                     </tbody>
                                     <tfoot>
                                         <tr style="border-top:2px solid var(--line-2,#e5e7eb);background:var(--surface-2,#f8fafc);">
-                                            <td colspan="@(_planIsGroup ? 6 : 5)" style="padding:7px 10px;text-align:right;font-weight:700;">Total @g.Key</td>
+                                            <td colspan="@(_ocShowCol1 ? 6 : 5)" style="padding:7px 10px;text-align:right;font-weight:700;">Total @g.Key</td>
                                             <td style="padding:7px 10px;text-align:right;font-weight:800;font-variant-numeric:tabular-nums;">@Fmt(_sub)</td>
                                             <td></td>
                                         </tr>
@@ -1820,6 +1894,123 @@ else
     private bool _showPlan;
     private string _planTab = "detalle";      // pestana activa del modal (Detalle | cotizacion | plan | oc)
     private string _ocProvFilter = "";        // filtro por proveedor en el tab "Orden de compra" ("" = todos)
+    private string _ocFechaFilter = "";       // filtro por fecha planeada (yyyy-MM-dd; "" = todas)
+    private string _ocMode = "grupo";         // "grupo" = lo de este articulo | "global" = todo lo de estos proveedores
+    private bool _ocGlobalBusy;               // cargando la vista global
+    private bool _ocGlobalLoaded;             // ya se cargo la vista global en esta apertura
+    private List<OcProveedorLineaDto> _ocGlobal = new();  // todo lo planificado con proveedor del tenant
+
+    // Linea unificada del tab "Orden de compra": sirve al modo grupo (desde _pHijos) y al global (desde _ocGlobal).
+    private sealed class OcLineVM
+    {
+        public Guid? HijoId;              // division concreta (para gestionar/liberar desde la OC)
+        public string Prov = "";
+        public Guid? ProvId;
+        public string? Contacto;
+        public string? Email;
+        public string? Telefono;
+        public string Col1 = "";          // necesidad/origen (grupo) o producto (global)
+        public string? Unidad;
+        public decimal Cantidad;
+        public DateTime? Fecha;
+        public string Despacho = "";
+        public string Entrega = "";
+        public decimal Precio;
+        public Guid? TaskItemId;
+        public Guid? CotizacionTaskItemId;
+        public RequerimientoEstado Estado = RequerimientoEstado.Planificado;
+    }
+
+    private List<OcLineVM> BuildOcLines()
+    {
+        if (_ocMode == "global")
+        {
+            return _ocGlobal.Select(l => new OcLineVM
+            {
+                HijoId = l.HijoId,
+                Prov = l.ProveedorNombre,
+                ProvId = l.ProveedorId,
+                Contacto = l.Contacto,
+                Email = l.Email,
+                Telefono = l.Telefono,
+                Col1 = (string.IsNullOrWhiteSpace(l.Producto) ? "(producto)" : l.Producto)
+                       + (string.IsNullOrWhiteSpace(l.SourceTaskNumber) ? "" : $" / {l.SourceTaskNumber}"),
+                Unidad = l.Unidad,
+                Cantidad = l.Cantidad,
+                Fecha = l.FechaProgramadaCompra?.DateTime,
+                Despacho = l.Despacho,
+                Entrega = l.Entrega,
+                Precio = l.PrecioUnitario,
+                TaskItemId = l.TaskItemId,
+                CotizacionTaskItemId = l.CotizacionTaskItemId,
+                Estado = l.Estado,
+            }).ToList();
+        }
+        return _pHijos.Where(h => !string.IsNullOrWhiteSpace(h.ProvNombre)).Select(h =>
+        {
+            var reg = _planRegs.FirstOrDefault(r => r.Id == h.ReqId);
+            var col1 = _planIsGroup
+                ? (string.IsNullOrWhiteSpace(reg?.OrigenNombre) ? "(sin origen)" : reg!.OrigenNombre)
+                  + (string.IsNullOrWhiteSpace(reg?.SourceTaskNumber) ? "" : $" / {reg!.SourceTaskNumber}")
+                : "";
+            return new OcLineVM
+            {
+                HijoId = h.Id,
+                Prov = h.ProvNombre,
+                ProvId = Guid.TryParse(h.Prov, out var gid) ? gid : (Guid?)null,
+                Contacto = h.Contacto,
+                Email = h.Email,
+                Telefono = h.Telefono,
+                Col1 = col1,
+                Unidad = PlanUnidad,
+                Cantidad = h.Cantidad,
+                Fecha = h.Fecha,
+                Despacho = h.Despacho,
+                Entrega = h.Entrega,
+                Precio = h.Precio,
+                TaskItemId = h.TaskItemId,
+                CotizacionTaskItemId = h.CotizacionTaskItemId,
+                Estado = h.Estado,
+            };
+        }).ToList();
+    }
+
+    private void SetOcModeGrupo()
+    {
+        _ocMode = "grupo";
+        _ocProvFilter = "";
+        _ocFechaFilter = "";
+    }
+
+    private void OnOcFechaChanged(ChangeEventArgs e)
+        => _ocFechaFilter = e.Value?.ToString() ?? "";
+
+    // Una division esta BLOQUEADA (no editable) si ya fue gestionada (tiene actividad) o esta enviada a Orden de compra.
+    private static bool HiLocked(HijoEdit h) => h.TaskItemId is not null || h.Estado == RequerimientoEstado.EnOrdenCompra;
+
+    // Muestra el tiempo de entrega (numero de dias) de forma legible. 0 = inmediato. Tolera valores viejos ("4 dias").
+    private static string EntregaTexto(string? raw)
+    {
+        var s = (raw ?? "").Trim();
+        if (s.Length == 0) { return "-"; }
+        if (s.StartsWith("inmediato", StringComparison.OrdinalIgnoreCase)) { return "Inmediato"; }
+        var digits = new string(s.TakeWhile(char.IsDigit).ToArray());
+        if (int.TryParse(digits, out var n)) { return n == 0 ? "Inmediato" : $"{n} dia{(n == 1 ? "" : "s")}"; }
+        return s;
+    }
+
+    private async Task SetOcModeGlobalAsync()
+    {
+        _ocMode = "global";
+        _ocProvFilter = "";
+        _ocFechaFilter = "";
+        if (!_ocGlobalLoaded)
+        {
+            _ocGlobalBusy = true;
+            try { _ocGlobal = (await Svc.GetPlanificadoPorProveedorAsync()).ToList(); _ocGlobalLoaded = true; }
+            finally { _ocGlobalBusy = false; }
+        }
+    }
     private bool _planIsGroup;                 // true = se planifican varias necesidades (linea agrupada)
     private List<RequerimientoDto> _planRegs = new();  // necesidad(es) que se planifican (1 individual, N grupo)
     private string? _planError;
@@ -1837,6 +2028,20 @@ else
         public DateTime? Fecha;
         public string Despacho = "";
         public string Entrega = "";
+        // Tiempo de entrega en DIAS (numerico). 0 = inmediato. Se persiste en la columna de texto
+        // existente guardando el numero ("4"); lee el entero inicial de valores viejos ("4 dias" -> 4, "inmediato" -> 0).
+        public int? EntregaDias
+        {
+            get
+            {
+                var s = (Entrega ?? "").Trim();
+                if (s.Length == 0) { return null; }
+                if (s.StartsWith("inmediato", StringComparison.OrdinalIgnoreCase)) { return 0; }
+                var digits = new string(s.TakeWhile(char.IsDigit).ToArray());
+                return int.TryParse(digits, out var n) ? n : (int?)null;
+            }
+            set => Entrega = value is int n && n >= 0 ? n.ToString() : "";
+        }
         public string Prov = "";           // id del proveedor (Tercero)
         public string ProvNombre = "";      // nombre visible en el autocompletado
         public string? Contacto;            // nombre del contacto del proveedor
@@ -3429,6 +3634,9 @@ else
         _planRegs = new() { r };
         _planTab = "detalle";
         _ocProvFilter = "";
+        _ocFechaFilter = "";
+        _ocMode = "grupo";
+        _ocGlobalLoaded = false;
         _planReqId = r.Id;
         _planItemId = r.ItemId;
         _planDescripcion = r.Descripcion;
@@ -3454,6 +3662,9 @@ else
         _planRegs = grp;
         _planTab = "detalle";
         _ocProvFilter = "";
+        _ocFechaFilter = "";
+        _ocMode = "grupo";
+        _ocGlobalLoaded = false;
         _planReqId = grp[0].Id;
         _planItemId = grp[0].ItemId;
         _planDescripcion = grp[0].Descripcion;
@@ -3697,31 +3908,21 @@ else
         finally { _busy = false; }
     }
 
-    private async Task EjecutarAsync(HijoEdit h)
+    // Refresca el plan abierto tras una mutacion del servidor (enviar/liberar/gestionar), en cualquiera de los
+    // modos del tab OC (recarga la vista global si esta activa) y la grilla de fondo.
+    private async Task RefreshPlanTrasMutacionAsync()
     {
-        if (h.Id is not Guid hid) { return; }
-        _planError = null;
-        _busy = true;
-        try
+        if (_ocMode == "global") { await ReloadOcGlobalAsync(); }
+        if (_planIsGroup)
         {
-            var actor = await ActorAsync();
-            var actorName = await ActorNameAsync();
-            var res = await Svc.EjecutarHijoAsync(hid, actor, actorName);
-            if (!res.Ok) { _planError = res.Error ?? "No se pudo ejecutar la compra."; }
-            else
-            {
-                _msg = res.TaskNumber is { } num
-                    ? $"Compra ejecutada: actividad {num} creada."
-                    : "Compra ejecutada: actividad creada.";
-            }
-            if (_planIsGroup)
-            {
-                // En grupo, reconstruye todas las necesidades (el plan devuelto es solo del padre ejecutado).
-                await BuildGroupHijosAsync(_planRegs);
-                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
-                await LoadHijoDynValuesAsync();
-            }
-            else if (res.Plan is { } plan)
+            await BuildGroupHijosAsync(_planRegs);
+            foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+            await LoadHijoDynValuesAsync();
+        }
+        else
+        {
+            var plan = await Svc.GetPlanificacionAsync(_planReqId);
+            if (plan is not null)
             {
                 _planProducto = plan.Producto;
                 _planCantidadPadre = plan.CantidadPadre;
@@ -3729,7 +3930,82 @@ else
                 foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
                 await LoadHijoDynValuesAsync();
             }
-            await ReloadAsync();
+        }
+        await ReloadAsync();
+    }
+
+    private async Task ReloadOcGlobalAsync()
+    {
+        _ocGlobal = (await Svc.GetPlanificadoPorProveedorAsync()).ToList();
+        _ocGlobalLoaded = true;
+    }
+
+    // Enviar a Orden de compra: bloquea la linea (EnOrdenCompra) para gestionarla luego en la pestana OC.
+    private async Task EnviarOcAsync(HijoEdit h)
+    {
+        if (h.Id is not Guid hid) { return; }
+        _planError = null; _busy = true;
+        try
+        {
+            var res = await Svc.EnviarAOrdenCompraAsync(hid);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo enviar a orden de compra."; }
+            else { _msg = "Linea enviada a orden de compra (bloqueada)."; await RefreshPlanTrasMutacionAsync(); }
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Liberar: vuelve a editable. El servicio solo lo permite si NO se ha emitido la tarea de gestion.
+    private async Task LiberarHijoAsync(Guid hid)
+    {
+        _planError = null; _busy = true;
+        try
+        {
+            var res = await Svc.LiberarOrdenCompraAsync(hid);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo liberar."; }
+            else { _msg = "Linea liberada (vuelve a editable)."; await RefreshPlanTrasMutacionAsync(); }
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Gestionar compra (emitir la tarea de gestion) de UNA linea; vive en la pestana Orden de compra.
+    private async Task GestionarHijoAsync(Guid hid)
+    {
+        _planError = null; _busy = true;
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            var res = await Svc.EjecutarHijoAsync(hid, actor, actorName);
+            if (!res.Ok) { _planError = res.Error ?? "No se pudo gestionar la compra."; }
+            else { _msg = res.TaskNumber is { } num ? $"Compra gestionada: actividad {num} creada." : "Compra gestionada: actividad creada."; }
+            await RefreshPlanTrasMutacionAsync();
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Gestionar compra de TODAS las lineas de un proveedor que estan en orden de compra (varias de una).
+    private async Task GestionarGrupoAsync(List<OcLineVM> lineas)
+    {
+        var ids = lineas.Where(l => l.HijoId is Guid && l.TaskItemId is null && l.Estado == RequerimientoEstado.EnOrdenCompra)
+                        .Select(l => l.HijoId!.Value).ToList();
+        if (ids.Count == 0) { _planError = "No hay lineas en orden de compra para gestionar."; return; }
+        _planError = null; _busy = true;
+        var nums = new List<string>();
+        try
+        {
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            foreach (var id in ids)
+            {
+                var res = await Svc.EjecutarHijoAsync(id, actor, actorName);
+                if (!res.Ok) { _planError = res.Error ?? "No se pudo gestionar una linea."; break; }
+                if (res.TaskNumber is { } n) { nums.Add(n); }
+            }
+            if (nums.Count > 0) { _msg = $"Gestionada(s) {nums.Count} compra(s): {string.Join(", ", nums)}."; }
+            await RefreshPlanTrasMutacionAsync();
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }

@@ -2,6 +2,63 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-07 - Entrega numerica + rediseno Ejecutar->Orden de compra (bloquear/liberar/gestionar) (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.282. Rama requerimiento_compras. SIN deploy. Build verde (0 errores).
+- ORIGEN: simulacro como jefe de compras exigente -> dudas del sistema. El usuario pidio (1) tiempo de entrega NUMERICO
+  (inmediato=0), (2) que "Ejecutar" ya NO cree la actividad en Planificacion: debe ENVIAR a Orden de compra, donde vive
+  "Gestionar compra"; al enviar, el registro se BLOQUEA y se puede LIBERAR solo si aun no se emitio la tarea de gestion.
+- HECHO (SIN migracion; nuevo estado = valor de enum, datos y columna varchar existente):
+  - A) ENTREGA NUMERICA: HijoEdit.EntregaDias (int?) sobre la columna varchar `tiempo_entrega` (guarda "4"; lee el entero
+    inicial de valores viejos "4 dias"->4, "inmediato"->0). Input type=number. Helper EntregaTexto (razor y servicio)
+    para mostrar "N dias"/"Inmediato". Sin cambio de esquema.
+  - B) FLUJO Ejecutar->OC: nuevo estado RequerimientoEstado.EnOrdenCompra=6. Servicio: EnviarAOrdenCompraAsync (bloquea,
+    exige proveedor, idempotente, rollup del padre) y LiberarOrdenCompraAsync (solo si TaskItemId null). EjecutarHijoAsync
+    (ahora "Gestionar compra") exige que el hijo este EnOrdenCompra. RequerimientoOpResult(ok,error).
+  - UI Planificacion: boton "Ejecutar" -> "Enviar a orden de compra"; estado "En orden de compra" + "Liberar"; inputs de
+    la fila BLOQUEADOS (HiLocked) cuando enviada/gestionada. Badge final "Gestionada".
+  - UI Orden de compra: por linea "Gestionar compra" + "Liberar" (EnOrdenCompra); por proveedor "Gestionar compra (N)"
+    (emite todas las lineas EnOrdenCompra del proveedor). OcProveedorLineaDto/OcLineVM ganan HijoId y Estado -> funciona en
+    modo grupo Y global. Labels EstadoLabel (filtro + return service) con "En orden de compra".
+- SIGUIENTE: validar E2E 5265/SKY (enviar->bloquea, gestionar crea actividad, liberar bloqueado tras gestionar). Commit a
+  rama requerimiento_compras. Pendiente: OC como documento (PDF por proveedor), indicadores (cobertura "sin cotizar").
+- PENDIENTE heredado: #3 calificar al recibir; modulo de indicadores (plan en curso: familias A dinero / B cobertura / C tiempo).
+
+## 2026-11-07 - Orden de compra: acotar "todo por proveedor" a los proveedores del articulo + filtro de fecha planeada (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.281. Rama requerimiento_compras. SIN deploy.
+- CORRECCION DE ALCANCE (el usuario aclaro): el modo "Todo por proveedor" NO debe traer todos los proveedores del
+  tenant, sino SOLO los proveedores que estan en ESTE planificador (el articulo abierto) y, para cada uno, TODOS sus
+  articulos planificados (de otras necesidades tambien) -> el comprador ve cuantas cosas le compra a ese proveedor
+  ("no se le compra un solo articulo, se le compran varios"). Vision: desde Orden de compra se LANZA la compra.
+- HECHO (SIN migracion; reusa GetPlanificadoPorProveedorAsync):
+  - En modo global, _ocAll se filtra a los proveedores presentes en _pHijos (ProvId del hijo del planificador). Toggle
+    reetiquetado: "Solo este articulo | Todo lo de estos proveedores".
+  - Nuevo filtro de FECHA PLANEADA: dropdown con las fechas distintas del conjunto (se recalcula segun el proveedor
+    elegido, "solo las fechas que ese proveedor tiene"). _ocFechaFilter (yyyy-MM-dd); al cambiar de proveedor se
+    resetea la fecha. OcLineVM gana ProvId.
+- SIGUIENTE (vision del usuario): desde "Orden de compra" lanzar la compra al proveedor con varios articulos (generar
+  OC/actividad de compra por proveedor). Validar E2E 5265/SKY.
+- PENDIENTE heredado: #3 calificar al recibir; confirmar save del flete con pane visible.
+
+## 2026-11-07 - Orden de compra: opcion "Todo por proveedor" (vista transversal del tenant) (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.280. Rama requerimiento_compras. SIN deploy.
+- CONTEXTO: el tab "Orden de compra" solo mostraba lo del planificador abierto; el usuario pidio ver TODO lo que hay
+  que comprarle a un mismo proveedor cruzando todas las necesidades (la OC real por proveedor es transversal).
+- HECHO (SIN migracion; una consulta de lectura nueva + toggle en el tab):
+  - BACKEND: OcProveedorLineaDto (linea aplanada: proveedor+contacto, producto de origen, cantidad/unidad, fecha,
+    despacho, entrega, precio, estado). IRequerimientoService.GetPlanificadoPorProveedorAsync() en RequerimientoService:
+    lee TODOS los hijos con proveedor del tenant (filtro global aplica), resuelve producto/unidad/actividad por
+    requerimiento y contacto una vez por proveedor; devuelve las lineas.
+  - UI (CotizacionesComparador no; RequerimientosCompra.razor): toggle en el tab "Este planificador | Todo por
+    proveedor". El render se unifico en OcLineVM (sirve a los dos modos): modo grupo usa _pHijos (columna "Necesidad
+    (origen)" solo si es grupo); modo global usa _ocGlobal (columna "Producto", unidad por linea). Carga perezosa del
+    global al pulsar el toggle (_ocGlobalBusy/_ocGlobalLoaded); se resetea a "grupo" al abrir el modal. Mismos chips de
+    filtro por proveedor, totales por proveedor + total general, badges de estado.
+- SIGUIENTE: validar E2E 5265/SKY ambos modos. Candidatos: generar/enviar la OC (PDF/correo), sumar flete/landed.
+- PENDIENTE heredado: #3 calificar al recibir; confirmar save del flete con pane visible.
+
 ## 2026-11-07 - Tab "Orden de compra" en el planificador: ver por proveedor lo planificado (worktree requerimiento_compras)
 
 - AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.279. Rama requerimiento_compras (sincronizada a 0.16.278 por ff

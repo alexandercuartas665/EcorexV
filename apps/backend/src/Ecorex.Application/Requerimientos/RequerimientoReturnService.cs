@@ -165,6 +165,7 @@ public sealed class RequerimientoReturnService : IRequerimientoReturnService
         RequerimientoEstado.Agrupado => "Agrupado",
         RequerimientoEstado.Planificado => "Planificado",
         RequerimientoEstado.ConProveedor => "Con proveedor",
+        RequerimientoEstado.EnOrdenCompra => "En orden de compra",
         RequerimientoEstado.Ejecutado => "Ejecutado",
         RequerimientoEstado.Cerrado => "Cerrado",
         _ => e.ToString(),

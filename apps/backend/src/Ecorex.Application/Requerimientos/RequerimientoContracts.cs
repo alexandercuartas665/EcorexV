@@ -71,6 +71,32 @@ public sealed record RequerimientoHijoDto(
     public decimal Total => Cantidad * PrecioUnitario;
 }
 
+/// <summary>Una linea planificada (hijo) con proveedor asignado, aplanada con el producto/necesidad
+/// de origen y el contacto del proveedor, para la vista "Orden de compra: todo por proveedor" que
+/// cruza TODAS las necesidades del tenant (no solo el grupo abierto).</summary>
+public sealed record OcProveedorLineaDto(
+    Guid? ProveedorId,
+    string ProveedorNombre,
+    string? Contacto,
+    string? Email,
+    string? Telefono,
+    Guid HijoId,
+    Guid RequerimientoId,
+    string Producto,
+    string? SourceTaskNumber,
+    string? Unidad,
+    decimal Cantidad,
+    decimal PrecioUnitario,
+    DateTimeOffset? FechaProgramadaCompra,
+    string Despacho,
+    string Entrega,
+    RequerimientoEstado Estado,
+    Guid? TaskItemId,
+    Guid? CotizacionTaskItemId)
+{
+    public decimal Total => Cantidad * PrecioUnitario;
+}
+
 /// <summary>Un contacto de un proveedor (TerceroContacto) para elegir/editar desde Requerimientos (Ola 11).</summary>
 public sealed record ProveedorContactoItemDto(Guid Id, string Nombre, string? Cargo, string? Email, string? Telefono);
 
@@ -302,6 +328,9 @@ public sealed record EjecutarCompraResultado(
     string? TaskNumber,
     PlanificacionDto? Plan);
 
+/// <summary>Resultado simple (ok/error) de una accion del modulo (enviar a orden de compra, liberar).</summary>
+public sealed record RequerimientoOpResult(bool Ok, string? Error);
+
 /// <summary>
 /// Operativa del modulo de Requerimientos (Capa 10, Ola 2): recepcion (alta manual) + listado para la
 /// grilla + agrupacion por producto. La ingesta automatica desde formularios se define en una fase
@@ -355,6 +384,14 @@ public interface IRequerimientoService
     /// actividad, no crea otra.</summary>
     Task<EjecutarCompraResultado> EjecutarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default);
 
+    // ---- Orden de compra: enviar (bloquear) / liberar antes de gestionar (emitir la tarea) ----
+    /// <summary>Envia una division (hijo) a la Orden de compra: la pasa a EnOrdenCompra y la BLOQUEA (no editable)
+    /// hasta que se gestione (emita) la compra. Exige proveedor asignado y que no tenga ya actividad. Idempotente.</summary>
+    Task<RequerimientoOpResult> EnviarAOrdenCompraAsync(Guid hijoId, CancellationToken ct = default);
+    /// <summary>Libera una division que estaba EnOrdenCompra y la vuelve editable (ConProveedor/Planificado). Solo
+    /// se permite si NO se ha emitido la tarea de gestion (TaskItemId null); una vez gestionada, no se libera.</summary>
+    Task<RequerimientoOpResult> LiberarOrdenCompraAsync(Guid hijoId, CancellationToken ct = default);
+
     // ---- Ola 8: cotizar + contacto del proveedor ----
     /// <summary>Pide la COTIZACION de un registro HIJO: crea una Actividad (TaskItem) con la subcategoria de
     /// COTIZACION del origen, enlaza el CotizacionTaskItemId al hijo. No cambia el estado de la compra.
@@ -401,6 +438,11 @@ public interface IRequerimientoService
 
     /// <summary>Sobrecarga sin contacto especifico (usa el primero). Compatibilidad.</summary>
     Task<ProveedorContactoDto?> GetProveedorContactoAsync(Guid proveedorId, CancellationToken ct = default);
+
+    /// <summary>Todas las lineas planificadas (hijos) CON proveedor asignado del tenant, cruzando todas
+    /// las necesidades, para la vista "Orden de compra: todo por proveedor". Incluye producto de origen
+    /// y contacto del proveedor. Respeta el filtro global por tenant.</summary>
+    Task<IReadOnlyList<OcProveedorLineaDto>> GetPlanificadoPorProveedorAsync(CancellationToken ct = default);
 
     // ---- Ola 11: editar los contactos del proveedor desde Requerimientos ----
     /// <summary>Lista los contactos (TerceroContacto) de un proveedor para elegir/editar.</summary>

@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-07 - Tab "Orden de compra" en el planificador: ver por proveedor lo planificado (worktree requerimiento_compras)
+
+- AGENTES: Claude Opus 4.8 (Code) + usuario. Version 0.16.279. Rama requerimiento_compras (sincronizada a 0.16.278 por ff
+  tras el merge a Main; push a requerimiento_compras pendiente). SIN deploy.
+- HIGIENE PREVIA: tras el merge de dev (tronco+espejo en 3b98e28e, v0.16.278), se sincronizo el worktree por
+  fast-forward (0982cfb2 -> 3b98e28e) y se empujo origin/requerimiento_compras al mismo commit (ya no desfasada).
+  La fila de flete sembrada por SQL (requerimientos.cotizacion_fletes, Dielco grupo 2X16) se DEJA (solo local).
+- CONTEXTO: evaluando como jefe de compras, faltaba un lugar donde ver la ORDEN DE COMPRA que se va a lanzar al
+  proveedor. Decidido con el usuario: FASE "solo vista + filtro" (no genera ni envia OC todavia) y UBICACION
+  "tab dentro del modal del grupo" (no a nivel de modulo).
+- HECHO (SIN migracion, SIN servicio nuevo; presentacion pura sobre `_pHijos` ya en memoria):
+  - 4to tab "Orden de compra" en el modal Planificar (junto a Detalle/Cotizacion/Planificacion). Agrupa las compras
+    programadas con proveedor asignado POR PROVEEDOR; por grupo muestra encabezado (proveedor + contacto/correo/tel +
+    conteo + subtotal), tabla de lineas (necesidad origen si es grupo, cantidad+unidad, fecha compra, despacho,
+    entrega, precio unit, total, estado badge Planificada/Cotizada/Ejecutada) y total del proveedor.
+  - Filtro por proveedor con chips (Todos + cada proveedor). Total general (o total del proveedor filtrado) al pie.
+    Aviso en ambar de las lineas SIN proveedor (no entran en ninguna OC). Footer del tab es de solo lectura
+    (boton "<- Planificacion"); desde "Planificacion" se agrego el boton "Orden de compra ->".
+  - Estado `_ocProvFilter` reseteado al abrir el modal (individual y grupo). Build SuperAdmin 0 errores.
+- SIGUIENTE: validar E2E en 5265/SKY (pane visible). Candidatos de fase siguiente (si el usuario quiere): generar la OC
+  como PDF con membrete (reusa plantillas) y/o enviar/marcar ordenada; sumar flete/landed a la vista de OC. Pendientes
+  heredados: #3 calificar al recibir; confirmar save del flete con pane visible. PROMPT a dev y deploy con OK por version.
+
 ## 2026-11-06 - Merge de la linea Requerimientos de Compra (rama requerimiento_compras -> tronco + espejo main, release v0.16.278, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Merge divergente `--no-ff` de `requerimiento_compras` (37 commits, culminaba en v0.16.254) sobre el tronco `fase-0/clon-backbone` (+62 commits desde la merge-base `6234c106`). Trae TODA la linea: APU->Requerimiento, consolidado, Planificar grupo, matriz de reglas, RFQ olas A-F, proceso de compras configurable y el comparador de cotizaciones con sus 4 puntos de decision (semaforo de entrega, costo financiero credito/pago, scorecard de confiabilidad, costo real con flete/landed + canasta).

@@ -409,6 +409,9 @@
 .cd-fields-sec { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3, #9ca3af); margin: 4px 2px 7px; }
 .cd-fields-sec:not(:first-child) { margin-top: 14px; }
 .cd-sys-badge { display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: .05em; color: var(--ink-3, #6b7280); background: var(--surface-2, #f1f5f9); border: 1px solid var(--line-2, #e5e7eb); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+/* Distintivo de renglon "fantasma": documento que esta en NEWTON pero no se descargo de la DIAN en el periodo. */
+.cd-newton-chip { display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: .05em; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 999px; padding: 1px 6px; margin-left: 6px; vertical-align: middle; cursor: default; }
+.cd-newton-only { display: inline-block; font-size: 10px; font-weight: 700; color: #92400e; background: #fffbeb; border: 1px dashed #fcd34d; border-radius: 6px; padding: 2px 8px; white-space: nowrap; cursor: default; }
 .cd-field-meta { flex: 1; min-width: 0; }
 .cd-field-name { font-size: 13px; font-weight: 600; color: var(--ink, #111827); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-field-dot { color: var(--brand, #4f46e5); font-size: 10px; margin-left: 4px; }

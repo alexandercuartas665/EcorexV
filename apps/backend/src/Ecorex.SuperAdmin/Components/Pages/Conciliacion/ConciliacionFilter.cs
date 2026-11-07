@@ -27,7 +27,7 @@ public sealed class FilterNode
     public static FilterNode NewCond() => new() { Kind = "cond", Field = "", Operator = "", Value = null };
 }
 
-public enum FilterFieldType { Text, Number, Date, Bool, Estado }
+public enum FilterFieldType { Text, Number, Date, Bool, Estado, Presencia }
 
 /// <summary>Metadatos de un campo filtrable (etiqueta + tipo). El tipo define los operadores disponibles.</summary>
 public sealed record FilterField(string Key, string Label, FilterFieldType Type);
@@ -56,6 +56,7 @@ public static class ConciliacionFilter
         new("retefuente", "Retefuente", FilterFieldType.Number),
         new("retica", "ReteICA", FilterFieldType.Number),
         new("estado_radian", "Estado RADIAN", FilterFieldType.Estado),
+        new("presencia", "Presencia DIAN/Newton", FilterFieldType.Presencia),
         new("plataforma", "En Newton (plataforma)", FilterFieldType.Bool),
         new("archivos", "Tiene archivos", FilterFieldType.Bool),
         new("aprobada", "Factura aprobada", FilterFieldType.Bool),
@@ -102,6 +103,12 @@ public static class ConciliacionFilter
             ("sin", "sin ningún estado"), ("con", "con algún estado"),
             ("ev30", "acuse de recibo (030)"), ("ev31", "reclamo (031)"),
             ("ev32", "recibo del bien/servicio (032)"), ("ev33", "aceptación expresa (033)"), ("ev34", "(034)"),
+        },
+        FilterFieldType.Presencia => new (string, string)[]
+        {
+            ("solo_dian", "solo en DIAN (no en Newton)"),
+            ("ambos", "en DIAN y en Newton"),
+            ("solo_newton", "solo en Newton (no en DIAN)"),
         },
         _ => Array.Empty<(string, string)>(),
     };
@@ -187,6 +194,7 @@ public static class ConciliacionFilter
             case FilterFieldType.Date: return EvalDate(r.FechaEmision, n.Operator, n.Value, n.Value2);
             case FilterFieldType.Bool: return EvalBool(BoolOf(r, n.Field, hasFiles), n.Operator);
             case FilterFieldType.Estado: return EvalEstado(r, n.Operator);
+            case FilterFieldType.Presencia: return EvalPresencia(r, n.Operator);
             default: return true;
         }
     }
@@ -280,6 +288,15 @@ public static class ConciliacionFilter
     {
         "istrue" => value,
         "isfalse" => !value,
+        _ => true,
+    };
+
+    // Presencia DIAN vs Newton (la calcula el servicio al listar y la trae el DTO en r.Presencia).
+    private static bool EvalPresencia(ConciliacionDianRenglonDto r, string op) => op switch
+    {
+        "solo_dian" => r.Presencia == PresenciaConciliacionDian.SoloDian,
+        "ambos" => r.Presencia == PresenciaConciliacionDian.Ambos,
+        "solo_newton" => r.Presencia == PresenciaConciliacionDian.SoloNewton,
         _ => true,
     };
 

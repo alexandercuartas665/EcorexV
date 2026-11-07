@@ -39,7 +39,20 @@ public sealed record ConciliacionDianRenglonDto(
     string? MarkerColor,
     string? MarkerNote,
     Guid? AssignedTenantUserId,
-    bool Rechazado);
+    bool Rechazado,
+    OrigenRenglonConciliacionDian Origen,
+    PresenciaConciliacionDian Presencia);
+
+/// <summary>Presencia del documento comparando DIAN vs proveedor tecnologico NEWTON, acotada al periodo del
+/// CCD. Derivada por el servicio al listar (no se persiste): <see cref="SoloDian"/> esta en la DIAN y no en
+/// NEWTON; <see cref="Ambos"/> esta en ambos; <see cref="SoloNewton"/> esta en NEWTON y no en la DIAN
+/// (renglon fantasma). "Esta en NEWTON" = el CUFE existe en NEWTON (con o sin PDF).</summary>
+public enum PresenciaConciliacionDian
+{
+    SoloDian = 0,
+    Ambos = 1,
+    SoloNewton = 2
+}
 
 /// <summary>Filtros del panel (proveedor, rango de fechas de emision, rango de numero de factura).</summary>
 public sealed record ConciliacionDianFiltro(

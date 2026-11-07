@@ -94,6 +94,7 @@ else
         <span class="cd-doc-meta">Creado: @(_selectedDoc?.FechaCreacion.ToString("dd/MM/yyyy") ?? "-")</span>
         <div style="flex:1"></div>
         <button class="btn btn-outline-secondary btn-sm" @onclick="ImportarAsync" disabled="@_busy" title="Trae del bot DIAN las facturas del periodo que falten">Importar del bot</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="RellenarNewtonAsync" disabled="@_busy" title="Backfill: rellena fecha y datos de las filas NEWTON historicas re-parseando el XML ya guardado (sin re-descargar). Necesario para que el historico participe de la comparacion DIAN/NEWTON por periodo.">Rellenar NEWTON</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AplicarReglasDryRunAsync" disabled="@_busy" title="Corre las reglas configuradas (VLOOKUP + condiciones, incluido el cruce ERP/Newton) sobre este documento. Primero muestra una simulacion.">Aplicar reglas</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="EjecutarIntegracionDryRunAsync" disabled="@_busy" title="Envia los documentos de cada factura al sistema contable (integraciones habilitadas). Solo las pendientes que tienen el dato 'documento' y archivos. Primero muestra una confirmacion.">Ejecutar integracion</button>
         <button class="btn btn-outline-secondary btn-sm" @onclick="AnalizarConIaAsync" disabled="@(_busy || _iaBusy)" title="El asistente de IA evalua las reglas por proveedor sobre las facturas pendientes y PROPONE a que salida/usuario va cada una (tu confirmas antes de crear las tareas)">@(_iaBusy ? "Analizando..." : "\U0001F916 Analizar con IA")</button>
@@ -387,7 +388,13 @@ else
                                         {
                                             case "tipodoc": <text>@r.TipoDocDian</text> break;
                                             case "fecha": <text>@r.FechaEmision.ToString("dd/MM/yyyy")</text> break;
-                                            case "proveedor": <text>@r.NombreProveedor</text> break;
+                                            case "proveedor":
+                                                <text>@r.NombreProveedor</text>
+                                                if (r.Presencia == PresenciaConciliacionDian.SoloNewton)
+                                                {
+                                                    <span class="cd-newton-chip" title="Solo en NEWTON: este documento esta en el proveedor tecnologico pero NO se descargo de la DIAN en el periodo">NEWTON</span>
+                                                }
+                                                break;
                                             case "nit": <text>@r.NitProveedor</text> break;
                                             case "numprov": <span class="cd-pill info">@r.NumFacturaProveedor</span> break;
                                             case "numsol":
@@ -446,6 +453,11 @@ else
                                                 }
                                                 break;
                                             case "usuario":
+                                                if (r.Origen == OrigenRenglonConciliacionDian.Newton)
+                                                {
+                                                    <span class="cd-newton-only" title="Documento solo en NEWTON (no esta en la DIAN): no genera tarea hasta que aparezca en la DIAN">Solo NEWTON</span>
+                                                    break;
+                                                }
                                                 var tieneTarea = _tareaDeRenglon.TryGetValue(r.Id, out var tnum);
                                                 <div class="cd-user-cell">
                                                     <select class="cd-in cd-user" @key="@($"u{r.Id}:{r.AssignedTenantUserId}")"
@@ -2335,6 +2347,7 @@ else
     {
         if (_creandoTarea) { return; }
         var r = _renglones.FirstOrDefault(x => x.Id == rowArg.Id) ?? rowArg;
+        if (r.Origen == OrigenRenglonConciliacionDian.Newton) { _msg = "Documento solo en NEWTON (no esta en la DIAN): no genera tarea."; return; }
         if (_salidasRun.Count == 0) { _msg = "Configura primero una salida (concepto) en «Configuracion»."; return; }
         if (r.AssignedTenantUserId is null) { _msg = "Asigna primero un usuario a la factura antes de crear la tarea."; return; }
         if (_tareaDeRenglon.ContainsKey(r.Id)) { return; }   // ya tiene tarea
@@ -2383,6 +2396,8 @@ else
     // (true, numero) o (false, mensaje de error). NO toca _creandoTarea ni _msg (los maneja quien la llama).
     private async Task<(bool Ok, string Result)> CrearTareaCoreAsync(ConciliacionDianRenglonDto r, SalidaFlujoDto salida, Guid assignee)
     {
+        // Candado: una fila fantasma (solo en NEWTON, no en la DIAN) nunca produce tarea, venga del boton o de la IA.
+        if (r.Origen == OrigenRenglonConciliacionDian.Newton) { return (false, "Documento solo en NEWTON (no esta en la DIAN): no puede generar tarea."); }
         if (salida.SubcategoriaId is not Guid subId) { return (false, "La salida no tiene concepto configurado."); }
         try
         {
@@ -2560,6 +2575,7 @@ else
             }
 
             var candidatos = _renglones
+                .Where(r => r.Origen != OrigenRenglonConciliacionDian.Newton)   // fila fantasma no genera tarea
                 .Where(r => !_tareaDeRenglon.ContainsKey(r.Id))
                 .Where(r => reglas.Any(rg => ProvMatch(r, rg)))
                 .Take(100)
@@ -3790,6 +3806,24 @@ else
         finally { _busy = false; _extRunBusy = false; }
     }
 
+    // Backfill del historico NEWTON: rellena fecha/NIT/totales re-parseando el XML ya guardado en el blob
+    // (sin re-descargar), para que esas filas participen de la comparacion DIAN/NEWTON por periodo.
+    private async Task RellenarNewtonAsync()
+    {
+        if (Tenant.TenantId is not Guid tid) { _msg = "No se pudo resolver el tenant."; return; }
+        _busy = true; _msg = null;
+        try
+        {
+            var (enr, sin, tot) = await BrowserRun.BackfillNewtonDesdeBlobAsync(tid);
+            _msg = tot == 0
+                ? "NEWTON: no hay filas pendientes de rellenar."
+                : $"NEWTON rellenadas: {enr} de {tot} pendientes (con XML en el gestor); {sin} sin archivo.";
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _msg = "Error al rellenar NEWTON: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
     private void CerrarExtRun() => _extRunOpen = false;
 
     private static string FlowStatusLabel(string s) => s switch
@@ -4186,6 +4220,7 @@ else
     // para que el <select> (con @key ligado al asignado) refleje el valor elegido.
     private async Task OnAssigneeChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)
     {
+        if (r.Origen == OrigenRenglonConciliacionDian.Newton) { return; }   // fila fantasma: no se asigna responsable
         Guid? uid = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
         await Svc.SetAssigneeAsync(r.Id, uid);
         var i = _renglones.FindIndex(x => x.Id == r.Id);

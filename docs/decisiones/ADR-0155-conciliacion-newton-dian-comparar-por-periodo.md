@@ -74,4 +74,4 @@ gate del CI (ADR-0018) en el PR a main.
 2. [x] Enriquecimiento de NEWTON + backfill desde blob.
 3. [x] Filas fantasma por periodo + chip + filtro de presencia.
 4. [x] Candado: fantasma no produce tarea (boton, IA, asignacion).
-5. [ ] Deploy a prod: pendiente del OK por version del usuario.
+5. [x] Deploy a prod: desplegado en v0.16.279 el 2026-11-07 (via rapida GHCR; prod sirve v0.16.279, HTTP 200).

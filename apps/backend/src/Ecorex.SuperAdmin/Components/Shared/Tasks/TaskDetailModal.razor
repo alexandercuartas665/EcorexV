@@ -3527,8 +3527,10 @@
         => DirectoryLookupConfig.TryParse(f.Options) ?? new DirectoryLookupConfig();
 
     /// <summary>
-    /// Rehace los calculados en memoria (aritmetica sobre unas pocas claves; no toca la BD). Reusa
-    /// el motor compartido via el servicio, que resuelve las formulas del tablero de la tarea.
+    /// Rehace los calculados del tablero. OJO: ComputeCalculatedAsync LEE las formulas del tablero en BD,
+    /// asi que el recalculo real (RecalcCustomCalculatedAsync) corre AISLADO en su propio scope EF +
+    /// _reloadLock, para no solaparse con otra consulta del DbContext del circuito ("second operation").
+    /// Se dispara fire-and-forget: no bloquea el render; al terminar refresca.
     /// </summary>
     private void RecalcCustomCalculated()
     {
@@ -3545,9 +3547,36 @@
     private async Task RecalcCustomCalculatedAsync(Guid boardId)
     {
         var snapshot = new Dictionary<string, string?>(_customValues, StringComparer.Ordinal);
-        var result = await FieldSvc.ComputeCalculatedAsync(boardId, snapshot);
-        _customCalculated = result.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
-        await InvokeAsync(StateHasChanged);
+        // Scope EF propio + _reloadLock (mismo patron que ReloadAsync): el recalculo lee las formulas en BD y
+        // se dispara fire-and-forget desde un cambio de campo, asi que sin aislar podria solaparse con la
+        // recarga del modal o del tablero sobre el DbContext del circuito. Un error transitorio no tumba el circuito.
+        await _reloadLock.WaitAsync();
+        try
+        {
+            IReadOnlyDictionary<string, string?> result;
+            var tenantId = await TenantIdAsync();
+            if (tenantId is Guid tg)
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tg, await ActorAsync());
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var fieldSvc = scope.ServiceProvider.GetRequiredService<ITaskFieldService>();
+                result = await fieldSvc.ComputeCalculatedAsync(boardId, snapshot);
+            }
+            else
+            {
+                result = await FieldSvc.ComputeCalculatedAsync(boardId, snapshot);
+            }
+            _customCalculated = result.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // El recalculo es un complemento visual; un error transitorio de BD no debe tumbar el circuito.
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
     }
 
     private async Task SaveCustomFieldsAsync()

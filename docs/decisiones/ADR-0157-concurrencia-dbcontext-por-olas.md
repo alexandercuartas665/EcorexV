@@ -162,11 +162,38 @@ rendimiento, y no arregla nada fuera del circuito. Sirve solo como tactica acota
 - Regresion manual de las pantallas calientes migradas (tableros, detalle de tarea, formularios,
   dashboard, conciliacion) con SignalR activo y doble-click/navegacion rapida.
 
+## Estado de ejecucion
+
+**Ola 0 - ejecutada (2026-11-08, v0.16.282).** La auditoria fina de los componentes calientes
+mostro que la mayor parte de la serializacion YA estaba puesta de forma incremental (ADR-0138 y
+sus seguimientos):
+
+- Handlers de push de tableros (`TaskKanban`, `ActivityBoardDetail`, `ActivityBoardsIndex`):
+  su `ReloadAsync` ya corre con `_reloadLock` + scope EF propio (`ScopeFactory.CreateAsyncScope`
+  + `AmbientTenantContext`). OK, no se toco.
+- `DynamicFormRenderer`: todas sus escrituras/lecturas disparadas fire-and-forget (`AutosaveTickAsync`
+  via `SaveAsync`, `EnsureLookupDisplayAsync`, `EnsureGridListOptionsAsync`) ya pasan por el
+  `CircuitFormGate` (`_dbGate`). OK, no se toco.
+- `MainLayout.RefreshUnreadAsync` (push `NotificationAdded`): ya usa scope EF propio. OK.
+- **Unico hueco real hallado y CORREGIDO**: `TaskDetailModal.RecalcCustomCalculatedAsync`, que se
+  disparaba fire-and-forget desde un cambio de campo y llamaba `ITaskFieldService.ComputeCalculatedAsync`
+  (que LEE `TaskFieldDefinitions` en BD, pese a un comentario que decia "no toca la BD") sobre el
+  `_db` del circuito, sin gate. Se aislo con `_reloadLock` + scope EF propio + `AmbientTenantContext`,
+  igual que el `ReloadAsync` del propio modal, con try/catch para no tumbar el circuito.
+- Fire-and-forget restantes verificados SIN BD (seguros): `ClearCopiedAsync` (Task.Delay),
+  `TaskToasts` (quita un toast). Sin `async void` en componentes calientes.
+
+**Vectores nuevos detectados -> van a Ola 1** (no se parchean con medio-lock para no dar falsa
+confianza): `Conversaciones`, `Pipeline` y `ClientChat` NO tienen gate por circuito y su handler de
+push `BoardChanged` recarga de BD (`ReloadConversationsAsync` -> `ChatSvc`, etc.) sobre el `_db`
+compartido; ademas el resto de la pagina usa ese mismo `_db` sin gate. Necesitan el tratamiento de
+scope propio/gate completo (Ola 1), no un lock parcial.
+
 ## Action Items
 
 1. [ ] Prerrequisito: observabilidad en prod (sink persistente + timestamps / contador de la excepcion).
-2. [ ] Ola 0: quitar fire-and-forget / `async void` en componentes calientes + `SemaphoreSlim` por circuito en handlers de push. (Sin tocar datos.)
-3. [ ] Ola 1: migrar las lecturas calientes al factory (`TaskItemService` resto, `TaskBoardService`, `ActivityBoardService`, `DashboardService`, `FormResponseService`, `ConciliacionRuleService`).
+2. [x] Ola 0 (v0.16.282): fix de `TaskDetailModal.RecalcCustomCalculatedAsync` (unico fire-and-forget sin gate que tocaba BD); el resto del camino caliente ya estaba serializado (verificado). Build verde.
+3. [ ] Ola 1: migrar las lecturas calientes al factory/scope propio: `TaskItemService` (resto), `TaskBoardService`, `ActivityBoardService`, `DashboardService`, `FormResponseService`, `ConciliacionRuleService`, **y** `Conversaciones`/`Pipeline`/`ClientChat` (hoy sin gate; su `BoardChanged` recarga sobre el `_db` del circuito).
 4. [ ] Decidir el modelo de unidad de trabajo para escrituras (factory-UoW vs transaccion corta por servicio).
 5. [ ] Ola 2: migrar escrituras preservando atomicidad y auditoria en el mismo contexto.
 6. [ ] Reflejar este ADR en el vault (`04. Notas para desarrollador/ADRs`).

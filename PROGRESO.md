@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-08 - Ola 0 del plan de concurrencia (ADR-0157): aislar el unico fire-and-forget que tocaba BD sin gate (release v0.16.282, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Ejecucion de la Ola 0 del ADR-0157 (serializar los puntos de solape del circuito SIN tocar la capa de datos). La auditoria fina revelo que casi toda la serializacion YA estaba puesta de forma incremental: los handlers de push de tableros (TaskKanban/ActivityBoardDetail/ActivityBoardsIndex) ya corren su ReloadAsync con `_reloadLock` + scope EF propio; DynamicFormRenderer ya enruta sus fire-and-forget por el `CircuitFormGate` (`_dbGate`); MainLayout.RefreshUnreadAsync ya usa scope propio.
+- UNICO HUECO REAL hallado y CORREGIDO: `TaskDetailModal.RecalcCustomCalculatedAsync` se disparaba fire-and-forget desde un cambio de campo y llamaba `ITaskFieldService.ComputeCalculatedAsync`, que LEE `TaskFieldDefinitions` en BD (pese a un comentario que afirmaba "no toca la BD") sobre el `_db` del circuito, sin gate -> vector de "second operation". Fix: se aislo con `_reloadLock` + `ScopeFactory.CreateAsyncScope()` + `AmbientTenantContext.Begin` (mismo patron que el ReloadAsync del modal) + try/catch para no tumbar el circuito; comentario corregido. Fire-and-forget restantes verificados SIN BD (ClearCopiedAsync=Task.Delay, TaskToasts=quita toast); sin `async void` en componentes calientes.
+- VECTORES NUEVOS detectados -> movidos a Ola 1 (NO se parchean con medio-lock para no dar falsa confianza): Conversaciones, Pipeline y ClientChat no tienen gate por circuito y su handler de push `BoardChanged` recarga de BD (ReloadConversationsAsync -> ChatSvc) sobre el `_db` compartido; necesitan scope propio/gate completo. Anotado en los Action Items del ADR-0157.
+- VERIFICADO: `dotnet build` de SuperAdmin verde (0 errores; 93 warnings baseline). AppVersion 0.16.282. ADR-0157 actualizado (Estado de ejecucion + Ola 0 [x]). Memoria [[dbcontext-efimero-lectura-factory]] con el estado. SIGUIENTE: doble push tronco + espejo main; deploy v0.16.282 lo autoriza el usuario por version. Ola 1 cuando se apruebe.
+
 ## 2026-11-08 - ADR-0157: plan por olas para la concurrencia del DbContext en Blazor Server (solo documento, sin codigo)
 
 - AGENTE: Claude Opus 4.8. Punto 3b del cierre de la auditoria: formalizar en ADR el fix del bug P1 de concurrencia ("A second operation was started on this context instance") que se detecto al auditar el crash del agente. SOLO documento (Status: Proposed), para el visto bueno del usuario ANTES de tocar los ~190 servicios. No se escribio codigo.

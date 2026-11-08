@@ -51,7 +51,7 @@ public sealed class SavedFilterService : ISavedFilterService
         if (_tenant.TenantId is not Guid tid) { return null; }
         name = (name ?? "").Trim();
         if (name.Length == 0) { return null; }
-        if (name.Length > 120) { name = name[..120]; }
+        name = SurrogateText.SafeTruncate(name, 120)!;
 
         var existing = await _db.SavedFilters.FirstOrDefaultAsync(x => x.Module == module && x.Name == name, ct);
         if (existing is null)

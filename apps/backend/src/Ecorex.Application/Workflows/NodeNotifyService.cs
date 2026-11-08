@@ -491,7 +491,7 @@ public sealed class NodeNotifyService : INodeNotifyService
             TaskItemId = task.Id,
             Type = Domain.Enums.TaskActivityType.Action,
             ActorName = "Sistema (flujo)",
-            Text = bitacoraText.Length > 4000 ? bitacoraText[..4000] : bitacoraText
+            Text = SurrogateText.SafeTruncate(bitacoraText, 4000)!
         });
         // Y a la BITACORA DEL AGENTE (/bitacora-agente): se registra el envio del flujo en el log de atencion
         // de la conversacion, atribuido al agente ligado a la linea. Asi la conversacion aparece ahi y el agente

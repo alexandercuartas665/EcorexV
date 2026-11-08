@@ -762,7 +762,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         {
             // Motivo del movimiento (ej. al REABRIR sacando de una columna de cierre): queda en la bitacora.
             var note = (moveNote ?? string.Empty).Trim();
-            if (note.Length > 500) { note = note[..500]; }
+            note = SurrogateText.SafeTruncate(note, 500)!;
             _db.TaskItemActivities.Add(new TaskItemActivity
             {
                 TenantId = task.TenantId,
@@ -782,7 +782,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         if (column.IsDone && !string.IsNullOrWhiteSpace(closeReason))
         {
             var cr = closeReason.Trim();
-            task.CloseReason = cr.Length > 200 ? cr[..200] : cr;
+            task.CloseReason = SurrogateText.SafeTruncate(cr, 200)!;
         }
 
         var statusChanged = false;

@@ -283,7 +283,7 @@ public sealed class TaskItemService : ITaskItemService
                 {
                     TenantId = tenantId,
                     TaskItemId = task.Id,
-                    Text = raw.Length <= 500 ? raw : raw[..500],
+                    Text = SurrogateText.SafeTruncate(raw, 500)!,
                     SortOrder = checkOrder++
                 });
             }
@@ -416,7 +416,7 @@ public sealed class TaskItemService : ITaskItemService
             .Select(i => i.Text).ToListAsync(cancellationToken);
 
         var copyTitle = "Copia de " + (src.Title ?? string.Empty);
-        if (copyTitle.Length > 300) { copyTitle = copyTitle[..300]; }
+        copyTitle = SurrogateText.SafeTruncate(copyTitle, 300)!;
 
         // La copia nace como una tarea NUEVA con el mismo "molde": CreateAsync arranca el flujo en su
         // nodo inicial y la ubica en la columna de inicio del tablero del concepto (BoardId/ColumnId nulos).
@@ -461,7 +461,7 @@ public sealed class TaskItemService : ITaskItemService
             {
                 TenantId = src.TenantId,
                 TaskItemId = newId,
-                Text = text.Length <= 500 ? text : text[..500],
+                Text = SurrogateText.SafeTruncate(text, 500)!,
                 SortOrder = order++
             });
         }

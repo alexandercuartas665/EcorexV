@@ -101,7 +101,7 @@ public sealed class ContactWorkflowService : IContactWorkflowService
         var nombre = string.IsNullOrWhiteSpace(request.Nombre)
             ? $"Acciones de {filtro.Nombre}"
             : request.Nombre.Trim();
-        if (nombre.Length > 150) { nombre = nombre[..150]; }
+        nombre = SurrogateText.SafeTruncate(nombre, 150)!;
 
         // Carga el workflow existente CON sus hijos para reemplazar por completo pasos+ventanas.
         var workflow = await _db.ContactWorkflows

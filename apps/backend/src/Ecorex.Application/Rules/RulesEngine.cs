@@ -347,13 +347,13 @@ public sealed class RulesEngine : IRulesEngine
             TenantId = rule.TenantId,
             RuleId = rule.Id,
             ExecutedByTenantUserId = invocation.ExecutedByTenantUserId,
-            RuleNameSnapshot = rule.Name.Length > 100 ? rule.Name[..100] : rule.Name,
+            RuleNameSnapshot = SurrogateText.SafeTruncate(rule.Name, 100)!,
             TriggerKind = invocation.TriggerKind,
             ContextJson = contextJson,
             Status = status,
             RecordsAffected = recordsAffected,
             DurationMs = durationMs,
-            ErrorMessage = error is { Length: > 2000 } ? error[..2000] : error,
+            ErrorMessage = error is { Length: > 2000 } ? SurrogateText.SafeTruncate(error, 2000) : error,
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(IRulesEngine.HistoryTtlDays)
         };
         _db.RuleExecutionLogs.Add(log);

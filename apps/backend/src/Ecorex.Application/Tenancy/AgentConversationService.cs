@@ -419,7 +419,7 @@ public sealed class AgentConversationService : IAgentConversationService
             AgentId = agentId,
             OccurredAt = DateTimeOffset.UtcNow,
             Kind = kind,
-            Title = title.Length > 300 ? title[..300] : title,
+            Title = SurrogateText.SafeTruncate(title, 300)!,
             Content = content,
             Response = response
         });

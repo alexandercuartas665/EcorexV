@@ -895,7 +895,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         var trimmedNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
         if (trimmedNote is { Length: > 1000 })
         {
-            trimmedNote = trimmedNote[..1000];
+            trimmedNote = SurrogateText.SafeTruncate(trimmedNote, 1000);
         }
         node.Color = key;
         node.Note = trimmedNote;
@@ -1031,7 +1031,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             var key = (k ?? string.Empty).Trim();
             var note = (val ?? string.Empty).Trim();
             if (key.Length == 0 || note.Length == 0) { continue; }
-            clean[key] = note.Length > 2000 ? note[..2000] : note;
+            clean[key] = SurrogateText.SafeTruncate(note, 2000)!;
         }
         return clean.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(clean);
     }
@@ -1127,7 +1127,7 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         {
             return WorkflowResult<bool>.Invalid("El concepto no es uno de los conceptos de cierre del tablero.");
         }
-        node.CloseReason = chosen.Length > 200 ? chosen[..200] : chosen;
+        node.CloseReason = SurrogateText.SafeTruncate(chosen, 200)!;
         await _db.SaveChangesAsync(cancellationToken);
         return WorkflowResult<bool>.Ok(true);
     }

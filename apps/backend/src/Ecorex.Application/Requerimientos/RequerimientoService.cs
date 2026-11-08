@@ -454,7 +454,7 @@ public sealed class RequerimientoService : IRequerimientoService
         }
 
         var titulo = $"Compra: {padre.Descripcion} x {hijo.Cantidad:#,##0.##}";
-        if (titulo.Length > 200) { titulo = titulo[..200]; }
+        titulo = SurrogateText.SafeTruncate(titulo, 200)!;
         var desc = new System.Text.StringBuilder();
         desc.Append("Compra programada generada desde Requerimientos de Compra.\n");
         desc.Append($"Producto: {padre.Descripcion}\n");
@@ -550,7 +550,7 @@ public sealed class RequerimientoService : IRequerimientoService
         }
 
         var titulo = $"Cotizacion: {padre.Descripcion} x {hijo.Cantidad:#,##0.##}";
-        if (titulo.Length > 200) { titulo = titulo[..200]; }
+        titulo = SurrogateText.SafeTruncate(titulo, 200)!;
         var desc = new System.Text.StringBuilder();
         desc.Append("Solicitud de cotizacion generada desde Requerimientos de Compra.\n");
         desc.Append($"Producto: {padre.Descripcion}\n");
@@ -722,7 +722,7 @@ public sealed class RequerimientoService : IRequerimientoService
             }
 
             var titulo = $"{numero} Cotizacion a {provNombre ?? "proveedor"} ({lineas.Count} items)";
-            if (titulo.Length > 200) { titulo = titulo[..200]; }
+            titulo = SurrogateText.SafeTruncate(titulo, 200)!;
 
             var taskReq = new CreateTaskItemRequest(
                 Title: titulo,
@@ -906,7 +906,7 @@ public sealed class RequerimientoService : IRequerimientoService
             if (padre.FechaNecesidad is { } fn) { desc.Append($" (req. {fn:yyyy-MM-dd})"); }
 
             var titulo = $"{numero} Cotizacion (candidato) a {provNombre ?? "proveedor"}: {padre.Descripcion}";
-            if (titulo.Length > 200) { titulo = titulo[..200]; }
+            titulo = SurrogateText.SafeTruncate(titulo, 200)!;
 
             var taskReq = new CreateTaskItemRequest(
                 Title: titulo,

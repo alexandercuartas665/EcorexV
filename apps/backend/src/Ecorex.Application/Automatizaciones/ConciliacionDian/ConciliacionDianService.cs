@@ -389,7 +389,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         if (r is null) { return; }
         var n = note?.Trim();
         // "" o solo espacios => limpia la observacion. Tope defensivo de 500 chars (es una nota corta de fila).
-        r.MarkerNote = string.IsNullOrEmpty(n) ? null : (n.Length > 500 ? n[..500] : n);
+        r.MarkerNote = string.IsNullOrEmpty(n) ? null : SurrogateText.SafeTruncate(n, 500);
         await _db.SaveChangesAsync(ct);
     }
 

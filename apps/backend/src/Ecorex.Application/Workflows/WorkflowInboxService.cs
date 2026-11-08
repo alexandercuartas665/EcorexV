@@ -822,7 +822,7 @@ public sealed class WorkflowInboxService : IWorkflowInboxService
         }
         if (body.Length > 2000)
         {
-            body = body[..2000];
+            body = SurrogateText.SafeTruncate(body, 2000)!;
         }
 
         var task = await _db.TaskItems.AsNoTracking()

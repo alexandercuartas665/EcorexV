@@ -29,6 +29,9 @@ public static class DependencyInjection
 
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<AuditableTenantInterceptor>();
+        // Guardia de higiene Unicode en la escritura (DAL dual): sanea surrogates sueltos que, si no,
+        // revientan Npgsql al codificar (EncoderFallbackException). Sin estado -> singleton.
+        services.AddSingleton<SurrogateSanitizingInterceptor>();
 
         // DAL dual (ADR-001): proveedor elegible por configuracion. Database:Provider (o la
         // variable ECOREX_DB_PROVIDER) acepta "Postgres" (default) o "SqlServer". Los
@@ -51,7 +54,9 @@ public static class DependencyInjection
                             connectionString,
                             sql => sql.MigrationsAssembly("Ecorex.Infrastructure.SqlServer"))
                        .UseSnakeCaseNamingConvention()
-                       .AddInterceptors(sp.GetRequiredService<AuditableTenantInterceptor>());
+                       .AddInterceptors(
+                            sp.GetRequiredService<AuditableTenantInterceptor>(),
+                            sp.GetRequiredService<SurrogateSanitizingInterceptor>());
             });
             // EcorexDbContext se resuelve hacia el contexto SQL Server: mismos filtros
             // multi-tenant, mismas entidades, solo cambian proveedor y migraciones.
@@ -70,7 +75,9 @@ public static class DependencyInjection
             {
                 options.UseNpgsql(connectionString)
                        .UseSnakeCaseNamingConvention()
-                       .AddInterceptors(sp.GetRequiredService<AuditableTenantInterceptor>());
+                       .AddInterceptors(
+                            sp.GetRequiredService<AuditableTenantInterceptor>(),
+                            sp.GetRequiredService<SurrogateSanitizingInterceptor>());
             });
             // Fabrica de contextos EFIMEROS de solo lectura (ver IApplicationDbContextFactory):
             // instancias propias para consultas que no deben compartir el DbContext scoped del

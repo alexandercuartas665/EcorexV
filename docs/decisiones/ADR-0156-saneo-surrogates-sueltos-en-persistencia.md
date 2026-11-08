@@ -91,4 +91,6 @@ SARA (ver [[sara-rol-fijo-cierres-extraprompt]]).
 1. [x] Helper `SurrogateText` (StripLoneSurrogates / SafeTruncate / HasLoneSurrogate) + tests.
 2. [x] `SurrogateSanitizingInterceptor` registrado en ambos proveedores (DAL dual) + test.
 3. [x] Deploy a prod: DESPLEGADO v0.16.280 (2026-11-08, via rapida GHCR; prod sirve v0.16.280, HTTP 200).
-4. [ ] Opcional: aplicar `SafeTruncate` a los truncados que alimentan columnas de longitud fija.
+4. [x] Aplicar `SafeTruncate` a los truncados que alimentan columnas persistidas (v0.16.281, 2026-11-08:
+   23 reemplazos en 16 servicios; SIN deploy). La deuda estructural de concurrencia que se detecto en la
+   misma auditoria se traslada a su propio ADR (ver ADR-0157).

@@ -90,5 +90,5 @@ SARA (ver [[sara-rol-fijo-cierres-extraprompt]]).
 
 1. [x] Helper `SurrogateText` (StripLoneSurrogates / SafeTruncate / HasLoneSurrogate) + tests.
 2. [x] `SurrogateSanitizingInterceptor` registrado en ambos proveedores (DAL dual) + test.
-3. [ ] Deploy a prod: PENDIENTE de OK por version del usuario (release v0.16.280).
+3. [x] Deploy a prod: DESPLEGADO v0.16.280 (2026-11-08, via rapida GHCR; prod sirve v0.16.280, HTTP 200).
 4. [ ] Opcional: aplicar `SafeTruncate` a los truncados que alimentan columnas de longitud fija.

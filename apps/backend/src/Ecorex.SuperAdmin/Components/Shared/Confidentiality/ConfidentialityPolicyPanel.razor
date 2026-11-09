@@ -118,7 +118,7 @@
                                 <span>Contenido (HTML)</span>
                                 <textarea class="form-control cp-editor" rows="16" @bind="_contenido" @bind:event="oninput"
                                           placeholder="&lt;h2&gt;Politica de confidencialidad&lt;/h2&gt;&lt;p&gt;...&lt;/p&gt;"></textarea>
-                                <small class="cp-help">Se permite formato basico (titulos, parrafos, listas, negrita, enlaces, tablas, imagenes incluidas las de tipo data:image base64). El contenido se depura al guardar por seguridad.</small>
+                                <small class="cp-help">Puedes pegar un documento HTML COMPLETO con su CSS (estilos, tablas, imagenes). Se conserva tal cual y se muestra en un marco aislado; solo se quita el contenido ejecutable (scripts, eventos) por seguridad.</small>
                             </label>
                         </div>
                     }
@@ -126,7 +126,15 @@
                     {
                         <div class="cp-pane">
                             <span class="cp-preview-label">Vista previa (tal como la vera el cliente)</span>
-                            <div class="cp-preview">@((MarkupString)ConfidentialityHtmlSanitizer.Sanitize(_contenido))</div>
+                            @if (string.IsNullOrWhiteSpace(_contenido))
+                            {
+                                <div class="cp-preview-empty">Escribe o pega el contenido en la pestana HTML para ver la vista previa.</div>
+                            }
+                            else
+                            {
+                                <iframe class="cp-frame" sandbox title="Vista previa de la politica"
+                                        srcdoc="@ConfidentialityHtmlSanitizer.Sanitize(_contenido)"></iframe>
+                            }
                         </div>
                     }
                 }

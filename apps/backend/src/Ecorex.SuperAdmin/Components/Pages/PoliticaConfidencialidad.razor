@@ -37,7 +37,10 @@
         else
         {
             <h1 class="pc-title">@_policy.Titulo</h1>
-            <article class="pc-content">@((MarkupString)ConfidentialityHtmlSanitizer.Sanitize(_policy.Contenido))</article>
+            @* El contenido es un documento HTML del tenant: se pinta en un iframe con sandbox (sin
+               allow-scripts) para conservar su CSS tal cual pero sin ejecutar nada. *@
+            <iframe class="pc-frame" sandbox title="Politica de confidencialidad"
+                    srcdoc="@ConfidentialityHtmlSanitizer.Sanitize(_policy.Contenido)"></iframe>
 
             <div class="pc-form">
                 <h3>Aceptacion</h3>

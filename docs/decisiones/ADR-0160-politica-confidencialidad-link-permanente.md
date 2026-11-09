@@ -98,6 +98,25 @@ Verificado: build Release 0 errores; `ConfidentialityHtmlSanitizerTests` 7/7; `C
 dual 18/18 (incluye aceptacion solo-checkbox sin datos); `has-pending-model-changes` limpio en PG y SQL
 Server; E2E en 5234/SOLDARCO (modal con pestanas; link publico muestra solo el checkbox por defecto).
 
+## Addendum 2026-11-09 (bis): documento HTML completo con CSS, en iframe sandbox (v0.16.295)
+
+Reporte del usuario: al pegar un DOCUMENTO HTML COMPLETO (generado por una herramienta de diseno, con
+`<head><style>...`, clases y tablas) y GUARDAR, se borraba el CSS. Causa: el saneador por allowlist
+descartaba `<style>` (y los atributos `class`/`style`), por seguridad para un `MarkupString` en pagina
+publica. Para documentos completos el allowlist es el enfoque equivocado.
+
+**Decision.** Cambiar la frontera de seguridad del allowlist a un IFRAME con `sandbox` (sin allow-scripts):
+el contenido se pinta en un marco aislado que NO ejecuta scripts aunque algo se escape, y conserva el
+HTML+CSS tal cual. El saneador deja de recortar estilo: ahora CONSERVA estructura/CSS y solo quita lo
+activo o peligroso (script/noscript, manejadores `on*`, esquemas `javascript:`/`vbscript:`/`data:text/html`
+en URLs, vectores historicos en CSS, y elementos de carga/accion externa iframe/object/embed/form/input/
+base). Devuelve el documento completo (con doctype) para el `srcdoc`.
+
+- Pagina publica `/pc/{token}` y Vista previa del admin: `<iframe sandbox srcdoc="...">`.
+- Verificado: `ConfidentialityHtmlSanitizerTests` 9/9 (conserva `<style>`/`class`/documento completo; quita
+  script/`on*`/`javascript:`/`expression()`); integracion dual 18/18; E2E en 5234 (documento con `<style>`
+  pegado se conserva y rinde; un `<script>` embebido se elimina en el render). Sin migracion.
+
 ## Action Items
 
 1. [x] Entidades + migracion dual `AddConfidentialityPolicies` (PG + SQL Server).

@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - Confidencialidad (ADR-0160 addendum bis): documento HTML completo con CSS, en iframe sandbox (release v0.16.295, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: al pegar un DOCUMENTO HTML COMPLETO (herramienta de diseno; `<head><style>`, clases, tablas) y dar Guardar, se BORRABA el CSS. Causa: el saneador por allowlist descartaba `<style>` y los atributos class/style (seguridad para MarkupString en pagina publica). Para documentos completos el allowlist es el enfoque equivocado.
+- FIX: se mueve la frontera de seguridad del allowlist a un IFRAME con `sandbox` (sin allow-scripts). El contenido se pinta en un marco aislado que NO ejecuta scripts aunque algo se escape y conserva HTML+CSS tal cual. El saneador (`ConfidentialityHtmlSanitizer`) ahora CONSERVA estructura/CSS y solo quita lo activo/peligroso: script/noscript, manejadores on*, esquemas javascript:/vbscript:/data:text/html en URLs, vectores historicos en CSS (expression()/behavior/-moz-binding), y elementos de carga/accion externa (iframe/object/embed/form/input/button/base). Devuelve el documento completo (con doctype) para el srcdoc.
+- UI: pagina publica `/pc/{token}` y Vista previa del admin pasan de `MarkupString` a `<iframe sandbox srcdoc="...">`. Textarea admite pegar documentos completos.
+- VERIFICADO: build Release 0 errores; `ConfidentialityHtmlSanitizerTests` 9/9 (conserva style/class/documento completo; quita script/on*/javascript:/expression()); `ConfidentialityPolicyTests` dual 18/18; E2E en 5234 sembrando en la BD local un documento con `<style>` + un `<script>` embebido -> el srcdoc conserva el CSS (.document-container/.badge) y el encabezado, y ELIMINA el script (xss) en el render. Sin migracion.
+- SIGUIENTE: doble push a la senal del usuario; deploy con OK por version (corrige un bug VIVO en prod: la v0.16.294 desplegada borra el CSS al pegar documentos).
+
 ## 2026-11-09 - Confidencialidad (ADR-0160 addendum): modal con pestanas + captura de datos opcional + imagenes base64 (release v0.16.294, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Iteracion sobre ADR-0160 a pedido del usuario: (1) el panel quedaba incrustado ENCIMA de las plantillas -> pasarlo a un BOTON que abre un MODAL con pestanas tipo carpeta; (2) captura de datos OPCIONAL (solo checkbox por defecto); (3) bug: pego HTML con imagenes base64 que no se renderizaban.

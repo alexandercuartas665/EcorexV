@@ -1,118 +1,119 @@
+using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 
 namespace Ecorex.Application.Confidentiality;
 
 /// <summary>
-/// Saneador de HTML por allowlist (ADR-0160). El contenido de la politica lo escribe el admin del
-/// tenant pero se muestra en una pagina PUBLICA anonima (/pc/{token}); por eso se depura en el
-/// GUARDADO con AngleSharp: se descartan por completo los elementos peligrosos (script/style/iframe/
-/// object/embed/form/...), se "desenvuelven" los no permitidos conservando su texto, y de los
-/// permitidos solo sobreviven atributos de una lista corta (y href/src con esquema http/https/mailto).
-/// Asi un MarkupString en la pagina publica no puede ejecutar script inyectado (XSS almacenado).
+/// Saneador del HTML de la politica de confidencialidad (ADR-0160). El admin del tenant suele PEGAR un
+/// DOCUMENTO HTML COMPLETO (con `&lt;head&gt;&lt;style&gt;...`, clases y tablas) generado por una herramienta
+/// de diseno; por eso NO se usa un allowlist que borre el CSS, sino que se CONSERVA la estructura y el
+/// estilo y solo se quita el contenido ACTIVO o peligroso: script/noscript, manejadores de eventos
+/// (on*), esquemas javascript:/vbscript:/data:text/html en URLs, vectores historicos en CSS, y los
+/// elementos de carga/accion externa (iframe/object/embed/form/input/button/base). La pagina lo pinta
+/// dentro de un IFRAME con `sandbox` (sin allow-scripts): esa es la frontera de seguridad real (ningun
+/// script se ejecuta aunque algo se escape); este saneo es defensa en profundidad para que el HTML
+/// almacenado tampoco sea peligroso si alguna vez se rinde fuera del sandbox.
 /// </summary>
 public static class ConfidentialityHtmlSanitizer
 {
-    private static readonly HashSet<string> AllowedTags = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "em", "i", "u", "s",
-        "ul", "ol", "li", "a", "blockquote", "hr", "span", "div",
-        "table", "thead", "tbody", "tr", "th", "td", "pre", "code", "img"
-    };
-
+    // Elementos de contenido activo o de carga/accion externa: se eliminan por completo.
     private static readonly HashSet<string> DroppedTags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "script", "style", "iframe", "object", "embed", "link", "meta", "base",
-        "form", "input", "button", "textarea", "select", "svg", "math", "noscript", "template"
+        "script", "noscript", "iframe", "object", "embed", "applet",
+        "form", "input", "button", "textarea", "select", "base"
     };
 
-    private static readonly HashSet<string> AllowedAttrs = new(StringComparer.OrdinalIgnoreCase)
+    // Vectores historicos que neutralizamos dentro de CSS (inline y en <style>). Muertos en navegadores
+    // modernos, pero se limpian como defensa en profundidad; "</style" evita romper el bloque.
+    private static readonly string[] CssBad =
     {
-        "href", "src", "alt", "title", "target", "rel", "colspan", "rowspan", "width", "height"
+        "javascript:", "vbscript:", "expression(", "behavior:", "-moz-binding", "</style", "<!--", "-->"
     };
 
     public static string Sanitize(string? html)
     {
         if (string.IsNullOrWhiteSpace(html)) { return string.Empty; }
 
-        var doc = new HtmlParser().ParseDocument($"<body>{html}</body>");
-        var body = doc.Body;
-        if (body is null) { return string.Empty; }
+        var doc = new HtmlParser().ParseDocument(html);
+        if (doc.DocumentElement is null) { return string.Empty; }
 
-        CleanChildren(body);
-        return body.InnerHtml;
-    }
-
-    private static void CleanChildren(IElement parent)
-    {
-        foreach (var node in parent.ChildNodes.ToArray())
+        foreach (var el in doc.All.ToArray())
         {
-            switch (node)
+            // El elemento pudo haber sido removido al eliminar un ancestro.
+            if (el.Parent is null && !ReferenceEquals(el, doc.DocumentElement)) { continue; }
+
+            if (DroppedTags.Contains(el.LocalName))
             {
-                case IElement el:
-                    var tag = el.LocalName;
-                    if (DroppedTags.Contains(tag))
-                    {
-                        el.Remove();
-                        continue;
-                    }
-                    CleanChildren(el);
-                    if (!AllowedTags.Contains(tag))
-                    {
-                        Unwrap(el);
-                        continue;
-                    }
-                    StripAttributes(el);
-                    break;
-
-                case IComment:
-                    node.Parent?.RemoveChild(node);
-                    break;
-            }
-        }
-    }
-
-    private static void Unwrap(IElement el)
-    {
-        var parent = el.Parent;
-        if (parent is null) { el.Remove(); return; }
-        while (el.FirstChild is { } child)
-        {
-            parent.InsertBefore(child, el);
-        }
-        el.Remove();
-    }
-
-    private static void StripAttributes(IElement el)
-    {
-        foreach (var attr in el.Attributes.ToArray())
-        {
-            var name = attr.Name;
-            if (!AllowedAttrs.Contains(name))
-            {
-                el.RemoveAttribute(name);
+                el.Remove();
                 continue;
             }
-            var isSrc = name.Equals("src", StringComparison.OrdinalIgnoreCase);
-            if ((name.Equals("href", StringComparison.OrdinalIgnoreCase) || isSrc)
-                && !IsSafeUrl(attr.Value, allowDataImage: isSrc))
+
+            foreach (var attr in el.Attributes.ToArray())
             {
-                el.RemoveAttribute(name);
+                var name = attr.Name;
+
+                // Manejadores de eventos (onclick, onload, onerror, ...).
+                if (name.StartsWith("on", StringComparison.OrdinalIgnoreCase))
+                {
+                    el.RemoveAttribute(name);
+                    continue;
+                }
+
+                // URLs con esquema peligroso.
+                if (IsUrlAttr(name) && IsDangerousUrl(attr.Value))
+                {
+                    el.RemoveAttribute(name);
+                    continue;
+                }
+
+                // CSS inline.
+                if (name.Equals("style", StringComparison.OrdinalIgnoreCase))
+                {
+                    var clean = CleanCss(attr.Value);
+                    if (clean != attr.Value) { el.SetAttribute(name, clean); }
+                }
+            }
+
+            if (el.LocalName.Equals("style", StringComparison.OrdinalIgnoreCase))
+            {
+                var clean = CleanCss(el.TextContent);
+                if (clean != el.TextContent) { el.TextContent = clean; }
             }
         }
+
+        // Documento completo (para srcdoc del iframe). Se antepone el doctype para evitar quirks mode.
+        return "<!DOCTYPE html>\n" + doc.DocumentElement.OuterHtml;
     }
 
-    private static bool IsSafeUrl(string? value, bool allowDataImage)
+    private static bool IsUrlAttr(string name)
+        => name.Equals("href", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("src", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("srcset", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("action", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("formaction", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("poster", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("background", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsDangerousUrl(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) { return false; }
-        var v = value.Trim();
-        // Relativas (sin esquema) son seguras; con esquema solo http/https/mailto.
-        if (v.StartsWith('/') || v.StartsWith('#') || v.StartsWith('.')) { return true; }
-        // Imagenes embebidas en base64 (data:image/...) SOLO en src: no ejecutan script y permiten
-        // pegar HTML con imagenes incrustadas. data:text/html y demas quedan prohibidos (XSS).
-        if (allowDataImage && v.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) { return true; }
-        return v.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            || v.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            || v.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase);
+        // Quita espacios/controles intercalados que los atacantes usan para evadir ("java\tscript:").
+        var v = new string(value.Where(c => !char.IsWhiteSpace(c) && !char.IsControl(c)).ToArray())
+            .ToLowerInvariant();
+        return v.StartsWith("javascript:", StringComparison.Ordinal)
+            || v.StartsWith("vbscript:", StringComparison.Ordinal)
+            || v.StartsWith("data:text/html", StringComparison.Ordinal);
+    }
+
+    private static string CleanCss(string? css)
+    {
+        if (string.IsNullOrEmpty(css)) { return css ?? string.Empty; }
+        var c = css;
+        foreach (var bad in CssBad)
+        {
+            c = Regex.Replace(c, Regex.Escape(bad), string.Empty, RegexOptions.IgnoreCase);
+        }
+        return c;
     }
 }

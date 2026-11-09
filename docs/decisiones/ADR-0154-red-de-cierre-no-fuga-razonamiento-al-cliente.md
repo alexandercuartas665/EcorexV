@@ -86,6 +86,46 @@ turno en cada cierre (posible mensaje duplicado). Mitigacion temporal, no el fix
 Endurecer el `system_prompt` de SARA (Opcion A) como cinturon adicional. Util pero secundario: el fix
 real es el de codigo.
 
+## Addendum 2026-11-09: regresion de la red (falso positivo que corto una conversacion viva)
+
+**Status:** Fixed (v0.16.293, SIN deploy a prod)
+**Contexto:** desplegado ADR-0154 (v0.16.277), en prod (tenant AGRO, SARA, linea YCloud COMERCIAL,
+conversacion `01a07c2f-...`, cliente Gustavo R) el cliente escribio "1,2" (corte laser + doblez) y el
+modelo genero la respuesta CORRECTA ("...sera solo el servicio o nosotros suministramos el material?").
+El cliente recibio en su lugar el acuse neutro ("Gracias por tu mensaje. Lo estoy gestionando...") y la
+conversacion se corto. Venta comercial perdida; engine compartido (afecta a todos los tenants con la red).
+
+**Causa raiz (dos defectos encadenados en `AiInferenceService`):**
+
+1. `ClaimsCloseWithoutTool` era demasiado laxo: disparaba con substrings que aparecen en frases de
+   atencion normales -`"tu solicitud"`, `"tu pedido"`, `"contactar"` suelto, `"registr"` suelto,
+   `"inscr"` suelto-. El texto de Gustavo contenia "tu solicitud" -> nudge en un mensaje que NO era cierre.
+2. La supresion post-nudge era en bloque: `nudgeUnresolved = closeNudged && !closeToolInvoked` reemplazaba
+   SIEMPRE el segundo texto del modelo por el acuse neutro, asumiendo que todo texto post-nudge es
+   meta/razonamiento. Cuando el nudge fue un falso positivo, ese segundo texto era una respuesta
+   conversacional legitima y limpia, y se tiraba a la basura.
+
+**Fix:**
+
+- **Parte A:** `ClaimsCloseWithoutTool` exige ahora frases de cierre REALES (lista `CloseClaimPhrases`:
+  "he registrado"/"ya registre"/"quedaste registrad"/"numero de ticket"/"radique tu"/"quedaste inscrit"/
+  "asesor te contactara"/"nos pondremos en contacto"/...). Mencionar solicitud/pedido/contactar ya NO cuenta.
+- **Parte B:** el gate de supresion pasa a ser "FUGA REAL", no "hubo nudge". Se suprime solo cuando el
+  texto nombra una herramienta (`ContainsToolName`), o -habiendo nudge sin cierre- esta vacio, re-afirma
+  el cierre sin respaldo (`ClaimsCloseWithoutTool` del texto final = promesa falsa) o es meta/otro idioma
+  (`LooksLikeInternalMeta`). Un texto limpio en espanol post-nudge SE ENVIA.
+- Se preserva la intencion original: un cierre real sin tool sigue pinchando; si el modelo insiste con una
+  afirmacion sin respaldo, no se envia (acuse neutro); la fuga en ingles/meta del caso Betty se sigue
+  suprimiendo (nombra `crear_actividad` y/o `LooksLikeInternalMeta`=true).
+
+**Action Items del addendum:**
+
+1. [x] Endurecer `ClaimsCloseWithoutTool` (frases reales, fuera substrings debiles).
+2. [x] Gate post-nudge = fuga real (nueva `LooksLikeInternalMeta`); enviar el texto limpio.
+3. [x] Tests unitarios: caso Gustavo = false, cierre real = true, meta ingles/espanol = true, limpio = false.
+4. [ ] Deploy a prod: pendiente del OK por version del usuario (URGENTE: regresion viva en prod).
+5. [ ] Reflejar el addendum en el vault.
+
 ## Action Items
 
 1. [x] `closeToolNames` -> `CloseToolNames` con las tres herramientas de registro.

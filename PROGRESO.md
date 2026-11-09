@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - HOTFIX regresion ADR-0154: la red de cierre cortaba conversaciones vivas (falso positivo) (release v0.16.293, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Reporte de la sesion data-ops AGRO: ADR-0154 (v0.16.277, desplegado hoy) dejo un cliente comercial sin atender en prod (tenant AGRO, SARA, linea COMERCIAL, conv `01a07c2f-...`, cliente Gustavo). Engine COMPARTIDO (afecta a todo tenant con la red de cierre).
+- CAUSA (2 defectos en `AiInferenceService`): (1) `ClaimsCloseWithoutTool` disparaba con substrings de frases de atencion normales ("tu solicitud"/"tu pedido"/"contactar"/"registr"/"inscr" sueltos) -> el "con gusto te ayudo con TU SOLICITUD de corte..." activo el nudge. (2) La supresion post-nudge era en bloque (`nudgeUnresolved` reemplazaba SIEMPRE por el acuse neutro), tirando a la basura la respuesta conversacional limpia que el modelo genero tras el re-pinchazo.
+- FIX Parte A: `ClaimsCloseWithoutTool` exige frases de cierre REALES (lista `CloseClaimPhrases`: "he registrado"/"ya registre"/"quedaste registrad"/"numero de ticket"/"radique tu"/"quedaste inscrit"/"asesor te contactara"/"nos pondremos en contacto"/...). Mencionar solicitud/pedido/contactar ya NO cuenta como cierre.
+- FIX Parte B: el gate de supresion pasa a ser "FUGA REAL", no "hubo nudge". Se suprime solo si el texto nombra una herramienta (`ContainsToolName`) o -habiendo nudge sin cierre- esta vacio, re-afirma el cierre sin respaldo (`ClaimsCloseWithoutTool` del texto final) o es meta/otro idioma (nueva `LooksLikeInternalMeta`). Un texto limpio en espanol post-nudge SE ENVIA. Se preserva la intencion de ADR-0154: cierre real sin tool sigue pinchando; afirmacion sin respaldo no se envia; fuga ingles/meta (caso Betty) se sigue suprimiendo.
+- VERIFICADO: `dotnet build Ecorex.sln` Release 0 errores; `AiCloseSafetyNetTests` 29/29 (incluye caso Gustavo="con gusto te ayudo con tu solicitud..."=>false, cierre real=>true, meta ingles/espanol=>true, respuesta limpia=>false). Sin migracion (solo logica). ADR-0154 con addendum 2026-11-09.
+- SIGUIENTE: doble push a la senal del usuario. DEPLOY URGENTE con OK por version (regresion VIVA en prod; mientras tanto el humano atiende las conversaciones que terminen en "Gracias por tu mensaje. Lo estoy gestionando..."). Reflejar addendum en el vault.
+
 ## 2026-11-09 - Politica de confidencialidad por tenant + link permanente /pc/{token} con constancia (ADR-0160, release v0.16.292, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Pedido del usuario: en el modulo de plantillas de WhatsApp, poder guardar la politica de confidencialidad de cada tenant y generar un link POR TENANT que NO vence; el link debe permitir VER y ACEPTAR dejando constancia.

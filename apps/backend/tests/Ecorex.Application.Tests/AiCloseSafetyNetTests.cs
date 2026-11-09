@@ -103,4 +103,51 @@ public sealed class AiCloseSafetyNetTests
     {
         Assert.False(AiInferenceService.ClaimsCloseWithoutTool("Hola, con gusto te ayudo. Cuentame que necesitas."));
     }
+
+    // Regresion 2026-11-09 (caso Gustavo): mencionar "tu solicitud/tu pedido/contactar" en una frase de
+    // atencion normal NO es una afirmacion de cierre; antes disparaba el nudge y cortaba la conversacion.
+    [Theory]
+    [InlineData("Con gusto te ayudo con tu solicitud de corte laser y doblez. Para poder cotizar, sera solo el servicio o nosotros suministramos el material?")]
+    [InlineData("Claro, reviso tu pedido y te confirmo el valor en un momento.")]
+    [InlineData("Con quien tengo el gusto de contactar?")]
+    [InlineData("Para registrar tu cotizacion necesito el material y las medidas.")]
+    public void ClaimsCloseWithoutTool_NO_dispara_con_frases_de_atencion_normales(string text)
+    {
+        Assert.False(AiInferenceService.ClaimsCloseWithoutTool(text));
+    }
+
+    // Un cierre REAL (afirmar que ya quedo registrado / que un asesor lo contactara) SI debe pinchar.
+    [Theory]
+    [InlineData("Ya registre tu caso, un asesor te contactara en breve.")]
+    [InlineData("Listo, quedaste inscrito; inscripcion confirmada.")]
+    [InlineData("Radique tu caso, tu numero de ticket es TASK-123.")]
+    [InlineData("Perfecto, nos pondremos en contacto contigo para la cotizacion.")]
+    public void ClaimsCloseWithoutTool_SI_dispara_con_un_cierre_real(string text)
+    {
+        Assert.True(AiInferenceService.ClaimsCloseWithoutTool(text));
+    }
+
+    // Parte 2c (regresion): el gate post-nudge distingue texto interno (meta/otro idioma) de una
+    // respuesta conversacional limpia en espanol, que debe pasar al cliente.
+    [Fact]
+    public void LooksLikeInternalMeta_detecta_el_razonamiento_en_ingles_caso_betty()
+    {
+        const string leak = "I have already registered the customer's request using the crear_actividad " +
+                            "function as instructed; creating a lead now would be redundant.";
+        Assert.True(AiInferenceService.LooksLikeInternalMeta(leak));
+    }
+
+    [Fact]
+    public void LooksLikeInternalMeta_detecta_el_razonamiento_en_espanol()
+    {
+        Assert.True(AiInferenceService.LooksLikeInternalMeta("Ya use la herramienta de registro, un lead seria redundante."));
+    }
+
+    [Theory]
+    [InlineData("Sera solo el servicio de corte o nosotros suministramos el material?")]
+    [InlineData("Perfecto, para cotizar necesito el espesor de la lamina y la cantidad de piezas.")]
+    public void LooksLikeInternalMeta_NO_marca_una_respuesta_limpia_en_espanol(string text)
+    {
+        Assert.False(AiInferenceService.LooksLikeInternalMeta(text));
+    }
 }

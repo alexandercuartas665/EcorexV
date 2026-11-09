@@ -540,29 +540,34 @@ CIUDAD:";
                     continue;
                 }
 
-                // Blindaje anti-fuga del texto final hacia el cliente (ADR-0154):
-                //  - Si la red re-pincho (closeNudged) y AUN asi el modelo no invoco una herramienta de
-                //    cierre, su texto suele ser meta/razonamiento (justificaciones del tipo "ya use
-                //    crear_actividad, un lead seria redundante"), a veces en otro idioma. NO debe ir al cliente.
-                //  - Si el texto final menciona el NOMBRE de una herramienta registrada del agente, es una
-                //    fuga por construccion (el system_prompt prohibe que el cliente vea nombres de funciones).
-                // En ambos casos se suprime y se usa un acuse seguro; el texto fugado queda en bitacora.
+                // Blindaje anti-fuga del texto final hacia el cliente (ADR-0154 + regresion 2026-11-09):
+                // el gate de supresion es "FUGA REAL", NO "hubo un nudge". Tras un re-pinchazo el modelo
+                // puede, en vez de insistir, corregir y dar una respuesta conversacional LIMPIA (p.ej. una
+                // pregunta de cotizacion); esa respuesta es valida y DEBE enviarse. Solo se suprime cuando:
+                //  - el texto nombra una herramienta registrada del agente (fuga por construccion); o
+                //  - hubo re-pinchazo sin cierre Y el texto es una fuga: vacio, re-afirma el cierre SIN
+                //    respaldo (promesa falsa), o es meta/razonamiento u otro idioma.
+                // El texto suprimido queda en la bitacora de debug; no se pierde la trazabilidad.
                 var finalText = completion.Text;
-                var nudgeUnresolved = closeNudged && !closeToolInvoked;
+                var nudgeFired = closeNudged && !closeToolInvoked;
                 var leakedToolName = ContainsToolName(finalText, ownerByTool.Keys);
-                if (nudgeUnresolved || leakedToolName)
+                var unbackedClaim = nudgeFired && ClaimsCloseWithoutTool(finalText);
+                var emptyOrMeta = nudgeFired && (string.IsNullOrWhiteSpace(finalText) || LooksLikeInternalMeta(finalText));
+                var suppress = leakedToolName || unbackedClaim || emptyOrMeta;
+                if (suppress)
                 {
                     debugPrompts.Add(new AiDebugPrompt(
                         "Red de cierre: fuga suprimida",
                         DateTimeOffset.UtcNow,
-                        nudgeUnresolved
-                            ? "Tras el re-pinchazo el modelo no invoco una herramienta de cierre; se suprimio su texto (posible meta/razonamiento) y no se envio al cliente."
-                            : "El texto final mencionaba el nombre de una herramienta interna; se suprimio por fuga.",
+                        leakedToolName
+                            ? "El texto final mencionaba el nombre de una herramienta interna; se suprimio por fuga."
+                            : unbackedClaim
+                                ? "Tras el re-pinchazo el modelo re-afirmo el cierre sin invocar la herramienta (promesa sin respaldo); se suprimio y se uso un acuse neutro."
+                                : "Tras el re-pinchazo el texto era vacio/meta/otro idioma; se suprimio y no se envio al cliente.",
                         finalText));
-                    // En el re-pinchazo sin cierre NO reutilizamos el ultimo texto (suele ser la afirmacion
-                    // de cierre sin respaldo real); usamos un acuse neutro. Si solo hubo fuga de nombre,
-                    // intentamos recuperar el ultimo texto valido del cliente.
-                    finalText = nudgeUnresolved
+                    // Re-pinchazo sin cierre: NO reutilizamos el ultimo texto (suele ser la afirmacion sin
+                    // respaldo); acuse neutro. Fuga de nombre a secas: intentamos recuperar el ultimo texto valido.
+                    finalText = nudgeFired
                         ? SafeClientText(null, ownerByTool.Keys)
                         : SafeClientText(lastText, ownerByTool.Keys);
                 }
@@ -604,19 +609,72 @@ CIUDAD:";
         return (new AiChatResult(true, lastText ?? "Estoy procesando tu solicitud, dame un momento.", null, totalIn, totalOut), sessionCompleted);
     }
 
+    // Frases que AFIRMAN que el cliente YA quedo en el pipeline (registrado/inscrito/radicado o que un
+    // asesor lo contactara). Son afirmaciones de cierre REALES, no la simple mencion de
+    // "solicitud/pedido/contactar": esas aparecen en frases de atencion normales ("con gusto te ayudo con
+    // tu solicitud...") y disparaban falsos positivos que cortaban conversaciones vivas (regresion ADR-0154).
+    // Texto comparado en minusculas y SIN acentos (ver StripAccents), por eso van sin tildes.
+    private static readonly string[] CloseClaimPhrases =
+    {
+        // Registro del caso/lead ya hecho (afirmacion en pasado, no "voy a registrar").
+        "he registrado", "ya registre", "registre tu", "registramos tu", "hemos registrado",
+        "deje registrad", "dejo registrad", "quedo registrad", "quedaste registrad", "quedas registrad",
+        "ha quedado registrad",
+        // Ticket / radicado.
+        "numero de ticket", "ticket task-", "tu ticket es", "numero de radicado",
+        "radique tu", "radicamos tu", "quedo radicad", "ha sido radicad",
+        // Inscripcion.
+        "quedaste inscrit", "quedo inscrit", "inscripcion confirmada", "inscripcion exitosa",
+        // Un asesor lo contactara / se comunicara.
+        "asesor te contactara", "asesor te va a contactar", "asesor se pondra en contacto",
+        "asesor se comunicar", "asesor se contactara", "te contactara un asesor",
+        "contactara un asesor", "se comunicara contigo un asesor", "se pondra en contacto contigo",
+        "nos pondremos en contacto", "nos comunicaremos contigo",
+    };
+
     // Detecta cuando el texto AFIRMA un cierre (registro / que un asesor lo contactara) para forzar
-    // la herramienta de cierre si el modelo no la invoco. Insensible a acentos.
+    // la herramienta de cierre si el modelo no la invoco. Exige frases de cierre reales (ver
+    // CloseClaimPhrases); una mera mencion de "solicitud/pedido/contactar" NO cuenta. Insensible a acentos.
     internal static bool ClaimsCloseWithoutTool(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) { return false; }
         var n = StripAccents(text.ToLowerInvariant());
-        return n.Contains("registr")                 // he registrado / te registre / quedaste registrada
-            || n.Contains("contactar")               // un asesor te contactara / se pondra en contacto
-            || n.Contains("se pondra en contacto")
-            || n.Contains("se comunicar")
-            || n.Contains("inscr")                   // quedaste inscrito / inscripcion
-            || n.Contains("tu solicitud")
-            || n.Contains("tu pedido");
+        foreach (var phrase in CloseClaimPhrases)
+        {
+            if (n.Contains(phrase)) { return true; }
+        }
+        return false;
+    }
+
+    // Heuristica de "texto interno": razonamiento del modelo o respuesta en otro idioma, que NUNCA debe
+    // llegar al cliente. Se usa como gate del blindaje post-nudge (ADR-0154 + regresion). Conservadora:
+    // exige senales claras para no suprimir una respuesta limpia en espanol (p.ej. una pregunta de
+    // cotizacion con algun termino tecnico suelto en ingles).
+    internal static bool LooksLikeInternalMeta(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return true; }
+        var n = StripAccents(text.ToLowerInvariant());
+        // Razonamiento interno explicito (aparece en espanol o en ingles).
+        string[] reasoning =
+        {
+            "seria redundante", "seria incorrecto", "system_prompt", "mi prompt",
+            "mi instruccion primaria", "mi instruccion principal", "mi razonamiento",
+            "no voy a invocar", "no es necesario invocar", "ya invoque la herramienta",
+            "ya use la herramienta", "no invocare", "would be redundant", "would be incorrect",
+        };
+        foreach (var r in reasoning) { if (n.Contains(r)) { return true; } }
+        // Otro idioma (ingles): exigir VARIAS marcas para no confundir un termino tecnico suelto.
+        string[] en =
+        {
+            " the ", " would ", " using ", " already ", " function", " as instructed",
+            " creating ", " customer", " request ", " i have ", " instead ", " redundant",
+        };
+        var hits = 0;
+        foreach (var e in en)
+        {
+            if (n.Contains(e)) { hits++; if (hits >= 2) { return true; } }
+        }
+        return false;
     }
 
     // Fuga por construccion: el cliente JAMAS debe ver el nombre de una herramienta del agente. Si el

@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Application.Scheduling;
@@ -290,6 +292,141 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         return true;
     }
 
+    // ---- Portabilidad de pasos (export/import JSON): mueve SOLO los pasos entre entornos ----
+
+    public async Task<ScrapeStepsExportDto?> ExportStepsAsync(Guid flowId, CancellationToken ct = default)
+    {
+        var flow = await _db.ScrapeFlows.AsNoTracking().FirstOrDefaultAsync(f => f.Id == flowId, ct);
+        if (flow is null) { return null; }
+
+        var steps = await _db.ScrapeSteps.AsNoTracking()
+            .Where(s => s.FlowId == flowId).OrderBy(s => s.Order).ToListAsync(ct);
+
+        var portable = steps.Select(s => new ScrapeStepPortable(
+            s.Order, s.Kind, s.Name, s.WaitMs, s.Url, s.Script, s.Selector, s.MappingJson, s.Instruction,
+            s.TargetContainerId, s.ToolAllowListJson, s.MaxSteps, s.MaxSeconds, s.AiProviderId, s.AiModel,
+            s.WarningLabel, s.WarningAction, s.OutputVar, s.LoopOverVar, s.IsLoopEnd, s.IngestPath,
+            s.IngestKeyColumn, s.PageCountVar, s.IsPageNext, s.RuleId, s.RuleInputVar)).ToList();
+
+        var pkg = new ScrapeStepsPackage(StepsSchemaVersion, flow.Name, DateTimeOffset.UtcNow, portable);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(pkg, PortableJson);
+        var file = $"pasos-{Slug(flow.Name)}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.json";
+        return new ScrapeStepsExportDto(file, bytes);
+    }
+
+    public async Task<ScrapeStepsImportResultDto> ImportStepsAsync(Guid flowId, string json, Guid actorUserId, CancellationToken ct = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return new ScrapeStepsImportResultDto(false, 0, 0, Array.Empty<string>(), "No hay tenant activo.");
+        }
+        var flow = await _db.ScrapeFlows.FirstOrDefaultAsync(f => f.Id == flowId, ct);
+        if (flow is null)
+        {
+            return new ScrapeStepsImportResultDto(false, 0, 0, Array.Empty<string>(), "El flujo destino no existe.");
+        }
+
+        ScrapeStepsPackage? pkg;
+        try
+        {
+            pkg = JsonSerializer.Deserialize<ScrapeStepsPackage>(json, PortableJson);
+        }
+        catch (JsonException ex)
+        {
+            return new ScrapeStepsImportResultDto(false, 0, 0, Array.Empty<string>(),
+                "El archivo no es un paquete de pasos valido: " + ex.Message);
+        }
+        if (pkg?.Steps is null)
+        {
+            return new ScrapeStepsImportResultDto(false, 0, 0, Array.Empty<string>(), "El archivo no contiene pasos.");
+        }
+        if (pkg.SchemaVersion > StepsSchemaVersion)
+        {
+            return new ScrapeStepsImportResultDto(false, 0, 0, Array.Empty<string>(),
+                $"El paquete es de una version mas nueva (v{pkg.SchemaVersion}); actualiza el sistema para importarlo.");
+        }
+
+        // Validar las referencias por Guid contra el tenant destino (filtro global). Las que no resuelven
+        // (vienen de otro entorno) se dejan en null y se reportan para re-enlazar en la UI.
+        var wantContainers = pkg.Steps.Where(s => s.TargetContainerId is Guid).Select(s => s.TargetContainerId!.Value).Distinct().ToList();
+        var wantProviders = pkg.Steps.Where(s => s.AiProviderId is Guid).Select(s => s.AiProviderId!.Value).Distinct().ToList();
+        var wantRules = pkg.Steps.Where(s => s.RuleId is Guid).Select(s => s.RuleId!.Value).Distinct().ToList();
+        var okContainers = wantContainers.Count == 0 ? new HashSet<Guid>()
+            : (await _db.DataContainers.AsNoTracking().Where(c => wantContainers.Contains(c.Id)).Select(c => c.Id).ToListAsync(ct)).ToHashSet();
+        var okProviders = wantProviders.Count == 0 ? new HashSet<Guid>()
+            : (await _db.AiProviderConfigs.AsNoTracking().Where(p => wantProviders.Contains(p.Id)).Select(p => p.Id).ToListAsync(ct)).ToHashSet();
+        var okRules = wantRules.Count == 0 ? new HashSet<Guid>()
+            : (await _db.Rules.AsNoTracking().Where(r => wantRules.Contains(r.Id)).Select(r => r.Id).ToListAsync(ct)).ToHashSet();
+
+        var warnings = new List<string>();
+
+        // Reemplazo total: se quitan los pasos actuales y se crean los del paquete. Un unico SaveChanges
+        // envuelve borrado + insercion en una sola transaccion (EF ordena DELETE antes que INSERT).
+        var current = await _db.ScrapeSteps.Where(s => s.FlowId == flowId).ToListAsync(ct);
+        var replaced = current.Count;
+        if (current.Count > 0) { _db.ScrapeSteps.RemoveRange(current); }
+
+        var order = 0;
+        foreach (var p in pkg.Steps.OrderBy(s => s.Order))
+        {
+            var name = string.IsNullOrWhiteSpace(p.Name) ? $"Paso {order + 1}" : p.Name.Trim();
+
+            Guid? container = p.TargetContainerId;
+            if (container is Guid cc && !okContainers.Contains(cc))
+            {
+                container = null;
+                warnings.Add($"Paso '{name}': el contenedor destino no existe en este entorno; quedo sin asignar.");
+            }
+            Guid? provider = p.AiProviderId;
+            if (provider is Guid pp && !okProviders.Contains(pp))
+            {
+                provider = null;
+                warnings.Add($"Paso '{name}': el proveedor IA no existe en este entorno; quedo sin asignar.");
+            }
+            Guid? rule = p.RuleId;
+            if (rule is Guid rr && !okRules.Contains(rr))
+            {
+                rule = null;
+                warnings.Add($"Paso '{name}': la regla no existe en este entorno; quedo sin asignar.");
+            }
+
+            _db.ScrapeSteps.Add(new ScrapeStep
+            {
+                TenantId = tenantId,
+                FlowId = flowId,
+                Order = order++,
+                Kind = p.Kind,
+                Name = name,
+                WaitMs = p.WaitMs,
+                Url = NullIfBlank(p.Url),
+                Script = NullIfBlank(p.Script),
+                Selector = NullIfBlank(p.Selector),
+                MappingJson = NullIfBlank(p.MappingJson),
+                Instruction = NullIfBlank(p.Instruction),
+                TargetContainerId = container,
+                ToolAllowListJson = NullIfBlank(p.ToolAllowListJson),
+                MaxSteps = p.MaxSteps,
+                MaxSeconds = p.MaxSeconds,
+                AiProviderId = provider,
+                AiModel = NullIfBlank(p.AiModel),
+                WarningLabel = NullIfBlank(p.WarningLabel),
+                WarningAction = p.WarningAction,
+                OutputVar = NullIfBlank(p.OutputVar),
+                LoopOverVar = NullIfBlank(p.LoopOverVar),
+                IsLoopEnd = p.IsLoopEnd,
+                IngestPath = NullIfBlank(p.IngestPath),
+                IngestKeyColumn = NullIfBlank(p.IngestKeyColumn),
+                PageCountVar = NullIfBlank(p.PageCountVar),
+                IsPageNext = p.IsPageNext,
+                RuleId = rule,
+                RuleInputVar = NullIfBlank(p.RuleInputVar),
+            });
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return new ScrapeStepsImportResultDto(true, order, replaced, warnings, null);
+    }
+
     public async Task<bool> ReorderStepsAsync(Guid flowId, IReadOnlyList<Guid> orderedStepIds, Guid actorUserId, CancellationToken ct = default)
     {
         var steps = await _db.ScrapeSteps.Where(s => s.FlowId == flowId).ToListAsync(ct);
@@ -387,4 +524,25 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             v.IsSecret ? null : v.ValueEncrypted);
 
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    // ---- Portabilidad: version del esquema, opciones JSON y slug para el nombre de archivo ----
+
+    private const int StepsSchemaVersion = 1;
+
+    // Enums como texto (resisten reordenamientos), indentado para que el JSON sea legible/editable.
+    private static readonly JsonSerializerOptions PortableJson = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    private static string Slug(string s)
+    {
+        var slug = new string((s ?? "").Trim().ToLowerInvariant()
+            .Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray());
+        while (slug.Contains("--")) { slug = slug.Replace("--", "-"); }
+        slug = slug.Trim('-');
+        if (string.IsNullOrEmpty(slug)) { return "flujo"; }
+        return slug.Length > 40 ? slug[..40].Trim('-') : slug;
+    }
 }

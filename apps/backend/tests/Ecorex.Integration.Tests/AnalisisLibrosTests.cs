@@ -286,6 +286,147 @@ public abstract class AnalisisLibrosTestsBase
         });
     }
 
+    [Fact]
+    public async Task Layout_Duplicar_YLecturaEmbebida()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola4 layout");
+        var svc = Service(tenantId);
+        var libro = (await svc.ObtenerLibroAsync((await svc.CrearLibroAsync("L4", null, ActorDuena)).Id!.Value, ActorDuena))!;
+        var hoja = libro.Hojas[0].Id;
+        var a = (await svc.AgregarWidgetAsync(hoja, AnalisisEjemplos.Find("tareas-abiertas")!.Widget, ActorDuena)).Id!.Value;
+        var b = (await svc.AgregarWidgetAsync(hoja, AnalisisEjemplos.Find("semaforo")!.Widget, ActorDuena)).Id!.Value;
+        var c = (await svc.AgregarWidgetAsync(hoja, AnalisisEjemplos.Find("horas-total")!.Widget, ActorDuena)).Id!.Value;
+        Assert.True((await svc.GuardarFiltrosHojaAsync(hoja, new HojaFiltros { Vendedor = "Laura" }, ActorDuena)).Ok);
+
+        // Layout en lote: c primero y ancho 4; b al final con ancho fuera de rango (se acota).
+        var layout = new[] { new AnalisisLayoutItem(c, 4), new AnalisisLayoutItem(a, 1), new AnalisisLayoutItem(b, 9) };
+        Assert.True((await svc.GuardarLayoutAsync(hoja, layout, ActorDuena)).Ok);
+        Assert.False((await svc.GuardarLayoutAsync(hoja, layout.Take(2).ToList(), ActorDuena)).Ok); // incompleto
+        Assert.False((await svc.GuardarLayoutAsync(hoja, layout, ActorOtro)).Ok);
+        var ws = (await svc.ObtenerHojaAsync(hoja, ActorDuena))!.Widgets;
+        Assert.Equal(new[] { c, a, b }, ws.Select(w => w.Id));
+        Assert.Equal(new[] { 4, 1, 4 }, ws.Select(w => w.ColSpan));
+
+        // Duplicar widget: la copia queda justo despues del original.
+        var copia = (await svc.DuplicarWidgetAsync(a, ActorDuena)).Id!.Value;
+        ws = (await svc.ObtenerHojaAsync(hoja, ActorDuena))!.Widgets;
+        Assert.Equal(new[] { c, a, copia, b }, ws.Select(w => w.Id));
+        Assert.EndsWith("(copia)", ws[2].Titulo);
+        Assert.Equal(ws[1].SpecJson, ws[2].SpecJson);
+
+        // Duplicar hoja: copia filtros y widgets, al final del libro.
+        var hoja2 = (await svc.DuplicarHojaAsync(hoja, ActorDuena)).Id!.Value;
+        var dup = (await svc.ObtenerHojaAsync(hoja2, ActorDuena))!;
+        Assert.Equal(4, dup.Widgets.Count);
+        Assert.Equal("Laura", dup.Filtros.Vendedor);
+        Assert.Equal(2, (await svc.ObtenerLibroAsync(libro.Id, ActorDuena))!.Hojas.Count);
+
+        // Lectura embebida respeta la visibilidad del libro (privado).
+        Assert.Null(await svc.ObtenerHojaAsync(hoja, ActorOtro));
+        Assert.Empty(await svc.ObtenerWidgetsAsync(new[] { a, b }, ActorOtro));
+        Assert.Equal(new[] { b, a }, (await svc.ObtenerWidgetsAsync(new[] { b, a, Guid.NewGuid() }, ActorDuena)).Select(w => w.Id));
+        Assert.Equal(2, (await svc.ListarHojasAsync(ActorDuena)).Count);
+        Assert.Empty(await svc.ListarHojasAsync(ActorOtro));
+
+        // Hoja borrada: sus widgets dejan de salir embebidos.
+        Assert.True((await svc.EliminarHojaAsync(hoja2, ActorDuena)).Ok);
+        Assert.Empty(await svc.ObtenerWidgetsAsync(dup.Widgets.Select(w => w.Id).ToList(), ActorDuena));
+    }
+
+    [Fact]
+    public async Task Anfitriones_SoloAdmin_FichaEInicio()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola4 anfitrion");
+        var svc = Service(tenantId);
+        var anf = new AnalisisAnfitrionService(new ApplicationDbContextFactory(() => _fixture.CreateContext(tenantId)));
+        var libro = (await svc.ObtenerLibroAsync((await svc.CrearLibroAsync("Ficha", null, ActorAdmin)).Id!.Value, ActorAdmin))!;
+        var hoja = libro.Hojas[0].Id;
+        var w = (await svc.AgregarWidgetAsync(hoja, AnalisisEjemplos.Catalogo[0].Widget, ActorAdmin)).Id!.Value;
+
+        Assert.Null(await anf.HojaFichaTerceroAsync());
+        Assert.False((await anf.GuardarHojaFichaTerceroAsync(hoja, ActorDuena)).Ok); // no admin
+        Assert.False((await anf.GuardarHojaFichaTerceroAsync(Guid.NewGuid(), ActorAdmin)).Ok);
+        Assert.True((await anf.GuardarHojaFichaTerceroAsync(hoja, ActorAdmin)).Ok);
+        Assert.Equal(hoja, await anf.HojaFichaTerceroAsync());
+        Assert.True((await anf.GuardarHojaFichaTerceroAsync(null, ActorAdmin)).Ok);
+        Assert.Null(await anf.HojaFichaTerceroAsync());
+
+        Assert.False((await anf.FijarEnInicioAsync(w, true, ActorDuena)).Ok);
+        Assert.True((await anf.FijarEnInicioAsync(w, true, ActorAdmin)).Ok);
+        Assert.True((await anf.FijarEnInicioAsync(w, true, ActorAdmin)).Ok); // idempotente
+        Assert.Equal(new[] { w }, await anf.WidgetsInicioAsync());
+        Assert.True((await anf.FijarEnInicioAsync(w, false, ActorAdmin)).Ok);
+        Assert.Empty(await anf.WidgetsInicioAsync());
+
+        // Aislamiento: la configuracion es por tenant.
+        var otro = await SeedTenantAsync("Libros ola4 anfitrion B");
+        var anfB = new AnalisisAnfitrionService(new ApplicationDbContextFactory(() => _fixture.CreateContext(otro)));
+        Assert.True((await anf.GuardarHojaFichaTerceroAsync(hoja, ActorAdmin)).Ok);
+        Assert.Null(await anfB.HojaFichaTerceroAsync());
+        Assert.False((await anfB.GuardarHojaFichaTerceroAsync(hoja, ActorAdmin)).Ok); // hoja de otro tenant
+    }
+
+    [Fact]
+    public async Task Contexto_Tercero_FiltraCadaFuente_YSeriesConDosGrupos()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola4 contexto", conDatos: true);
+        Guid acme;
+        Guid contacto;
+        await using (var db = _fixture.CreateContext(tenantId))
+        {
+            acme = await db.Terceros.Where(t => t.Nombre == "ACME").Select(t => t.Id).SingleAsync();
+            contacto = await db.Terceros.Where(t => t.Nombre == "Contacto").Select(t => t.Id).SingleAsync();
+        }
+
+        AnalisisWidgetDto Kpi(string source, ReportAggregateFunction fn, string? campo = null, string? bindings = null) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), AnalisisTipoWidget.Kpi, "K",
+                AnalisisJson.Serialize(WidgetDisenoMapper.ToSpec(new WidgetDiseno { Tipo = AnalisisTipoWidget.Kpi, Titulo = "K", SourceKey = source, Funcion = fn, CampoMedida = campo })),
+                null, null, 0, 1, 1, bindings);
+        Dictionary<string, string> Ctx(Guid id) => new() { [AnalisisContexto.Tercero] = id.ToString() };
+        decimal? Valor(AnalisisWidgetResultado r)
+        {
+            Assert.True(r.Ok, r.Error);
+            return ((EscalarShape)r.Forma!).Valor;
+        }
+
+        await RunWithRunnerAsync(tenantId, async runner =>
+        {
+            var ctx = new ReportContext(tenantId);
+            Assert.Equal(1m, Valor(await runner.RunAsync(Kpi(TaskItemReportSource.SourceKey, ReportAggregateFunction.Count), ctx, default, null, Ctx(acme))));
+            Assert.Equal(0m, Valor(await runner.RunAsync(Kpi(TaskItemReportSource.SourceKey, ReportAggregateFunction.Count), ctx, default, null, Ctx(contacto))));
+            Assert.Equal(2.5m, Valor(await runner.RunAsync(Kpi(WorkLogReportSource.SourceKey, ReportAggregateFunction.Sum, "Horas"), ctx, default, null, Ctx(acme))));
+            Assert.Equal(1m, Valor(await runner.RunAsync(Kpi(TerceroReportSource.SourceKey, ReportAggregateFunction.Count), ctx, default, null, Ctx(contacto))));
+
+            // Widget que pidio NO filtrar por tercero: datos generales y marcado como fuera de contexto.
+            var general = await runner.RunAsync(Kpi(TaskItemReportSource.SourceKey, ReportAggregateFunction.Count, bindings: "{\"tercero\":\"\"}"), ctx, default, null, Ctx(acme));
+            Assert.Equal(3m, Valor(general));
+            Assert.True(general.FueraDeContexto);
+
+            // Curado (semaforo) filtrado por el tercero.
+            var semaforo = new AnalisisWidgetDto(Guid.NewGuid(), Guid.NewGuid(), AnalisisTipoWidget.Semaforo, "S", null,
+                SemaforoVencimientoIndicador.IndicadorKey, null, 0, 1, 1);
+            var sem = await runner.RunAsync(semaforo, ctx, default, null, Ctx(acme));
+            Assert.False(sem.FueraDeContexto);
+            Assert.Equal(1m, ((CategoriasShape)sem.Forma!).Total);
+
+            // Linea con dos agrupaciones (mes x estado) sobre Actividades -> serie por estado.
+            var linea = new AnalisisWidgetDto(Guid.NewGuid(), Guid.NewGuid(), AnalisisTipoWidget.Linea, "L",
+                AnalisisJson.Serialize(WidgetDisenoMapper.ToSpec(new WidgetDiseno
+                {
+                    Tipo = AnalisisTipoWidget.Linea,
+                    Titulo = "L",
+                    SourceKey = TaskItemReportSource.SourceKey,
+                    Dimension = "CreatedMonth",
+                    Dimension2 = "Status",
+                    OrdenarPorMedida = false
+                })), null, null, 0, 2, 1);
+            var serie = Assert.IsType<SerieShape>((await runner.RunAsync(linea, ctx)).Forma);
+            Assert.Single(serie.Ejes);
+            Assert.Equal(3, serie.Series.Count); // Active, Pending, Done
+            Assert.Equal(3m, serie.Series.Sum(s => s.Valores.Sum(v => v ?? 0)));
+        });
+    }
+
     // ---- Helpers ----
 
     private AnalisisService Service(Guid tenantId) =>

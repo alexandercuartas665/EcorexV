@@ -1,0 +1,109 @@
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@using Ecorex.SuperAdmin.Services
+@inject IAnalisisService Svc
+@inject IAnalisisWidgetRunner Runner
+@inject AnalisisSesion Sesion
+@implements IDisposable
+
+@* Hoja de indicadores EMBEBIBLE (ADR-0158 D9), solo lectura: <AnalisisHojaView HojaId="..." Contexto="..." />.
+   El anfitrion pasa el Contexto (p.ej. tercero = id) y cada widget lo aplica a su fuente. Los filtros
+   guardados en la hoja tambien se aplican. Consultas en serie por la compuerta del circuito. *@
+
+@if (_hoja is null)
+{
+    @if (_cargado)
+    {
+        <div class="av-empty">@(MensajeVacio ?? "La hoja de indicadores no esta disponible.")</div>
+    }
+    else
+    {
+        <div class="av-empty">Cargando indicadores...</div>
+    }
+}
+else
+{
+    @if (MostrarTitulo)
+    {
+        <div class="av-title">@(Titulo ?? _hoja.Nombre)</div>
+    }
+
+    @if (_hoja.Widgets.Count == 0)
+    {
+        <div class="av-empty">Esta hoja no tiene widgets.</div>
+    }
+    else
+    {
+        <div class="av-wrap">
+            <div class="av-grid">
+                @foreach (var w in _hoja.Widgets)
+                {
+                    <AnalisisWidgetCard @key="w.Id" Widget="w" Resultado="@(_resultados.TryGetValue(w.Id, out var r) ? r : null)" />
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid HojaId { get; set; }
+
+    /// <summary>Parametros del anfitrion (p.ej. { "tercero": "{id}" }).</summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? Contexto { get; set; }
+
+    [Parameter] public bool MostrarTitulo { get; set; }
+
+    [Parameter] public string? Titulo { get; set; }
+
+    [Parameter] public string? MensajeVacio { get; set; }
+
+    private AnalisisHojaDto? _hoja;
+    private bool _cargado;
+    private readonly Dictionary<Guid, AnalisisWidgetResultado> _resultados = new();
+    private string? _firma;
+    private int _version;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Recarga solo si cambio la hoja o el contexto (el anfitrion re-renderiza seguido).
+        var firma = HojaId + "|" + string.Join(";", (Contexto ?? new Dictionary<string, string>()).OrderBy(k => k.Key).Select(k => k.Key + "=" + k.Value));
+        if (firma == _firma)
+        {
+            return;
+        }
+
+        _firma = firma;
+        await CargarAsync();
+    }
+
+    public void Dispose() => _version++;
+
+    private async Task CargarAsync()
+    {
+        var version = ++_version;
+        _resultados.Clear();
+        _cargado = false;
+        var actor = await Sesion.ActorAsync();
+        _hoja = await Svc.ObtenerHojaAsync(HojaId, actor);
+        _cargado = true;
+        if (_hoja is null || version != _version)
+        {
+            return;
+        }
+
+        StateHasChanged();
+        var ctx = new ReportContext(Guid.Empty, actor.UserId);
+        var filtros = _hoja.Filtros;
+        foreach (var w in _hoja.Widgets)
+        {
+            var r = await Sesion.EnCompuertaAsync(() => Runner.RunAsync(w, ctx, default, filtros, Contexto));
+            if (version != _version)
+            {
+                return;
+            }
+
+            _resultados[w.Id] = r;
+            StateHasChanged();
+        }
+    }
+}

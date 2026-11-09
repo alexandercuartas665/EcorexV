@@ -213,6 +213,13 @@ Deploy solo con OK explicito.
 - Componente embebible (D9): `AnalisisLibroView` / `AnalisisHojaView` / `AnalisisWidgetView` con
   parametro `Contexto`; `ContextBindingsJson` por widget. Primer anfitrion: ficha de tercero del
   Directorio (hoja filtrada por el cliente). Segundo: Inicio (widgets sueltos).
+- **Estado 2026-11-08: HECHA.** Modo Ver/Editar, arrastrar y soltar nativo + layout en lote, asa de
+  ancho, duplicar widget/hoja; tipos linea, area, mapa de calor, semaforo y tabla (segunda agrupacion
+  solo en fuentes nativas); `AnalisisHojaView`/`AnalisisWidgetView`/`AnalisisLibroView` con `Contexto`
+  (`AnalisisContexto`: parametro `tercero`); anfitriones ficha del tercero (pestana Indicadores) e
+  Inicio (widgets fijados), configurados por un Admin y guardados en `TenantConfiguration`. Compuerta
+  unica por circuito reutilizando `CircuitFormGate`. Pendiente: arrastre tactil y parametros de
+  contexto tablero/proyecto/fila de contenedor.
 
 ### Ola 5 - Widgets combinados (todo el sistema)
 - Series compuestas (cada serie con su fuente) alineadas por dimension + formulas entre series.

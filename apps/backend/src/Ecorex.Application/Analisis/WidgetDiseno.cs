@@ -28,6 +28,9 @@ public sealed record WidgetDiseno
     /// <summary>Campo por el que se agrupa (obligatorio en barras/dona/linea; opcional en KPI).</summary>
     public string? Dimension { get; init; }
 
+    /// <summary>Segunda agrupacion: series (linea/area/tabla) o columnas (mapa de calor). Solo fuentes nativas.</summary>
+    public string? Dimension2 { get; init; }
+
     public IReadOnlyList<WidgetFiltroDiseno> Filtros { get; init; } = Array.Empty<WidgetFiltroDiseno>();
 
     /// <summary>true = ordena por la medida de mayor a menor; false = por la dimension (eje cronologico).</summary>
@@ -127,11 +130,27 @@ public static class WidgetDisenoMapper
     {
         (AnalisisTipoWidget.Kpi, "KPI", false),
         (AnalisisTipoWidget.Barras, "Barras", true),
-        (AnalisisTipoWidget.Dona, "Dona", true)
+        (AnalisisTipoWidget.Dona, "Dona", true),
+        (AnalisisTipoWidget.Linea, "Linea", true),
+        (AnalisisTipoWidget.Area, "Area", true),
+        (AnalisisTipoWidget.Heatmap, "Mapa de calor", true),
+        (AnalisisTipoWidget.Semaforo, "Semaforo", true),
+        (AnalisisTipoWidget.Tabla, "Tabla", true)
     };
 
     public static bool PideDimension(AnalisisTipoWidget tipo) =>
         Tipos.FirstOrDefault(t => t.Tipo == tipo).PideDimension;
+
+    /// <summary>Tipos que aceptan una segunda agrupacion (series o columnas).</summary>
+    public static bool AdmiteDimension2(AnalisisTipoWidget tipo) =>
+        tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Tabla;
+
+    /// <summary>El mapa de calor necesita filas Y columnas.</summary>
+    public static bool PideDimension2(AnalisisTipoWidget tipo) => tipo == AnalisisTipoWidget.Heatmap;
+
+    /// <summary>Series y mapa de calor se leen en orden del eje (cronologico), no por valor.</summary>
+    public static bool OrdenPorEjePorDefecto(AnalisisTipoWidget tipo) =>
+        tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap;
 
     public static string AggregateKey(ReportAggregateFunction fn, string? campo) =>
         fn == ReportAggregateFunction.Count ? "Count" : $"{fn}_{campo}";
@@ -140,15 +159,20 @@ public static class WidgetDisenoMapper
     {
         var agg = new ReportAggregate(d.Funcion == ReportAggregateFunction.Count ? string.Empty : d.CampoMedida ?? string.Empty, d.Funcion);
         var dim = string.IsNullOrWhiteSpace(d.Dimension) ? null : d.Dimension;
+        var dim2 = dim is not null && AdmiteDimension2(d.Tipo) && !string.IsNullOrWhiteSpace(d.Dimension2) ? d.Dimension2 : null;
+        var grupos = dim is null ? Array.Empty<string>() : dim2 is null ? new[] { dim } : new[] { dim, dim2 };
+        var orden = dim is null
+            ? Array.Empty<ReportSort>()
+            : d.OrdenarPorMedida
+                ? new[] { new ReportSort(AggregateKey(d.Funcion, d.CampoMedida), Descending: true) }
+                : grupos.Select(g => new ReportSort(g)).ToArray();
         return new ReportQuerySpec
         {
             SourceKey = d.SourceKey,
             Filters = d.Filtros.Select(ToFilter).ToList(),
-            GroupBy = dim is null ? Array.Empty<string>() : new[] { dim },
+            GroupBy = grupos,
             Aggregates = new[] { agg },
-            Sort = dim is null
-                ? Array.Empty<ReportSort>()
-                : new[] { d.OrdenarPorMedida ? new ReportSort(AggregateKey(d.Funcion, d.CampoMedida), Descending: true) : new ReportSort(dim) }
+            Sort = orden
         };
     }
 
@@ -174,6 +198,7 @@ public static class WidgetDisenoMapper
             Funcion = agg?.Function ?? ReportAggregateFunction.Count,
             CampoMedida = agg is null || agg.Function == ReportAggregateFunction.Count ? null : agg.FieldKey,
             Dimension = dim,
+            Dimension2 = spec?.GroupBy.ElementAtOrDefault(1),
             Filtros = spec?.Filters.Select(f => new WidgetFiltroDiseno(
                 f.FieldKey, f.Operator,
                 f.Operator == ReportFilterOperator.In ? string.Join(", ", f.Values) : f.Values.ElementAtOrDefault(0),
@@ -218,6 +243,27 @@ public static class WidgetDisenoMapper
         else if (fuente.FindField(d.Dimension) is not { CanGroup: true })
         {
             errores.Add($"No se puede agrupar por '{d.Dimension}'.");
+        }
+
+        var dim2 = AdmiteDimension2(d.Tipo) && !string.IsNullOrWhiteSpace(d.Dimension) ? d.Dimension2 : null;
+        if (string.IsNullOrWhiteSpace(dim2))
+        {
+            if (PideDimension2(d.Tipo))
+            {
+                errores.Add("El mapa de calor necesita un segundo campo para las columnas.");
+            }
+        }
+        else if (fuente.Kind != ReportSourceKind.Native)
+        {
+            errores.Add("Esta fuente solo admite una agrupacion.");
+        }
+        else if (fuente.FindField(dim2) is not { CanGroup: true })
+        {
+            errores.Add($"No se puede agrupar por '{dim2}'.");
+        }
+        else if (string.Equals(dim2, d.Dimension, StringComparison.OrdinalIgnoreCase))
+        {
+            errores.Add("Las dos agrupaciones deben ser campos distintos.");
         }
 
         foreach (var f in d.Filtros)

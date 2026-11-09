@@ -1,0 +1,10 @@
+.lv-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 14px; flex-wrap: wrap; }
+.lv-tab {
+    background: none; border: 0; border-bottom: 2px solid transparent; cursor: pointer; font-family: inherit;
+    padding: 8px 12px; font-size: 13px; font-weight: 600; color: var(--ink-2);
+}
+.lv-tab.on { color: var(--brand); border-bottom-color: var(--brand); }
+.lv-empty {
+    border: 1px dashed var(--line-2); border-radius: 14px; background: var(--surface-2);
+    padding: 22px 16px; text-align: center; color: var(--ink-3); font-size: 13px;
+}

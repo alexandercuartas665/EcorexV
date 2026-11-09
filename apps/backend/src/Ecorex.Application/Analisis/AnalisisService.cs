@@ -31,6 +31,15 @@ public sealed record AnalisisLibroDetalle(
 /// <summary>Widget nuevo: un spec del motor de reportes O un indicador curado (excluyentes).</summary>
 public sealed record AnalisisNuevoWidget(AnalisisTipoWidget Tipo, string Titulo, ReportQuerySpec? Spec, string? IndicadorKey, int ColSpan = 1, string? ConfigJson = null, string? ContextBindingsJson = null);
 
+/// <summary>Posicion de un widget en el layout de su hoja (el orden lo da la posicion en la lista).</summary>
+public sealed record AnalisisLayoutItem(Guid WidgetId, int ColSpan);
+
+/// <summary>Referencia a una hoja para los selectores de los modulos anfitriones.</summary>
+public sealed record AnalisisHojaRef(Guid HojaId, Guid LibroId, string Libro, string Hoja)
+{
+    public string Etiqueta => $"{Libro} / {Hoja}";
+}
+
 /// <summary>Resultado de una operacion de escritura: Ok + Id creado/afectado, o el error legible.</summary>
 public sealed record AnalisisOpResult(bool Ok, Guid? Id = null, string? Error = null)
 {
@@ -101,6 +110,24 @@ public interface IAnalisisService
 
     /// <summary>Guarda los filtros globales de la hoja (rango de fechas, vendedor, tablero).</summary>
     Task<AnalisisOpResult> GuardarFiltrosHojaAsync(Guid hojaId, HojaFiltros filtros, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Orden + ancho de TODOS los widgets de la hoja en una transaccion (arrastrar / redimensionar).</summary>
+    Task<AnalisisOpResult> GuardarLayoutAsync(Guid hojaId, IReadOnlyList<AnalisisLayoutItem> layout, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Copia el widget justo despues del original.</summary>
+    Task<AnalisisOpResult> DuplicarWidgetAsync(Guid widgetId, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Copia la hoja (filtros + widgets) al final del libro.</summary>
+    Task<AnalisisOpResult> DuplicarHojaAsync(Guid hojaId, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Una hoja suelta para el componente embebible (null si no existe o no la puede ver).</summary>
+    Task<AnalisisHojaDto?> ObtenerHojaAsync(Guid hojaId, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Widgets sueltos visibles para el actor, en el orden pedido (los que no puede ver se omiten).</summary>
+    Task<IReadOnlyList<AnalisisWidgetDto>> ObtenerWidgetsAsync(IReadOnlyList<Guid> widgetIds, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Hojas de los libros visibles, para elegir cual mostrar en un modulo anfitrion.</summary>
+    Task<IReadOnlyList<AnalisisHojaRef>> ListarHojasAsync(AnalisisActor actor, CancellationToken ct = default);
 
     /// <summary>Mueve el widget una posicion (delta -1 = antes, +1 = despues) dentro de su hoja.</summary>
     Task<AnalisisOpResult> MoverWidgetAsync(Guid widgetId, int delta, AnalisisActor actor, CancellationToken ct = default);
@@ -497,6 +524,153 @@ public sealed class AnalisisService : IAnalisisService
         await db.SaveChangesAsync(ct);
         return AnalisisOpResult.Hecho(widgetId);
     }
+
+    public async Task<AnalisisOpResult> GuardarLayoutAsync(Guid hojaId, IReadOnlyList<AnalisisLayoutItem> layout, AnalisisActor actor, CancellationToken ct = default)
+    {
+        await using var db = _factory.Create();
+        var (hoja, error) = await HojaEditableAsync(db, hojaId, actor, ct);
+        if (hoja is null)
+        {
+            return AnalisisOpResult.Falla(error!);
+        }
+
+        await using var tx = await db.BeginTransactionAsync(ct);
+        var widgets = await db.AnalisisWidgets.Where(w => w.HojaId == hojaId).ToListAsync(ct);
+        var porId = widgets.ToDictionary(w => w.Id);
+        if (layout.Count != widgets.Count || layout.Select(l => l.WidgetId).Distinct().Count() != layout.Count
+            || layout.Any(l => !porId.ContainsKey(l.WidgetId)))
+        {
+            return AnalisisOpResult.Falla("La hoja cambio mientras la organizabas. Recarga e intenta de nuevo.");
+        }
+
+        for (var i = 0; i < layout.Count; i++)
+        {
+            var w = porId[layout[i].WidgetId];
+            w.Orden = i;
+            w.ColSpan = Math.Clamp(layout[i].ColSpan, 1, MaxColumnas);
+        }
+
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return AnalisisOpResult.Hecho(hojaId);
+    }
+
+    public async Task<AnalisisOpResult> DuplicarWidgetAsync(Guid widgetId, AnalisisActor actor, CancellationToken ct = default)
+    {
+        await using var db = _factory.Create();
+        var (original, error) = await WidgetEditableAsync(db, widgetId, actor, ct);
+        if (original is null)
+        {
+            return AnalisisOpResult.Falla(error!);
+        }
+
+        await using var tx = await db.BeginTransactionAsync(ct);
+        var hermanos = await db.AnalisisWidgets.Where(w => w.HojaId == original.HojaId)
+            .OrderBy(w => w.Orden).ThenBy(w => w.CreatedAt).ToListAsync(ct);
+        var copia = CopiarWidget(original, original.HojaId, Limpio(original.Titulo + " (copia)", MaxTitulo)!);
+        hermanos.Insert(hermanos.FindIndex(w => w.Id == widgetId) + 1, copia);
+        for (var k = 0; k < hermanos.Count; k++)
+        {
+            hermanos[k].Orden = k;
+        }
+
+        db.AnalisisWidgets.Add(copia);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return AnalisisOpResult.Hecho(copia.Id);
+    }
+
+    public async Task<AnalisisOpResult> DuplicarHojaAsync(Guid hojaId, AnalisisActor actor, CancellationToken ct = default)
+    {
+        await using var db = _factory.Create();
+        var (hoja, error) = await HojaEditableAsync(db, hojaId, actor, ct);
+        if (hoja is null)
+        {
+            return AnalisisOpResult.Falla(error!);
+        }
+
+        await using var tx = await db.BeginTransactionAsync(ct);
+        var orden = await db.AnalisisHojas.Where(h => h.LibroId == hoja.LibroId).Select(h => (int?)h.Orden).MaxAsync(ct) ?? -1;
+        var nueva = new AnalisisHoja
+        {
+            LibroId = hoja.LibroId,
+            Nombre = Limpio(hoja.Nombre + " (copia)", MaxNombreHoja)!,
+            Orden = orden + 1,
+            FiltrosJson = hoja.FiltrosJson
+        };
+        db.AnalisisHojas.Add(nueva);
+        var widgets = await db.AnalisisWidgets.AsNoTracking().Where(w => w.HojaId == hojaId).ToListAsync(ct);
+        foreach (var w in widgets)
+        {
+            db.AnalisisWidgets.Add(CopiarWidget(w, nueva.Id, w.Titulo));
+        }
+
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return AnalisisOpResult.Hecho(nueva.Id);
+    }
+
+    public async Task<AnalisisHojaDto?> ObtenerHojaAsync(Guid hojaId, AnalisisActor actor, CancellationToken ct = default)
+    {
+        await using var db = _factory.Create();
+        var hoja = await db.AnalisisHojas.AsNoTracking().Include(h => h.Libro).FirstOrDefaultAsync(h => h.Id == hojaId, ct);
+        if (hoja?.Libro is not { } libro || !PuedeVer(libro.OwnerUserId, libro.Visibilidad, libro.AllowedUserIdsJson, actor))
+        {
+            return null;
+        }
+
+        var widgets = await db.AnalisisWidgets.AsNoTracking().Where(w => w.HojaId == hojaId)
+            .OrderBy(w => w.Orden).ThenBy(w => w.CreatedAt).ToListAsync(ct);
+        return new AnalisisHojaDto(hoja.Id, hoja.Nombre, hoja.Orden, widgets.Select(ToDto).ToList(), hoja.FiltrosJson);
+    }
+
+    public async Task<IReadOnlyList<AnalisisWidgetDto>> ObtenerWidgetsAsync(IReadOnlyList<Guid> widgetIds, AnalisisActor actor, CancellationToken ct = default)
+    {
+        if (widgetIds.Count == 0)
+        {
+            return Array.Empty<AnalisisWidgetDto>();
+        }
+
+        await using var db = _factory.Create();
+        var ids = widgetIds.Distinct().ToList();
+        // Hoja y libro con filtro global (tenant + soft-delete): un widget de hoja o libro borrado no sale.
+        var filas = await db.AnalisisWidgets.AsNoTracking()
+            .Where(w => ids.Contains(w.Id) && w.Hoja != null && w.Hoja.Libro != null)
+            .Select(w => new { Widget = w, w.Hoja!.Libro!.OwnerUserId, w.Hoja.Libro.Visibilidad, w.Hoja.Libro.AllowedUserIdsJson })
+            .ToListAsync(ct);
+        var visibles = filas
+            .Where(f => PuedeVer(f.OwnerUserId, f.Visibilidad, f.AllowedUserIdsJson, actor))
+            .ToDictionary(f => f.Widget.Id, f => ToDto(f.Widget));
+        return ids.Where(visibles.ContainsKey).Select(id => visibles[id]).ToList();
+    }
+
+    public async Task<IReadOnlyList<AnalisisHojaRef>> ListarHojasAsync(AnalisisActor actor, CancellationToken ct = default)
+    {
+        await using var db = _factory.Create();
+        var filas = await db.AnalisisHojas.AsNoTracking()
+            .Where(h => h.Libro != null)
+            .OrderBy(h => h.Libro!.Nombre).ThenBy(h => h.Orden)
+            .Select(h => new { h.Id, h.LibroId, Libro = h.Libro!.Nombre, h.Nombre, h.Libro.OwnerUserId, h.Libro.Visibilidad, h.Libro.AllowedUserIdsJson })
+            .ToListAsync(ct);
+        return filas
+            .Where(f => PuedeVer(f.OwnerUserId, f.Visibilidad, f.AllowedUserIdsJson, actor))
+            .Select(f => new AnalisisHojaRef(f.Id, f.LibroId, f.Libro, f.Nombre))
+            .ToList();
+    }
+
+    private static AnalisisWidget CopiarWidget(AnalisisWidget w, Guid hojaId, string titulo) => new()
+    {
+        HojaId = hojaId,
+        Tipo = w.Tipo,
+        Titulo = titulo,
+        SpecJson = w.SpecJson,
+        IndicadorKey = w.IndicadorKey,
+        ConfigJson = w.ConfigJson,
+        ContextBindingsJson = w.ContextBindingsJson,
+        Orden = w.Orden,
+        ColSpan = w.ColSpan,
+        RowSpan = w.RowSpan
+    };
 
     // ---------------- Reglas de acceso ----------------
 

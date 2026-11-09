@@ -98,3 +98,10 @@
     .an-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .an-grid ::deep .aw-card[style*="span 3"], .an-grid ::deep .aw-card[style*="span 4"] { grid-column: span 2 !important; }
 }
+
+/* Ola 4: modo Ver / Editar */
+.an-mode { display: inline-flex; background: var(--surface-3); border-radius: 10px; padding: 3px; gap: 2px; }
+.an-mode button { border: 0; background: none; border-radius: 8px; padding: 6px 14px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; font-family: inherit; }
+.an-mode button.on { background: var(--surface); color: var(--ink); box-shadow: var(--sh-sm); }
+.an-btn.on { background: var(--t-green-bg); color: var(--t-green); border-color: transparent; }
+.an-hint { font-size: 12.5px; color: var(--ink-3); margin: -6px 0 10px; }

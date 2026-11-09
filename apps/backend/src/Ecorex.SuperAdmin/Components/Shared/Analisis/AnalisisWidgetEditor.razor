@@ -28,7 +28,7 @@
             <div class="we-chips">
                 @foreach (var t in WidgetDisenoMapper.Tipos)
                 {
-                    <button class="we-chip @(_tipo == t.Tipo ? "on" : "")" @onclick="() => Cambiar(() => _tipo = t.Tipo)">@t.Nombre</button>
+                    <button class="we-chip @(_tipo == t.Tipo ? "on" : "")" @onclick="() => CambiarTipo(t.Tipo)">@t.Nombre</button>
                 }
             </div>
 
@@ -105,6 +105,18 @@
                             </select>
                         }
                     </div>
+
+                    @if (WidgetDisenoMapper.AdmiteDimension2(_tipo) && !string.IsNullOrEmpty(_dimension) && fuente.Kind == ReportSourceKind.Native)
+                    {
+                        <label class="we-lbl">@EtiquetaDimension2</label>
+                        <select class="we-input" value="@_dimension2" @onchange="e => Cambiar(() => _dimension2 = e.Value?.ToString())">
+                            <option value="">@(WidgetDisenoMapper.PideDimension2(_tipo) ? "Elige un campo..." : "Sin series (una sola)")</option>
+                            @foreach (var f in fuente.Fields.Where(f => f.CanGroup && f.Key != _dimension))
+                            {
+                                <option value="@f.Key">@f.DisplayName</option>
+                            }
+                        </select>
+                    }
 
                     <label class="we-lbl">Filtros</label>
                     @for (var i = 0; i < _filtros.Count; i++)
@@ -270,6 +282,7 @@
     private ReportAggregateFunction _funcion = ReportAggregateFunction.Count;
     private string? _campoMedida;
     private string? _dimension;
+    private string? _dimension2;
     private bool _ordenarPorMedida = true;
     private List<WidgetFiltroDiseno> _filtros = new();
     private int _colSpan = 1;
@@ -316,6 +329,7 @@
                 _funcion = d.Funcion;
                 _campoMedida = d.CampoMedida;
                 _dimension = d.Dimension;
+                _dimension2 = d.Dimension2;
                 _ordenarPorMedida = d.OrdenarPorMedida;
                 _filtros = d.Filtros.ToList();
             }
@@ -338,11 +352,26 @@
 
     private Task CambiarModo(bool curado) => Cambiar(() => _modoCurado = curado);
 
+    /// <summary>Linea/area/mapa de calor se leen en el orden del eje; el resto, de mayor a menor.</summary>
+    private Task CambiarTipo(AnalisisTipoWidget tipo) => Cambiar(() =>
+    {
+        _tipo = tipo;
+        _ordenarPorMedida = !WidgetDisenoMapper.OrdenPorEjePorDefecto(tipo);
+        // Series, mapa de calor y tabla necesitan espacio: arrancan en 2 columnas (el usuario puede cambiarlo).
+        if (tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Tabla)
+        {
+            _colSpan = Math.Max(_colSpan, 2);
+        }
+    });
+
+    private string EtiquetaDimension2 => _tipo == AnalisisTipoWidget.Heatmap ? "Columnas" : "Series (opcional)";
+
     private void CambiarFuente(string? key)
     {
         _sourceKey = string.IsNullOrEmpty(key) ? null : key;
         _campoMedida = null;
         _dimension = null;
+        _dimension2 = null;
         _filtros = new();
         _campoFecha = AutoFecha;
         if (Fuente is { } f && string.IsNullOrWhiteSpace(_titulo))
@@ -413,6 +442,7 @@
         Funcion = _funcion,
         CampoMedida = _campoMedida,
         Dimension = _dimension,
+        Dimension2 = _dimension2,
         Filtros = _filtros.ToList(),
         OrdenarPorMedida = _ordenarPorMedida,
         ColSpan = _colSpan,

@@ -1,0 +1,19 @@
+/* Hoja embebida (ADR-0158 D9): grilla de 4 columnas que se adapta al ancho del ANFITRION (container
+   query), no al de la ventana: dentro del modal del tercero cabe menos que en /analisis. */
+.av-title { font-weight: 700; font-size: 15px; color: var(--ink); margin: 0 0 12px; }
+.av-wrap { container-type: inline-size; width: 100%; }
+.av-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.av-empty {
+    border: 1px dashed var(--line-2); border-radius: 14px; background: var(--surface-2);
+    padding: 22px 16px; text-align: center; color: var(--ink-3); font-size: 13px;
+}
+
+@container (max-width: 860px) {
+    .av-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .av-grid ::deep .aw-card[style*="span 3"], .av-grid ::deep .aw-card[style*="span 4"] { grid-column: span 2 !important; }
+}
+
+@container (max-width: 520px) {
+    .av-grid { grid-template-columns: minmax(0, 1fr); }
+    .av-grid ::deep .aw-card { grid-column: auto !important; }
+}

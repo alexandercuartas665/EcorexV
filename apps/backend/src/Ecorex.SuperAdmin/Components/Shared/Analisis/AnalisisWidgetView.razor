@@ -1,0 +1,57 @@
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@using Ecorex.SuperAdmin.Services
+@inject IAnalisisService Svc
+@inject IAnalisisWidgetRunner Runner
+@inject AnalisisSesion Sesion
+@implements IDisposable
+
+@* Widget suelto EMBEBIBLE (ADR-0158 D9), solo lectura: <AnalisisWidgetView WidgetId="..." Contexto="..." />.
+   Aplica los filtros guardados en su hoja y el Contexto del anfitrion. Si el usuario no puede ver el libro
+   del widget (o ya no existe) no pinta nada. El anfitrion decide el ancho (la tarjeta trae su ColSpan). *@
+
+@if (_widget is not null)
+{
+    <AnalisisWidgetCard Widget="_widget" Resultado="_resultado" />
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid WidgetId { get; set; }
+
+    [Parameter] public IReadOnlyDictionary<string, string>? Contexto { get; set; }
+
+    /// <summary>Filtros de la hoja de origen; si el anfitrion ya los conoce, evita releerlos.</summary>
+    [Parameter] public HojaFiltros? Filtros { get; set; }
+
+    private AnalisisWidgetDto? _widget;
+    private AnalisisWidgetResultado? _resultado;
+    private Guid _cargadoPara;
+    private int _version;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (WidgetId == _cargadoPara)
+        {
+            return;
+        }
+
+        _cargadoPara = WidgetId;
+        var version = ++_version;
+        var actor = await Sesion.ActorAsync();
+        _widget = (await Svc.ObtenerWidgetsAsync(new[] { WidgetId }, actor)).FirstOrDefault();
+        _resultado = null;
+        if (_widget is null)
+        {
+            return;
+        }
+
+        var filtros = Filtros ?? (await Svc.ObtenerHojaAsync(_widget.HojaId, actor))?.Filtros;
+        var r = await Sesion.EnCompuertaAsync(() => Runner.RunAsync(_widget, new ReportContext(Guid.Empty, actor.UserId), default, filtros, Contexto));
+        if (version == _version)
+        {
+            _resultado = r;
+        }
+    }
+
+    public void Dispose() => _version++;
+}

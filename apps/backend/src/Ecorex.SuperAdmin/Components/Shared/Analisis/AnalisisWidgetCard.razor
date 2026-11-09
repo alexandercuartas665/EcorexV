@@ -1,14 +1,28 @@
 @using System.Globalization
 @using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
 
 @* Tarjeta de un widget del modulo de Analisis (ADR-0158 D3/D9). Componente REUTILIZABLE: pinta la forma
-   ya calculada (KPI, barras, dona) en SVG/CSS sin interop. Estilo calcado de "Indicadores del sistema" del
-   prototipo ECOREX.dc.html (tarjeta surface + line + var(--rad) + sh-sm). Las acciones de organizar solo
-   se muestran si el anfitrion pasa PuedeEditar. Todo numero que va a un atributo/estilo pasa por Inv(). *@
+   ya calculada (KPI, barras, dona, linea/area, mapa de calor, semaforo, tabla) en SVG/CSS sin interop.
+   Estilo calcado de "Indicadores del sistema" del prototipo ECOREX.dc.html. Las acciones de organizar
+   (arrastrar, redimensionar, editar, duplicar, fijar, quitar) solo existen en modo edicion (PuedeEditar).
+   Todo numero que va a un atributo/estilo pasa por Inv() (InvariantCulture). *@
 
-<div class="aw-card" style="grid-column: span @Inv(Math.Clamp(Widget.ColSpan, 1, 4))">
+<div class="aw-card @(Arrastrable ? "drag" : "") @(_sobre ? "over" : "")" style="grid-column: span @Inv(Math.Clamp(Widget.ColSpan, 1, 4))"
+     draggable="@(Arrastrable ? "true" : "false")"
+     @ondragstart="() => OnArrastrar.InvokeAsync()"
+     @ondragenter="() => _sobre = Arrastrable"
+     @ondragleave="() => _sobre = false"
+     @ondragover:preventDefault="Arrastrable"
+     @ondrop="Soltar">
     <div class="aw-head">
-        <div class="aw-title" title="@Widget.Titulo">@Widget.Titulo</div>
+        <div class="aw-title" title="@Widget.Titulo">
+            @if (Arrastrable)
+            {
+                <span class="aw-grip" aria-hidden="true">&#8942;&#8942;</span>
+            }
+            @Widget.Titulo
+        </div>
         @if (PuedeEditar)
         {
             <div class="aw-actions">
@@ -16,14 +30,16 @@
                 {
                     <button class="aw-ico" title="Editar widget" @onclick="() => OnEditar.InvokeAsync()">&#9998;</button>
                 }
+                @if (OnDuplicar.HasDelegate)
+                {
+                    <button class="aw-ico" title="Duplicar widget" @onclick="() => OnDuplicar.InvokeAsync()">&#10697;</button>
+                }
+                @if (OnFijar.HasDelegate)
+                {
+                    <button class="aw-ico @(Fijado ? "on" : "")" title="@(Fijado ? "Quitar del Inicio" : "Fijar en el Inicio")" @onclick="() => OnFijar.InvokeAsync(!Fijado)">&#9733;</button>
+                }
                 <button class="aw-ico" title="Mover antes" @onclick="() => OnMover.InvokeAsync(-1)">&#8592;</button>
                 <button class="aw-ico" title="Mover despues" @onclick="() => OnMover.InvokeAsync(1)">&#8594;</button>
-                <select class="aw-width" title="Ancho" value="@Widget.ColSpan" @onchange="CambiarAncho">
-                    @for (var i = 1; i <= 4; i++)
-                    {
-                        <option value="@i">@i col</option>
-                    }
-                </select>
                 <button class="aw-ico danger" title="Quitar widget" @onclick="() => OnEliminar.InvokeAsync()">&#215;</button>
             </div>
         }
@@ -53,6 +69,25 @@
 
             case CategoriasShape cat when cat.Items.Count == 0:
                 <div class="aw-state">Sin datos.</div>
+                break;
+
+            case CategoriasShape cat when Widget.Tipo == AnalisisTipoWidget.Semaforo:
+                <div class="aw-sem">
+                    @{ var si = 0; }
+                    @foreach (var it in cat.Items)
+                    {
+                        var tono = it.Tono ?? TonoDesde(si);
+                        <div class="aw-sem-row">
+                            <div class="aw-sem-top">
+                                <span class="aw-sem-dot" style="background:var(--t-@tono);box-shadow:0 0 0 4px var(--t-@tono-bg)"></span>
+                                <span class="aw-leg-name" title="@it.Etiqueta">@it.Etiqueta</span>
+                                <span class="aw-leg-val">@Fmt(it.Valor) &middot; @Pct(it.Valor, cat.Total)</span>
+                            </div>
+                            <div class="aw-progress"><div style="width:@Inv(Porcentaje(it.Valor, cat.Total))%;background:var(--t-@tono)"></div></div>
+                        </div>
+                        si++;
+                    }
+                </div>
                 break;
 
             case CategoriasShape cat when Widget.Tipo == AnalisisTipoWidget.Dona:
@@ -100,10 +135,132 @@
                 </div>
                 break;
 
+            case SerieShape serie when serie.Ejes.Count == 0:
+                <div class="aw-state">Sin datos.</div>
+                break;
+
+            case SerieShape serie:
+                var g = Grafica(serie);
+                <svg viewBox="0 0 @Inv(SvgW) @Inv(SvgH)" class="aw-line" role="img" aria-label="@Widget.Titulo">
+                    @foreach (var t in g.Ticks)
+                    {
+                        <line x1="@Inv(PadL)" x2="@Inv(SvgW - PadR)" y1="@Inv(t.Y)" y2="@Inv(t.Y)" class="aw-grid-line" />
+                        @SvgTexto(PadL - 6, t.Y + 4, "end", t.Etiqueta)
+                    }
+                    @foreach (var s in g.Series)
+                    {
+                        @if (Widget.Tipo == AnalisisTipoWidget.Area && s.Area is not null)
+                        {
+                            <path d="@s.Area" fill="var(--t-@s.Tono)" fill-opacity="0.14" />
+                        }
+                        <polyline points="@s.Puntos" fill="none" stroke="var(--t-@s.Tono)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+                        @foreach (var p in s.Marcas)
+                        {
+                            <circle cx="@Inv(p.X)" cy="@Inv(p.Y)" r="3" fill="var(--surface)" stroke="var(--t-@s.Tono)" stroke-width="2"><title>@s.Nombre - @p.Eje: @Fmt(p.Valor)</title></circle>
+                        }
+                    }
+                    @foreach (var x in g.EtiquetasX)
+                    {
+                        @SvgTexto(x.X, SvgH - 6, "middle", x.Etiqueta)
+                    }
+                </svg>
+                @if (serie.Series.Count > 1)
+                {
+                    <div class="aw-legend inline">
+                        @foreach (var s in g.Series)
+                        {
+                            <span class="aw-leg-chip"><span class="aw-dot" style="background:var(--t-@s.Tono)"></span>@s.Nombre</span>
+                        }
+                    </div>
+                }
+                break;
+
+            case HeatmapShape hm when hm.Filas.Count == 0:
+                <div class="aw-state">Sin datos.</div>
+                break;
+
+            case HeatmapShape hm:
+                var hmMax = hm.Valores.SelectMany(r => r).Where(v => v is not null).Select(v => v!.Value).DefaultIfEmpty(0).Max();
+                <div class="aw-scroll">
+                    <table class="aw-heat">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                @foreach (var c in hm.Columnas)
+                                {
+                                    <th title="@c">@c</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var r = 0; r < hm.Filas.Count; r++)
+                            {
+                                var fila = r;
+                                <tr>
+                                    <th title="@hm.Filas[fila]">@hm.Filas[fila]</th>
+                                    @for (var c = 0; c < hm.Columnas.Count; c++)
+                                    {
+                                        var v = hm.Valores[fila][c];
+                                        <td style="@ColorCelda(v, hmMax)" title="@hm.Filas[fila] / @hm.Columnas[c]: @Fmt(v)">@(v is null ? "" : Fmt(v))</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                break;
+
+            case TablaShape tabla when tabla.Filas.Count == 0:
+                <div class="aw-state">Sin datos.</div>
+                break;
+
+            case TablaShape tabla:
+                <div class="aw-scroll">
+                    <table class="aw-table">
+                        <thead>
+                            <tr>
+                                @foreach (var c in tabla.Columnas)
+                                {
+                                    <th class="@(EsNumero(c) ? "num" : "")">@c.DisplayName</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var fila in tabla.Filas.Take(MaxFilasTabla))
+                            {
+                                <tr>
+                                    @for (var c = 0; c < tabla.Columnas.Count; c++)
+                                    {
+                                        var col = tabla.Columnas[c];
+                                        <td class="@(EsNumero(col) ? "num" : "")">@Celda(col, c < fila.Count ? fila[c] : null)</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (tabla.Filas.Count > MaxFilasTabla)
+                {
+                    <div class="aw-foot-note">Mostrando @MaxFilasTabla de @tabla.Filas.Count filas.</div>
+                }
+                break;
+
             default:
-                <div class="aw-state">Este tipo de widget llega en una proxima ola.</div>
+                <div class="aw-state">Este tipo de widget no se puede mostrar.</div>
                 break;
         }
+
+        @if (Resultado.FueraDeContexto)
+        {
+            <div class="aw-foot-note warn" title="La fuente de este widget no tiene un campo para filtrar por el registro donde esta embebido.">Datos generales: no se filtra por este registro.</div>
+        }
+    }
+
+    @if (Arrastrable && OnAncho.HasDelegate)
+    {
+        <button class="aw-resize" title="Cambiar ancho (@Widget.ColSpan de 4 columnas)" @onclick="() => OnAncho.InvokeAsync(Widget.ColSpan % 4 + 1)">
+            <span>@Widget.ColSpan/4</span>
+        </button>
     }
 </div>
 
@@ -113,16 +270,44 @@
     /// <summary>Null = cargando.</summary>
     [Parameter] public AnalisisWidgetResultado? Resultado { get; set; }
 
+    /// <summary>Modo edicion: muestra las acciones de la cabecera.</summary>
     [Parameter] public bool PuedeEditar { get; set; }
+
+    /// <summary>Arrastrar y soltar + asa de ancho (solo en modo edicion del anfitrion).</summary>
+    [Parameter] public bool Arrastrable { get; set; }
+
+    [Parameter] public bool Fijado { get; set; }
 
     [Parameter] public EventCallback<int> OnMover { get; set; }
 
+    /// <summary>Nuevo ancho (1..4).</summary>
     [Parameter] public EventCallback<int> OnAncho { get; set; }
 
     [Parameter] public EventCallback OnEliminar { get; set; }
 
-    /// <summary>Si el anfitrion lo pasa (y PuedeEditar), aparece el boton de editar.</summary>
     [Parameter] public EventCallback OnEditar { get; set; }
+
+    [Parameter] public EventCallback OnDuplicar { get; set; }
+
+    /// <summary>true = fijar en el Inicio, false = quitar.</summary>
+    [Parameter] public EventCallback<bool> OnFijar { get; set; }
+
+    [Parameter] public EventCallback OnArrastrar { get; set; }
+
+    /// <summary>Se solto otro widget sobre este.</summary>
+    [Parameter] public EventCallback OnSoltar { get; set; }
+
+    private const int MaxFilasTabla = 50;
+    private bool _sobre;
+
+    private async Task Soltar()
+    {
+        _sobre = false;
+        if (Arrastrable)
+        {
+            await OnSoltar.InvokeAsync();
+        }
+    }
 
     private WidgetConfig Config => WidgetConfig.Leer(Widget.ConfigJson);
 
@@ -137,6 +322,18 @@
         tonoItem is not null ? $"background:var(--t-{tonoItem})"
         : Config.Tono is string t ? $"background:linear-gradient(to top,var(--t-{t}),color-mix(in oklab,var(--t-{t}) 55%,white))"
         : string.Empty;
+
+    /// <summary>Mapa de calor: intensidad del tono elegido segun el valor (InvariantCulture en el %).</summary>
+    private string ColorCelda(decimal? v, decimal max)
+    {
+        if (v is not decimal d || max <= 0)
+        {
+            return string.Empty;
+        }
+
+        var pct = Math.Clamp((double)(d / max) * 85 + 8, 8, 93);
+        return $"background:color-mix(in oklab,var(--t-{TonoBase}) {Inv(pct)}%,var(--surface));color:{(pct > 55 ? "#fff" : "var(--ink)")}";
+    }
 
     private string Fmt(decimal? v) => Formatear(v, Config.Formato);
 
@@ -158,12 +355,23 @@
         };
     }
 
+    private static bool EsNumero(ReportColumn c) => c.Type is ReportFieldType.Number or ReportFieldType.Decimal;
+
+    private string Celda(ReportColumn col, object? v) => v switch
+    {
+        null => string.Empty,
+        DateTimeOffset dto => dto.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        DateTime dt => dt.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        bool b => b ? "Si" : "No",
+        _ when EsNumero(col) => Fmt(Ecorex.Application.Reporting.Sources.InMemoryReportEngine.ToDecimal(v)),
+        _ => v.ToString() ?? string.Empty
+    };
+
     private const double Radio = 46;
     private static readonly double Circunferencia = 2 * Math.PI * Radio;
 
     // Paleta de tonos del workspace (tokens --t-*), en orden de asignacion por categoria.
     private static readonly string[] Tonos = { "blue", "violet", "green", "amber", "rose", "slate" };
-
 
     private static string Inv(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
@@ -183,6 +391,8 @@
 
     private static string Pct(decimal v, decimal total) =>
         total == 0 ? "0%" : (v / total).ToString("P0", CultureInfo.CurrentCulture);
+
+    private static double Porcentaje(decimal v, decimal total) => total <= 0 ? 0 : (double)(v / total) * 100;
 
     /// <summary>Alto de la barra en % (minimo visible 2% para valores positivos).</summary>
     private static double Alto(decimal v, decimal max) =>
@@ -209,11 +419,65 @@
         }
     }
 
-    private async Task CambiarAncho(ChangeEventArgs e)
+    // ---- Linea / area (SVG con viewBox fijo; el navegador lo escala al ancho de la tarjeta) ----
+
+    private const double SvgW = 600;
+    private const double SvgH = 220;
+    private const double PadL = 44;
+    private const double PadR = 14;
+    private const double PadT = 12;
+    private const double PadB = 28;
+
+    private sealed record Punto(double X, double Y, string Eje, decimal Valor);
+    private sealed record SerieDibujo(string Nombre, string Tono, string Puntos, string? Area, IReadOnlyList<Punto> Marcas);
+    private sealed record Tick(double Y, string Etiqueta);
+    private sealed record EtiquetaX(double X, string Etiqueta);
+    private sealed record Dibujo(IReadOnlyList<SerieDibujo> Series, IReadOnlyList<Tick> Ticks, IReadOnlyList<EtiquetaX> EtiquetasX);
+
+    private Dibujo Grafica(SerieShape serie)
     {
-        if (int.TryParse(e.Value?.ToString(), out var n))
+        var n = serie.Ejes.Count;
+        var ancho = SvgW - PadL - PadR;
+        var alto = SvgH - PadT - PadB;
+        var max = serie.Series.SelectMany(s => s.Valores).Where(v => v is not null).Select(v => v!.Value).DefaultIfEmpty(0).Max();
+        var tope = max <= 0 ? 1 : max;
+        double X(int i) => PadL + (n == 1 ? ancho / 2 : i * ancho / (n - 1));
+        double Y(decimal v) => PadT + alto - (double)(v / tope) * alto;
+        var base0 = PadT + alto;
+
+        var series = new List<SerieDibujo>();
+        for (var s = 0; s < serie.Series.Count; s++)
         {
-            await OnAncho.InvokeAsync(n);
+            var datos = serie.Series[s];
+            var marcas = new List<Punto>();
+            for (var i = 0; i < n && i < datos.Valores.Count; i++)
+            {
+                if (datos.Valores[i] is decimal v)
+                {
+                    marcas.Add(new Punto(X(i), Y(v), serie.Ejes[i], v));
+                }
+            }
+
+            var puntos = string.Join(" ", marcas.Select(p => $"{Inv(p.X)},{Inv(p.Y)}"));
+            var area = marcas.Count > 1
+                ? $"M{Inv(marcas[0].X)},{Inv(base0)} L{string.Join(" L", marcas.Select(p => $"{Inv(p.X)},{Inv(p.Y)}"))} L{Inv(marcas[^1].X)},{Inv(base0)} Z"
+                : null;
+            series.Add(new SerieDibujo(datos.Nombre, TonoDesde(s), puntos, area, n <= 24 ? marcas : Array.Empty<Punto>()));
         }
+
+        var ticks = new[] { 0m, tope / 2, tope }.Select(v => new Tick(Y(v), Fmt(v))).ToList();
+        var paso = Math.Max(1, (int)Math.Ceiling(n / 8.0));
+        var etiquetas = Enumerable.Range(0, n).Where(i => i % paso == 0 || i == n - 1)
+            .Select(i => new EtiquetaX(X(i), Corto(serie.Ejes[i]))).ToList();
+        return new Dibujo(series, ticks, etiquetas);
     }
+
+    /// <summary>
+    /// Etiqueta de eje como &lt;text&gt; SVG. Se emite como markup porque dentro de un bloque de codigo Razor
+    /// trata &lt;text&gt; como su propia etiqueta. El contenido va codificado (HtmlEncode).
+    /// </summary>
+    private static MarkupString SvgTexto(double x, double y, string anchor, string contenido) =>
+        new($"<text x=\"{Inv(x)}\" y=\"{Inv(y)}\" text-anchor=\"{anchor}\" style=\"fill:var(--ink-3);font-size:11px;font-weight:600\">{System.Net.WebUtility.HtmlEncode(contenido)}</text>");
+
+    private static string Corto(string s) => s.Length > 12 ? s[..11] + "..." : s;
 }

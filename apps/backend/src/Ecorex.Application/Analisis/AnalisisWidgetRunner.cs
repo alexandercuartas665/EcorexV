@@ -6,7 +6,9 @@ using Ecorex.Domain.Enums;
 namespace Ecorex.Application.Analisis;
 
 /// <summary>Resultado de ejecutar un widget: la forma a pintar o un error legible (nunca excepcion).</summary>
-public sealed record AnalisisWidgetResultado(WidgetShape? Forma, string? Error)
+/// <param name="FueraDeContexto">El anfitrion paso un contexto (p.ej. un tercero) que este widget no pudo
+/// aplicar a su fuente: muestra datos GENERALES, no los del registro. La tarjeta lo advierte.</param>
+public sealed record AnalisisWidgetResultado(WidgetShape? Forma, string? Error, bool FueraDeContexto = false)
 {
     public bool Ok => Error is null && Forma is not null;
 }
@@ -18,7 +20,10 @@ public sealed record AnalisisWidgetResultado(WidgetShape? Forma, string? Error)
 public interface IAnalisisWidgetRunner
 {
     /// <param name="hoja">Filtros globales de la hoja (null = sin filtros). Cada widget los aplica sobre su fuente.</param>
-    Task<AnalisisWidgetResultado> RunAsync(AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null);
+    /// <param name="contexto">Parametros del modulo anfitrion cuando el widget va embebido (ADR-0158 D9).</param>
+    Task<AnalisisWidgetResultado> RunAsync(
+        AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null,
+        IReadOnlyDictionary<string, string>? contexto = null);
 }
 
 public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
@@ -37,7 +42,9 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
         _catalog = catalog;
     }
 
-    public async Task<AnalisisWidgetResultado> RunAsync(AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null)
+    public async Task<AnalisisWidgetResultado> RunAsync(
+        AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null,
+        IReadOnlyDictionary<string, string>? contexto = null)
     {
         try
         {
@@ -49,9 +56,9 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
                     return new(null, "El indicador ya no existe.");
                 }
 
-                var extra = await FiltrosDeHojaAsync(curado.SourceKey, hoja, widget.ContextBindingsJson, ct);
+                var (extra, fuera) = await FiltrosExtraAsync(curado.SourceKey, hoja, contexto, widget.ContextBindingsJson, ct);
                 var forma = await curado.QueryAsync(new IndicadorContexto(ctx, extra), ct);
-                return new(Adaptar(forma, widget), null);
+                return new(Adaptar(forma, widget), null, fuera);
             }
 
             var spec = AnalisisJson.DeserializeSpec(widget.SpecJson);
@@ -60,7 +67,7 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
                 return new(null, "La consulta del widget no es valida.");
             }
 
-            var filtrosHoja = await FiltrosDeHojaAsync(spec.SourceKey, hoja, widget.ContextBindingsJson, ct);
+            var (filtrosHoja, fueraDeContexto) = await FiltrosExtraAsync(spec.SourceKey, hoja, contexto, widget.ContextBindingsJson, ct);
             if (filtrosHoja.Count > 0)
             {
                 spec = spec with { Filters = spec.Filters.Concat(filtrosHoja).ToList() };
@@ -71,11 +78,11 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
             if (spec.GroupBy.Count == 0 && spec.Aggregates.Count == 1)
             {
                 var valor = await AgregarSinGrupoAsync(spec, ctx, ct);
-                return new(Adaptar(new EscalarShape(valor, widget.Titulo), widget), null);
+                return new(Adaptar(new EscalarShape(valor, widget.Titulo), widget), null, fueraDeContexto);
             }
 
             var ds = await _data.QueryAsync(spec, ctx, ct);
-            return new(Adaptar(AFormar(ds, widget), widget), null);
+            return new(Adaptar(AFormar(ds, widget), widget), null, fueraDeContexto);
         }
         catch (ReportValidationException ex)
         {
@@ -172,15 +179,27 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
             ?? throw new ReportValidationException("No se pudo determinar un campo para contar filas.");
     }
 
-    private async Task<IReadOnlyList<ReportFilter>> FiltrosDeHojaAsync(string sourceKey, HojaFiltros? hoja, string? bindingsJson, CancellationToken ct)
+    /// <summary>Filtros de la hoja + filtros del contexto de embebido, sobre los campos de la fuente.</summary>
+    private async Task<(IReadOnlyList<ReportFilter> Filtros, bool FueraDeContexto)> FiltrosExtraAsync(
+        string sourceKey, HojaFiltros? hoja, IReadOnlyDictionary<string, string>? contexto, string? bindingsJson, CancellationToken ct)
     {
-        if (hoja is null || hoja.Vacio || _catalog is null)
+        var hayHoja = hoja is { Vacio: false };
+        var hayContexto = contexto is { Count: > 0 };
+        if ((!hayHoja && !hayContexto) || _catalog is null)
         {
-            return Array.Empty<ReportFilter>();
+            return (Array.Empty<ReportFilter>(), hayContexto);
         }
 
         var fuente = await _catalog.GetSourceAsync(sourceKey, ct);
-        return fuente is null ? Array.Empty<ReportFilter>() : HojaFiltroBinder.Filtros(hoja, fuente, bindingsJson);
+        if (fuente is null)
+        {
+            return (Array.Empty<ReportFilter>(), hayContexto);
+        }
+
+        var filtros = hayHoja ? HojaFiltroBinder.Filtros(hoja, fuente, bindingsJson).ToList() : new List<ReportFilter>();
+        var (delContexto, ignorado) = AnalisisContexto.Filtros(contexto, fuente, bindingsJson);
+        filtros.AddRange(delContexto);
+        return (filtros, ignorado);
     }
 }
 

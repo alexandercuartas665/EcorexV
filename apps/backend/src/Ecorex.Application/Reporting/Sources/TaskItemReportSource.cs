@@ -45,6 +45,7 @@ public sealed class TaskItemReportSource : IReportableSource
         new ReportField("Categoria", "Categoria", ReportFieldType.Text),
         new ReportField("AssigneeName", "Asignado", ReportFieldType.Text),
         new ReportField("Board", "Tablero", ReportFieldType.Text),
+        new ReportField("BoardId", "Tablero (ID)", ReportFieldType.Text, CanGroup: false),
         new ReportField("Stage", "Etapa", ReportFieldType.Text),
         new ReportField("IsArchived", "Archivada", ReportFieldType.Boolean),
         // Campos EXTENDIDOS (ADR-0158, Ola 1): se resuelven en InMemoryReportEngine (ver QueryAsync).
@@ -71,7 +72,7 @@ public sealed class TaskItemReportSource : IReportableSource
 
     // Columnas por defecto del modo tabular cuando el spec no pide campos (se conserva el contrato previo).
     private static readonly IReadOnlyList<ReportField> ClassicFieldSet =
-        FieldSet.Where(f => !ExtendedKeys.Contains(f.Key)).ToList();
+        FieldSet.Where(f => !ExtendedKeys.Contains(f.Key) && f.Key != "BoardId").ToList();
 
     private static readonly ReportSourceDescriptor Descriptor = new(SourceKey, "Actividades", ReportSourceKind.Native, FieldSet);
 
@@ -392,6 +393,12 @@ public sealed class TaskItemReportSource : IReportableSource
                         q = f.Operator == ReportFilterOperator.NotEquals ? q.Where(t => t.ProjectId != pid) : q.Where(t => t.ProjectId == pid);
                     }
                     break;
+                case "boardid":
+                    if (Guid.TryParse(first, out var bid))
+                    {
+                        q = f.Operator == ReportFilterOperator.NotEquals ? q.Where(t => t.BoardId != bid) : q.Where(t => t.BoardId == bid);
+                    }
+                    break;
                 case "assigneeuserid":
                     if (Guid.TryParse(first, out var aid))
                     {
@@ -587,6 +594,7 @@ public sealed class TaskItemReportSource : IReportableSource
         "createdat" => t => t.CreatedAt,
         "projectid" => t => t.ProjectId?.ToString(),
         "assigneeuserid" => t => t.AssigneeTenantUserId?.ToString(),
+        "boardid" => t => t.BoardId?.ToString(),
         "concepto" => t => t.SubcategoriaId is Guid g && lk.Subcats.TryGetValue(g, out var v) ? v.Sub : null,
         "categoria" => t => t.SubcategoriaId is Guid g && lk.Subcats.TryGetValue(g, out var v) && !string.IsNullOrEmpty(v.Cat) ? v.Cat : null,
         "assigneename" => t => t.AssigneeTenantUserId is Guid g && lk.Users.TryGetValue(g, out var n) ? n : null,

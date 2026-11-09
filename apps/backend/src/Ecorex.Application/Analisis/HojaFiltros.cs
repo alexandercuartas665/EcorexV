@@ -130,8 +130,12 @@ public static class HojaFiltroBinder
         return parametro == Fecha && f.Type != ReportFieldType.Date ? null : f.Key;
     }
 
-    /// <summary>Filtros extra que la hoja agrega a un widget de esa fuente.</summary>
-    public static IReadOnlyList<ReportFilter> Filtros(HojaFiltros? hoja, ReportSourceDescriptor fuente, string? bindingsJson)
+    /// <summary>
+    /// Filtros extra que la hoja agrega a un widget de esa fuente. Con <paramref name="zona"/>, en las fuentes
+    /// NATIVAS (marcas de tiempo) los limites del rango son las 00:00 de la zona del tenant expresadas con su
+    /// offset (regla 9); en los contenedores (fechas sin hora) el limite sigue siendo el dia calendario.
+    /// </summary>
+    public static IReadOnlyList<ReportFilter> Filtros(HojaFiltros? hoja, ReportSourceDescriptor fuente, string? bindingsJson, TimeZoneInfo? zona = null)
     {
         var r = new List<ReportFilter>();
         if (hoja is null || hoja.Vacio)
@@ -144,12 +148,12 @@ public static class HojaFiltroBinder
             // Rango cerrado por dias completos: Hasta incluye todo ese dia (se usa el dia siguiente como tope).
             if (hoja.Desde is DateOnly desde)
             {
-                r.Add(new ReportFilter(campoFecha, ReportFilterOperator.GreaterThanOrEqual, new[] { desde.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }));
+                r.Add(new ReportFilter(campoFecha, ReportFilterOperator.GreaterThanOrEqual, new[] { Limite(desde, fuente, zona) }));
             }
 
             if (hoja.Hasta is DateOnly hasta)
             {
-                r.Add(new ReportFilter(campoFecha, ReportFilterOperator.LessThan, new[] { hasta.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }));
+                r.Add(new ReportFilter(campoFecha, ReportFilterOperator.LessThan, new[] { Limite(hasta.AddDays(1), fuente, zona) }));
             }
         }
 
@@ -164,5 +168,18 @@ public static class HojaFiltroBinder
         }
 
         return r;
+    }
+
+    /// <summary>Inicio del dia: en la zona del tenant (con offset, respeta horario de verano) o dia calendario.</summary>
+    public static string Limite(DateOnly dia, ReportSourceDescriptor fuente, TimeZoneInfo? zona)
+    {
+        if (zona is null || fuente.Kind != ReportSourceKind.Native)
+        {
+            return dia.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        var local = dia.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var inicio = new DateTimeOffset(local, zona.GetUtcOffset(local));
+        return inicio.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture);
     }
 }

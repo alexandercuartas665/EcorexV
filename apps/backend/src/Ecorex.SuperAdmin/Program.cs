@@ -326,6 +326,24 @@ builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
 // configuracion NO versionada (appsettings.Development.local.json).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.LegacyOnboardingSeeder>();
 
+// Tope de aperturas del enlace publico /a/{token} (ADR-0158 D7): 30 por minuto por IP, para que el token
+// no se pueda tantear a fuerza bruta. Fuera de /a no hay limite.
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        ctx.Request.Path.StartsWithSegments("/a")
+            ? System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+                "a:" + (ctx.Connection.RemoteIpAddress?.ToString() ?? "sin-ip"),
+                _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 30,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                })
+            : System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("libre"));
+});
+
 var app = builder.Build();
 
 // Detras del proxy de Railway (TLS en el borde, HTTP al contenedor): leer
@@ -907,6 +925,9 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+// Enlace publico de libros de indicadores /a/{token} (ADR-0158 D7): tope por IP solo en /a
+// (el limitador global no limita nada fuera de esa ruta).
+app.UseRateLimiter();
 app.UseAntiforgery();
 
 app.MapStaticAssets();

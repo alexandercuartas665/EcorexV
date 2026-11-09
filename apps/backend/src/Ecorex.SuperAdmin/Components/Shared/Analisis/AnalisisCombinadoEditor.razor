@@ -1,0 +1,163 @@
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+
+@* Paso "Combinar fuentes" del modal del widget (ADR-0158 Ola 5): series con su propia fuente, medida y campo
+   de cruce, normalizacion de la llave (texto / NIT / exacta), interseccion o union y formulas entre series
+   (A, B, C, D). Trabaja sobre un CombinadoDiseno inmutable y devuelve cada cambio al editor anfitrion, que
+   valida, arma la vista previa y guarda. *@
+
+<div class="cb">
+    @for (var i = 0; i < Diseno.Series.Count; i++)
+    {
+        var idx = i;
+        var s = Diseno.Series[idx];
+        var fuente = Fuentes.FirstOrDefault(f => f.Key == s.SourceKey);
+        <div class="cb-serie">
+            <div class="cb-serie-head">
+                <span class="cb-letra">@CombinadoDiseno.Letra(idx)</span>
+                <input class="we-input" value="@s.Nombre" maxlength="60" placeholder="Nombre de la serie"
+                       @onchange="e => CambiarSerie(idx, s with { Nombre = e.Value?.ToString() ?? string.Empty })" />
+                @if (Diseno.Series.Count > 1)
+                {
+                    <button class="we-ico" title="Quitar serie" @onclick="() => QuitarSerie(idx)">&#215;</button>
+                }
+            </div>
+            <div class="cb-grid">
+                <div>
+                    <label class="we-lbl">Fuente</label>
+                    <select class="we-input" value="@s.SourceKey" @onchange="e => CambiarSerie(idx, new SerieCombinada { Nombre = s.Nombre, SourceKey = e.Value?.ToString() ?? string.Empty })">
+                        <option value="">Elige una fuente...</option>
+                        @foreach (var f in Fuentes.OrderBy(f => f.Kind).ThenBy(f => f.DisplayName))
+                        {
+                            <option value="@f.Key">@f.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="we-lbl">Cruzar por</label>
+                    <select class="we-input" value="@s.Dimension" disabled="@(fuente is null)"
+                            @onchange="e => CambiarSerie(idx, s with { Dimension = e.Value?.ToString() ?? string.Empty })">
+                        <option value="">Campo de cruce...</option>
+                        @foreach (var f in (fuente?.Fields ?? Array.Empty<ReportField>()).Where(f => f.CanGroup))
+                        {
+                            <option value="@f.Key">@f.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="we-lbl">Medida</label>
+                    <select class="we-input" value="@s.Funcion" disabled="@(fuente is null)"
+                            @onchange="e => CambiarSerie(idx, s with { Funcion = Enum.Parse<ReportAggregateFunction>(e.Value!.ToString()!), CampoMedida = null })">
+                        <option value="@ReportAggregateFunction.Count">Conteo de registros</option>
+                        <option value="@ReportAggregateFunction.Sum">Suma</option>
+                        <option value="@ReportAggregateFunction.Avg">Promedio</option>
+                        <option value="@ReportAggregateFunction.Min">Minimo</option>
+                        <option value="@ReportAggregateFunction.Max">Maximo</option>
+                    </select>
+                </div>
+                @if (s.Funcion != ReportAggregateFunction.Count)
+                {
+                    <div>
+                        <label class="we-lbl">Campo</label>
+                        <select class="we-input" value="@s.CampoMedida" @onchange="e => CambiarSerie(idx, s with { CampoMedida = e.Value?.ToString() })">
+                            <option value="">Campo numerico...</option>
+                            @foreach (var f in (fuente?.Fields ?? Array.Empty<ReportField>()).Where(f => f.CanAggregate))
+                            {
+                                <option value="@f.Key">@f.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (Diseno.Series.Count < CombinadoDiseno.MaxSeries)
+    {
+        <button class="we-link" @onclick="AgregarSerie">+ Agregar serie</button>
+    }
+
+    <div class="cb-grid" style="margin-top:12px">
+        <div>
+            <label class="we-lbl">Comparar llaves como</label>
+            <select class="we-input" value="@Diseno.Llave" @onchange="e => Emitir(Diseno with { Llave = Enum.Parse<LlaveCombinado>(e.Value!.ToString()!) })">
+                <option value="@LlaveCombinado.Texto">Texto (sin tildes ni mayusculas)</option>
+                <option value="@LlaveCombinado.Nit">NIT (solo digitos, sin DV)</option>
+                <option value="@LlaveCombinado.Exacta">Exacta</option>
+            </select>
+        </div>
+        <div>
+            <label class="we-lbl">Filas</label>
+            <select class="we-input" value="@(Diseno.SoloComunes ? "1" : "0")" @onchange="CambiarComunes">
+                <option value="0">Todas las llaves (union)</option>
+                <option value="1">Solo las que estan en todas las series</option>
+            </select>
+        </div>
+    </div>
+
+    <label class="we-lbl">Formulas entre series</label>
+    @for (var i = 0; i < Diseno.Formulas.Count; i++)
+    {
+        var idx = i;
+        var f = Diseno.Formulas[idx];
+        var valida = FormulaSerie.EsValida(f.Expresion, Diseno.Series.Count);
+        <div class="cb-formula">
+            <input class="we-input" value="@f.Nombre" maxlength="60" placeholder="Nombre (ej. Conversion %)"
+                   @onchange="e => CambiarFormula(idx, f with { Nombre = e.Value?.ToString() ?? string.Empty })" />
+            <input class="we-input @(valida ? "" : "bad")" value="@f.Expresion" maxlength="200" placeholder="ej. B / A * 100"
+                   @onchange="e => CambiarFormula(idx, f with { Expresion = e.Value?.ToString() ?? string.Empty })" />
+            <button class="we-ico" title="Quitar formula" @onclick="() => QuitarFormula(idx)">&#215;</button>
+        </div>
+    }
+    @if (Diseno.Formulas.Count < CombinadoDiseno.MaxFormulas)
+    {
+        <button class="we-link" @onclick="AgregarFormula">+ Agregar formula</button>
+    }
+    <p class="we-hint">Las letras A-@(CombinadoDiseno.Letra(Math.Max(0, Diseno.Series.Count - 1))) son las series en orden. En el KPI se muestra la primera formula sobre los totales.</p>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ReportSourceDescriptor> Fuentes { get; set; } = Array.Empty<ReportSourceDescriptor>();
+
+    [Parameter, EditorRequired] public CombinadoDiseno Diseno { get; set; } = new();
+
+    [Parameter] public EventCallback<CombinadoDiseno> DisenoChanged { get; set; }
+
+    private Task Emitir(CombinadoDiseno d) => DisenoChanged.InvokeAsync(d);
+
+    private Task CambiarComunes(ChangeEventArgs e) => Emitir(Diseno with { SoloComunes = e.Value?.ToString() == "1" });
+
+    private Task CambiarSerie(int i, SerieCombinada s)
+    {
+        var lista = Diseno.Series.ToList();
+        lista[i] = s;
+        return Emitir(Diseno with { Series = lista });
+    }
+
+    private Task AgregarSerie() =>
+        Emitir(Diseno with { Series = Diseno.Series.Append(new SerieCombinada { Nombre = $"Serie {CombinadoDiseno.Letra(Diseno.Series.Count)}" }).ToList() });
+
+    private Task QuitarSerie(int i)
+    {
+        var lista = Diseno.Series.ToList();
+        lista.RemoveAt(i);
+        return Emitir(Diseno with { Series = lista });
+    }
+
+    private Task CambiarFormula(int i, FormulaCombinada f)
+    {
+        var lista = Diseno.Formulas.ToList();
+        lista[i] = f;
+        return Emitir(Diseno with { Formulas = lista });
+    }
+
+    private Task AgregarFormula() =>
+        Emitir(Diseno with { Formulas = Diseno.Formulas.Append(new FormulaCombinada(string.Empty, string.Empty)).ToList() });
+
+    private Task QuitarFormula(int i)
+    {
+        var lista = Diseno.Formulas.ToList();
+        lista.RemoveAt(i);
+        return Emitir(Diseno with { Formulas = lista });
+    }
+}

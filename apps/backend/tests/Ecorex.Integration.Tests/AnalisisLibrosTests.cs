@@ -431,6 +431,127 @@ public abstract class AnalisisLibrosTestsBase
         });
     }
 
+    [Fact]
+    public async Task Combinado_CruzaDirectorioXTareasPorCliente_ConFormulaYCategoria()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola5 combinado", conDatos: true);
+        await using (var db = _fixture.CreateContext(tenantId))
+        {
+            var acme = await db.Terceros.SingleAsync(t => t.Nombre == "ACME");
+            db.DirectorioCategorias.Add(new DirectorioCategoria { TenantId = tenantId, CategoriaKey = "comercial", Title = "Comercial" });
+            db.TerceroCategorias.Add(new TerceroCategoria { TenantId = tenantId, TerceroId = acme.Id, CategoriaKey = "comercial" });
+            await db.SaveChangesAsync();
+        }
+
+        var diseno = new CombinadoDiseno
+        {
+            Series = new[]
+            {
+                new SerieCombinada { Nombre = "Terceros", SourceKey = TerceroReportSource.SourceKey, Dimension = "Nombre" },
+                new SerieCombinada { Nombre = "Tareas", SourceKey = TaskItemReportSource.SourceKey, Dimension = "Cliente" },
+                new SerieCombinada { Nombre = "Horas", SourceKey = WorkLogReportSource.SourceKey, Dimension = "Cliente", Funcion = ReportAggregateFunction.Sum, CampoMedida = "Horas" }
+            },
+            Formulas = new[] { new FormulaCombinada("Horas por tarea", "C / B") },
+            Llave = LlaveCombinado.Texto,
+            SoloComunes = true
+        };
+        AnalisisWidgetDto Widget(AnalisisTipoWidget tipo) => new(Guid.NewGuid(), Guid.NewGuid(), tipo, "Cruce", null,
+            CombinadoDiseno.IndicadorKey, new WidgetConfig { Combinado = diseno }.ToJson(), 0, 2, 1);
+
+        await RunWithRunnerAsync(tenantId, async runner =>
+        {
+            var ctx = new ReportContext(tenantId);
+            var tabla = await runner.RunAsync(Widget(AnalisisTipoWidget.Tabla), ctx);
+            Assert.True(tabla.Ok, tabla.Error);
+            var fila = Assert.Single(((TablaShape)tabla.Forma!).Filas); // solo ACME esta en las tres series
+            Assert.Equal("ACME", fila[0]);
+            Assert.Equal(1m, Convert.ToDecimal(fila[1]));
+            Assert.Equal(1m, Convert.ToDecimal(fila[2]));
+            Assert.Equal(2.5m, Convert.ToDecimal(fila[3]));
+            Assert.Equal(2.5m, Convert.ToDecimal(fila[4]));
+
+            var kpi = await runner.RunAsync(Widget(AnalisisTipoWidget.Kpi), ctx);
+            Assert.Equal(2.5m, ((EscalarShape)kpi.Forma!).Valor);
+
+            // Categoria del Directorio (motor Modular) visible como campo reportable.
+            var porCategoria = await runner.RunAsync(new AnalisisWidgetDto(Guid.NewGuid(), Guid.NewGuid(), AnalisisTipoWidget.Barras, "Cat",
+                AnalisisJson.Serialize(WidgetDisenoMapper.ToSpec(new WidgetDiseno { Tipo = AnalisisTipoWidget.Barras, Titulo = "Cat", SourceKey = TerceroReportSource.SourceKey, Dimension = "Categoria" })),
+                null, null, 0, 1, 1), ctx);
+            Assert.True(porCategoria.Ok, porCategoria.Error);
+            Assert.Equal(1m, ((CategoriasShape)porCategoria.Forma!).Items.Single(i => i.Etiqueta == "Comercial").Valor);
+        });
+
+        // El servicio acepta el combinado (definicion en el ConfigJson) y rechaza uno sin series.
+        var svc = Service(tenantId);
+        var libro = (await svc.CrearLibroAsync("Combinado", null, ActorDuena)).Id!.Value;
+        var hoja = (await svc.ObtenerLibroAsync(libro, ActorDuena))!.Hojas[0].Id;
+        Assert.True((await svc.AgregarWidgetAsync(hoja, new AnalisisNuevoWidget(AnalisisTipoWidget.Barras, "C", null, CombinadoDiseno.IndicadorKey, 2, new WidgetConfig { Combinado = diseno }.ToJson()), ActorDuena)).Ok);
+        Assert.False((await svc.AgregarWidgetAsync(hoja, new AnalisisNuevoWidget(AnalisisTipoWidget.Barras, "C", null, CombinadoDiseno.IndicadorKey), ActorDuena)).Ok);
+    }
+
+    [Fact]
+    public async Task Compartir_UsuariosYEnlacePublico_RotarRevocarVencer_YAislamiento()
+    {
+        var a = await SeedTenantAsync("Libros ola6 A");
+        var b = await SeedTenantAsync("Libros ola6 B");
+        var svcA = Service(a);
+        var libro = (await svcA.CrearLibroAsync("Publico", null, ActorDuena)).Id!.Value;
+        var otroLibroB = (await Service(b).CrearLibroAsync("De B", null, ActorDuena)).Id!.Value;
+
+        var reloj = new RelojFijo(DateTimeOffset.UtcNow);
+        IAnalisisCompartirService Comp(Guid? t) => new AnalisisCompartirService(new ApplicationDbContextFactory(() => _fixture.CreateContext(t)), reloj);
+        var compA = Comp(a);
+
+        // Lista de usuarios: el otro usuario ve el libro privado; un tercero no.
+        Assert.False((await compA.CambiarVisibilidadAsync(libro, AnalisisVisibilidad.CompartidoEnTenant, Array.Empty<Guid>(), ActorOtro)).Ok);
+        Assert.True((await compA.CambiarVisibilidadAsync(libro, AnalisisVisibilidad.Privado, new[] { ActorOtro.UserId!.Value }, ActorDuena)).Ok);
+        Assert.NotNull(await svcA.ObtenerLibroAsync(libro, ActorOtro));
+        Assert.Null(await svcA.ObtenerLibroAsync(libro, new AnalisisActor(Guid.CreateVersion7(), false)));
+
+        // Solo un Admin publica con enlace.
+        Assert.False((await compA.GenerarEnlaceAsync(libro, null, ActorDuena)).Ok);
+        var e1 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin);
+        Assert.True(e1.Ok, e1.Error);
+
+        // El visor anonimo (sin tenant) resuelve el token al tenant y libro correctos.
+        var anon = Comp(null);
+        var r = await anon.ResolverAsync(e1.Token);
+        Assert.Equal(new AnalisisEnlaceResuelto(a, libro), r);
+        Assert.NotNull(await Comp(a).LibroPublicoAsync(libro));
+        Assert.Null(await Comp(b).LibroPublicoAsync(libro)); // con el tenant B el filtro global lo oculta
+        Assert.Null(await Comp(b).LibroPublicoAsync(otroLibroB)); // privado: no es publico
+        Assert.Null(await anon.ResolverAsync("no-existe"));
+        Assert.Null(await anon.ResolverAsync(new string('x', 200)));
+
+        // Rotar invalida el anterior.
+        var e2 = await compA.GenerarEnlaceAsync(libro, reloj.Ahora.AddDays(1), ActorAdmin);
+        Assert.Null(await anon.ResolverAsync(e1.Token));
+        Assert.NotNull(await anon.ResolverAsync(e2.Token));
+        var estado = await compA.EstadoAsync(libro, ActorDuena);
+        Assert.True(estado!.EnlaceActivo);
+        Assert.NotNull(estado.EnlaceExpira);
+
+        // Vence.
+        reloj.Ahora = reloj.Ahora.AddDays(2);
+        Assert.Null(await anon.ResolverAsync(e2.Token));
+
+        // Revocar y pasar a privado apagan el enlace.
+        reloj.Ahora = reloj.Ahora.AddDays(-2);
+        var e3 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin);
+        Assert.True((await compA.RevocarEnlaceAsync(libro, ActorDuena)).Ok);
+        Assert.Null(await anon.ResolverAsync(e3.Token));
+        var e4 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin);
+        Assert.True((await compA.CambiarVisibilidadAsync(libro, AnalisisVisibilidad.Privado, Array.Empty<Guid>(), ActorDuena)).Ok);
+        Assert.Null(await anon.ResolverAsync(e4.Token));
+    }
+
+    private sealed class RelojFijo(DateTimeOffset inicio) : TimeProvider
+    {
+        public DateTimeOffset Ahora { get; set; } = inicio;
+
+        public override DateTimeOffset GetUtcNow() => Ahora;
+    }
+
     // ---- Helpers ----
 
     private AnalisisService Service(Guid tenantId) =>

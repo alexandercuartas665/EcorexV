@@ -254,3 +254,33 @@ Deploy solo con OK explicito.
 2. `/analisis` es un modulo nuevo Y un componente reutilizable desde otros modulos (D9).
 3. Alcance completo en v1, incluido el enlace publico (D11).
 4. Si: un libro puede tener hojas con widgets que combinan datos de todo el sistema (D10).
+
+## Addendum 2026-11-09 - Olas 5 y 6 + pendientes (implementado, SIN deploy)
+
+- **Galeria + modal grande:** `/analisis` lista los libros como tarjetas; el libro se ve y se edita en
+  un modal grande (pantalla completa en telefono). `?libro=&hoja=` abre el modal directo.
+- **Filtro de tablero en "Crear indicador":** por `BoardId` (campo nuevo de Actividades, solo filtrable)
+  y `IsArchived = false`; ya no por nombre (los homonimos se mezclaban) ni con archivadas.
+- **Fechas de la hoja en la zona del tenant (regla 9):** `IAnalisisZonaHoraria` lee `Tenant.TimeZoneId`;
+  en fuentes NATIVAS (marcas de tiempo) los limites del rango son las 00:00 locales con su offset. En
+  contenedores (fechas sin hora) se mantiene el dia calendario: poner offset excluiria el primer dia.
+  Pendiente menor: `MonthKey` (agrupar por mes) sigue en UTC.
+- **Sugerencias de valores:** los filtros de texto agrupables del modal ofrecen (datalist) los 50
+  valores mas frecuentes de la fuente, consultados por la misma compuerta que la vista previa.
+- **Tactil:** el HTML5 drag & drop no existe en touch; se agrega "tocar el asa -> Soltar aqui" (sin JS
+  ni librerias), que tambien sirve con raton. El arrastre con raton se conserva.
+- **Directorio:** campo `Categoria` (pertenencias `TerceroCategoria` del motor Modular, con el titulo de
+  `DirectorioCategoria`; un tercero en varias categorias muestra "A, B").
+- **Ola 5 (combinado):** `CombinadoDiseno` en `WidgetConfig.Combinado` con `IndicadorKey =
+  "analisis.combinado"` (sin columnas nuevas ni migracion). Hasta 4 series, cada una con fuente,
+  medida y campo de cruce; llave normalizada (texto sin tildes/mayusculas, NIT sin DV, exacta); union o
+  interseccion; hasta 3 formulas (A-D, + - * /, parentesis; parser propio, sin eval). Tope de 5.000
+  llaves por serie con aviso. KPI = primera formula sobre los TOTALES. Las series se consultan en serie.
+  Se generaliza la idea de `PanelJoin` alineando agregados por llave (no un join fila a fila).
+- **Ola 6 (compartir):** dialogo "Compartir": Privado + lista de usuarios, o Compartido en el tenant
+  (dueno o Admin). Enlace publico `/a/{token}`: token de 32 bytes, se guarda solo el SHA-256, rotar
+  revoca el anterior, expiracion opcional, revocar vuelve a Compartido. Lo activa SOLO un Admin (no
+  existe la accion de permiso "Compartir"; se usa Admin por exponer datos fuera del sistema). Tope de 30
+  aperturas por minuto por IP (`UseRateLimiter` solo en `/a`). El visor fija el tenant del token como
+  ambient (`AmbientTenantContext.Begin`) en cada lectura. Imprimir: hoja de estilos de impresion del
+  visor (`window.print`); el PDF por la tuberia Puppeteer queda pendiente.

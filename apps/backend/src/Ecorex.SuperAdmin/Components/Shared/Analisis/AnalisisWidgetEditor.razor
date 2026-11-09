@@ -2,6 +2,7 @@
 @using Ecorex.Application.Analisis
 @using Ecorex.Application.Reporting
 @inject IAnalisisWidgetRunner Runner
+@inject IReportDataSource Datos
 @implements IDisposable
 
 @* Modal "Agregar / editar widget" (ADR-0158 Ola 3). Componente REUTILIZABLE: arma un WidgetDiseno
@@ -21,8 +22,9 @@
         <div class="we-form">
             @Encabezado
             <div class="we-seg">
-                <button class="@(_modoCurado ? "" : "on")" @onclick="() => CambiarModo(false)">Consulta</button>
+                <button class="@(_modoCurado || _modoCombinado ? "" : "on")" @onclick="() => CambiarModo(false)">Consulta</button>
                 <button class="@(_modoCurado ? "on" : "")" @onclick="() => CambiarModo(true)">Indicador listo</button>
+                <button class="@(_modoCombinado ? "on" : "")" @onclick="CambiarACombinado">Combinar fuentes</button>
             </div>
 
             <label class="we-lbl">Tipo</label>
@@ -36,7 +38,11 @@
             <label class="we-lbl">Titulo</label>
             <input class="we-input" value="@_titulo" @onchange="e => Cambiar(() => _titulo = e.Value?.ToString() ?? string.Empty)" maxlength="150" placeholder="Ej. Ventas por vendedor" />
 
-            @if (_modoCurado)
+            @if (_modoCombinado)
+            {
+                <AnalisisCombinadoEditor Fuentes="Fuentes" Diseno="_combinado" DisenoChanged="d => Cambiar(() => _combinado = d)" />
+            }
+            else if (_modoCurado)
             {
                 <label class="we-lbl">Indicador</label>
                 <select class="we-input" value="@_curadoKey" @onchange="e => Cambiar(() => _curadoKey = e.Value?.ToString())">
@@ -148,8 +154,19 @@
                             }
                             else
                             {
+                                var sug = Sugerencias(campo);
                                 <input class="we-input sm" type="@TipoInput(campo)" value="@fl.Valor" placeholder="@(fl.Operador == ReportFilterOperator.In ? "a, b, c" : "valor")"
+                                       list="@(sug.Count > 0 ? $"we-sug-{idx}" : null)" autocomplete="off"
                                        @onchange="e => FiltroValor(idx, e.Value?.ToString(), false)" />
+                                @if (sug.Count > 0)
+                                {
+                                    <datalist id="we-sug-@idx">
+                                        @foreach (var v in sug)
+                                        {
+                                            <option value="@v"></option>
+                                        }
+                                    </datalist>
+                                }
                                 @if (fl.Operador == ReportFilterOperator.Between)
                                 {
                                     <input class="we-input sm" type="@TipoInput(campo)" value="@fl.Valor2" @onchange="e => FiltroValor(idx, e.Value?.ToString(), true)" />
@@ -213,7 +230,7 @@
                     </div>
                     <label class="we-check"><input type="checkbox" checked="@(!_config.MayorEsMejor)" @onchange="e => SetConfig(nameof(WidgetConfig.MayorEsMejor), e.Value)" /> Menor es mejor</label>
                 }
-                @if (!_modoCurado && Fuente is { } fte)
+                @if (!_modoCurado && !_modoCombinado && Fuente is { } fte)
                 {
                     <label class="we-lbl">Campo de fecha para los filtros de la hoja</label>
                     <select class="we-input" value="@_campoFecha" @onchange="e => Cambiar(() => _campoFecha = e.Value?.ToString() ?? AutoFecha)">
@@ -288,6 +305,8 @@
     private const string SinFecha = "__none";
 
     private bool _modoCurado;
+    private bool _modoCombinado;
+    private CombinadoDiseno _combinado = new();
     private AnalisisTipoWidget _tipo = AnalisisTipoWidget.Kpi;
     private string _titulo = string.Empty;
     private string? _curadoKey;
@@ -330,7 +349,12 @@
                 _campoFecha = string.IsNullOrEmpty(bf) ? SinFecha : bf;
             }
 
-            if (!string.IsNullOrWhiteSpace(w.IndicadorKey))
+            if (w.IndicadorKey == CombinadoDiseno.IndicadorKey)
+            {
+                _modoCombinado = true;
+                _combinado = _config.Combinado ?? NuevoCombinado();
+            }
+            else if (!string.IsNullOrWhiteSpace(w.IndicadorKey))
             {
                 _modoCurado = true;
                 _curadoKey = w.IndicadorKey;
@@ -361,6 +385,99 @@
     {
         _cts?.Cancel();
         _cts?.Dispose();
+        _disposed = true;
+    }
+
+    // ---- Sugerencias de valores para los filtros de texto (valores reales de la fuente, mas frecuentes primero) ----
+
+    private const int MaxSugerencias = 50;
+    private readonly Dictionary<string, IReadOnlyList<string>> _sugerencias = new();
+    private readonly HashSet<string> _sugCargando = new();
+    private bool _disposed;
+
+    private static bool AdmiteSugerencias(ReportField? campo) =>
+        campo is { Type: ReportFieldType.Text, CanGroup: true };
+
+    private string ClaveSug(string campo) => $"{_sourceKey}|{campo}";
+
+    private IReadOnlyList<string> Sugerencias(ReportField? campo) =>
+        AdmiteSugerencias(campo) && _sugerencias.TryGetValue(ClaveSug(campo!.Key), out var l) ? l : Array.Empty<string>();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Fuente is not { } fuente || _sourceKey is null)
+        {
+            return;
+        }
+
+        var pendientes = _filtros
+            .Select(f => fuente.FindField(f.Campo))
+            .Where(c => AdmiteSugerencias(c) && !_sugerencias.ContainsKey(ClaveSug(c!.Key)) && !_sugCargando.Contains(ClaveSug(c.Key)))
+            .Select(c => c!.Key)
+            .Distinct()
+            .ToList();
+        if (pendientes.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var campo in pendientes)
+        {
+            _sugCargando.Add(ClaveSug(campo));
+        }
+
+        foreach (var campo in pendientes)
+        {
+            var clave = ClaveSug(campo);
+            _sugerencias[clave] = await CargarSugerenciasAsync(_sourceKey, campo);
+            if (_disposed)
+            {
+                return;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>Valores distintos del campo (conteo agrupado, top 50) por la misma compuerta que la vista previa.</summary>
+    private async Task<IReadOnlyList<string>> CargarSugerenciasAsync(string sourceKey, string campo)
+    {
+        var spec = new ReportQuerySpec
+        {
+            SourceKey = sourceKey,
+            GroupBy = new[] { campo },
+            Aggregates = new[] { new ReportAggregate(string.Empty, ReportAggregateFunction.Count) }
+        };
+
+        try
+        {
+            if (Gate is not null)
+            {
+                await Gate.WaitAsync();
+            }
+
+            ReportDataSet ds;
+            try
+            {
+                ds = await Datos.QueryAsync(spec, new ReportContext(Guid.Empty));
+            }
+            finally
+            {
+                Gate?.Release();
+            }
+
+            return ds.Rows
+                .Where(r => r.Count > 1 && r[0] is not null && !string.IsNullOrWhiteSpace(r[0]!.ToString()))
+                .OrderByDescending(r => Convert.ToDecimal(r[1] ?? 0, System.Globalization.CultureInfo.InvariantCulture))
+                .Select(r => r[0]!.ToString()!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(MaxSugerencias)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is ReportValidationException or InvalidOperationException or ObjectDisposedException)
+        {
+            return Array.Empty<string>(); // sin sugerencias: el campo se sigue escribiendo a mano
+        }
     }
 
     private Task Cambiar(Action cambio)
@@ -369,7 +486,36 @@
         return RefrescarAsync();
     }
 
-    private Task CambiarModo(bool curado) => Cambiar(() => _modoCurado = curado);
+    private Task CambiarModo(bool curado) => Cambiar(() =>
+    {
+        _modoCurado = curado;
+        _modoCombinado = false;
+    });
+
+    private Task CambiarACombinado() => Cambiar(() =>
+    {
+        _modoCombinado = true;
+        _modoCurado = false;
+        if (_combinado.Series.Count == 0)
+        {
+            _combinado = NuevoCombinado();
+        }
+
+        if (_tipo is AnalisisTipoWidget.Heatmap)
+        {
+            _tipo = AnalisisTipoWidget.Barras; // el combinado no pinta mapa de calor
+        }
+    });
+
+    /// <summary>Arranca con la fuente que ya estaba elegida como serie A (y una serie B vacia).</summary>
+    private CombinadoDiseno NuevoCombinado() => new()
+    {
+        Series = new[]
+        {
+            new SerieCombinada { Nombre = Fuente?.DisplayName ?? "Serie A", SourceKey = _sourceKey ?? string.Empty, Dimension = _dimension ?? string.Empty, Funcion = _funcion, CampoMedida = _campoMedida },
+            new SerieCombinada { Nombre = "Serie B" }
+        }
+    };
 
     /// <summary>Linea/area/mapa de calor se leen en el orden del eje; el resto, de mayor a menor.</summary>
     private Task CambiarTipo(AnalisisTipoWidget tipo) => Cambiar(() =>
@@ -465,12 +611,31 @@
         Filtros = _filtros.ToList(),
         OrdenarPorMedida = _ordenarPorMedida,
         ColSpan = _colSpan,
-        Config = _config
+        Config = _config with { Combinado = null }
     };
 
     /// <summary>Lo que se guardaria ahora mismo (o null si hay errores).</summary>
     private AnalisisNuevoWidget? Construir(out IReadOnlyList<string> errores)
     {
+        if (_modoCombinado)
+        {
+            var lista = _combinado.Validar(Fuentes).ToList();
+            if (string.IsNullOrWhiteSpace(_titulo))
+            {
+                lista.Insert(0, "Ponle un titulo al widget.");
+            }
+
+            if (_tipo == AnalisisTipoWidget.Heatmap)
+            {
+                lista.Add("El widget combinado no admite mapa de calor.");
+            }
+
+            errores = lista;
+            return lista.Count > 0
+                ? null
+                : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, CombinadoDiseno.IndicadorKey, _colSpan, (_config with { Combinado = _combinado }).ToJson());
+        }
+
         if (_modoCurado)
         {
             var lista = new List<string>();
@@ -485,7 +650,7 @@
             }
 
             errores = lista;
-            return lista.Count > 0 ? null : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, _curadoKey, _colSpan, _config.ToJson());
+            return lista.Count > 0 ? null : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, _curadoKey, _colSpan, (_config with { Combinado = null }).ToJson());
         }
 
         var d = Diseno();

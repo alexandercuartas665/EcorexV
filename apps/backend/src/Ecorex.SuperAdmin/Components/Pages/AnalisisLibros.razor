@@ -15,6 +15,8 @@
 @inject IReportCatalog Catalogo
 @inject IIndicadorCuradoRegistry Curados
 @inject ICurrentPermissions Perms
+@inject IAnalisisCompartirService Compartir
+@inject NavigationManager Nav
 @implements IDisposable
 
 @* Libros de indicadores (ADR-0158 Olas 2-4): libro -> hojas (tabs) -> grilla de widgets de 4 columnas,
@@ -121,6 +123,10 @@ else
                         <button class="@(_modoEdicion ? "on" : "")" @onclick="() => _modoEdicion = true">Editar</button>
                     </div>
                 }
+                @if (_libro.PuedeEditar)
+                {
+                    <button class="an-btn" @onclick="AbrirCompartirAsync" title="Compartir el libro">Compartir</button>
+                }
                 @if (Editable)
                 {
                     <button class="an-btn" @onclick="AbrirRenombrarLibro" title="Renombrar libro">Renombrar</button>
@@ -205,7 +211,16 @@ else
             {
                 @if (Editable)
                 {
-                    <p class="an-hint">Arrastra las tarjetas para ordenarlas; el boton de la esquina cambia el ancho.</p>
+                    <p class="an-hint">
+                    @if (_elegido is not null)
+                    {
+                        <span>Toca "Soltar aqui" en la tarjeta destino. <button class="an-link" @onclick="() => _elegido = null">Cancelar</button></span>
+                    }
+                    else
+                    {
+                        <span>Arrastra las tarjetas (o toca el asa y luego el destino) para ordenarlas; el boton de la esquina cambia el ancho.</span>
+                    }
+                </p>
                 }
                 <div class="an-grid">
                     @foreach (var w in Hoja.Widgets)
@@ -221,6 +236,9 @@ else
                                             OnMover="d => MoverAsync(w.Id, d)"
                                             OnAncho="n => AnchoAsync(w.Id, n)"
                                             OnArrastrar="() => _arrastrado = w.Id"
+                                            OnElegir="() => _elegido = _elegido == w.Id ? null : w.Id"
+                                            Elegido="_elegido == w.Id"
+                                            ModoSoltar="_elegido is Guid el && el != w.Id"
                                             OnSoltar="() => SoltarSobreAsync(w.Id)"
                                             OnEliminar="() => QuitarWidgetAsync(w.Id)" />
                     }
@@ -276,6 +294,80 @@ else
                 </div>
                 break;
 
+            case Modal.Compartir:
+                <h3 class="an-modal-title">Compartir "@_libro?.Nombre"</h3>
+                @if (_compartir is null)
+                {
+                    <p class="an-muted">Cargando...</p>
+                }
+                else
+                {
+                    <label class="an-lbl">Quien puede verlo</label>
+                    <div class="an-radio">
+                        <label><input type="radio" name="an-vis" checked="@(_visElegida == AnalisisVisibilidad.Privado)"
+                                      @onchange="() => _visElegida = AnalisisVisibilidad.Privado" /> Solo yo y los usuarios que elija</label>
+                        <label><input type="radio" name="an-vis" checked="@(_visElegida == AnalisisVisibilidad.CompartidoEnTenant)"
+                                      @onchange="() => _visElegida = AnalisisVisibilidad.CompartidoEnTenant" /> Todos los usuarios de la empresa con acceso al modulo</label>
+                    </div>
+                    @if (_visElegida == AnalisisVisibilidad.Privado)
+                    {
+                        <div class="an-users">
+                            @foreach (var u in _usuarios.Where(u => u.UserId != _actor.UserId))
+                            {
+                                <label class="an-user">
+                                    <input type="checkbox" checked="@_usuariosElegidos.Contains(u.UserId)" @onchange="e => AlternarUsuario(u.UserId, e.Value is true)" />
+                                    <span>@u.Nombre</span>
+                                    @if (u.Nombre != u.Email)
+                                    {
+                                        <span class="an-muted">@u.Email</span>
+                                    }
+                                </label>
+                            }
+                        </div>
+                    }
+                    @if (_compartir.Visibilidad == AnalisisVisibilidad.EnlacePublico)
+                    {
+                        <p class="an-muted" style="margin-top:8px">Hoy esta publicado con enlace. Guardar otra opcion revoca el enlace.</p>
+                    }
+                    <div class="an-modal-foot">
+                        <button class="an-btn" @onclick="Cerrar">Cerrar</button>
+                        <button class="an-btn primary" @onclick="GuardarVisibilidadAsync">Guardar</button>
+                    </div>
+
+                    @if (_actor.EsAdmin)
+                    {
+                        <div class="an-share-pub">
+                            <label class="an-lbl">Enlace publico (solo lectura, datos en vivo)</label>
+                            <p class="an-muted">Cualquiera con el enlace ve el libro sin iniciar sesion. Al regenerarlo, el anterior deja de funcionar.</p>
+                            @if (_enlaceUrl is not null)
+                            {
+                                <div class="an-copy">
+                                    <input class="an-input" readonly value="@_enlaceUrl" onfocus="this.select()" />
+                                    <button class="an-btn" onclick="navigator.clipboard && navigator.clipboard.writeText(this.previousElementSibling.value)">Copiar</button>
+                                </div>
+                                <p class="an-muted">Copialo ahora: por seguridad no se vuelve a mostrar.</p>
+                            }
+                            else if (_compartir.EnlaceActivo)
+                            {
+                                <p class="an-muted">@EnlaceEstadoTexto</p>
+                            }
+                            <div class="an-copy">
+                                <label class="an-muted" for="an-expira">Vence (opcional)</label>
+                                <input id="an-expira" type="date" class="an-input sm" value="@(_enlaceExpira?.ToString("yyyy-MM-dd"))"
+                                       @onchange="e => _enlaceExpira = DateOnly.TryParse(e.Value?.ToString(), out var d) ? d : null" />
+                            </div>
+                            <div class="an-modal-foot">
+                                @if (_compartir.EnlaceActivo)
+                                {
+                                    <button class="an-btn danger" @onclick="RevocarEnlaceAsync">Revocar enlace</button>
+                                }
+                                <button class="an-btn primary" @onclick="GenerarEnlaceAsync">@(_compartir.EnlaceActivo ? "Regenerar enlace" : "Generar enlace")</button>
+                            </div>
+                        </div>
+                    }
+                }
+                break;
+
             case Modal.AgregarWidget:
                 <h3 class="an-modal-title">Agregar widget</h3>
                 <button class="an-pick-item main" @onclick="() => AbrirEditor(null)">
@@ -303,11 +395,26 @@ else
 @code {
     private const string ModuleKey = "analisis";
 
-    private enum Modal { Ninguno, NuevoLibro, RenombrarLibro, EliminarLibro, NuevaHoja, RenombrarHoja, AgregarWidget }
+    private enum Modal { Ninguno, NuevoLibro, RenombrarLibro, EliminarLibro, NuevaHoja, RenombrarHoja, AgregarWidget, Compartir }
+
+    // Compartir (Ola 6)
+    private AnalisisCompartirEstado? _compartir;
+    private IReadOnlyList<AnalisisUsuarioRef> _usuarios = Array.Empty<AnalisisUsuarioRef>();
+    private AnalisisVisibilidad _visElegida;
+    private HashSet<Guid> _usuariosElegidos = new();
+    private string? _enlaceUrl;
+    private DateOnly? _enlaceExpira;
+
+    private string EnlaceEstadoTexto =>
+        _compartir is not { EnlaceActivo: true } c
+            ? string.Empty
+            : $"Enlace activo desde {c.EnlaceCreado?.ToLocalTime():dd/MM/yyyy HH:mm}"
+              + (c.EnlaceExpira is DateTimeOffset x ? $"; vence el {x.ToLocalTime():dd/MM/yyyy}." : "; sin vencimiento.");
 
     private AnalisisActor _actor = new(null, false);
     private bool _modoEdicion;
     private Guid? _arrastrado;
+    private Guid? _elegido; // tactil: widget elegido con el asa, esperando "Soltar aqui"
     private Guid? _hojaFicha;
     private HashSet<Guid> _fijados = new();
     private bool _canCreate;
@@ -388,6 +495,7 @@ else
     private async Task MostrarHojaAsync(Guid? hojaId)
     {
         _hojaId = hojaId;
+        _elegido = null;
         _filtrosTemporales = null;
         var f = Hoja?.Filtros ?? new HojaFiltros();
         (_fDesde, _fHasta, _fVendedor, _fTablero) = (f.Desde, f.Hasta, f.Vendedor, f.Tablero);
@@ -505,6 +613,105 @@ else
     };
 
     private Task SeleccionarHojaAsync(Guid hojaId) => MostrarHojaAsync(hojaId);
+
+    private async Task AbrirCompartirAsync()
+    {
+        if (_libro is null)
+        {
+            return;
+        }
+
+        _compartir = null;
+        _enlaceUrl = null;
+        _enlaceExpira = null;
+        _modal = Modal.Compartir;
+        var libroId = _libro.Id;
+        (_compartir, _usuarios) = await Sesion.EnCompuertaAsync(async () =>
+            (await Compartir.EstadoAsync(libroId, _actor), await Compartir.UsuariosAsync()));
+        if (_compartir is null)
+        {
+            _modal = Modal.Ninguno;
+            _mensaje = "No tienes permiso para compartir este libro.";
+            return;
+        }
+
+        _visElegida = _compartir.Visibilidad == AnalisisVisibilidad.CompartidoEnTenant
+            ? AnalisisVisibilidad.CompartidoEnTenant
+            : AnalisisVisibilidad.Privado;
+        _usuariosElegidos = _compartir.Usuarios.ToHashSet();
+        _enlaceExpira = _compartir.EnlaceExpira is DateTimeOffset x ? DateOnly.FromDateTime(x.ToLocalTime().DateTime) : null;
+    }
+
+    private void AlternarUsuario(Guid userId, bool elegido)
+    {
+        if (elegido)
+        {
+            _usuariosElegidos.Add(userId);
+        }
+        else
+        {
+            _usuariosElegidos.Remove(userId);
+        }
+    }
+
+    private async Task GuardarVisibilidadAsync()
+    {
+        if (_libro is null)
+        {
+            return;
+        }
+
+        var usuarios = _visElegida == AnalisisVisibilidad.Privado ? _usuariosElegidos.ToList() : new List<Guid>();
+        var libroId = _libro.Id;
+        var vis = _visElegida;
+        if (Resultado(await Sesion.EnCompuertaAsync(() => Compartir.CambiarVisibilidadAsync(libroId, vis, usuarios, _actor))))
+        {
+            Cerrar();
+        }
+    }
+
+    private async Task GenerarEnlaceAsync()
+    {
+        if (_libro is null)
+        {
+            return;
+        }
+
+        // Vence al terminar el dia elegido (00:00 del dia siguiente en la zona del servidor), guardado en UTC.
+        DateTimeOffset? expira = null;
+        if (_enlaceExpira is DateOnly d)
+        {
+            var fin = d.AddDays(1).ToDateTime(TimeOnly.MinValue);
+            expira = new DateTimeOffset(fin, TimeZoneInfo.Local.GetUtcOffset(fin)).ToUniversalTime();
+        }
+
+        var libroId = _libro.Id;
+        var r = await Sesion.EnCompuertaAsync(() => Compartir.GenerarEnlaceAsync(libroId, expira, _actor));
+        if (!r.Ok || r.Token is null)
+        {
+            _mensaje = r.Error ?? "No se pudo generar el enlace.";
+            Cerrar();
+            return;
+        }
+
+        _enlaceUrl = Nav.ToAbsoluteUri($"/a/{r.Token}").ToString();
+        _compartir = await Sesion.EnCompuertaAsync(() => Compartir.EstadoAsync(libroId, _actor));
+    }
+
+    private async Task RevocarEnlaceAsync()
+    {
+        if (_libro is null)
+        {
+            return;
+        }
+
+        var libroId = _libro.Id;
+        if (Resultado(await Sesion.EnCompuertaAsync(() => Compartir.RevocarEnlaceAsync(libroId, _actor))))
+        {
+            _enlaceUrl = null;
+            _compartir = await Sesion.EnCompuertaAsync(() => Compartir.EstadoAsync(libroId, _actor));
+        }
+    }
 
     private void Cerrar()
     {
@@ -786,8 +993,9 @@ else
     /// <summary>Soltar el widget arrastrado sobre otro: toma su lugar y se guarda el layout completo en lote.</summary>
     private async Task SoltarSobreAsync(Guid destinoId)
     {
-        var origen = _arrastrado;
+        var origen = _arrastrado ?? _elegido;
         _arrastrado = null;
+        _elegido = null;
         if (origen is not Guid o || o == destinoId || Hoja is not { } hoja)
         {
             return;

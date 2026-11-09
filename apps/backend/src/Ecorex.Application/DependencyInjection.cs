@@ -395,6 +395,8 @@ public static class DependencyInjection
         // ADR-0158 Ola 2: CRUD de libros/hojas/widgets (contexto efimero) + ejecutor de widgets.
         services.AddScoped<Analisis.IAnalisisService, Analisis.AnalisisService>();
         services.AddScoped<Analisis.IAnalisisWidgetRunner, Analisis.AnalisisWidgetRunner>();
+        services.AddScoped<Analisis.IAnalisisZonaHoraria, Analisis.AnalisisZonaHoraria>();
+        services.AddScoped<Analisis.IAnalisisCompartirService, Analisis.AnalisisCompartirService>();
         services.AddScoped<Analisis.IAnalisisAnfitrionService, Analisis.AnalisisAnfitrionService>();
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
         // ADR-0068: fuente reportable de RESPUESTAS DE FORMULARIO (una por modulo, clave "form:{code}").

@@ -8,18 +8,31 @@
    (arrastrar, redimensionar, editar, duplicar, fijar, quitar) solo existen en modo edicion (PuedeEditar).
    Todo numero que va a un atributo/estilo pasa por Inv() (InvariantCulture). *@
 
-<div class="aw-card @(Arrastrable ? "drag" : "") @(_sobre ? "over" : "")" style="grid-column: span @Inv(Math.Clamp(Widget.ColSpan, 1, 4))"
+<div class="aw-card @(Arrastrable ? "drag" : "") @(_sobre ? "over" : "") @(Elegido ? "picked" : "")" style="grid-column: span @Inv(Math.Clamp(Widget.ColSpan, 1, 4))"
      draggable="@(Arrastrable ? "true" : "false")"
      @ondragstart="() => OnArrastrar.InvokeAsync()"
      @ondragenter="() => _sobre = Arrastrable"
      @ondragleave="() => _sobre = false"
      @ondragover:preventDefault="Arrastrable"
      @ondrop="Soltar">
+    @if (ModoSoltar && Arrastrable)
+    {
+        <button type="button" class="aw-drop" @onclick="Soltar">Soltar aqui</button>
+    }
     <div class="aw-head">
         <div class="aw-title" title="@Widget.Titulo">
             @if (Arrastrable)
             {
-                <span class="aw-grip" aria-hidden="true">&#8942;&#8942;</span>
+                @if (OnElegir.HasDelegate)
+                {
+                    @* Tactil: el raton arrastra; en celular/tablet se toca el asa y luego "Soltar aqui" en el destino. *@
+                    <button type="button" class="aw-grip btn" title="@(Elegido ? "Cancelar mover" : "Mover: toca y luego elige donde soltar")"
+                            aria-pressed="@(Elegido ? "true" : "false")" @onclick="() => OnElegir.InvokeAsync()">&#8942;&#8942;</button>
+                }
+                else
+                {
+                    <span class="aw-grip" aria-hidden="true">&#8942;&#8942;</span>
+                }
             }
             @Widget.Titulo
         </div>
@@ -55,6 +68,10 @@
     }
     else
     {
+        @foreach (var aviso in Resultado.Avisos)
+        {
+            <div class="aw-aviso">@aviso</div>
+        }
         @switch (Resultado.Forma)
         {
             case EscalarShape kpi:
@@ -137,6 +154,35 @@
 
             case SerieShape serie when serie.Ejes.Count == 0:
                 <div class="aw-state">Sin datos.</div>
+                break;
+
+            case SerieShape serie when Widget.Tipo == AnalisisTipoWidget.Barras:
+                @* Barras AGRUPADAS (widget combinado): una barra por serie en cada categoria. *@
+                var maxG = serie.Series.SelectMany(s => s.Valores).Where(v => v is not null).Select(v => v!.Value).DefaultIfEmpty(0).Max();
+                <div class="aw-bars grouped">
+                    @for (var e = 0; e < serie.Ejes.Count; e++)
+                    {
+                        var ie = e;
+                        <div class="aw-bar-col">
+                            <div class="aw-bar-group">
+                                @for (var gi = 0; gi < serie.Series.Count; gi++)
+                                {
+                                    var s = serie.Series[gi];
+                                    var v = ie < s.Valores.Count ? s.Valores[ie] : null;
+                                    <div class="aw-bar" title="@s.Nombre - @serie.Ejes[ie]: @Fmt(v)"
+                                         style="height:@Inv(Alto(v ?? 0, maxG))%;background:var(--t-@TonoDesde(gi))"></div>
+                                }
+                            </div>
+                            <span class="aw-bar-lbl">@serie.Ejes[ie]</span>
+                        </div>
+                    }
+                </div>
+                <div class="aw-legend inline">
+                    @for (var gi = 0; gi < serie.Series.Count; gi++)
+                    {
+                        <span class="aw-leg-chip"><span class="aw-dot" style="background:var(--t-@TonoDesde(gi))"></span>@serie.Series[gi].Nombre</span>
+                    }
+                </div>
                 break;
 
             case SerieShape serie:
@@ -293,6 +339,15 @@
     [Parameter] public EventCallback<bool> OnFijar { get; set; }
 
     [Parameter] public EventCallback OnArrastrar { get; set; }
+
+    /// <summary>Tocar el asa: elegir este widget para moverlo (alternativa tactil al arrastre HTML5).</summary>
+    [Parameter] public EventCallback OnElegir { get; set; }
+
+    /// <summary>Este widget esta elegido para mover.</summary>
+    [Parameter] public bool Elegido { get; set; }
+
+    /// <summary>Hay OTRO widget elegido: esta tarjeta muestra "Soltar aqui".</summary>
+    [Parameter] public bool ModoSoltar { get; set; }
 
     /// <summary>Se solto otro widget sobre este.</summary>
     [Parameter] public EventCallback OnSoltar { get; set; }

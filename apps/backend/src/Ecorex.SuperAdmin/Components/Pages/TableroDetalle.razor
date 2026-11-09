@@ -809,11 +809,16 @@ else
 }
 
 @code {
-    /// <summary>"Crear indicador" desde el tablero (ADR-0158 D9): arranca filtrado por este tablero.</summary>
+    /// <summary>"Crear indicador" desde el tablero (ADR-0158 D9): arranca filtrado por ESTE tablero (por Id, no
+    /// por nombre: dos tableros homonimos no se mezclan) y solo con tareas no archivadas, como las muestra el tablero.</summary>
     private IReadOnlyList<Ecorex.Application.Analisis.WidgetFiltroDiseno> FiltroTableroIndicador =>
         _board is null
             ? Array.Empty<Ecorex.Application.Analisis.WidgetFiltroDiseno>()
-            : new[] { new Ecorex.Application.Analisis.WidgetFiltroDiseno("Board", Ecorex.Application.Reporting.ReportFilterOperator.Equals, _board.Name) };
+            : new[]
+            {
+                new Ecorex.Application.Analisis.WidgetFiltroDiseno("BoardId", Ecorex.Application.Reporting.ReportFilterOperator.Equals, _board.Id.ToString()),
+                new Ecorex.Application.Analisis.WidgetFiltroDiseno("IsArchived", Ecorex.Application.Reporting.ReportFilterOperator.Equals, "false")
+            };
 
     [Parameter] public Guid BoardId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }

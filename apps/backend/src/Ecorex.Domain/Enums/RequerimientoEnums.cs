@@ -60,5 +60,9 @@ public enum RequerimientoEstado
     /// <summary>Compra ejecutada: genero una actividad (tarea).</summary>
     Ejecutado = 4,
     /// <summary>Cerrado.</summary>
-    Cerrado = 5
+    Cerrado = 5,
+    /// <summary>Enviado a la Orden de compra: la division queda BLOQUEADA (no editable) hasta que se gestione
+    /// (emita) la compra desde la pestana Orden de compra. Se puede LIBERAR mientras no se haya emitido la tarea
+    /// de gestion (una vez con actividad, pasa a Ejecutado y ya no se libera).</summary>
+    EnOrdenCompra = 6
 }

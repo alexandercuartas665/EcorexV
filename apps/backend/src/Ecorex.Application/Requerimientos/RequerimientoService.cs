@@ -404,6 +404,17 @@ public sealed class RequerimientoService : IRequerimientoService
         return provMap.TryGetValue(proveedorId, out var pv) ? pv : (int?)null;
     }
 
+    // Tiempo de entrega legible (la columna guarda el numero de dias; 0 = inmediato). Tolera valores viejos ("4 dias").
+    private static string EntregaTexto(string? raw)
+    {
+        var s = (raw ?? "").Trim();
+        if (s.Length == 0) { return "-"; }
+        if (s.StartsWith("inmediato", StringComparison.OrdinalIgnoreCase)) { return "inmediato"; }
+        var digits = new string(s.TakeWhile(char.IsDigit).ToArray());
+        if (int.TryParse(digits, out var n)) { return n == 0 ? "inmediato" : $"{n} dia{(n == 1 ? "" : "s")}"; }
+        return s;
+    }
+
     public async Task<EjecutarCompraResultado> EjecutarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid) { return new EjecutarCompraResultado(false, "Sin tenant en contexto.", null, null, null); }
@@ -414,6 +425,12 @@ public sealed class RequerimientoService : IRequerimientoService
         if (hijo.TaskItemId is not null)
         {
             return new EjecutarCompraResultado(false, "Esta compra ya fue ejecutada (ya tiene actividad).", hijo.TaskItemId, null, await GetPlanificacionAsync(hijo.RequerimientoId, ct));
+        }
+        // Gestionar (emitir la tarea de compra) solo procede desde la Orden de compra: la division debe haberse
+        // enviado alli primero (queda bloqueada). Asi "Ejecutar" ya no vive en Planificacion.
+        if (hijo.Estado != RequerimientoEstado.EnOrdenCompra)
+        {
+            return new EjecutarCompraResultado(false, "Envia la compra a Orden de compra antes de gestionarla.", null, null, await GetPlanificacionAsync(hijo.RequerimientoId, ct));
         }
 
         var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(r => r.Id == hijo.RequerimientoId, ct);
@@ -460,7 +477,7 @@ public sealed class RequerimientoService : IRequerimientoService
         desc.Append($"Producto: {padre.Descripcion}\n");
         desc.Append($"Cantidad: {hijo.Cantidad:#,##0.##} {padre.UnidadMedida}\n");
         if (hijo.FechaProgramadaCompra is { } fp) { desc.Append($"Fecha programada de compra: {fp:yyyy-MM-dd}\n"); }
-        if (!string.IsNullOrWhiteSpace(hijo.TiempoEntrega)) { desc.Append($"Tiempo de entrega: {hijo.TiempoEntrega}\n"); }
+        if (!string.IsNullOrWhiteSpace(hijo.TiempoEntrega)) { desc.Append($"Tiempo de entrega: {EntregaTexto(hijo.TiempoEntrega)}\n"); }
         if (!string.IsNullOrWhiteSpace(hijo.CaracteristicasDespacho)) { desc.Append($"Despacho: {hijo.CaracteristicasDespacho}\n"); }
         if (provNombre is not null) { desc.Append($"Proveedor: {provNombre}\n"); }
         if (hijo.PrecioUnitario > 0)
@@ -512,6 +529,179 @@ public sealed class RequerimientoService : IRequerimientoService
         return new EjecutarCompraResultado(true, null, taskId, taskNumber, await GetPlanificacionAsync(padre.Id, ct));
     }
 
+    public async Task<RequerimientoOpResult> EnviarAOrdenCompraAsync(Guid hijoId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid) { return new RequerimientoOpResult(false, "Sin tenant en contexto."); }
+        var hijo = await _db.RequerimientoCompraHijos.FirstOrDefaultAsync(h => h.Id == hijoId, ct);
+        if (hijo is null) { return new RequerimientoOpResult(false, "No se encontro el registro."); }
+        if (hijo.TaskItemId is not null) { return new RequerimientoOpResult(false, "Esta compra ya fue gestionada (tiene actividad)."); }
+        if (hijo.ProveedorId is null) { return new RequerimientoOpResult(false, "Asigna un proveedor antes de enviar a orden de compra."); }
+        if (hijo.Estado == RequerimientoEstado.EnOrdenCompra) { return new RequerimientoOpResult(true, null); }  // idempotente
+
+        hijo.Estado = RequerimientoEstado.EnOrdenCompra;
+
+        // Rollup del padre: si TODAS sus divisiones ya estan EnOrdenCompra (o Ejecutado), el padre tambien avanza.
+        var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(r => r.Id == hijo.RequerimientoId, ct);
+        if (padre is not null && padre.Estado is RequerimientoEstado.Recibido or RequerimientoEstado.Agrupado
+                or RequerimientoEstado.Planificado or RequerimientoEstado.ConProveedor)
+        {
+            var hermanos = await _db.RequerimientoCompraHijos.AsNoTracking()
+                .Where(h => h.RequerimientoId == padre.Id && h.Id != hijo.Id)
+                .Select(h => h.Estado).ToListAsync(ct);
+            if (hermanos.All(e => e is RequerimientoEstado.EnOrdenCompra or RequerimientoEstado.Ejecutado))
+            {
+                padre.Estado = RequerimientoEstado.EnOrdenCompra;
+            }
+        }
+        await _db.SaveChangesAsync(ct);
+        return new RequerimientoOpResult(true, null);
+    }
+
+    public async Task<RequerimientoOpResult> LiberarOrdenCompraAsync(Guid hijoId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid) { return new RequerimientoOpResult(false, "Sin tenant en contexto."); }
+        var hijo = await _db.RequerimientoCompraHijos.FirstOrDefaultAsync(h => h.Id == hijoId, ct);
+        if (hijo is null) { return new RequerimientoOpResult(false, "No se encontro el registro."); }
+        if (hijo.TaskItemId is not null) { return new RequerimientoOpResult(false, "Ya se emitio la tarea de gestionar la compra; no se puede liberar."); }
+        if (hijo.Estado != RequerimientoEstado.EnOrdenCompra) { return new RequerimientoOpResult(false, "Este registro no esta en orden de compra."); }
+
+        hijo.Estado = hijo.ProveedorId is not null ? RequerimientoEstado.ConProveedor : RequerimientoEstado.Planificado;
+
+        // Si el padre habia avanzado a EnOrdenCompra, retrocede (hay una division editable de nuevo).
+        var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(r => r.Id == hijo.RequerimientoId, ct);
+        if (padre is not null && padre.Estado == RequerimientoEstado.EnOrdenCompra)
+        {
+            padre.Estado = RequerimientoEstado.Planificado;
+        }
+        await _db.SaveChangesAsync(ct);
+        return new RequerimientoOpResult(true, null);
+    }
+
+    public async Task<OrdenCompraResultado> GestionarOrdenCompraAsync(IReadOnlyList<Guid> hijoIds, Guid actorUserId, string actorName, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid) { return new OrdenCompraResultado(false, "Sin tenant en contexto.", 0, Array.Empty<string>()); }
+        var ids = (hijoIds ?? Array.Empty<Guid>()).Distinct().ToList();
+        if (ids.Count == 0) { return new OrdenCompraResultado(false, "No hay lineas para gestionar.", 0, Array.Empty<string>()); }
+
+        var hijos = await _db.RequerimientoCompraHijos.Where(h => ids.Contains(h.Id)).ToListAsync(ct);
+        // Solo las que esten enviadas a orden de compra y sin actividad (idempotente).
+        hijos = hijos.Where(h => h.ProveedorId is not null && h.TaskItemId is null && h.Estado == RequerimientoEstado.EnOrdenCompra).ToList();
+        if (hijos.Count == 0) { return new OrdenCompraResultado(false, "Las lineas ya fueron gestionadas o no estan en orden de compra.", 0, Array.Empty<string>()); }
+
+        var reqIds = hijos.Select(h => h.RequerimientoId).Distinct().ToList();
+        var padres = await _db.RequerimientosCompra.Where(r => reqIds.Contains(r.Id)).ToListAsync(ct);
+        var padreMap = padres.ToDictionary(p => p.Id);
+
+        var provIds = hijos.Select(h => h.ProveedorId!.Value).Distinct().ToList();
+        var provNames = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+        var compraDefault = await _config.GetCompraDefaultAsync(ct);
+
+        var numeros = new List<string>();
+        // Una ORDEN DE COMPRA (actividad) por proveedor, con todos sus articulos.
+        foreach (var g in hijos.GroupBy(h => h.ProveedorId!.Value))
+        {
+            var provId = g.Key;
+            var lineas = g.ToList();
+            var provNombre = provNames.TryGetValue(provId, out var pn) ? pn : "proveedor";
+
+            // Proceso de compra consolidado del proveedor: si TODAS sus lineas resuelven el MISMO (matriz->origen),
+            // se usa ese; si difieren o alguna no resuelve, cae al default del modulo.
+            var procesos = new HashSet<Guid>();
+            var algunaSinProceso = false;
+            foreach (var h in lineas)
+            {
+                Guid? sc = null;
+                var provsMatriz = await GetProveedoresMatrizParaProductoAsync(h.RequerimientoId, ct);
+                sc = provsMatriz.FirstOrDefault(p => p.ProveedorId == provId)?.SubcategoriaCompraId;
+                if (sc is null && padreMap.TryGetValue(h.RequerimientoId, out var pad0) && pad0.OrigenId is Guid oid)
+                {
+                    sc = await _db.RequerimientoOrigenes.AsNoTracking().Where(o => o.Id == oid)
+                        .Select(o => o.SubcategoriaCompraId).FirstOrDefaultAsync(ct);
+                }
+                if (sc is Guid scv) { procesos.Add(scv); } else { algunaSinProceso = true; }
+            }
+            Guid? subcat = (procesos.Count == 1 && !algunaSinProceso) ? procesos.First() : compraDefault;
+            if (subcat is null)
+            {
+                return new OrdenCompraResultado(false,
+                    $"{provNombre}: no hay proceso de COMPRA uniforme para sus lineas ni default del modulo. Asignalo en Configuracion de Requerimientos o en la matriz.",
+                    numeros.Count, numeros);
+            }
+
+            var contactoId = lineas.Select(h => h.ProveedorContactoId).FirstOrDefault(c => c is not null);
+            var contacto = await GetProveedorContactoAsync(provId, contactoId, ct);
+
+            var desc = new System.Text.StringBuilder();
+            desc.Append("Orden de compra generada desde Requerimientos de Compra.\n");
+            desc.Append($"Proveedor: {provNombre}\n");
+            if (contacto?.Contacto is { Length: > 0 } cn) { desc.Append($"Contacto: {cn}\n"); }
+            if (contacto?.Email is { Length: > 0 } ce) { desc.Append($"Correo: {ce}\n"); }
+            if (contacto?.Telefono is { Length: > 0 } ctel) { desc.Append($"Tel: {ctel}\n"); }
+            desc.Append($"Articulos ({lineas.Count}):\n");
+            decimal total = 0m;
+            foreach (var h in lineas)
+            {
+                var p = padreMap.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
+                var sub = h.Cantidad * h.PrecioUnitario; total += sub;
+                desc.Append($"  - {p?.Descripcion ?? "(producto)"} x {h.Cantidad:#,##0.##} {p?.UnidadMedida}".TrimEnd());
+                if (h.PrecioUnitario > 0) { desc.Append($" @ {h.PrecioUnitario:#,##0.##} = {sub:#,##0.##}"); }
+                if (h.FechaProgramadaCompra is { } fp) { desc.Append($" (compra {fp:yyyy-MM-dd})"); }
+                if (!string.IsNullOrWhiteSpace(h.TiempoEntrega)) { desc.Append($" [entrega {EntregaTexto(h.TiempoEntrega)}]"); }
+                if (!string.IsNullOrWhiteSpace(h.CaracteristicasDespacho)) { desc.Append($" [despacho: {h.CaracteristicasDespacho}]"); }
+                desc.Append('\n');
+            }
+            if (total > 0) { desc.Append($"Total OC: {total:#,##0.##}\n"); }
+
+            var titulo = $"Orden de compra: {provNombre} ({lineas.Count} articulo{(lineas.Count == 1 ? "" : "s")})";
+            if (titulo.Length > 200) { titulo = titulo[..200]; }
+
+            var taskReq = new CreateTaskItemRequest(
+                Title: titulo,
+                ActivityTypeId: null,
+                SubcategoriaId: subcat,
+                BoardId: null,
+                Description: desc.ToString().TrimEnd(),
+                RequesterName: contacto?.Contacto ?? contacto?.Nombre ?? provNombre,
+                RequesterEmail: contacto?.Email,
+                RequesterPhone: contacto?.Telefono,
+                TerceroId: provId,
+                DueDate: lineas.Select(h => h.FechaProgramadaCompra).Where(f => f != null).OrderBy(f => f).FirstOrDefault());
+
+            var created = await _tasks.CreateAsync(taskReq, actorUserId, actorName, ct);
+            if (!created.IsOk || created.Value is null)
+            {
+                return new OrdenCompraResultado(false, $"{provNombre}: no se pudo crear la orden de compra ({created.Error}).", numeros.Count, numeros);
+            }
+            var taskId = created.Value.Item.Id;
+            numeros.Add(created.Value.Item.Number);
+
+            // Enlaza la MISMA tarea a todas las lineas del proveedor y las pasa a Ejecutado.
+            foreach (var h in lineas)
+            {
+                h.TaskItemId = taskId;
+                h.Estado = RequerimientoEstado.Ejecutado;
+                var pad = padreMap[h.RequerimientoId];
+                if (h.ProveedorId is Guid pv && pad.ItemId is Guid itemId) { await AprenderReglaAsync(itemId, pv, ct); }
+            }
+            await _db.SaveChangesAsync(ct);
+        }
+
+        // Rollup de padres: el padre pasa a Ejecutado cuando TODAS sus divisiones lo estan.
+        foreach (var rid in reqIds)
+        {
+            var estados = await _db.RequerimientoCompraHijos.AsNoTracking()
+                .Where(h => h.RequerimientoId == rid).Select(h => h.Estado).ToListAsync(ct);
+            if (estados.Count > 0 && estados.All(e => e == RequerimientoEstado.Ejecutado)
+                && padreMap.TryGetValue(rid, out var pad) && pad.Estado is not RequerimientoEstado.Ejecutado and not RequerimientoEstado.Cerrado)
+            {
+                pad.Estado = RequerimientoEstado.Ejecutado;
+            }
+        }
+        await _db.SaveChangesAsync(ct);
+
+        return new OrdenCompraResultado(true, null, numeros.Count, numeros);
+    }
+
     public async Task<EjecutarCompraResultado> CotizarHijoAsync(Guid hijoId, Guid actorUserId, string actorName, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid) { return new EjecutarCompraResultado(false, "Sin tenant en contexto.", null, null, null); }
@@ -556,7 +746,7 @@ public sealed class RequerimientoService : IRequerimientoService
         desc.Append($"Producto: {padre.Descripcion}\n");
         desc.Append($"Cantidad: {hijo.Cantidad:#,##0.##} {padre.UnidadMedida}\n");
         if (hijo.FechaProgramadaCompra is { } fp) { desc.Append($"Fecha programada de compra: {fp:yyyy-MM-dd}\n"); }
-        if (!string.IsNullOrWhiteSpace(hijo.TiempoEntrega)) { desc.Append($"Tiempo de entrega esperado: {hijo.TiempoEntrega}\n"); }
+        if (!string.IsNullOrWhiteSpace(hijo.TiempoEntrega)) { desc.Append($"Tiempo de entrega esperado: {EntregaTexto(hijo.TiempoEntrega)}\n"); }
         if (!string.IsNullOrWhiteSpace(hijo.CaracteristicasDespacho)) { desc.Append($"Despacho: {hijo.CaracteristicasDespacho}\n"); }
         if (provNombre is not null) { desc.Append($"Proveedor/contacto: {provNombre}\n"); }
 
@@ -1171,6 +1361,64 @@ public sealed class RequerimientoService : IRequerimientoService
         var email = !string.IsNullOrWhiteSpace(t.Contacto?.Email) ? t.Contacto!.Email : t.Email;
         var tel = !string.IsNullOrWhiteSpace(t.Contacto?.Telefono) ? t.Contacto!.Telefono : t.Telefono;
         return new ProveedorContactoDto(proveedorId, t.Nombre, contactoNombre, email, tel);
+    }
+
+    public async Task<IReadOnlyList<OcProveedorLineaDto>> GetPlanificadoPorProveedorAsync(CancellationToken ct = default)
+    {
+        // Todos los hijos planificados CON proveedor del tenant (el filtro global por tenant ya aplica).
+        var hijos = await _db.RequerimientoCompraHijos.AsNoTracking()
+            .Where(h => h.ProveedorId != null)
+            .OrderBy(h => h.FechaProgramadaCompra).ToListAsync(ct);
+        if (hijos.Count == 0) { return Array.Empty<OcProveedorLineaDto>(); }
+
+        // Producto/unidad/actividad de origen por requerimiento (en memoria, como el resto del servicio).
+        var reqIds = hijos.Select(h => h.RequerimientoId).Distinct().ToList();
+        var reqs = await _db.RequerimientosCompra.AsNoTracking()
+            .Where(r => reqIds.Contains(r.Id))
+            .Select(r => new { r.Id, r.Descripcion, r.ItemId, r.UnidadMedida, r.SourceTaskItemId })
+            .ToListAsync(ct);
+        var reqMap = reqs.ToDictionary(x => x.Id);
+
+        var itemIds = reqs.Where(x => x.ItemId != null).Select(x => x.ItemId!.Value).Distinct().ToList();
+        var itemNames = itemIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.Items.AsNoTracking().Where(i => itemIds.Contains(i.Id))
+                .ToDictionaryAsync(i => i.Id, i => i.Name, ct);
+
+        var taskIds = reqs.Where(x => x.SourceTaskItemId != null).Select(x => x.SourceTaskItemId!.Value).Distinct().ToList();
+        var taskNums = taskIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.TaskItems.AsNoTracking().Where(t => taskIds.Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Number, ct);
+
+        var provIds = hijos.Select(h => h.ProveedorId!.Value).Distinct().ToList();
+        var provNames = await _db.Terceros.AsNoTracking().Where(t => provIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => t.Nombre, ct);
+
+        // Contacto por proveedor: una resolucion por proveedor distinto (no por linea).
+        var contactos = new Dictionary<Guid, ProveedorContactoDto?>();
+        foreach (var pid in provIds) { contactos[pid] = await GetProveedorContactoAsync(pid, ct); }
+
+        return hijos.Select(h =>
+        {
+            var pid = h.ProveedorId!.Value;
+            reqMap.TryGetValue(h.RequerimientoId, out var rq);
+            var producto = rq is null
+                ? ""
+                : (!string.IsNullOrWhiteSpace(rq.Descripcion) ? rq.Descripcion
+                    : (rq.ItemId is Guid iid && itemNames.TryGetValue(iid, out var inm) ? inm : ""));
+            contactos.TryGetValue(pid, out var c);
+            return new OcProveedorLineaDto(
+                pid,
+                provNames.TryGetValue(pid, out var pn) ? pn : "(proveedor)",
+                c?.Contacto, c?.Email, c?.Telefono,
+                h.Id,
+                h.RequerimientoId, producto,
+                rq?.SourceTaskItemId is Guid st && taskNums.TryGetValue(st, out var tn) ? tn : null,
+                rq?.UnidadMedida,
+                h.Cantidad, h.PrecioUnitario, h.FechaProgramadaCompra,
+                h.CaracteristicasDespacho, h.TiempoEntrega, h.Estado, h.TaskItemId, h.CotizacionTaskItemId);
+        }).ToList();
     }
 
     public async Task<IReadOnlyList<ProveedorContactoItemDto>> ListContactosAsync(Guid proveedorId, CancellationToken ct = default)

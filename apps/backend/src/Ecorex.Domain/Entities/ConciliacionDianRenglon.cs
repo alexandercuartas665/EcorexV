@@ -17,6 +17,11 @@ public sealed class ConciliacionDianRenglon : TenantEntity
     /// <summary>Estado / pestana del renglon.</summary>
     public EstadoConciliacionDian Estado { get; set; } = EstadoConciliacionDian.Conciliar;
 
+    /// <summary>De donde salio la fila: DIAN (bot, caso normal) o NEWTON (fantasma: esta en el proveedor
+    /// tecnologico pero no se descargo de la DIAN en el periodo). Un fantasma se promueve a DIAN si la DIAN
+    /// trae luego ese CUFE. No participa del cruce ERP; sirve para comparar/filtrar presencia DIAN vs NEWTON.</summary>
+    public OrigenRenglonConciliacionDian Origen { get; set; } = OrigenRenglonConciliacionDian.Dian;
+
     // ---- Datos de la factura DIAN (fuente: bot DIAN) ----
     /// <summary>CUFE: llave unica de la factura electronica en la DIAN.</summary>
     public string Cufe { get; set; } = string.Empty;

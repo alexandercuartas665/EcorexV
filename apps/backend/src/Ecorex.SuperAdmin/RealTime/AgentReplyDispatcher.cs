@@ -201,7 +201,7 @@ public sealed class AgentReplyDispatcher : BackgroundService, IAgentReplyQueue
             if (agentId is not Guid aid) { return; } // sin agente ligado: no hay a quien atribuir el error
 
             var detail = ex.Message;
-            if (detail.Length > 500) { detail = detail[..500]; }
+            detail = SurrogateText.SafeTruncate(detail, 500)!;
             db.AiAgentRunLogs.Add(new AiAgentRunLog
             {
                 TenantId = tenantId,

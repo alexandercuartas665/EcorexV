@@ -6,24 +6,28 @@ namespace Ecorex.Application.Tenancy;
 
 public sealed class DashboardService : IDashboardService
 {
-    private readonly IApplicationDbContext _db;
+    // ADR-0157 Ola 1: servicio de SOLO LECTURA. Usa un contexto EFIMERO propio por operacion
+    // (IApplicationDbContextFactory, ADR-0138) en vez del DbContext scoped del circuito, para que un
+    // refresco del dashboard no se solape con otra consulta en vuelo ("second operation on this context").
+    private readonly IApplicationDbContextFactory _dbFactory;
 
-    public DashboardService(IApplicationDbContext db) => _db = db;
+    public DashboardService(IApplicationDbContextFactory dbFactory) => _dbFactory = dbFactory;
 
     public async Task<TenantDashboardDto> GetAsync(CancellationToken cancellationToken = default)
     {
+        await using var db = _dbFactory.Create();
         // Todas las consultas quedan acotadas por el filtro global de tenant.
-        var totalLeads = await _db.Leads.CountAsync(cancellationToken);
-        var openLeads = await _db.Leads.CountAsync(l => l.Status == LeadStatus.Open, cancellationToken);
-        var wonLeads = await _db.Leads.CountAsync(l => l.Status == LeadStatus.Won, cancellationToken);
-        var lostLeads = await _db.Leads.CountAsync(l => l.Status == LeadStatus.Lost, cancellationToken);
-        var pendingFollowUps = await _db.FollowUpTasks.CountAsync(t => t.Status == FollowUpTaskStatus.Pending, cancellationToken);
-        var connectedLines = await _db.WhatsAppLines.CountAsync(l => l.Status == WhatsAppLineStatus.Connected, cancellationToken);
-        var conversations = await _db.Conversations.CountAsync(cancellationToken);
+        var totalLeads = await db.Leads.CountAsync(cancellationToken);
+        var openLeads = await db.Leads.CountAsync(l => l.Status == LeadStatus.Open, cancellationToken);
+        var wonLeads = await db.Leads.CountAsync(l => l.Status == LeadStatus.Won, cancellationToken);
+        var lostLeads = await db.Leads.CountAsync(l => l.Status == LeadStatus.Lost, cancellationToken);
+        var pendingFollowUps = await db.FollowUpTasks.CountAsync(t => t.Status == FollowUpTaskStatus.Pending, cancellationToken);
+        var connectedLines = await db.WhatsAppLines.CountAsync(l => l.Status == WhatsAppLineStatus.Connected, cancellationToken);
+        var conversations = await db.Conversations.CountAsync(cancellationToken);
 
-        var byStage = await _db.PipelineStages
+        var byStage = await db.PipelineStages
             .OrderBy(s => s.SortOrder)
-            .Select(s => new StageLeadCount(s.Id, s.Name, _db.Leads.Count(l => l.StageId == s.Id)))
+            .Select(s => new StageLeadCount(s.Id, s.Name, db.Leads.Count(l => l.StageId == s.Id)))
             .ToListAsync(cancellationToken);
 
         return new TenantDashboardDto(
@@ -33,18 +37,19 @@ public sealed class DashboardService : IDashboardService
 
     public async Task<TenantReportsDto> GetReportsAsync(CancellationToken cancellationToken = default)
     {
+        await using var db = _dbFactory.Create();
         // Proyeccion liviana de leads (todos: activos + historial); se agrega en memoria.
-        var leads = await _db.Leads
+        var leads = await db.Leads
             .Select(l => new LeadRow(l.StageId, l.Status, l.EstimatedValue, l.AssignedToTenantUserId,
                 l.Destination, l.ArchivedAt, l.ArchiveReason, l.CreatedAt))
             .ToListAsync(cancellationToken);
 
-        var stages = await _db.PipelineStages
+        var stages = await db.PipelineStages
             .OrderBy(s => s.SortOrder)
             .Select(s => new StageRow(s.Id, s.Name, s.IsClosedWon, s.IsClosedLost))
             .ToListAsync(cancellationToken);
 
-        var advisors = await _db.TenantUsers
+        var advisors = await db.TenantUsers
             .Select(u => new { u.Id, u.Email })
             .ToListAsync(cancellationToken);
         var advisorName = advisors.ToDictionary(a => a.Id, a => a.Email);
@@ -119,11 +124,11 @@ public sealed class DashboardService : IDashboardService
             .ToList();
 
         // ===== 6. Actividad de WhatsApp =====
-        var totalConversations = await _db.Conversations.CountAsync(cancellationToken);
-        var convLines = await _db.Conversations
+        var totalConversations = await db.Conversations.CountAsync(cancellationToken);
+        var convLines = await db.Conversations
             .Select(c => new { c.Id, c.WhatsAppLineId })
             .ToListAsync(cancellationToken);
-        var msgs = await _db.Messages
+        var msgs = await db.Messages
             .Select(m => new { m.ConversationId, m.Direction, m.SentAt })
             .ToListAsync(cancellationToken);
 
@@ -140,7 +145,7 @@ public sealed class DashboardService : IDashboardService
             if (lastOut is null || lastIn > lastOut) { unanswered++; }
         }
 
-        var lines = await _db.WhatsAppLines
+        var lines = await db.WhatsAppLines
             .Select(l => new { l.Id, l.InstanceName, l.PhoneNumber })
             .ToListAsync(cancellationToken);
         var lineName = lines.ToDictionary(l => l.Id, l => string.IsNullOrWhiteSpace(l.PhoneNumber) ? l.InstanceName : l.PhoneNumber!);

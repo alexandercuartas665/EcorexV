@@ -32,6 +32,20 @@ public abstract class TenantIsolationDbFixture : IAsyncLifetime
     /// </summary>
     public abstract EcorexDbContext CreateContext(Guid? tenantId);
 
+    /// <summary>
+    /// ADR-0157 Ola 1: factory de contexto EFIMERO para las pruebas, espejo del de produccion
+    /// (IApplicationDbContextFactory). Cada Create() fabrica un contexto PROPIO del mismo motor/tenant
+    /// (sobre la misma BD del contenedor), para ejercitar los servicios cuyas lecturas ya usan contexto
+    /// corto. En test la ejecucion es secuencial; valida que los datos y el filtro por tenant se vean
+    /// igual desde el contexto corto.
+    /// </summary>
+    public IApplicationDbContextFactory CreateFactory(Guid? tenantId) => new TestApplicationDbContextFactory(this, tenantId);
+
+    private sealed class TestApplicationDbContextFactory(TenantIsolationDbFixture fixture, Guid? tenantId) : IApplicationDbContextFactory
+    {
+        public IScopedDbContext Create() => fixture.CreateContext(tenantId);
+    }
+
     protected sealed class FixedTenantContext(Guid? tenantId, Guid? userId = null) : ITenantContext
     {
         public Guid? TenantId { get; } = tenantId;

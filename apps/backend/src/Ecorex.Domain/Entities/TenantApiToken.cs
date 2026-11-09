@@ -18,8 +18,25 @@ public class TenantApiToken : TenantEntity
     /// <summary>SHA-256 (hex, 64 chars) del token en claro. UNICO: por el se resuelve el tenant.</summary>
     public string TokenHash { get; set; } = null!;
 
-    /// <summary>Alcance del token (ej. "admin"). Reservado para granularidad futura.</summary>
-    public string Scope { get; set; } = "admin";
+    /// <summary>
+    /// Alcance del token. "admin" = API de configuracion (/api/config, ADR-0058). "mcp:tableros" = token
+    /// PERSONAL del servidor MCP de tableros (ADR-0159): solo sirve en /api/mcp/tableros y actua como
+    /// <see cref="TenantUserId"/>. Un token de un alcance NUNCA se acepta en la API del otro.
+    /// </summary>
+    public string Scope { get; set; } = ScopeAdmin;
+
+    /// <summary>
+    /// Dueno del token cuando es PERSONAL (ADR-0159). null = token de tenant (API de configuracion).
+    /// Con valor, toda accion hecha con el token se ejecuta COMO ese usuario: ve solo lo que el ve
+    /// (tableros restringidos, alcance "mis tareas") y la bitacora/auditoria queda a su nombre.
+    /// </summary>
+    public Guid? TenantUserId { get; set; }
+
+    /// <summary>Alcance de la API de configuracion (token de tenant, emitido por Owner/Admin).</summary>
+    public const string ScopeAdmin = "admin";
+
+    /// <summary>Alcance del servidor MCP de tableros (token personal de usuario).</summary>
+    public const string ScopeMcpTableros = "mcp:tableros";
 
     /// <summary>Cuando se revoco (UTC). null = activo. Un token revocado no resuelve tenant (401).</summary>
     public DateTimeOffset? RevokedAt { get; set; }

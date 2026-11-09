@@ -6,6 +6,7 @@
 @inject IWhatsAppLineService LinesSvc
 @inject IWhatsAppConnectorService ConnectorSvc
 @inject IWebhookAdminService WebhookSvc
+@inject IServiceScopeFactory ScopeFactory
 
 <PageTitle>Lineas WhatsApp - ECOREX.tareas</PageTitle>
 
@@ -694,9 +695,30 @@ else
     private async Task PollAsync()
     {
         if (!_qrOpen) { return; }
+        // ADR-0157 Ola 2: el callback del timer corre en un hilo del POOL (fuera del dispatcher del
+        // circuito). RefreshAsync escribe el estado de la linea en BD; hacerlo sobre el ConnectorSvc del
+        // circuito podia solaparse con una accion del usuario (Refrescar/Desconectar) sobre el MISMO
+        // DbContext -> "A second operation was started on this context". Se corre en un scope EF PROPIO
+        // (CreateAsyncScope) con AmbientTenantContext.Begin para que el filtro global por tenant resuelva
+        // fuera del circuito; las mutaciones de estado del componente + StateHasChanged se marshalan al
+        // dispatcher via InvokeAsync. Sin tenant en el claim (caso raro) cae al ConnectorSvc del circuito.
         var actor = await ActorAsync();
-        var updated = await ConnectorSvc.RefreshAsync(_qrLineId, actor);
-        if (updated is not null)
+        var tenantId = await TenantIdAsync();
+        var lineId = _qrLineId;
+        WhatsAppLineDto? updated;
+        if (tenantId is Guid tg)
+        {
+            using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tg, actor);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var connector = scope.ServiceProvider.GetRequiredService<IWhatsAppConnectorService>();
+            updated = await connector.RefreshAsync(lineId, actor);
+        }
+        else
+        {
+            updated = await ConnectorSvc.RefreshAsync(lineId, actor);
+        }
+        if (updated is null) { return; }
+        await InvokeAsync(() =>
         {
             _qrLine = updated;
             var i = _lines.FindIndex(l => l.Id == updated.Id);
@@ -706,8 +728,15 @@ else
                 _pollTimer?.Dispose();
                 _pollTimer = null;
             }
-            await InvokeAsync(StateHasChanged);
-        }
+            StateHasChanged();
+        });
+    }
+
+    private async Task<Guid?> TenantIdAsync()
+    {
+        if (AuthState is null) { return null; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst("tenant_id")?.Value, out var id) ? id : null;
     }
 
     private async Task RefreshAsync(Guid lineId)

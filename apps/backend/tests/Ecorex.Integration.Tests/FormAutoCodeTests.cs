@@ -134,14 +134,16 @@ public abstract class FormAutoCodeTestsBase
             new SequenceService(ctx, tenant));
     }
 
-    private static FormResponseService BuildResponseService(EcorexDbContext ctx, SeedData seed)
+    // ADR-0157 Ola 1 (tajada 3): factory real para ejercitar GetAsync por el contexto efimero (dual).
+    private FormResponseService BuildResponseService(EcorexDbContext ctx, SeedData seed)
     {
         var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         var engine = new WorkflowEngine(ctx, tenant, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         return new(ctx, engine, new SequenceService(ctx, tenant), tenant, new NoOpFormRecordBroadcaster(),
             new Ecorex.Application.Forms.Lookups.FormLookupService(
                 System.Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()),
-            new NoOpRulesEngine());
+            new NoOpRulesEngine(),
+            dbFactory: _fixture.CreateFactory(seed.TenantId));
     }
 
     /// <summary>Crea una definicion con un campo Text "num_cotizacion" y habilita el codigo automatico

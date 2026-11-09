@@ -22,29 +22,35 @@ public sealed class TaskBoardService : ITaskBoardService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly IAuditWriter _audit;
+    // ADR-0157 Ola 1: las LECTURAS (List*) usan contexto EFIMERO propio (ADR-0138) para no solapar con
+    // otra consulta en vuelo sobre el _db scoped del circuito. Las ESCRITURAS siguen en _db (su UoW).
+    private readonly IApplicationDbContextFactory _dbFactory;
 
-    public TaskBoardService(IApplicationDbContext db, ITenantContext tenantContext, IAuditWriter audit)
+    public TaskBoardService(IApplicationDbContext db, ITenantContext tenantContext, IAuditWriter audit,
+        IApplicationDbContextFactory dbFactory)
     {
         _db = db;
         _tenantContext = tenantContext;
         _audit = audit;
+        _dbFactory = dbFactory;
     }
 
     public async Task<IReadOnlyList<TaskBoardDto>> ListBoardsAsync(bool includeArchived = false, CancellationToken cancellationToken = default)
     {
-        var boards = await _db.TaskBoards.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        var boards = await db.TaskBoards.AsNoTracking()
             .Where(b => includeArchived || !b.IsArchived)
             .OrderBy(b => b.SortOrder).ThenBy(b => b.Name)
             .ToListAsync(cancellationToken);
         if (boards.Count == 0) { return Array.Empty<TaskBoardDto>(); }
 
         var boardIds = boards.Select(b => b.Id).ToList();
-        var doneColumnIds = await _db.TaskBoardColumns.AsNoTracking()
+        var doneColumnIds = await db.TaskBoardColumns.AsNoTracking()
             .Where(c => boardIds.Contains(c.BoardId) && c.IsDone)
             .Select(c => c.Id)
             .ToListAsync(cancellationToken);
 
-        var counts = await _db.TaskCards.AsNoTracking()
+        var counts = await db.TaskCards.AsNoTracking()
             .Where(c => boardIds.Contains(c.BoardId) && !c.IsArchived)
             .GroupBy(c => c.BoardId)
             .Select(g => new
@@ -132,7 +138,8 @@ public sealed class TaskBoardService : ITaskBoardService
 
     public async Task<IReadOnlyList<TaskBoardColumnDto>> ListColumnsAsync(Guid boardId, CancellationToken cancellationToken = default)
     {
-        var columns = await _db.TaskBoardColumns.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        var columns = await db.TaskBoardColumns.AsNoTracking()
             .Where(c => c.BoardId == boardId)
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
             .ToListAsync(cancellationToken);
@@ -140,12 +147,12 @@ public sealed class TaskBoardService : ITaskBoardService
 
         // Un tablero es kanban (TaskCard) O de actividades (TaskItem, ADR-0020); sumamos ambos para que
         // el conteo sea veraz en los dos modelos (antes solo contaba TaskCards -> 0 en actividades).
-        var cardCounts = await _db.TaskCards.AsNoTracking()
+        var cardCounts = await db.TaskCards.AsNoTracking()
             .Where(c => c.BoardId == boardId && !c.IsArchived)
             .GroupBy(c => c.ColumnId)
             .Select(g => new { ColumnId = g.Key, Count = g.Count() })
             .ToListAsync(cancellationToken);
-        var itemCounts = await _db.TaskItems.AsNoTracking()
+        var itemCounts = await db.TaskItems.AsNoTracking()
             .Where(t => t.BoardId == boardId && t.ColumnId != null && !t.IsArchived)
             .GroupBy(t => t.ColumnId!.Value)
             .Select(g => new { ColumnId = g.Key, Count = g.Count() })
@@ -268,7 +275,8 @@ public sealed class TaskBoardService : ITaskBoardService
 
     public async Task<IReadOnlyList<TaskCardTagDto>> ListBoardTagsAsync(Guid boardId, CancellationToken cancellationToken = default)
     {
-        return await _db.TaskCardTags.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        return await db.TaskCardTags.AsNoTracking()
             .Where(t => t.BoardId == boardId)
             .OrderBy(t => t.SortOrder).ThenBy(t => t.Name)
             .Select(t => new TaskCardTagDto(t.Id, t.Name, t.Color))

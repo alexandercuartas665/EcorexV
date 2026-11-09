@@ -60,7 +60,7 @@ public sealed class NotificarVerb : IRuleVerb
                 Type = TaskActivityType.Action,
                 ActorUserId = context.ActorUserId,
                 ActorName = context.ActorName,
-                Text = text.Length > 4000 ? text[..4000] : text
+                Text = SurrogateText.SafeTruncate(text, 4000)!
             });
             recorded = 1;
         }

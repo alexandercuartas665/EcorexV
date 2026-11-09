@@ -2733,6 +2733,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         modelBuilder.Entity<ConciliacionDianRenglon>(b =>
         {
             b.Property(x => x.Estado).HasConversion<int>();
+            // Origen del renglon (DIAN=0 / NEWTON=1). Default 0: las filas existentes nacen como DIAN.
+            b.Property(x => x.Origen).HasConversion<int>().HasDefaultValue(OrigenRenglonConciliacionDian.Dian);
             b.Property(x => x.Cufe).HasMaxLength(120).IsRequired();
             b.Property(x => x.TipoDocDian).HasMaxLength(60);
             b.Property(x => x.NombreProveedor).HasMaxLength(250);
@@ -2784,6 +2786,19 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Cufe).HasMaxLength(120).IsRequired();
             b.Property(x => x.GuidPdf).HasMaxLength(200);
             b.Property(x => x.EventId).HasMaxLength(120);
+            // Datos de negocio (para materializar fantasmas y acotar por periodo). Default "" / 0.
+            b.Property(x => x.TipoDoc).HasMaxLength(60);
+            b.Property(x => x.NombreEmisor).HasMaxLength(250);
+            b.Property(x => x.NitEmisor).HasMaxLength(40);
+            b.Property(x => x.NumeroFactura).HasMaxLength(80);
+            b.Property(x => x.TipoPago).HasMaxLength(60);
+            foreach (var money in new[] { nameof(ConciliacionDianNewtonDummy.SubtotalBruto), nameof(ConciliacionDianNewtonDummy.DescuentoComercial),
+                nameof(ConciliacionDianNewtonDummy.SubtotalNeto), nameof(ConciliacionDianNewtonDummy.Iva),
+                nameof(ConciliacionDianNewtonDummy.TotalAntesRet), nameof(ConciliacionDianNewtonDummy.RetencionFuente),
+                nameof(ConciliacionDianNewtonDummy.RetencionIca), nameof(ConciliacionDianNewtonDummy.Total) })
+            {
+                b.Property(money).HasPrecision(18, 2);
+            }
             b.HasIndex(x => new { x.TenantId, x.Cufe }).IsUnique();
         });
 
@@ -3684,6 +3699,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Scope).HasMaxLength(60).IsRequired();
             b.HasIndex(x => x.TokenHash).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.RevokedAt });
+            // ADR-0159: tokens personales (MCP) listados por su dueno.
+            b.HasIndex(x => new { x.TenantId, x.TenantUserId });
         });
 
         modelBuilder.Entity<ImportProcess>(b =>

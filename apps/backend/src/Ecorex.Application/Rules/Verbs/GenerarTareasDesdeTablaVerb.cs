@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
 
 namespace Ecorex.Application.Rules.Verbs;
@@ -78,7 +79,7 @@ public sealed class GenerarTareasDesdeTablaVerb : IRuleVerb
                     $"Una fila no tiene titulo (clave '{titleKey}'). Se crearon {created} tarea(s) antes del error.");
             }
             var fullTitle = (titlePrefix + title).Trim();
-            fullTitle = fullTitle.Length > 200 ? fullTitle[..200] : fullTitle;
+            fullTitle = SurrogateText.SafeTruncate(fullTitle, 200)!;
             var result = await _tasks.CreateAsync(
                 // SourceTaskId = la tarea que disparo la regla/flujo: deja la cadena origen->generada para que el
                 // lector del tablero movil pueda localizar la tarjeta descendiente al escanear el codigo origen.

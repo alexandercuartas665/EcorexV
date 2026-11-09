@@ -23,6 +23,12 @@ public sealed class FormResponseService : IFormResponseService
     private const string ConflictMessage = "Otro usuario modifico la respuesta. Recarga e intenta de nuevo.";
 
     private readonly IApplicationDbContext _db;
+    // ADR-0157 Ola 1 (tajada 3): contexto EF efimero por consulta para las LECTURAS calientes y
+    // AUTOCONTENIDAS (bandejas de registros, maestro-detalle y la familia Board* que solapa el push
+    // SignalR del tablero), para no chocar con el _db compartido del circuito Blazor. Las lecturas que
+    // delegan en _workflowEngine/_lookup/_rules (atadas al mismo _db) NO se aislan aqui: quedan para
+    // Ola 2, cuando esos sub-servicios reciban su propio scope corto. Opcional: null en pruebas -> _db.
+    private readonly IApplicationDbContextFactory? _dbFactory;
     private readonly IWorkflowEngine _workflowEngine;
     private readonly Tenancy.ISequenceService _sequences;
     private readonly Common.ITenantContext _tenant;
@@ -33,7 +39,8 @@ public sealed class FormResponseService : IFormResponseService
     public FormResponseService(
         IApplicationDbContext db, IWorkflowEngine workflowEngine, Tenancy.ISequenceService sequences,
         Common.ITenantContext tenant, Tenancy.IFormRecordBroadcaster recordBroadcaster,
-        Lookups.IFormLookupService lookup, Rules.IRulesEngine rules)
+        Lookups.IFormLookupService lookup, Rules.IRulesEngine rules,
+        IApplicationDbContextFactory? dbFactory = null)
     {
         _db = db;
         _workflowEngine = workflowEngine;
@@ -42,6 +49,7 @@ public sealed class FormResponseService : IFormResponseService
         _recordBroadcaster = recordBroadcaster;
         _lookup = lookup;
         _rules = rules;
+        _dbFactory = dbFactory;
     }
 
     public async Task<FormResult<FormResponseDto>> GetOrCreateDraftAsync(Guid definitionId, string? reference, CancellationToken cancellationToken = default)
@@ -101,7 +109,9 @@ public sealed class FormResponseService : IFormResponseService
 
     public async Task<FormResponseDto?> GetAsync(Guid responseId, CancellationToken cancellationToken = default)
     {
-        var response = await _db.FormResponses.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var response = await db.FormResponses.AsNoTracking()
             .FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
         return response is null ? null : ToDto(response);
     }
@@ -636,8 +646,10 @@ public sealed class FormResponseService : IFormResponseService
 
     public async Task<IReadOnlyList<FormRecordListItemDto>> ListRecordsAsync(Guid definitionId, CancellationToken cancellationToken = default)
     {
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
         // Bandeja del formulario-modulo (ola F4): los registros enviados (no borradores), recientes primero.
-        var rows = await _db.FormResponses.AsNoTracking()
+        var rows = await db.FormResponses.AsNoTracking()
             .Where(r => r.DefinitionId == definitionId && r.Status == FormResponseStatus.Submitted)
             .OrderByDescending(r => r.TransactionDate ?? r.SubmittedAt)
             .Select(r => new { r.Id, r.RecordNumber, r.RecordStatus, r.TransactionDate, r.SubmittedAt, r.Reference, r.SubmittedByTenantUserId, r.Data })
@@ -648,9 +660,9 @@ public sealed class FormResponseService : IFormResponseService
         var userIds = rows.Where(r => r.SubmittedByTenantUserId is Guid).Select(r => r.SubmittedByTenantUserId!.Value).Distinct().ToList();
         var userNames = userIds.Count == 0
             ? new Dictionary<Guid, string?>()
-            : await _db.TenantUsers.AsNoTracking()
+            : await db.TenantUsers.AsNoTracking()
                 .Where(tu => userIds.Contains(tu.Id))
-                .Join(_db.PlatformUsers.AsNoTracking().IgnoreQueryFilters(), tu => tu.PlatformUserId, pu => pu.Id,
+                .Join(db.PlatformUsers.AsNoTracking().IgnoreQueryFilters(), tu => tu.PlatformUserId, pu => pu.Id,
                     (tu, pu) => new { tu.Id, Name = pu.DisplayName ?? tu.Email })
                 .ToDictionaryAsync(x => x.Id, x => (string?)x.Name, cancellationToken);
 
@@ -666,13 +678,15 @@ public sealed class FormResponseService : IFormResponseService
 
     public async Task<byte[]?> ExportRecordsXlsxAsync(Guid definitionId, CancellationToken cancellationToken = default)
     {
-        var definition = await _db.FormDefinitions.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var definition = await db.FormDefinitions.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == definitionId && d.IsModule, cancellationToken);
         if (definition is null) { return null; }
 
         // Columnas de datos configuradas (field codes) + su etiqueta desde las preguntas.
         var columns = ParseCodeList(definition.ListColumnsJson);
-        var labels = await _db.FormQuestions.AsNoTracking()
+        var labels = await db.FormQuestions.AsNoTracking()
             .Where(q => q.DefinitionId == definitionId)
             .ToDictionaryAsync(q => q.FieldCode, q => q.Label, StringComparer.Ordinal, cancellationToken);
 
@@ -711,10 +725,12 @@ public sealed class FormResponseService : IFormResponseService
     public async Task<IReadOnlyList<FormRecordListItemDto>> ListChildrenAsync(
         Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default)
     {
-        var links = await _db.FormRecordLinks.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var links = await db.FormRecordLinks.AsNoTracking()
             .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode)
             .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
-            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
+            .Join(db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
             .ToListAsync(cancellationToken);
 
         return links.Select(r =>
@@ -786,10 +802,12 @@ public sealed class FormResponseService : IFormResponseService
     public async Task<IReadOnlyList<FormRecordListItemDto>> ListRowChildrenAsync(
         Guid parentResponseId, string parentFieldCode, string parentRowId, CancellationToken cancellationToken = default)
     {
-        var children = await _db.FormRecordLinks.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var children = await db.FormRecordLinks.AsNoTracking()
             .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode && l.ParentRowId == parentRowId)
             .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
-            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
+            .Join(db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
             .ToListAsync(cancellationToken);
 
         return children.Select(r =>
@@ -803,10 +821,12 @@ public sealed class FormResponseService : IFormResponseService
         Guid parentResponseId, string parentFieldCode, string parentRowId, Guid childDefinitionId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(parentRowId)) { return null; }
-        return await _db.FormRecordLinks.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        return await db.FormRecordLinks.AsNoTracking()
             .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode && l.ParentRowId == parentRowId)
             .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
-            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
+            .Join(db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => r)
             .Where(r => r.DefinitionId == childDefinitionId)
             .Select(r => (Guid?)r.Id)
             .FirstOrDefaultAsync(cancellationToken);
@@ -815,9 +835,11 @@ public sealed class FormResponseService : IFormResponseService
     public async Task<IReadOnlyDictionary<string, IReadOnlyDictionary<Guid, int>>> CountRowChildrenAsync(
         Guid parentResponseId, string parentFieldCode, CancellationToken cancellationToken = default)
     {
-        var rows = await _db.FormRecordLinks.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var rows = await db.FormRecordLinks.AsNoTracking()
             .Where(l => l.ParentResponseId == parentResponseId && l.ParentFieldCode == parentFieldCode && l.ParentRowId != null)
-            .Join(_db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => new { l.ParentRowId, r.DefinitionId })
+            .Join(db.FormResponses.AsNoTracking(), l => l.ChildResponseId, r => r.Id, (l, r) => new { l.ParentRowId, r.DefinitionId })
             .ToListAsync(cancellationToken);
 
         var map = new Dictionary<string, IReadOnlyDictionary<Guid, int>>(StringComparer.Ordinal);
@@ -832,7 +854,9 @@ public sealed class FormResponseService : IFormResponseService
     {
         if (string.IsNullOrWhiteSpace(code)) { return null; }
         var c = code.Trim();
-        return await _db.FormDefinitions.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        return await db.FormDefinitions.AsNoTracking()
             .Where(d => d.Code == c && d.Status == FormStatus.Active && !d.IsArchived)
             .Select(d => (Guid?)d.Id)
             .FirstOrDefaultAsync(cancellationToken);
@@ -1841,10 +1865,12 @@ public sealed class FormResponseService : IFormResponseService
     {
         // El registro derivado de esta respuesta (ADR-0078): idempotencia garantiza a lo sumo uno por destino;
         // se toma el mas antiguo. Filtro global de tenant aplica.
-        var row = await _db.FormResponses.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var row = await db.FormResponses.AsNoTracking()
             .Where(r => r.DerivedFromResponseId == sourceResponseId)
             .OrderBy(r => r.CreatedAt)
-            .Join(_db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
+            .Join(db.FormDefinitions.AsNoTracking(), r => r.DefinitionId, d => d.Id, (r, d) => new
             {
                 r.Id,
                 d.Code,
@@ -1876,7 +1902,10 @@ public sealed class FormResponseService : IFormResponseService
 
     public async Task<IReadOnlyList<BoardFormDto>> GetBoardFormsAsync(Guid boardId, CancellationToken cancellationToken = default)
     {
-        var tasks = await _db.TaskItems.AsNoTracking()
+        // ADR-0157: lectura caliente del tablero (solapa el push SignalR) en contexto EF efimero.
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var tasks = await db.TaskItems.AsNoTracking()
             .Where(t => t.BoardId == boardId)
             .Select(t => new { t.SubcategoriaId, t.WorkflowInstanceId })
             .ToListAsync(cancellationToken);
@@ -1884,7 +1913,7 @@ public sealed class FormResponseService : IFormResponseService
 
         // Formularios del CONCEPTO: subcategoria de la tarea -> FormDefinitionId.
         var subIds = tasks.Where(t => t.SubcategoriaId is not null).Select(t => t.SubcategoriaId!.Value).Distinct().ToList();
-        var conceptDefIds = subIds.Count == 0 ? new List<Guid>() : await _db.ActividadSubcategorias.AsNoTracking()
+        var conceptDefIds = subIds.Count == 0 ? new List<Guid>() : await db.ActividadSubcategorias.AsNoTracking()
             .Where(s => subIds.Contains(s.Id) && s.FormDefinitionId != null)
             .Select(s => s.FormDefinitionId!.Value).Distinct().ToListAsync(cancellationToken);
 
@@ -1893,11 +1922,11 @@ public sealed class FormResponseService : IFormResponseService
         var stepDefIds = new List<Guid>();
         if (instIds.Count > 0)
         {
-            var wfDefIds = await _db.WorkflowInstances.AsNoTracking()
+            var wfDefIds = await db.WorkflowInstances.AsNoTracking()
                 .Where(i => instIds.Contains(i.Id)).Select(i => i.DefinitionId).Distinct().ToListAsync(cancellationToken);
-            var nodeIds = await _db.WorkflowNodes.AsNoTracking()
+            var nodeIds = await db.WorkflowNodes.AsNoTracking()
                 .Where(n => wfDefIds.Contains(n.DefinitionId)).Select(n => n.Id).ToListAsync(cancellationToken);
-            stepDefIds = await _db.WorkflowNodeForms.AsNoTracking()
+            stepDefIds = await db.WorkflowNodeForms.AsNoTracking()
                 .Where(f => nodeIds.Contains(f.NodeId)).Select(f => f.DefinitionId).Distinct().ToListAsync(cancellationToken);
         }
 
@@ -1905,7 +1934,7 @@ public sealed class FormResponseService : IFormResponseService
         var allDefIds = conceptDefIds.Concat(stepDefIds).Distinct().ToList();
         if (allDefIds.Count == 0) { return Array.Empty<BoardFormDto>(); }
 
-        var defs = await _db.FormDefinitions.AsNoTracking()
+        var defs = await db.FormDefinitions.AsNoTracking()
             .Where(d => allDefIds.Contains(d.Id) && d.Status == FormStatus.Active && !d.IsArchived)
             .Select(d => new { d.Id, d.Code, d.Title })
             .ToListAsync(cancellationToken);
@@ -1921,7 +1950,9 @@ public sealed class FormResponseService : IFormResponseService
         if (definitionIds.Count == 0) { return Array.Empty<TaskFormDataDto>(); }
         var defIds = definitionIds.Distinct().ToList();
 
-        var tasks = await _db.TaskItems.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var tasks = await db.TaskItems.AsNoTracking()
             .Where(t => t.BoardId == boardId)
             .Select(t => new { t.Id, t.Number })
             .ToListAsync(cancellationToken);
@@ -1929,7 +1960,7 @@ public sealed class FormResponseService : IFormResponseService
         var byNumber = tasks.GroupBy(t => t.Number).ToDictionary(g => g.Key, g => g.First().Id);
 
         // Respuestas de esas definiciones ancladas a alguna tarea; el sufijo "-n" se resuelve en memoria.
-        var responses = await _db.FormResponses.AsNoTracking()
+        var responses = await db.FormResponses.AsNoTracking()
             .Where(r => defIds.Contains(r.DefinitionId) && r.Reference != null)
             .Select(r => new { r.DefinitionId, r.Reference, r.Data, r.IsActive, r.Status, r.CreatedAt })
             .ToListAsync(cancellationToken);
@@ -1955,7 +1986,9 @@ public sealed class FormResponseService : IFormResponseService
         var forms = await GetBoardFormsAsync(boardId, cancellationToken);
         if (forms.Count == 0) { return Array.Empty<BoardGridSourceDto>(); }
         var defIds = forms.Select(f => f.DefinitionId).ToList();
-        var grids = await _db.FormQuestions.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        var grids = await db.FormQuestions.AsNoTracking()
             .Where(q => defIds.Contains(q.DefinitionId) && q.ControlType == FormControlType.GridDetail)
             .Select(q => new { q.DefinitionId, q.FieldCode, q.Label, q.OptionsJson })
             .ToListAsync(cancellationToken);

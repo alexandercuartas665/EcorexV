@@ -193,7 +193,7 @@ public sealed class AgentAvisoTareaService : IAgentAvisoTareaService
             TaskItemId = task.Id,
             Type = Domain.Enums.TaskActivityType.Action,
             ActorName = "Agente IA",
-            Text = text.Length > 4000 ? text[..4000] : text
+            Text = SurrogateText.SafeTruncate(text, 4000)!
         });
 
         // La bitacora del agente (/bitacora-agente) exige ConversationId: solo se escribe si la tarea nacio de

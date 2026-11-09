@@ -41,6 +41,25 @@ public sealed class ConciliacionDianNewtonDummy : TenantEntity
     public string Cufe { get; set; } = string.Empty;
     public string GuidPdf { get; set; } = string.Empty;
     public string EventId { get; set; } = string.Empty;
+
+    // ---- Datos de negocio del documento en NEWTON (parseados del XML en la ingesta). Permiten MATERIALIZAR
+    // un renglon "fantasma" con datos reales (proveedor, fecha, totales) cuando el CUFE esta en NEWTON y no en
+    // la DIAN, y acotar la comparacion al periodo (FechaDoc). Opcionales: una fila sin XML parseado los deja en
+    // blanco/0 (no entra a ningun periodo ni se materializa hasta que una ingesta con XML la enriquezca). ----
+    public string TipoDoc { get; set; } = string.Empty;
+    public DateTimeOffset FechaDoc { get; set; }
+    public string NombreEmisor { get; set; } = string.Empty;
+    public string NitEmisor { get; set; } = string.Empty;
+    public string NumeroFactura { get; set; } = string.Empty;
+    public decimal SubtotalBruto { get; set; }
+    public decimal DescuentoComercial { get; set; }
+    public decimal SubtotalNeto { get; set; }
+    public decimal Iva { get; set; }
+    public decimal TotalAntesRet { get; set; }
+    public decimal RetencionFuente { get; set; }
+    public decimal RetencionIca { get; set; }
+    public decimal Total { get; set; }
+    public string TipoPago { get; set; } = string.Empty;
 }
 
 /// <summary>DUMMY (Fase 1): documento interno del ERP para el cruce. Espeja las referencias unificadas de

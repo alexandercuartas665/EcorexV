@@ -65,7 +65,8 @@ public static class ConfigApiEndpoints
                 TenantId = tenantId,
                 Name = name,
                 TokenHash = ApiTokenHasher.Hash(plain),
-                Scope = string.IsNullOrWhiteSpace(body?.Scope) ? "admin" : body!.Scope!.Trim()
+                // ADR-0159: esta API solo emite tokens de tenant "admin" (los personales MCP se emiten en /conectar-ia).
+                Scope = Domain.Entities.TenantApiToken.ScopeAdmin
             };
             db.TenantApiTokens.Add(entity);
             audit.Write(actor, "config-api.token.issue", nameof(Domain.Entities.TenantApiToken), entity.Id,
@@ -82,6 +83,7 @@ public static class ConfigApiEndpoints
         {
             if (!TryTenantAdmin(http, out var tenantId, out _)) { return Results.Json(new { error = "requiere sesion de admin del tenant (Owner/Admin)" }, statusCode: 403); }
             var rows = await db.TenantApiTokens.AsNoTracking()
+                .Where(t => t.TenantUserId == null)
                 .OrderByDescending(t => t.CreatedAt)
                 .Select(t => new { t.Id, t.Name, t.Scope, t.CreatedAt, t.RevokedAt, t.LastUsedAt, active = t.RevokedAt == null })
                 .ToListAsync(ct);
@@ -92,7 +94,7 @@ public static class ConfigApiEndpoints
         group.MapPost("/tokens/{id:guid}/revoke", async (Guid id, HttpContext http, IApplicationDbContext db, IAuditWriter audit, CancellationToken ct) =>
         {
             if (!TryTenantAdmin(http, out var tenantId, out var actor)) { return Results.Json(new { error = "requiere sesion de admin del tenant (Owner/Admin)" }, statusCode: 403); }
-            var tok = await db.TenantApiTokens.FirstOrDefaultAsync(t => t.Id == id, ct);
+            var tok = await db.TenantApiTokens.FirstOrDefaultAsync(t => t.Id == id && t.TenantUserId == null, ct);
             if (tok is null) { return Results.NotFound(new { error = "token no encontrado" }); }
             if (tok.RevokedAt is null)
             {
@@ -723,8 +725,11 @@ public static class ConfigApiEndpoints
         var sp = scope.ServiceProvider;
         var db = sp.GetRequiredService<IApplicationDbContext>();
         var hash = ApiTokenHasher.Hash(token);
+        // ADR-0159: SOLO tokens de tenant con alcance "admin". Un token PERSONAL (MCP de tableros) comparte la
+        // tabla pero NUNCA abre la API de configuracion: sin este filtro un usuario cualquiera escalaria a admin.
         var tok = await db.TenantApiTokens.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(t => t.TokenHash == hash && t.RevokedAt == null, ct);
+            .FirstOrDefaultAsync(t => t.TokenHash == hash && t.RevokedAt == null
+                && t.TenantUserId == null && t.Scope == Domain.Entities.TenantApiToken.ScopeAdmin, ct);
         if (tok is null) { return Results.Json(new { error = "token invalido o revocado" }, Json, statusCode: 401); }
 
         var tenantId = tok.TenantId;

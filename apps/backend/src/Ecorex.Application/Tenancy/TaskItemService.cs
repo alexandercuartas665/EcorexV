@@ -26,6 +26,12 @@ public sealed class TaskItemService : ITaskItemService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IApplicationDbContext _db;
+    // ADR-0157 Ola 1 (tajada 3): contexto EF efimero por consulta para las LECTURAS calientes
+    // (ListAsync/GetDetailAsync y sus helpers), para no chocar con operaciones concurrentes del
+    // circuito Blazor sobre el _db compartido ("A second operation was started on this context").
+    // Opcional: en pruebas es null y las lecturas caen al _db (single-threaded, sin circuito).
+    // En produccion lo inyecta DI (Scoped, por proveedor, con el mismo ITenantContext -> filtro intacto).
+    private readonly IApplicationDbContextFactory? _dbFactory;
     private readonly ITenantContext _tenantContext;
     private readonly ISequenceService _sequences;
     private readonly IWorkflowEngine _workflowEngine;
@@ -42,7 +48,8 @@ public sealed class TaskItemService : ITaskItemService
 
     public TaskItemService(IApplicationDbContext db, ITenantContext tenantContext, ISequenceService sequences,
         IWorkflowEngine workflowEngine, IEmailSender emailSender, INodeAssigneeResolver nodeAssignees,
-        INotificationBroadcaster? notificationBroadcaster = null, IServiceScopeFactory? scopeFactory = null)
+        INotificationBroadcaster? notificationBroadcaster = null, IServiceScopeFactory? scopeFactory = null,
+        IApplicationDbContextFactory? dbFactory = null)
     {
         _nodeAssignees = nodeAssignees;
         _db = db;
@@ -52,6 +59,7 @@ public sealed class TaskItemService : ITaskItemService
         _emailSender = emailSender;
         _notificationBroadcaster = notificationBroadcaster;
         _scopeFactory = scopeFactory;
+        _dbFactory = dbFactory;
     }
 
     public async Task<TaskCoreResult<TaskItemDetailDto>> CreateAsync(CreateTaskItemRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -283,7 +291,7 @@ public sealed class TaskItemService : ITaskItemService
                 {
                     TenantId = tenantId,
                     TaskItemId = task.Id,
-                    Text = raw.Length <= 500 ? raw : raw[..500],
+                    Text = SurrogateText.SafeTruncate(raw, 500)!,
                     SortOrder = checkOrder++
                 });
             }
@@ -416,7 +424,7 @@ public sealed class TaskItemService : ITaskItemService
             .Select(i => i.Text).ToListAsync(cancellationToken);
 
         var copyTitle = "Copia de " + (src.Title ?? string.Empty);
-        if (copyTitle.Length > 300) { copyTitle = copyTitle[..300]; }
+        copyTitle = SurrogateText.SafeTruncate(copyTitle, 300)!;
 
         // La copia nace como una tarea NUEVA con el mismo "molde": CreateAsync arranca el flujo en su
         // nodo inicial y la ubica en la columna de inicio del tablero del concepto (BoardId/ColumnId nulos).
@@ -461,7 +469,7 @@ public sealed class TaskItemService : ITaskItemService
             {
                 TenantId = src.TenantId,
                 TaskItemId = newId,
-                Text = text.Length <= 500 ? text : text[..500],
+                Text = SurrogateText.SafeTruncate(text, 500)!,
                 SortOrder = order++
             });
         }
@@ -652,7 +660,7 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
-        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(_db, task, cancellationToken));
     }
 
     public async Task<TaskCoreResult<TaskItemSummaryDto>> AssignAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -748,7 +756,7 @@ public sealed class TaskItemService : ITaskItemService
             await BroadcastNotificationAsync(id, cancellationToken);
         }
 
-        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(_db, task, cancellationToken));
     }
 
     /// <summary>
@@ -912,7 +920,7 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
-        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(_db, task, cancellationToken));
     }
 
     /// <summary>
@@ -972,7 +980,7 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
-        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(_db, task, cancellationToken));
     }
 
     public async Task<TaskCoreResult<TaskItemSummaryDto>> RestoreAsync(Guid taskId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
@@ -998,12 +1006,14 @@ public sealed class TaskItemService : ITaskItemService
         {
             return TaskCoreResult<TaskItemSummaryDto>.Conflict(ConflictMessage);
         }
-        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(task, cancellationToken));
+        return TaskCoreResult<TaskItemSummaryDto>.Ok(await ToSummaryAsync(_db, task, cancellationToken));
     }
 
     public async Task<IReadOnlyList<TaskItemTagDto>> ListTagsAsync(CancellationToken cancellationToken = default)
     {
-        return await _db.TaskItemTags.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        return await db.TaskItemTags.AsNoTracking()
             .OrderBy(t => t.Name)
             .Select(t => new TaskItemTagDto(t.Id, t.Name, t.Color))
             .ToListAsync(cancellationToken);
@@ -1032,8 +1042,12 @@ public sealed class TaskItemService : ITaskItemService
     }
 
     public async Task<int> CountTagUsageAsync(Guid tagId, CancellationToken cancellationToken = default)
-        => await _db.TaskItemTagAssignments.AsNoTracking()
+    {
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        return await db.TaskItemTagAssignments.AsNoTracking()
             .CountAsync(a => a.TagId == tagId && !a.TaskItem!.IsArchived, cancellationToken);
+    }
 
     public async Task<TaskCoreResult<bool>> DeleteTagAsync(Guid tagId, CancellationToken cancellationToken = default)
     {
@@ -1110,11 +1124,13 @@ public sealed class TaskItemService : ITaskItemService
 
     public async Task<IReadOnlyList<TaskItemTagDto>> ListColumnAllowedTagsAsync(Guid columnId, CancellationToken cancellationToken = default)
     {
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
         // Se ordena por la COLUMNA de la entidad (t.Name) antes de proyectar: ordenar por una
         // propiedad del DTO ya construido tras el Join no es traducible a SQL (crashea la query).
-        return await _db.TaskBoardColumnTags.AsNoTracking()
+        return await db.TaskBoardColumnTags.AsNoTracking()
             .Where(ct => ct.ColumnId == columnId)
-            .Join(_db.TaskItemTags.AsNoTracking(), ct => ct.TagId, t => t.Id, (ct, t) => t)
+            .Join(db.TaskItemTags.AsNoTracking(), ct => ct.TagId, t => t.Id, (ct, t) => t)
             .OrderBy(t => t.Name)
             .Select(t => new TaskItemTagDto(t.Id, t.Name, t.Color))
             .ToListAsync(cancellationToken);
@@ -1168,10 +1184,15 @@ public sealed class TaskItemService : ITaskItemService
 
     public async Task<IReadOnlyList<TaskItemTagDto>> ListAssignableTagsForTaskAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
-        var columnId = await _db.TaskItems.AsNoTracking()
-            .Where(t => t.Id == taskId)
-            .Select(t => t.ColumnId)
-            .FirstOrDefaultAsync(cancellationToken);
+        Guid? columnId;
+        await using (var lease = _dbFactory?.Create())
+        {
+            var db = lease ?? _db;
+            columnId = await db.TaskItems.AsNoTracking()
+                .Where(t => t.Id == taskId)
+                .Select(t => t.ColumnId)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
 
         if (columnId is Guid col)
         {
@@ -1481,7 +1502,9 @@ public sealed class TaskItemService : ITaskItemService
 
     public async Task<IReadOnlyList<TaskWorkLogDto>> ListWorkLogsAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
-        return await _db.TaskWorkLogs.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+        return await db.TaskWorkLogs.AsNoTracking()
             .Where(w => w.TaskItemId == taskId)
             .OrderByDescending(w => w.LoggedAt)
             .Select(w => new TaskWorkLogDto(w.Id, w.TaskItemId, w.TenantUserId, w.Seconds, w.Note, w.Kind, w.LoggedAt))
@@ -1490,18 +1513,26 @@ public sealed class TaskItemService : ITaskItemService
 
     public async Task<long> TotalSecondsAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
-        return await _db.TaskWorkLogs.AsNoTracking()
+        await using var lease = _dbFactory?.Create();
+        return await SumSecondsAsync(lease ?? _db, taskId, cancellationToken);
+    }
+
+    private static Task<long> SumSecondsAsync(IApplicationDbContext db, Guid taskId, CancellationToken cancellationToken)
+        => db.TaskWorkLogs.AsNoTracking()
             .Where(w => w.TaskItemId == taskId)
             .SumAsync(w => (long)w.Seconds, cancellationToken);
-    }
 
     public async Task<PagedResult<TaskItemSummaryDto>> ListAsync(TaskItemListFilter filter, CancellationToken cancellationToken = default)
     {
         var page = Math.Max(1, filter.Page);
         var pageSize = Math.Clamp(filter.PageSize, 1, 200);
 
+        // ADR-0157: lectura caliente de tablero/lista en contexto EF efimero (aislado del _db del circuito).
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+
         // Filtros combinables AND, todos via LINQ parametrizado sobre el filtro global de tenant.
-        var query = _db.TaskItems.AsNoTracking().AsQueryable();
+        var query = db.TaskItems.AsNoTracking().AsQueryable();
         if (!filter.IncludeArchived)
         {
             query = query.Where(t => !t.IsArchived);
@@ -1542,7 +1573,7 @@ public sealed class TaskItemService : ITaskItemService
         if (filter.TagIds is { Count: > 0 })
         {
             var tagIds = filter.TagIds.ToList();
-            query = query.Where(t => _db.TaskItemTagAssignments.Any(a => a.TaskItemId == t.Id && tagIds.Contains(a.TagId)));
+            query = query.Where(t => db.TaskItemTagAssignments.Any(a => a.TaskItemId == t.Id && tagIds.Contains(a.TagId)));
         }
         if (filter.DueFrom is DateTimeOffset dueFrom)
         {
@@ -1574,7 +1605,7 @@ public sealed class TaskItemService : ITaskItemService
             .Take(pageSize)
             .ToListAsync(cancellationToken);
 
-        var summaries = await ToSummariesAsync(items, cancellationToken);
+        var summaries = await ToSummariesAsync(db, items, cancellationToken);
         return new PagedResult<TaskItemSummaryDto>(summaries, total, page, pageSize);
     }
 
@@ -1611,44 +1642,50 @@ public sealed class TaskItemService : ITaskItemService
 
     public async Task<TaskItemDetailDto?> GetDetailAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
-        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+        // ADR-0157: lectura caliente del detalle en contexto EF efimero (aislado del _db del circuito).
+        // Los llamadores que escriben antes (SetContactTercero/UpdateCustomFields/Copy) ya hicieron
+        // SaveChanges sin transaccion abierta, asi que una lectura fresca ve los datos commiteados.
+        await using var lease = _dbFactory?.Create();
+        var db = lease ?? _db;
+
+        var task = await db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
         if (task is null) { return null; }
 
-        var summary = await ToSummaryAsync(task, cancellationToken);
-        var totalSeconds = await TotalSecondsAsync(taskId, cancellationToken);
-        var recentActivity = await _db.TaskItemActivities.AsNoTracking()
+        var summary = await ToSummaryAsync(db, task, cancellationToken);
+        var totalSeconds = await SumSecondsAsync(db, taskId, cancellationToken);
+        var recentActivity = await db.TaskItemActivities.AsNoTracking()
             .Where(a => a.TaskItemId == taskId)
             .OrderByDescending(a => a.CreatedAt)
             .Take(RecentActivityLimit)
             .Select(a => new TaskItemActivityDto(a.Id, a.Type, a.ActorName, a.Text, a.CreatedAt))
             .ToListAsync(cancellationToken);
-        var attachments = await _db.TaskItemAttachments.AsNoTracking()
+        var attachments = await db.TaskItemAttachments.AsNoTracking()
             .Where(a => a.TaskItemId == taskId)
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => new TaskItemAttachmentDto(a.Id, a.FileName, a.Url, a.MimeType, a.SizeBytes, a.UploadedByName, a.CreatedAt))
             .ToListAsync(cancellationToken);
-        var checklist = await _db.TaskItemChecklistItems.AsNoTracking()
+        var checklist = await db.TaskItemChecklistItems.AsNoTracking()
             .Where(i => i.TaskItemId == taskId)
             .OrderBy(i => i.SortOrder).ThenBy(i => i.CreatedAt)
             .Select(i => new TaskItemChecklistItemDto(i.Id, i.TaskItemId, i.Text, i.IsCompleted,
                 i.CompletedAt, i.CompletedByTenantUserId, i.SortOrder))
             .ToListAsync(cancellationToken);
-        var assignees = await LoadAssigneesAsync(taskId, cancellationToken);
+        var assignees = await LoadAssigneesAsync(db, taskId, cancellationToken);
         // Subtareas (tareas hijas) de esta tarea, mas antiguas primero.
-        var subs = await _db.TaskItems.AsNoTracking()
+        var subs = await db.TaskItems.AsNoTracking()
             .Where(t => t.ParentId == taskId && !t.IsArchived)
             .OrderBy(t => t.CreatedAt)
             .ToListAsync(cancellationToken);
-        var subtasks = await ToSummariesAsync(subs, cancellationToken);
+        var subtasks = await ToSummariesAsync(db, subs, cancellationToken);
         // Copias generadas desde esta actividad (SourceTaskId == esta), mas antiguas primero.
-        var copyEntities = await _db.TaskItems.AsNoTracking()
+        var copyEntities = await db.TaskItems.AsNoTracking()
             .Where(t => t.SourceTaskId == taskId && !t.IsArchived)
             .OrderBy(t => t.CreatedAt)
             .ToListAsync(cancellationToken);
-        var copies = await ToSummariesAsync(copyEntities, cancellationToken);
+        var copies = await ToSummariesAsync(db, copyEntities, cancellationToken);
         // Backlink: si esta actividad ES una copia, numero de la actividad origen.
         var sourceNumber = task.SourceTaskId is Guid srcId
-            ? await _db.TaskItems.AsNoTracking().Where(t => t.Id == srcId)
+            ? await db.TaskItems.AsNoTracking().Where(t => t.Id == srcId)
                 .Select(t => t.Number).FirstOrDefaultAsync(cancellationToken)
             : null;
 
@@ -1760,17 +1797,19 @@ public sealed class TaskItemService : ITaskItemService
 
     // ---- Helpers ----
 
-    private async Task<TaskItemSummaryDto> ToSummaryAsync(TaskItem task, CancellationToken cancellationToken)
-        => (await ToSummariesAsync([task], cancellationToken))[0];
+    // ADR-0157: los helpers de armado de DTO reciben el contexto a usar (el efimero en lecturas,
+    // el _db del circuito en escrituras, donde la entidad viene rastreada y recien guardada).
+    private async Task<TaskItemSummaryDto> ToSummaryAsync(IApplicationDbContext db, TaskItem task, CancellationToken cancellationToken)
+        => (await ToSummariesAsync(db, [task], cancellationToken))[0];
 
-    private async Task<IReadOnlyList<TaskItemSummaryDto>> ToSummariesAsync(IReadOnlyList<TaskItem> tasks, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<TaskItemSummaryDto>> ToSummariesAsync(IApplicationDbContext db, IReadOnlyList<TaskItem> tasks, CancellationToken cancellationToken)
     {
         if (tasks.Count == 0) { return Array.Empty<TaskItemSummaryDto>(); }
 
         var taskIds = tasks.Select(t => t.Id).ToList();
-        var tagsByTask = (await _db.TaskItemTagAssignments.AsNoTracking()
+        var tagsByTask = (await db.TaskItemTagAssignments.AsNoTracking()
                 .Where(a => taskIds.Contains(a.TaskItemId))
-                .Join(_db.TaskItemTags.AsNoTracking(), a => a.TagId, t => t.Id,
+                .Join(db.TaskItemTags.AsNoTracking(), a => a.TagId, t => t.Id,
                     (a, t) => new { a.TaskItemId, Tag = new TaskItemTagDto(t.Id, t.Name, t.Color) })
                 .ToListAsync(cancellationToken))
             .GroupBy(x => x.TaskItemId)
@@ -1778,7 +1817,7 @@ public sealed class TaskItemService : ITaskItemService
 
         var activityTypeIds = tasks.Where(t => t.ActivityTypeId.HasValue)
             .Select(t => t.ActivityTypeId!.Value).Distinct().ToList();
-        var activityTypeNames = await _db.ActivityTypes.AsNoTracking()
+        var activityTypeNames = await db.ActivityTypes.AsNoTracking()
             .Where(t => activityTypeIds.Contains(t.Id))
             .ToDictionaryAsync(t => t.Id, t => $"{t.Category}/{t.Name}", cancellationToken);
 
@@ -1786,7 +1825,7 @@ public sealed class TaskItemService : ITaskItemService
             .Select(t => t.SubcategoriaId!.Value).Distinct().ToList();
         var subcategoriaNames = subcategoriaIds.Count == 0
             ? new Dictionary<Guid, string>()
-            : await _db.ActividadSubcategorias.AsNoTracking()
+            : await db.ActividadSubcategorias.AsNoTracking()
                 .Where(s => subcategoriaIds.Contains(s.Id))
                 .ToDictionaryAsync(s => s.Id, s => s.Nombre, cancellationToken);
 
@@ -1795,7 +1834,7 @@ public sealed class TaskItemService : ITaskItemService
             .Select(t => t.MilestoneId!.Value).Distinct().ToList();
         var milestoneNames = milestoneIds.Count == 0
             ? new Dictionary<Guid, string>()
-            : await _db.ProjectMilestones.AsNoTracking()
+            : await db.ProjectMilestones.AsNoTracking()
                 .Where(m => milestoneIds.Contains(m.Id))
                 .ToDictionaryAsync(m => m.Id, m => m.Name, cancellationToken);
 
@@ -1803,7 +1842,7 @@ public sealed class TaskItemService : ITaskItemService
         var parentIds = tasks.Where(t => t.ParentId.HasValue).Select(t => t.ParentId!.Value).Distinct().ToList();
         var parentNumbers = parentIds.Count == 0
             ? new Dictionary<Guid, string>()
-            : await _db.TaskItems.AsNoTracking()
+            : await db.TaskItems.AsNoTracking()
                 .Where(p => parentIds.Contains(p.Id))
                 .ToDictionaryAsync(p => p.Id, p => p.Number, cancellationToken);
 
@@ -1825,17 +1864,17 @@ public sealed class TaskItemService : ITaskItemService
     }
 
     /// <summary>Equipo asignado (M:N, ADR-0020) con iniciales para los avatares.</summary>
-    private async Task<IReadOnlyList<TaskItemAssigneeDto>> LoadAssigneesAsync(Guid taskId, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<TaskItemAssigneeDto>> LoadAssigneesAsync(IApplicationDbContext db, Guid taskId, CancellationToken cancellationToken)
     {
-        var rows = await _db.TaskItemAssignments.AsNoTracking()
+        var rows = await db.TaskItemAssignments.AsNoTracking()
             .Where(a => a.TaskItemId == taskId)
-            .Join(_db.TenantUsers.AsNoTracking(), a => a.TenantUserId, u => u.Id,
+            .Join(db.TenantUsers.AsNoTracking(), a => a.TenantUserId, u => u.Id,
                 (a, u) => new { u.Id, u.Email, u.PlatformUserId })
             .ToListAsync(cancellationToken);
         if (rows.Count == 0) { return Array.Empty<TaskItemAssigneeDto>(); }
 
         var platformIds = rows.Select(r => r.PlatformUserId).Distinct().ToList();
-        var displayNames = await _db.PlatformUsers.AsNoTracking().IgnoreQueryFilters()
+        var displayNames = await db.PlatformUsers.AsNoTracking().IgnoreQueryFilters()
             .Where(p => platformIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id, p => p.DisplayName ?? p.Email, cancellationToken);
         return rows.Select(r =>

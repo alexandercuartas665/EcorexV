@@ -16,6 +16,7 @@
 @inject NavigationManager Nav
 @inject IAiAgentLineService AgentLinesSvc
 @inject IJSRuntime JS
+@inject IServiceScopeFactory ScopeFactory
 
 <PageTitle>Conversaciones - ECOREX.tareas</PageTitle>
 
@@ -850,12 +851,38 @@ else
         finally { _supportBusy = false; }
     }
 
+    // ADR-0157 Ola 1: este reload se dispara tambien por el push "BoardChanged" del hub, que puede
+    // llegar mientras el usuario tiene otra consulta en vuelo sobre el DbContext scoped del circuito.
+    // Scope EF propio + semaforo para no solapar (si no, EF lanza "second operation on this context").
+    private readonly SemaphoreSlim _reloadLock = new(1, 1);
+
     private async Task ReloadConversationsAsync()
     {
-        _conversations = (await ChatSvc.ListConversationsAsync())
-            .OrderByDescending(c => c.LastMessageAt ?? DateTimeOffset.MinValue)
-            .ToList();
-        _unread = await ChatSvc.GetUnansweredByPhoneAsync();
+        await _reloadLock.WaitAsync();
+        try
+        {
+            if (Guid.TryParse(_tenantId, out var tenantGuid))
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
+                _conversations = (await chat.ListConversationsAsync())
+                    .OrderByDescending(c => c.LastMessageAt ?? DateTimeOffset.MinValue)
+                    .ToList();
+                _unread = await chat.GetUnansweredByPhoneAsync();
+            }
+            else
+            {
+                _conversations = (await ChatSvc.ListConversationsAsync())
+                    .OrderByDescending(c => c.LastMessageAt ?? DateTimeOffset.MinValue)
+                    .ToList();
+                _unread = await ChatSvc.GetUnansweredByPhoneAsync();
+            }
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
     }
 
     private List<ConversationDto> FilteredConversations()

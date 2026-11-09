@@ -1345,7 +1345,7 @@ public sealed class WorkflowEngine : IWorkflowEngine
         if (targetColumn is not null && columnIsDone && !string.IsNullOrWhiteSpace(node.CloseReason))
         {
             var cr = node.CloseReason!.Trim();
-            task.CloseReason = cr.Length > 200 ? cr[..200] : cr;
+            task.CloseReason = SurrogateText.SafeTruncate(cr, 200)!;
         }
     }
 

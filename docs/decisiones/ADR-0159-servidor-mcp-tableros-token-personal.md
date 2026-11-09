@@ -64,6 +64,15 @@ API de configuracion (alcance admin) a cualquier usuario.
 - Pruebas: `McpTablerosTests` (matriz dual) cubre resolucion/revocacion/alcance/usuario inactivo,
   aislamiento de tablero restringido entre usuarios, y la regla de flujo (no mover, tomar y completar).
 
+## Addendum 2026-11-09 (pruebas E2E en BITCODE local)
+
+- Directorio: nuevas tools `buscar_contacto`, `crear_contacto` (reusa la deduplicacion de DirectorioToolset) y
+  `vincular_contacto` (ITaskItemService.SetContactTerceroAsync). Total 18 herramientas.
+- `crear_tarea` en tenants que clasifican SOLO por concepto (sin tipos de actividad activos): sin 'concepto'
+  usa el unico concepto ligado al tablero; si no hay uno claro, devuelve la lista para elegir.
+- BUG del motor corregido: `StartInstanceAsync` guardaba como iniciador el id de PLATAFORMA (lo que pasan
+  UI/tablero/MCP); un paso "hereda al iniciador" quedaba sin encargado. Ahora se normaliza a TenantUser.
+
 ## Fuera de alcance (siguientes fases)
 
 - OAuth 2.1 (Authorization Server + metadata `/.well-known/oauth-protected-resource`) para ChatGPT/claude.ai.

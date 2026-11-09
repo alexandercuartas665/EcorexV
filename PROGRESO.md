@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-09 - Politica de confidencialidad por tenant + link permanente /pc/{token} con constancia (ADR-0160, release v0.16.291, SIN deploy a prod)
+## 2026-11-09 - Politica de confidencialidad por tenant + link permanente /pc/{token} con constancia (ADR-0160, release v0.16.292, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Pedido del usuario: en el modulo de plantillas de WhatsApp, poder guardar la politica de confidencialidad de cada tenant y generar un link POR TENANT que NO vence; el link debe permitir VER y ACEPTAR dejando constancia.
 - HECHO: 2 entidades tenant-scoped nuevas. `ConfidentialityPolicy` (soft-delete + IVersioned, UNA por tenant via indice unico en tenant_id filtrado por is_deleted) con Titulo/Contenido(HTML saneado)/PublicToken/Activa; `ConfidentialityPolicyAcceptance` (append-only) con Nombre/Identificacion/Correo?/AceptadoAt/Ip?/UserAgent?/PolicyVersionSnapshot/ContenidoHashSnapshot. Migracion dual `AddConfidentialityPolicies` (PG 20261109150453, SqlServer 20261109151055); has-pending-model-changes limpio en ambos.
@@ -13,6 +13,13 @@
 - 10 fakes de IApplicationDbContext en Application.Tests actualizados con los 2 DbSets. Tests de integracion dual `ConfidentialityPolicyTests` (alta/saneo/resolucion cross-tenant/inactivo/aceptacion+snapshot/datos faltantes/regeneracion/aislamiento).
 - DEUDA (Fase 2): captura de IP/User-Agent en la aceptacion (hoy null en el visor interactivo), exportar constancias a CSV/PDF, editor de texto enriquecido (hoy textarea HTML + preview). SIGUIENTE: build + tests dual verdes; ADR-0160 al vault; deploy con OK por version.
 
+## 2026-11-09 - MCP de tableros: pruebas E2E en el navegador + directorio + fix del iniciador del flujo (ADR-0159 addendum, release v0.16.291, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Pedido: probar con dev-login si la IA puede crear directorio, crear tareas, moverlas por los flujos, cerrarlas y moverlas entre columnas.
+- PRUEBA E2E (local 5270 contra 5442, BITCODE, todo por MCP como lo haria la IA + verificacion visual en el tablero): T00038 sin flujo creada -> En progreso -> En revision -> checklist -> 45 min -> Completado (terminada). Flujo de prueba sin agentes importado por "Importar JSON" (FLW-B1B8B9, Analisis -> Decision Aprobada/Rechazada -> Ejecucion) + concepto PRUEBA MCP (CAT-01-05) en PROYECTOS: T00040 ruta Aprobada y T00041 ruta Rechazada completas; v2 del flujo con columna destino por nodo: T00042 nace en En progreso, al aprobar salta EN VIVO a En revision y al cerrar a Completado (Terminada). mover_tarea se niega con flujo en curso. Directorio: empresa + persona creadas (sin duplicar por NIT), buscadas y vinculadas como solicitante; visibles en Directorio General.
+- HALLAZGOS CORREGIDOS: (1) BITCODE no tiene tipos de actividad -> crear_tarea sin concepto fallaba ("El tenant no tiene tipos de actividad activos"); ahora usa el concepto del tablero o pide elegir. (2) BUG DEL MOTOR (afectaba tambien a la UI): StartInstanceAsync guardaba StartedByTenantUserId = id de PLATAFORMA -> pasos InheritStart sin encargado; ahora se normaliza a TenantUser. (3) Nuevas tools de directorio (buscar/crear/vincular contacto).
+- Datos de prueba que quedan en la BD LOCAL 5442 (no prod): T00038-T00042, flujo FLW-B1B8B9, concepto CAT-01-05, 2 terceros "PRUEBA MCP". T00039 quedo con el paso sin encargado (creada antes del fix).
+- VERIFICADO: build 0 errores; Application.Tests 1196/1196; integracion 94/94 (MCP 4 escenarios + WorkflowInbox/NodeAssignment/WorkflowEngine/TaskCore/ActivityBoard, PG + SQL Server). SIGUIENTE: doble push a la senal del usuario; deploy lo autoriza el usuario.
 ## 2026-11-09 - Extraccion de datos: exportar/importar PASOS de un flujo DRON como JSON portable (integrada al tronco desde feat/agente-tls-instalador-adr0152, release v0.16.288, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Worktree `ECOREX.dian` (rama `feat/agente-tls-instalador-adr0152`). Verificado en local 5263 contra docker 5442 (tenant SOLDARCO); NUNCA prod. `dotnet build Ecorex.sln` verde. Sin migracion EF (reusa la entidad ScrapeStep y sus columnas). Archivos solo-ASCII. Integracion CENTRAL: no toca ninguno de los 6 servicios del ADR-0157, sin lecturas calientes ni BD fuera del dispatcher -> no aplica el patron de concurrencia.

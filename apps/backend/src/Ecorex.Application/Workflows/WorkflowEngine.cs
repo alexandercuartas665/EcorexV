@@ -284,8 +284,10 @@ public sealed class WorkflowEngine : IWorkflowEngine
             TaskItemId = taskItemId,
             Status = WorkflowInstanceStatus.Running,
             StartedAt = DateTimeOffset.UtcNow,
-            // Iniciador del flujo: lo usa el modo de asignacion InheritStart (ADR-0056).
-            StartedByTenantUserId = actorUserId,
+            // Iniciador del flujo: lo usa el modo de asignacion InheritStart (ADR-0056). Los llamadores (UI,
+            // tablero, MCP) pasan el id de PLATAFORMA del usuario; se normaliza a su TenantUser para que
+            // InheritStart asigne de verdad al iniciador (antes el primer paso quedaba sin encargado).
+            StartedByTenantUserId = await ResolveInitiatorTenantUserAsync(actorUserId, cancellationToken),
             CurrentCycle = 0
         };
         _db.WorkflowInstances.Add(instance);
@@ -1347,6 +1349,22 @@ public sealed class WorkflowEngine : IWorkflowEngine
             var cr = node.CloseReason!.Trim();
             task.CloseReason = SurrogateText.SafeTruncate(cr, 200)!;
         }
+    }
+
+    /// <summary>
+    /// Normaliza el actor que inicia el flujo a un TenantUser del tenant (filtro global): acepta el id de
+    /// TenantUser o el de PlatformUser. Si no corresponde a ninguno (Sistema, Guid.Empty, agente) se conserva
+    /// el valor original; FirstValidTenantUserAsync lo descarta luego al resolver InheritStart (ADR-0075).
+    /// </summary>
+    private async Task<Guid?> ResolveInitiatorTenantUserAsync(Guid? actorUserId, CancellationToken cancellationToken)
+    {
+        if (actorUserId is not Guid id || id == Guid.Empty) { return actorUserId; }
+        if (await _db.TenantUsers.AsNoTracking().AnyAsync(u => u.Id == id, cancellationToken)) { return id; }
+        var byPlatform = await _db.TenantUsers.AsNoTracking()
+            .Where(u => u.PlatformUserId == id)
+            .Select(u => (Guid?)u.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        return byPlatform ?? actorUserId;
     }
 
     // ---- Origen del asignado (ADR-0056): resuelve el encargado concreto al activar un paso Task ----

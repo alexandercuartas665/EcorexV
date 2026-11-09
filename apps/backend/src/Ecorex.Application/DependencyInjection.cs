@@ -329,6 +329,10 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IPipelineToolset>(sp => sp.GetRequiredService<Tenancy.PipelineToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.PipelineToolset>());
         // Toolset de Tareas: el agente crea una tarea en un tablero y adjunta los archivos del cliente.
+        // ADR-0159: servidor MCP de TABLEROS para IAs externas (actua como el usuario dueno del token personal).
+        // NO se registra como IAgentToolset: no entra al catalogo de los agentes internos ni al MCP de /api/mgmt.
+        services.AddScoped<Mcp.IPersonalAccessTokenService, Mcp.PersonalAccessTokenService>();
+        services.AddScoped<Mcp.ITableroMcpToolset, Mcp.TableroMcpToolset>();
         services.AddScoped<Tenancy.TasksToolset>();
         services.AddScoped<Tenancy.ITasksToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());

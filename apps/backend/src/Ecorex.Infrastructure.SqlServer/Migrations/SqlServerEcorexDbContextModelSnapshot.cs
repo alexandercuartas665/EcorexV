@@ -15925,6 +15925,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
 
+                    b.Property<Guid?>("TenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_user_id");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -15948,6 +15952,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("TenantId", "RevokedAt")
                         .HasDatabaseName("ix_tenant_api_tokens_tenant_id_revoked_at");
+
+                    b.HasIndex("TenantId", "TenantUserId")
+                        .HasDatabaseName("ix_tenant_api_tokens_tenant_id_tenant_user_id");
 
                     b.ToTable("tenant_api_tokens", (string)null);
                 });

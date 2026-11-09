@@ -16,6 +16,7 @@
 @inject IAgentRegistry Agents
 @inject ITenantContext Tenant
 @inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
 
 <PageTitle>Extraccion de datos - ECOREX.tareas</PageTitle>
 
@@ -181,8 +182,39 @@
                     <div class="xd-card">
                         <div class="xd-card-head">
                             <div class="xd-card-title">Pasos de ejecucion <span class="xd-num-badge">@flow.Steps.Count</span></div>
-                            <button class="xd-btn sm primary" @onclick="() => OpenStepEditor(null)">+ Agregar paso</button>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <button class="xd-btn sm" @onclick="ExportStepsAsync"
+                                        disabled="@(_busy || flow.Steps.Count == 0)"
+                                        title="Descargar los pasos de este flujo como JSON (sin variables)">Exportar pasos</button>
+                                <label class="xd-btn sm" style="margin:0;"
+                                       title="Reemplazar los pasos de este flujo con los de un archivo JSON">
+                                    Importar pasos
+                                    <InputFile OnChange="OnImportStepsSelected" accept=".json" style="display:none;" />
+                                </label>
+                                <button class="xd-btn sm primary" @onclick="() => OpenStepEditor(null)">+ Agregar paso</button>
+                            </div>
                         </div>
+
+                        @* ---- Confirmacion de importacion (reemplazo total de pasos) ---- *@
+                        @if (_importJson is not null)
+                        {
+                            <div style="border:1px solid var(--xd-warn, #e0a800); background:rgba(224,168,0,.08); border-radius:8px; padding:12px; margin:8px 0;">
+                                <div>Importar <strong>@_importFileName</strong> <strong>REEMPLAZARA</strong> los @flow.Steps.Count paso(s) actuales de este flujo. Las variables no se tocan.</div>
+                                <div style="display:flex; gap:8px; margin-top:10px;">
+                                    <button class="xd-btn sm primary" @onclick="ConfirmImportStepsAsync" disabled="@_busy">@(_busy ? "Importando..." : "Reemplazar pasos")</button>
+                                    <button class="xd-btn sm" @onclick="CancelImportSteps" disabled="@_busy">Cancelar</button>
+                                </div>
+                            </div>
+                        }
+                        @if (_importWarnings.Count > 0)
+                        {
+                            <div style="border:1px solid var(--xd-warn, #e0a800); background:rgba(224,168,0,.08); border-radius:8px; padding:12px; margin:8px 0;">
+                                <div><strong>Importado con avisos</strong> (referencias de otro entorno que quedaron sin asignar; re-enlazalas en cada paso):</div>
+                                <ul style="margin:6px 0 0 18px;">
+                                    @foreach (var w in _importWarnings) { <li>@w</li> }
+                                </ul>
+                            </div>
+                        }
 
                         @* ---- Paso a paso (sesion viva): inyecta un paso a la vez sobre la MISMA ventana del agente ---- *@
                         @if (flow.Steps.Count > 0)
@@ -718,6 +750,11 @@
     private bool _flashError;
     private Guid _actor;
 
+    // Importar pasos (JSON): queda en espera de confirmacion (reemplazo total) + avisos del ultimo import.
+    private string? _importJson;
+    private string? _importFileName;
+    private IReadOnlyList<string> _importWarnings = Array.Empty<string>();
+
     // Cabecera
     private bool _editHeader;
     private string? _headError;
@@ -860,6 +897,63 @@
             else { _schKind = ImportScheduleKind.Manual; _schInterval = 60; _schCron = ""; _schActive = true; }
         }
         else { _runs = Array.Empty<ScrapeFlowRunDto>(); _schedule = null; }
+    }
+
+    // ---- Portabilidad de pasos (export/import JSON). Mueve SOLO los pasos; las variables se portan a mano. ----
+
+    private async Task ExportStepsAsync()
+    {
+        if (_selected is null) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FlowSvc.ExportStepsAsync(_selected.Id);
+            if (res is null) { Flash("No se encontro el flujo.", true); return; }
+            var text = System.Text.Encoding.UTF8.GetString(res.Bytes);
+            await JS.InvokeVoidAsync("ecorexMenuConfig.downloadText", res.FileName, text, "application/json;charset=utf-8");
+            Flash($"Exportados {_selected.Steps.Count} paso(s).");
+        }
+        catch (Exception ex) { Flash("No se pudo exportar: " + ex.Message, true); }
+        finally { _busy = false; }
+    }
+
+    // El operador elige el archivo: se lee y queda en espera de confirmacion (la importacion REEMPLAZA los pasos).
+    private async Task OnImportStepsSelected(InputFileChangeEventArgs e)
+    {
+        _importWarnings = Array.Empty<string>();
+        var file = e.File;
+        if (file is null) { return; }
+        if (file.Size > 8 * 1024 * 1024) { Flash("El archivo es demasiado grande (max 8 MB).", true); return; }
+        try
+        {
+            using var stream = file.OpenReadStream(8 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            _importJson = await reader.ReadToEndAsync();
+            _importFileName = file.Name;
+        }
+        catch (Exception ex) { _importJson = null; _importFileName = null; Flash("No se pudo leer el archivo: " + ex.Message, true); }
+    }
+
+    private void CancelImportSteps() { _importJson = null; _importFileName = null; }
+
+    private async Task ConfirmImportStepsAsync()
+    {
+        if (_selected is null || _importJson is null) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FlowSvc.ImportStepsAsync(_selected.Id, _importJson, _actor);
+            if (!res.Ok) { Flash(res.Error ?? "No se pudo importar.", true); return; }
+            _importWarnings = res.Warnings;
+            var msg = $"Importados {res.Imported} paso(s); se reemplazaron {res.Replaced}.";
+            if (res.Warnings.Count > 0) { msg += $" {res.Warnings.Count} aviso(s) de referencias no resueltas (ver abajo)."; }
+            Flash(msg, res.Warnings.Count > 0);
+            _importJson = null; _importFileName = null;
+            _stepCursor = 0; _stepResult = null;
+            await SelectFlowAsync(_selected.Id); // recarga los pasos ya importados
+        }
+        catch (Exception ex) { Flash("No se pudo importar: " + ex.Message, true); }
+        finally { _busy = false; }
     }
 
     private async Task SaveScheduleAsync()

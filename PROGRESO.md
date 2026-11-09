@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - Extraccion de datos: exportar/importar PASOS de un flujo DRON como JSON portable (entrega de rama, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Worktree `ECOREX.dian` (rama `feat/agente-tls-instalador-adr0152`). Verificado en local 5263 contra docker 5442 (tenant SOLDARCO); NUNCA prod. `dotnet build Ecorex.sln` verde. Sin migracion EF (reusa la entidad ScrapeStep y sus columnas). Archivos solo-ASCII. Entrega limpia para integracion CENTRAL: no se toca el tronco ni main y NO se aplica el patron ADR-0157 (eso lo hace la integracion central).
+- PETICION: poder mover los PASOS de un flujo de scraping entre entornos (p.ej. local -> produccion) sin recrearlos a mano. Cierra el cabo de [[dron-sync-flujo-local-a-prod]] por la parte de los pasos.
+- HECHO: en la pestana de Extraccion de datos, botones "Exportar pasos" (descarga un JSON portable con los pasos ordenados, SIN variables ni ids, via JS downloadText) e "Importar pasos" (InputFile .json, max 8 MB). La importacion REEMPLAZA todos los pasos del flujo destino, con confirmacion previa. Las referencias por Guid a otro entorno (contenedor destino, proveedor IA, regla) se VALIDAN contra el tenant destino (filtro global) y, si no resuelven, quedan en null y se listan como avisos para re-enlazar en la UI. Las variables NO viajan (se portan a mano; muchas son secretas).
+- MOTOR: `ScrapeFlowContracts.cs` suma records portables (ScrapeStepPortable, ScrapeStepsPackage, ScrapeStepsExportDto, ScrapeStepsImportResultDto) + 2 metodos en IScrapeFlowService. `ScrapeFlowService.ExportStepsAsync/ImportStepsAsync`: lecturas AsNoTracking; el import hace RemoveRange + Add en un unico SaveChangesAsync (una sola transaccion; EF ordena DELETE antes que INSERT); JSON con enums como texto e indentado (legible/editable); SchemaVersion=1 (rechaza paquetes de version mas nueva). Todo corre por el dispatcher de Blazor (handlers de eventos de la pagina admin): no hay Timer/hub/Task.Run ni lecturas calientes de tablero.
+- SIGUIENTE: hand-off de la rama para integracion central (reporte en formato acordado). Version, ADR y el patron ADR-0157 los aplica la integracion central. Deploy a prod: a la senal del usuario, con OK explicito por version. Bloqueos: ninguno.
+
 ## 2026-11-05 - Agente colmena: instalador 1.9.5 robusto (sin trampa de rollback + autoverificacion) + herramienta de purga total (ADR-0152, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Worktree `ECOREX.dian`. Solucion aparte `apps/agent/Ecorex.Agent.slnx` (no pasa por el build del backend). `build-installer.ps1 -Version 1.9.5` verde (0 errores WiX; solo advertencias NuGet preexistentes). Archivos nuevos solo-ASCII. SIN commit, SIN deploy/reinstalar en prod (a la espera del OK por version). ADR-0152.

@@ -52,6 +52,63 @@ public sealed record ScrapeStepDto(
 /// <summary>Una regla del tenant, para el selector del paso ENSAMBLADO (Ola 4).</summary>
 public sealed record ScrapeRuleOptionDto(Guid Id, string Label);
 
+// ==== Portabilidad de PASOS (export/import JSON). Mueve SOLO los pasos de un flujo entre entornos
+// (p.ej. local -> produccion). Las variables NO viajan: se portan a mano. Al importar se REEMPLAZAN
+// todos los pasos del flujo destino. Las referencias por Guid a entidades de otro entorno (contenedor
+// destino, proveedor IA, regla) se incluyen pero se VALIDAN contra el tenant destino al importar: si no
+// resuelven, el campo queda en null y se avisa para re-enlazar en la UI. ====
+
+/// <summary>Un paso en formato PORTABLE. Excluye Id/FlowId/TenantId y auditoria: al importar nacen
+/// pasos nuevos en el flujo destino.</summary>
+public sealed record ScrapeStepPortable(
+    int Order,
+    ScrapeStepKind Kind,
+    string Name,
+    int? WaitMs,
+    string? Url,
+    string? Script,
+    string? Selector,
+    string? MappingJson,
+    string? Instruction,
+    Guid? TargetContainerId,
+    string? ToolAllowListJson,
+    int? MaxSteps,
+    int? MaxSeconds,
+    Guid? AiProviderId,
+    string? AiModel,
+    string? WarningLabel,
+    ScrapeWarningAction WarningAction,
+    string? OutputVar,
+    string? LoopOverVar,
+    bool IsLoopEnd,
+    string? IngestPath,
+    string? IngestKeyColumn,
+    string? PageCountVar,
+    bool IsPageNext,
+    Guid? RuleId,
+    string? RuleInputVar);
+
+/// <summary>El paquete exportable con los PASOS de un flujo (version de esquema + nombre origen +
+/// sello + pasos ordenados). Sin variables, sin ids.</summary>
+public sealed record ScrapeStepsPackage(
+    int SchemaVersion,
+    string FlowName,
+    DateTimeOffset ExportedAt,
+    IReadOnlyList<ScrapeStepPortable> Steps);
+
+/// <summary>Resultado de exportar: nombre de archivo sugerido + bytes UTF-8 del JSON.</summary>
+public sealed record ScrapeStepsExportDto(string FileName, byte[] Bytes);
+
+/// <summary>Resultado de importar pasos (reemplazo total). <paramref name="Replaced"/> = pasos que
+/// habia antes; <paramref name="Imported"/> = pasos nuevos. <paramref name="Warnings"/> lista las
+/// referencias por Guid que no existian en el tenant destino (quedaron en null).</summary>
+public sealed record ScrapeStepsImportResultDto(
+    bool Ok,
+    int Imported,
+    int Replaced,
+    IReadOnlyList<string> Warnings,
+    string? Error);
+
 /// <summary>Una variable. <paramref name="Value"/> trae el valor EN CLARO solo de las NO secretas
 /// (se guardan en texto plano); en las secretas va null y se consulta aparte con
 /// <see cref="IScrapeFlowService.RevealVariableSecretAsync"/>. El modulo es administrativo (policy
@@ -198,6 +255,14 @@ public interface IScrapeFlowService
 
     Task<ScrapeStepDto?> SaveStepAsync(SaveScrapeStepRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteStepAsync(Guid stepId, Guid actorUserId, CancellationToken ct = default);
+
+    /// <summary>Exporta SOLO los pasos de un flujo a un paquete JSON portable (sin variables, sin ids).
+    /// Null si el flujo no existe en el tenant.</summary>
+    Task<ScrapeStepsExportDto?> ExportStepsAsync(Guid flowId, CancellationToken ct = default);
+    /// <summary>Importa pasos desde un paquete JSON, REEMPLAZANDO todos los pasos del flujo destino en
+    /// una sola transaccion. Las referencias por Guid que no existan en el tenant destino se dejan en
+    /// null y se reportan en Warnings. No toca variables. Si el JSON es invalido, Ok=false con Error.</summary>
+    Task<ScrapeStepsImportResultDto> ImportStepsAsync(Guid flowId, string json, Guid actorUserId, CancellationToken ct = default);
     /// <summary>Reordena los pasos de un flujo segun el orden de la lista de ids.</summary>
     Task<bool> ReorderStepsAsync(Guid flowId, IReadOnlyList<Guid> orderedStepIds, Guid actorUserId, CancellationToken ct = default);
 

@@ -456,13 +456,14 @@ public abstract class ActivityBoardTestsBase
 
     // ---- Helpers ----
 
-    private static TaskBoardService BuildColumnService(EcorexDbContext ctx, ITenantContext tenantContext)
-        => new(ctx, tenantContext, new AuditWriter(ctx));
+    private TaskBoardService BuildColumnService(EcorexDbContext ctx, ITenantContext tenantContext)
+        => new(ctx, tenantContext, new AuditWriter(ctx), _fixture.CreateFactory(tenantContext.TenantId));
 
-    private static ActivityBoardService BuildBoardService(EcorexDbContext ctx, ITenantContext tenantContext)
+    private ActivityBoardService BuildBoardService(EcorexDbContext ctx, ITenantContext tenantContext)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
             BuildTaskService(ctx, tenantContext), new AuditWriter(ctx),
-            new Ecorex.Application.Organization.NodeAssigneeResolver(ctx));
+            new Ecorex.Application.Organization.NodeAssigneeResolver(ctx),
+            _fixture.CreateFactory(tenantContext.TenantId));
 
     /// <summary>Servicio de tareas con motor de flujos real y broadcaster no-op (sin SignalR).</summary>
     private static TaskItemService BuildTaskService(EcorexDbContext ctx, ITenantContext tenantContext)

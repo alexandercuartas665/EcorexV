@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-08 - Ola 1 (segunda tajada) del plan de concurrencia (ADR-0157): lecturas de servicios al factory (release v0.16.284, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Segunda tajada de la Ola 1: migrar las LECTURAS puras de los servicios calientes al `IApplicationDbContextFactory` (ADR-0138), patron `await using var db = _dbFactory.Create();` materializando dentro del `using`; las ESCRITURAS siguen en el `_db` del circuito (su unidad de trabajo). Se hicieron 4 de 6 servicios:
+- `DashboardService` (100% lectura): inyecta SOLO el factory; `GetAsync`+`GetReportsAsync`. La subconsulta correlacionada (`db.Leads` dentro de la proyeccion de `db.PipelineStages`) usa el MISMO contexto corto.
+- `TaskBoardService`: `ListBoardsAsync`/`ListColumnsAsync`/`ListBoardTagsAsync` (3 lecturas); el CRUD queda en `_db`.
+- `ConciliacionRuleService`: `ListAsync`/`ListContenedoresAsync`. El motor `AplicarReglasAsync` es UoW trackeada (lee+muta+SaveChanges) -> se queda en `_db` (Ola 2).
+- `ActivityBoardService` (pantalla con broadcaster): `ListBoardsAsync`/`GetBoardDetailAsync`/`ResolveScannedTaskOnBoardAsync`. Se enhebro el contexto corto por los helpers de SOLO LECTURA (`ApplyScope`/`GetRoutedTaskIdsAsync`/`LoadMemberInfosAsync`, ahora reciben `IApplicationDbContext db`); el root del IQueryable y sus subconsultas correlacionadas comparten ese contexto.
+- DEFERIDO a su propia PR (tajada 3): `TaskItemService` (1912 L) y `FormResponseService` (2194 L). Sus lecturas calientes (`ListAsync`/`GetDetailAsync`) construyen DTOs via helpers COMPARTIDOS con las escrituras (`ToSummaryAsync`/`ToSummariesAsync`/`LoadAssigneesAsync`/`TotalSecondsAsync`): migrarlas exige enhebrar el contexto por esos helpers y tocar cada call-site de escritura del archivo -> cambio ancho, debe ir con la matriz dual del CI (riesgo: escritura leyendo del contexto equivocado). Se mitiga porque su vector de push ya quedo acotado a nivel de componente (reload via CreateAsyncScope).
+- TESTS: se ajustaron 3 construcciones manuales en Integration.Tests (ActivityBoardTests x2, TaskFieldTests x1) por el nuevo parametro del ctor; se agrego `TenantIsolationDbFixture.CreateFactory(tenantId)` (factory de contexto efimero para pruebas, espejo del de prod) y los builders pasaron a instancia.
+- VERIFICADO: `dotnet build Ecorex.sln` verde (Compilacion correcta); integracion DUAL (PG + SQL Server por Testcontainers) de ActivityBoard + TaskField 24/24 y Dashboard 1/1 en local. AppVersion 0.16.284. ADR-0157 (Estado de ejecucion + Action Item 3 partido en tajada1[x]/tajada2[ ]). Memoria [[dbcontext-efimero-lectura-factory]].
+- SIGUIENTE: doble push tronco + espejo main; el CI (ADR-0018) corre la matriz dual en el PR. Deploy v0.16.284 lo autoriza el usuario por version. Tajada 3 (TaskItem/FormResponse) y luego Ola 2 (escrituras, tras decidir el modelo de UoW). Recordar el prerrequisito de observabilidad en prod para poder MEDIR la metrica (0 "second operation" en 24h).
+
 ## 2026-11-08 - Ola 1 (primera tajada) del plan de concurrencia (ADR-0157): gate a los componentes de chat (release v0.16.283, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Primera tajada de la Ola 1 del ADR-0157 = cerrar los vectores de solape que la Ola 0 habia detectado en los componentes de chat (push `BoardChanged` que recarga BD sobre el `_db` scoped del circuito, sin gate). De los tres marcados, solo DOS tenian el vector:

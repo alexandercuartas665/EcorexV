@@ -43,18 +43,23 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
 {
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
+    // ADR-0157 Ola 1: las LECTURAS puras (ListAsync, ListContenedoresAsync) usan contexto EFIMERO propio
+    // (ADR-0138) para no solapar con otra consulta en vuelo sobre el _db scoped del circuito. El motor
+    // AplicarReglasAsync es una unidad de trabajo trackeada (lee + muta + SaveChanges) y sigue en _db.
+    private readonly IApplicationDbContextFactory _dbFactory;
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
-    public ConciliacionRuleService(IApplicationDbContext db, ITenantContext tenant)
+    public ConciliacionRuleService(IApplicationDbContext db, ITenantContext tenant, IApplicationDbContextFactory dbFactory)
     {
-        _db = db; _tenant = tenant;
+        _db = db; _tenant = tenant; _dbFactory = dbFactory;
     }
 
     // ---------- CRUD (lo usa el seeder y la UI de Fase 2) ----------
 
     public async Task<IReadOnlyList<ConciliacionRuleDto>> ListAsync(CancellationToken ct = default)
     {
-        var rows = await _db.ConciliacionRules.AsNoTracking().OrderBy(r => r.SortOrder).ThenBy(r => r.Name).ToListAsync(ct);
+        await using var db = _dbFactory.Create();
+        var rows = await db.ConciliacionRules.AsNoTracking().OrderBy(r => r.SortOrder).ThenBy(r => r.Name).ToListAsync(ct);
         return rows.Select(r => new ConciliacionRuleDto(r.Id, r.SortOrder, r.Name, r.Kind, r.Enabled, r.DefinitionJson)).ToList();
     }
 
@@ -111,18 +116,19 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
         };
 
         // Contenedores (tablas) del tenant con su modelo y columnas. Tenant-scoped por el filtro global.
-        var conts = await _db.DataContainers.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        var conts = await db.DataContainers.AsNoTracking()
             .Select(c => new { c.Id, c.Name, c.ModelId })
             .ToListAsync(ct);
         if (conts.Count == 0) { return builtIn; }
 
         var modelIds = conts.Where(c => c.ModelId != null).Select(c => c.ModelId!.Value).Distinct().ToList();
-        var models = await _db.DataModels.AsNoTracking()
+        var models = await db.DataModels.AsNoTracking()
             .Where(m => modelIds.Contains(m.Id)).Select(m => new { m.Id, m.Name }).ToListAsync(ct);
         var modelName = models.ToDictionary(m => m.Id, m => m.Name);
 
         var contIds = conts.Select(c => c.Id).ToList();
-        var cols = await _db.DataContainerColumns.AsNoTracking()
+        var cols = await db.DataContainerColumns.AsNoTracking()
             .Where(col => contIds.Contains(col.ContainerId))
             .OrderBy(col => col.SortOrder)
             .Select(col => new { col.ContainerId, col.Name }).ToListAsync(ct);

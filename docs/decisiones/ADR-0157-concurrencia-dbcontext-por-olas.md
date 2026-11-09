@@ -206,9 +206,37 @@ componentes marcados, solo DOS tenian un push que lee BD sin gate:
 Trampas revisadas en esta tajada: las lecturas se materializan dentro del `using` (`.ToList()` /
 diccionario materializado); el query filter por tenant se preserva via `AmbientTenantContext.Begin`
 antes de crear el scope; no se parte ninguna operacion logica (son lecturas puras). Build verde.
-**Pendiente de Ola 1**: migrar las LECTURAS de los servicios calientes al factory (`TaskItemService`
-resto, `TaskBoardService`, `ActivityBoardService`, `DashboardService`, `FormResponseService`,
-`ConciliacionRuleService`).
+
+**Ola 1 - segunda tajada: lecturas de servicios al factory (ejecutada, 2026-11-08, v0.16.284).** Se
+migraron las LECTURAS puras de 4 de los 6 servicios al `IApplicationDbContextFactory` (ADR-0138),
+patron `await using var db = _dbFactory.Create();` con materializacion dentro del `using`; las
+ESCRITURAS siguen en el `_db` del circuito (su unidad de trabajo):
+
+- `DashboardService`: 100% lectura -> inyecta SOLO el factory; `GetAsync` + `GetReportsAsync`. La
+  subconsulta correlacionada (`db.Leads` dentro de la proyeccion de `db.PipelineStages`) usa el MISMO
+  contexto corto.
+- `TaskBoardService`: `ListBoardsAsync`, `ListColumnsAsync`, `ListBoardTagsAsync` (las 3 lecturas). El
+  resto (CRUD de tableros/columnas/etiquetas) es UoW y queda en `_db`.
+- `ConciliacionRuleService`: `ListAsync`, `ListContenedoresAsync`. El motor `AplicarReglasAsync` es una
+  UoW TRACKEADA (lee + muta renglones/EAV + SaveChanges) y queda en `_db` (sus helpers de indice,
+  tambien). Es trabajo de Ola 2.
+- `ActivityBoardService` (pantalla con broadcaster): `ListBoardsAsync`, `GetBoardDetailAsync`,
+  `ResolveScannedTaskOnBoardAsync`. Se enhebro el contexto corto por los helpers de SOLO LECTURA
+  (`ApplyScope`, `GetRoutedTaskIdsAsync`, `LoadMemberInfosAsync`), que ahora reciben `IApplicationDbContext db`;
+  el root del `IQueryable` y sus subconsultas correlacionadas comparten ese contexto. CRUD/MoveTask/
+  Add-Remove/QuickCreate quedan en `_db`.
+
+Verificado: build de solucion verde; integracion dual (PG + SQL Server por Testcontainers) de
+ActivityBoard + TaskField 24/24 y Dashboard 1/1 en local.
+
+**Pendiente de Ola 1 (su propia tajada)**: `TaskItemService` (1912 L) y `FormResponseService` (2194 L).
+Sus lecturas calientes (`ListAsync`, `GetDetailAsync`, ...) construyen DTOs a traves de helpers
+COMPARTIDOS (`ToSummaryAsync`/`ToSummariesAsync`/`LoadAssigneesAsync`/`TotalSecondsAsync`) que TAMBIEN
+invocan los metodos de ESCRITURA tras su `SaveChanges`. Migrarlas con seguridad exige enhebrar el
+contexto por esos helpers y actualizar cada call-site de escritura en todo el archivo -> cambio ancho
+que debe ir en su PR, con la matriz dual del CI (riesgo: una escritura leyendo el detalle del contexto
+equivocado). Se mitiga porque su vector de solape por push ya quedo acotado a nivel de componente
+(TaskKanban/ActivityBoardDetail recargan via `CreateAsyncScope` -> servicio fresco).
 
 ## Action Items
 
@@ -218,8 +246,10 @@ resto, `TaskBoardService`, `ActivityBoardService`, `DashboardService`, `FormResp
    - [x] Componentes de chat (v0.16.283): `Conversaciones` (`ReloadConversationsAsync`) y `Pipeline`
      (`ReloadPendingFromPushAsync`) gateados con lock + scope propio + ambient tenant; `ClientChat`
      verificado sin vector (su push es solo `MessageAdded` en memoria). Build verde. SIN deploy.
-   - [ ] Servicios: `TaskItemService` (resto), `TaskBoardService`, `ActivityBoardService`,
-     `DashboardService`, `FormResponseService`, `ConciliacionRuleService` (lecturas al factory).
+   - [x] Servicios, tajada 1 (v0.16.284): lecturas al factory en `DashboardService`, `TaskBoardService`,
+     `ConciliacionRuleService` (las dos lecturas puras) y `ActivityBoardService`. Integracion dual OK.
+   - [ ] Servicios, tajada 2 (su propia PR): `TaskItemService` (resto) y `FormResponseService` -> exigen
+     enhebrar el contexto por helpers compartidos entre lectura y escritura (ver Estado de ejecucion).
 4. [ ] Decidir el modelo de unidad de trabajo para escrituras (factory-UoW vs transaccion corta por servicio).
 5. [ ] Ola 2: migrar escrituras preservando atomicidad y auditoria en el mismo contexto.
 6. [ ] Reflejar este ADR en el vault (`04. Notas para desarrollador/ADRs`).

@@ -143,10 +143,11 @@ public abstract class TaskFieldTestsBase
 
     // ---- Helpers (mismos patrones que ActivityBoardTests) ----
 
-    private static ActivityBoardService BuildBoardService(EcorexDbContext ctx, ITenantContext tenantContext)
+    private ActivityBoardService BuildBoardService(EcorexDbContext ctx, ITenantContext tenantContext)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
             BuildTaskService(ctx, tenantContext), new AuditWriter(ctx),
-            new Ecorex.Application.Organization.NodeAssigneeResolver(ctx));
+            new Ecorex.Application.Organization.NodeAssigneeResolver(ctx),
+            _fixture.CreateFactory(tenantContext.TenantId));
 
     private static TaskItemService BuildTaskService(EcorexDbContext ctx, ITenantContext tenantContext)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),

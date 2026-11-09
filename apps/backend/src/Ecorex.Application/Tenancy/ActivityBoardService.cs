@@ -28,6 +28,10 @@ public sealed class ActivityBoardService : IActivityBoardService
     private readonly ITaskItemService _taskItems;
     private readonly IAuditWriter _audit;
     private readonly INodeAssigneeResolver _nodeAssignees;
+    // ADR-0157 Ola 1: las LECTURAS del indice/detalle (pantalla con broadcaster SignalR) usan un contexto
+    // EFIMERO propio (ADR-0138) para no solapar con otra consulta en vuelo sobre el _db scoped del circuito.
+    // Las ESCRITURAS (CRUD, MoveTask, Add/Remove, QuickCreate) siguen en _db (su unidad de trabajo).
+    private readonly IApplicationDbContextFactory _dbFactory;
 
     public ActivityBoardService(
         IApplicationDbContext db,
@@ -35,9 +39,11 @@ public sealed class ActivityBoardService : IActivityBoardService
         ISequenceService sequences,
         ITaskItemService taskItems,
         IAuditWriter audit,
-        INodeAssigneeResolver nodeAssignees)
+        INodeAssigneeResolver nodeAssignees,
+        IApplicationDbContextFactory dbFactory)
     {
         _db = db;
+        _dbFactory = dbFactory;
         _tenantContext = tenantContext;
         _sequences = sequences;
         _taskItems = taskItems;
@@ -49,7 +55,8 @@ public sealed class ActivityBoardService : IActivityBoardService
 
     public async Task<ActivityBoardIndexDto> ListBoardsAsync(ActivityBoardIndexFilter filter, CancellationToken cancellationToken = default)
     {
-        var query = _db.TaskBoards.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        var query = db.TaskBoards.AsNoTracking()
             .Where(b => b.Kind == TaskBoardKind.Activities);
         if (!filter.IncludeArchived)
         {
@@ -59,18 +66,18 @@ public sealed class ActivityBoardService : IActivityBoardService
         // miran las TAREAS del tablero; el rango de fechas mira el vencimiento DEL TABLERO.
         if (filter.MemberTenantUserId is Guid member)
         {
-            query = query.Where(b => _db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
+            query = query.Where(b => db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
                 && (t.AssigneeTenantUserId == member
-                    || _db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && a.TenantUserId == member))));
+                    || db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && a.TenantUserId == member))));
         }
         if (filter.TagId is Guid tagId)
         {
-            query = query.Where(b => _db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
-                && _db.TaskItemTagAssignments.Any(a => a.TaskItemId == t.Id && a.TagId == tagId)));
+            query = query.Where(b => db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
+                && db.TaskItemTagAssignments.Any(a => a.TaskItemId == t.Id && a.TagId == tagId)));
         }
         if (filter.ActivityTypeId is Guid activityTypeId)
         {
-            query = query.Where(b => _db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
+            query = query.Where(b => db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
                 && t.ActivityTypeId == activityTypeId));
         }
         if (!string.IsNullOrWhiteSpace(filter.CategoryName))
@@ -78,8 +85,8 @@ public sealed class ActivityBoardService : IActivityBoardService
             // Categoria = agrupador de tipos de actividad. Un tablero pasa si tiene una tarea cuyo
             // tipo esta en esa categoria (join a ActivityTypes por el ActivityTypeId de la tarea).
             var categoria = filter.CategoryName;
-            query = query.Where(b => _db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
-                && _db.ActivityTypes.Any(at => at.Id == t.ActivityTypeId && at.Category == categoria)));
+            query = query.Where(b => db.TaskItems.Any(t => t.BoardId == b.Id && !t.IsArchived
+                && db.ActivityTypes.Any(at => at.Id == t.ActivityTypeId && at.Category == categoria)));
         }
         if (filter.DueFrom is DateTimeOffset dueFrom)
         {
@@ -117,7 +124,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         }
 
         var boardIds = boards.Select(b => b.Id).ToList();
-        var columns = await _db.TaskBoardColumns.AsNoTracking()
+        var columns = await db.TaskBoardColumns.AsNoTracking()
             .Where(c => boardIds.Contains(c.BoardId))
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
             .Select(c => new { c.Id, c.BoardId, c.Name, c.IsDone })
@@ -126,7 +133,7 @@ public sealed class ActivityBoardService : IActivityBoardService
 
         var now = DateTimeOffset.UtcNow;
         // Una fila por tarea del indice: suficiente para progreso, KPIs y avatares.
-        var tasks = await _db.TaskItems.AsNoTracking()
+        var tasks = await db.TaskItems.AsNoTracking()
             .Where(t => t.BoardId != null && boardIds.Contains(t.BoardId.Value) && !t.IsArchived)
             .Select(t => new { BoardId = t.BoardId!.Value, t.Id, t.ColumnId, t.AssigneeTenantUserId, t.DueDate })
             .ToListAsync(cancellationToken);
@@ -135,7 +142,7 @@ public sealed class ActivityBoardService : IActivityBoardService
 
         var checklist = taskIds.Count == 0
             ? []
-            : await _db.TaskItemChecklistItems.AsNoTracking()
+            : await db.TaskItemChecklistItems.AsNoTracking()
                 .Where(i => taskIds.Contains(i.TaskItemId))
                 .Select(i => new { i.TaskItemId, i.IsCompleted })
                 .ToListAsync(cancellationToken);
@@ -145,7 +152,7 @@ public sealed class ActivityBoardService : IActivityBoardService
 
         var assignmentRows = taskIds.Count == 0
             ? []
-            : await _db.TaskItemAssignments.AsNoTracking()
+            : await db.TaskItemAssignments.AsNoTracking()
                 .Where(a => taskIds.Contains(a.TaskItemId))
                 .Select(a => new { a.TaskItemId, a.TenantUserId })
                 .ToListAsync(cancellationToken);
@@ -163,7 +170,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             membersByBoard.TryAdd(boardId, new HashSet<Guid>());
             membersByBoard[boardId].Add(a.TenantUserId);
         }
-        var memberInfos = await LoadMemberInfosAsync(
+        var memberInfos = await LoadMemberInfosAsync(db,
             membersByBoard.Values.SelectMany(s => s).Distinct().ToList(), cancellationToken);
 
         var summaries = new List<ActivityBoardSummaryDto>(boards.Count);
@@ -425,7 +432,8 @@ public sealed class ActivityBoardService : IActivityBoardService
 
     public async Task<TaskCoreResult<ActivityBoardDetailDto>> GetBoardDetailAsync(Guid boardId, ActivityBoardDetailFilter filter, CancellationToken cancellationToken = default)
     {
-        var board = await _db.TaskBoards.AsNoTracking()
+        await using var db = _dbFactory.Create();
+        var board = await db.TaskBoards.AsNoTracking()
             .FirstOrDefaultAsync(b => b.Id == boardId && b.Kind == TaskBoardKind.Activities, cancellationToken);
         if (board is null)
         {
@@ -456,14 +464,14 @@ public sealed class ActivityBoardService : IActivityBoardService
             return TaskCoreResult<ActivityBoardDetailDto>.Invalid("El alcance 'mias' requiere el usuario actual.");
         }
 
-        var columns = await _db.TaskBoardColumns.AsNoTracking()
+        var columns = await db.TaskBoardColumns.AsNoTracking()
             .Where(c => c.BoardId == boardId)
             .OrderBy(c => c.SortOrder).ThenBy(c => c.Name)
             .ToListAsync(cancellationToken);
 
         // Query base filtrada (sin alcance): sobre ella se calculan los contadores por alcance.
         // OnlyArchived alterna entre la vista normal (activas) y la "papelera" del tablero (archivadas).
-        var query = _db.TaskItems.AsNoTracking()
+        var query = db.TaskItems.AsNoTracking()
             .Where(t => t.BoardId == boardId && (filter.OnlyArchived ? t.IsArchived : !t.IsArchived));
         if (filter.ColumnIds is { Count: > 0 })
         {
@@ -476,7 +484,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             var assigneeIds = filter.AssigneeTenantUserIds.ToList();
             query = query.Where(t =>
                 (t.AssigneeTenantUserId != null && assigneeIds.Contains(t.AssigneeTenantUserId.Value))
-                || _db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && assigneeIds.Contains(a.TenantUserId)));
+                || db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && assigneeIds.Contains(a.TenantUserId)));
         }
         if (ActivityBoardCalculations.DueRangeUtc(filter.Due, filter.DueOn, DateTimeOffset.UtcNow)
             is (DateTimeOffset from, DateTimeOffset to))
@@ -486,7 +494,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         if (filter.TagIds is { Count: > 0 })
         {
             var tagIds = filter.TagIds.ToList();
-            query = query.Where(t => _db.TaskItemTagAssignments.Any(a => a.TaskItemId == t.Id && tagIds.Contains(a.TagId)));
+            query = query.Where(t => db.TaskItemTagAssignments.Any(a => a.TaskItemId == t.Id && tagIds.Contains(a.TagId)));
         }
         if (!string.IsNullOrWhiteSpace(filter.Text))
         {
@@ -507,24 +515,24 @@ public sealed class ActivityBoardService : IActivityBoardService
         // ADR-0038: el alcance Mine incluye ademas las tareas con paso de flujo ruteado al usuario;
         // el set se precomputa (la candidatura por cargo no es SQL) y se reusa en conteo y listado.
         var routedTaskIds = filter.CurrentTenantUserId is Guid meRouted
-            ? await GetRoutedTaskIdsAsync(meRouted, cancellationToken)
+            ? await GetRoutedTaskIdsAsync(db, meRouted, cancellationToken)
             : Array.Empty<Guid>();
         var noRoute = Array.Empty<Guid>();
 
         // Con bloqueo duro NO se calculan (ni se revelan) los contadores de "equipo"/"terminados": el usuario
         // solo ve sus tareas + las no asignadas.
         var teamCount = canSeeAllTasks
-            ? await ApplyScope(query, ActivityBoardScope.Team, null, noRoute).CountAsync(cancellationToken)
+            ? await ApplyScope(db, query, ActivityBoardScope.Team, null, noRoute).CountAsync(cancellationToken)
             : 0;
         var mineCount = filter.CurrentTenantUserId is Guid me
-            ? await ApplyScope(query, ActivityBoardScope.Mine, me, routedTaskIds).CountAsync(cancellationToken)
+            ? await ApplyScope(db, query, ActivityBoardScope.Mine, me, routedTaskIds).CountAsync(cancellationToken)
             : 0;
-        var unassignedCount = await ApplyScope(query, ActivityBoardScope.Unassigned, null, noRoute).CountAsync(cancellationToken);
+        var unassignedCount = await ApplyScope(db, query, ActivityBoardScope.Unassigned, null, noRoute).CountAsync(cancellationToken);
         var doneCount = canSeeAllTasks
-            ? await ApplyScope(query, ActivityBoardScope.Done, null, noRoute).CountAsync(cancellationToken)
+            ? await ApplyScope(db, query, ActivityBoardScope.Done, null, noRoute).CountAsync(cancellationToken)
             : 0;
 
-        var tasks = await ApplyScope(query, effectiveScope, filter.CurrentTenantUserId, routedTaskIds)
+        var tasks = await ApplyScope(db, query, effectiveScope, filter.CurrentTenantUserId, routedTaskIds)
             .OrderBy(t => t.BoardSortOrder).ThenBy(t => t.CreatedAt)
             .ToListAsync(cancellationToken);
         var taskIds = tasks.Select(t => t.Id).ToList();
@@ -532,7 +540,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         // Cargas por lote de todo lo que pinta la tarjeta.
         var checklistStats = taskIds.Count == 0
             ? new Dictionary<Guid, (int Done, int Total)>()
-            : (await _db.TaskItemChecklistItems.AsNoTracking()
+            : (await db.TaskItemChecklistItems.AsNoTracking()
                 .Where(i => taskIds.Contains(i.TaskItemId))
                 .GroupBy(i => i.TaskItemId)
                 .Select(g => new { g.Key, Done = g.Count(i => i.IsCompleted), Total = g.Count() })
@@ -542,7 +550,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         // padre agrega estas al checklist (el % de la barra las cuenta).
         var subtaskStats = taskIds.Count == 0
             ? new Dictionary<Guid, (int Done, int Total)>()
-            : (await _db.TaskItems.AsNoTracking()
+            : (await db.TaskItems.AsNoTracking()
                 .Where(t => t.ParentId != null && taskIds.Contains(t.ParentId!.Value) && !t.IsArchived)
                 .GroupBy(t => t.ParentId!.Value)
                 .Select(g => new { g.Key, Done = g.Count(t => t.Status == TaskItemStatus.Done || t.Status == TaskItemStatus.Closed), Total = g.Count() })
@@ -552,35 +560,35 @@ public sealed class ActivityBoardService : IActivityBoardService
         var parentIds = tasks.Where(t => t.ParentId.HasValue).Select(t => t.ParentId!.Value).Distinct().ToList();
         var parentNumbers = parentIds.Count == 0
             ? new Dictionary<Guid, string>()
-            : await _db.TaskItems.AsNoTracking()
+            : await db.TaskItems.AsNoTracking()
                 .Where(p => parentIds.Contains(p.Id))
                 .ToDictionaryAsync(p => p.Id, p => p.Number, cancellationToken);
         var attachmentCounts = taskIds.Count == 0
             ? new Dictionary<Guid, int>()
-            : await _db.TaskItemAttachments.AsNoTracking()
+            : await db.TaskItemAttachments.AsNoTracking()
                 .Where(a => taskIds.Contains(a.TaskItemId))
                 .GroupBy(a => a.TaskItemId)
                 .Select(g => new { g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.Key, x => x.Count, cancellationToken);
         var commentCounts = taskIds.Count == 0
             ? new Dictionary<Guid, int>()
-            : await _db.TaskItemActivities.AsNoTracking()
+            : await db.TaskItemActivities.AsNoTracking()
                 .Where(a => taskIds.Contains(a.TaskItemId) && a.Type == TaskActivityType.Comment)
                 .GroupBy(a => a.TaskItemId)
                 .Select(g => new { g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.Key, x => x.Count, cancellationToken);
         var tagsByTask = taskIds.Count == 0
             ? new Dictionary<Guid, List<TaskItemTagDto>>()
-            : (await _db.TaskItemTagAssignments.AsNoTracking()
+            : (await db.TaskItemTagAssignments.AsNoTracking()
                 .Where(a => taskIds.Contains(a.TaskItemId))
-                .Join(_db.TaskItemTags.AsNoTracking(), a => a.TagId, t => t.Id,
+                .Join(db.TaskItemTags.AsNoTracking(), a => a.TagId, t => t.Id,
                     (a, t) => new { a.TaskItemId, Tag = new TaskItemTagDto(t.Id, t.Name, t.Color) })
                 .ToListAsync(cancellationToken))
                 .GroupBy(x => x.TaskItemId)
                 .ToDictionary(g => g.Key, g => g.Select(x => x.Tag).OrderBy(t => t.Name).ToList());
         var assignmentsByTask = taskIds.Count == 0
             ? new Dictionary<Guid, List<Guid>>()
-            : (await _db.TaskItemAssignments.AsNoTracking()
+            : (await db.TaskItemAssignments.AsNoTracking()
                 .Where(a => taskIds.Contains(a.TaskItemId))
                 .Select(a => new { a.TaskItemId, a.TenantUserId })
                 .ToListAsync(cancellationToken))
@@ -591,7 +599,7 @@ public sealed class ActivityBoardService : IActivityBoardService
             .Select(t => t.AssigneeTenantUserId!.Value)
             .Concat(assignmentsByTask.Values.SelectMany(v => v))
             .Distinct().ToList();
-        var memberInfos = await LoadMemberInfosAsync(memberIds, cancellationToken);
+        var memberInfos = await LoadMemberInfosAsync(db, memberIds, cancellationToken);
 
         var columnDtos = columns.Select(column =>
         {
@@ -642,8 +650,9 @@ public sealed class ActivityBoardService : IActivityBoardService
         var num = (scannedNumber ?? string.Empty).Trim().ToUpperInvariant();
         if (num.Length == 0) { return null; }
 
+        await using var db = _dbFactory.Create();
         // La tarea escaneada por su numero (filtro global aplica el tenant activo).
-        var scanned = await _db.TaskItems.AsNoTracking()
+        var scanned = await db.TaskItems.AsNoTracking()
             .Where(t => t.Number == num)
             .Select(t => new { t.Id, t.BoardId })
             .FirstOrDefaultAsync(cancellationToken);
@@ -661,7 +670,7 @@ public sealed class ActivityBoardService : IActivityBoardService
         var visited = new HashSet<Guid> { scanned.Id };
         for (var depth = 0; depth < 6 && frontier.Count > 0; depth++)
         {
-            var children = await _db.TaskItems.AsNoTracking()
+            var children = await db.TaskItems.AsNoTracking()
                 .Where(t => !t.IsArchived
                     && ((t.SourceTaskId != null && frontier.Contains(t.SourceTaskId.Value))
                         || (t.ParentId != null && frontier.Contains(t.ParentId.Value))))
@@ -1001,7 +1010,7 @@ public sealed class ActivityBoardService : IActivityBoardService
     /// precomputa fuera del query porque la candidatura por cargo no es SQL puro); Unassigned = sin
     /// encargado Y sin asignados; Team = todas.
     /// </summary>
-    private IQueryable<TaskItem> ApplyScope(IQueryable<TaskItem> query, ActivityBoardScope scope,
+    private IQueryable<TaskItem> ApplyScope(IApplicationDbContext db, IQueryable<TaskItem> query, ActivityBoardScope scope,
         Guid? currentTenantUserId, IReadOnlyList<Guid> routedTaskIds)
     {
         // #C: en las vistas normales (Todas / Mios / No asignados) NO se muestran las tareas cerradas
@@ -1014,11 +1023,11 @@ public sealed class ActivityBoardService : IActivityBoardService
         {
             ActivityBoardScope.Mine when currentTenantUserId is Guid me
                 => Fresh(query.Where(t => t.AssigneeTenantUserId == me
-                    || _db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && a.TenantUserId == me)
+                    || db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id && a.TenantUserId == me)
                     || routedTaskIds.Contains(t.Id))),
             ActivityBoardScope.Unassigned
                 => Fresh(query.Where(t => t.AssigneeTenantUserId == null
-                    && !_db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id))),
+                    && !db.TaskItemAssignments.Any(a => a.TaskItemId == t.Id))),
             ActivityBoardScope.Done
                 => query.Where(t => t.Status == TaskItemStatus.Done), // Terminados: TODAS, incluidas las viejas
             _ => Fresh(query)
@@ -1031,15 +1040,15 @@ public sealed class ActivityBoardService : IActivityBoardService
     /// es candidato de la policy del nodo. La candidatura por cargo se resuelve en memoria via
     /// INodeAssigneeResolver (traversal del organigrama, no SQL); se cachea por nodo.
     /// </summary>
-    private async Task<IReadOnlyList<Guid>> GetRoutedTaskIdsAsync(Guid me, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<Guid>> GetRoutedTaskIdsAsync(IApplicationDbContext db, Guid me, CancellationToken cancellationToken)
     {
         var rows = await (
-            from step in _db.WorkflowStepHistories.AsNoTracking()
+            from step in db.WorkflowStepHistories.AsNoTracking()
             where step.IsCurrent && step.Status == WorkflowStepStatus.Pending
-            join instance in _db.WorkflowInstances.AsNoTracking()
+            join instance in db.WorkflowInstances.AsNoTracking()
                 on step.InstanceId equals instance.Id
             where instance.Status == WorkflowInstanceStatus.Running && instance.TaskItemId != null
-            join node in _db.WorkflowNodes.AsNoTracking()
+            join node in db.WorkflowNodes.AsNoTracking()
                 on step.NodeId equals node.Id
             select new
             {
@@ -1076,15 +1085,15 @@ public sealed class ActivityBoardService : IActivityBoardService
 
     /// <summary>Carga TenantUser + DisplayName del PlatformUser para los avatares.</summary>
     private async Task<Dictionary<Guid, ActivityBoardMemberDto>> LoadMemberInfosAsync(
-        IReadOnlyList<Guid> tenantUserIds, CancellationToken cancellationToken)
+        IApplicationDbContext db, IReadOnlyList<Guid> tenantUserIds, CancellationToken cancellationToken)
     {
         if (tenantUserIds.Count == 0) { return new Dictionary<Guid, ActivityBoardMemberDto>(); }
-        var users = await _db.TenantUsers.AsNoTracking()
+        var users = await db.TenantUsers.AsNoTracking()
             .Where(u => tenantUserIds.Contains(u.Id))
             .Select(u => new { u.Id, u.Email, u.PlatformUserId })
             .ToListAsync(cancellationToken);
         var platformIds = users.Select(u => u.PlatformUserId).Distinct().ToList();
-        var displayNames = await _db.PlatformUsers.AsNoTracking().IgnoreQueryFilters()
+        var displayNames = await db.PlatformUsers.AsNoTracking().IgnoreQueryFilters()
             .Where(p => platformIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id, p => p.DisplayName ?? p.Email, cancellationToken);
         return users.ToDictionary(u => u.Id, u =>

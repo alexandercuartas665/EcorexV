@@ -1,7 +1,11 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.DataContainers;
+using Ecorex.Application.DataLookups;
+using Ecorex.Application.Directorio;
 using Ecorex.Application.Mcp;
 using Ecorex.Application.Organization;
+using Ecorex.Application.Roles;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -259,6 +263,148 @@ public abstract class McpTablerosTestsBase
         Assert.Equal("Cierre", last.GetProperty("paso_cerrado").GetString());
     }
 
+    /// <summary>
+    /// Gestion de contactos por la IA (addendum ADR-0159): edita solo lo pedido (campos fijos y configurables),
+    /// no deja duplicar NIT ni telefono, liga personas a la empresa sin duplicarlas, deja rastro en la ficha y
+    /// en la auditoria, y la baja es logica y reversible.
+    /// </summary>
+    [Fact]
+    public async Task ContactManagement_EditsWithoutDuplicating_LinksPeople_AndInactivatesReversibly()
+    {
+        var seed = await SeedTenantAsync("Mcp Contactos");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (boards, _, toolset) = Build(ctx, tenantCtx);
+        ctx.TerceroFieldDefinitions.Add(new TerceroFieldDefinition
+        {
+            TenantId = seed.TenantId,
+            FichaKey = "comercial",
+            FieldKey = "segmento",
+            Label = "Segmento",
+            FieldType = TerceroFieldType.Text
+        });
+        foreach (var fichaKey in new[] { "base", "fiscal" })
+        {
+            ctx.TerceroFieldDefinitions.Add(new TerceroFieldDefinition
+            {
+                TenantId = seed.TenantId,
+                FichaKey = fichaKey,
+                FieldKey = "direccion",
+                Label = "Direccion",
+                FieldType = TerceroFieldType.Text
+            });
+        }
+        await ctx.SaveChangesAsync();
+        var me = Actor(seed, owner: true);
+
+        Assert.False((await toolset.ExecuteAsync("crear_contacto", Args(new { nombre = "ACME SAS", tipo = "empresa", identificacion = "900111" }), me)).IsError);
+        Assert.False((await toolset.ExecuteAsync("crear_contacto", Args(new { nombre = "Otra SAS", tipo = "empresa", identificacion = "900222", telefono = "3001112233" }), me)).IsError);
+
+        // Edita solo lo pedido: telefono + campo configurable (por etiqueta).
+        var edit = await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "acme sas", telefono = "300 999 8877", campos = new { Segmento = "Oro" } }), me);
+        Assert.Equal(2, Payload(edit).GetProperty("cambios").GetArrayLength());
+        Assert.NotNull(edit.AuditBefore);
+        Assert.NotNull(edit.AuditAfter);
+        var acme = await ctx.Terceros.AsNoTracking().SingleAsync(t => t.Nombre == "ACME SAS");
+        Assert.Equal("3009998877", acme.Telefono);
+        Assert.Equal("900111", acme.IdValor);
+        Assert.Contains("\"segmento\":\"Oro\"", acme.FichasJson!.Replace(" ", ""));
+
+        // Campo repetido en dos fichas: se pide ficha.clave y con eso se guarda.
+        var ambiguous = await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "900111", campos = new { Direccion = "Calle 1" } }), me);
+        Assert.True(ambiguous.IsError);
+        Assert.Contains("fiscal.direccion", ambiguous.Json);
+        Assert.False((await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "900111", campos = new Dictionary<string, string> { ["fiscal.direccion"] = "Calle 1" } }), me)).IsError);
+        Assert.Contains("\"fiscal\":{\"direccion\":\"Calle1\"}", (await ctx.Terceros.AsNoTracking().SingleAsync(t => t.Id == acme.Id)).FichasJson!.Replace(" ", ""));
+
+        // No duplica: NIT o telefono de otro contacto; sin cambios o con un campo inventado no guarda nada.
+        var dupNit = await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "900111", identificacion = "900222" }), me);
+        Assert.True(dupNit.IsError);
+        Assert.Contains("Otra SAS", dupNit.Json);
+        Assert.True((await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "900111", telefono = "+57 300 111 2233" }), me)).IsError);
+        Assert.True((await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "900111", telefono = "3009998877" }), me)).IsError);
+        Assert.True((await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "900111", campos = new { inventado = "x" } }), me)).IsError);
+
+        // Persona dentro de la empresa, sin duplicarla al repetir.
+        var first = Payload(await toolset.ExecuteAsync("contacto_interno", Args(new { empresa = "ACME SAS", nombre = "Laura Compras", cargo = "Jefe de compras", email = "laura@acme.test" }), me));
+        Assert.False(first.GetProperty("ya_existia").GetBoolean());
+        var again = Payload(await toolset.ExecuteAsync("contacto_interno", Args(new { empresa = "ACME SAS", nombre = "Laura C.", email = "LAURA@acme.test" }), me));
+        Assert.True(again.GetProperty("ya_existia").GetBoolean());
+        Assert.Equal(1, await ctx.Terceros.CountAsync(t => t.Tipo == TerceroTipo.Persona));
+
+        var ficha = Payload(await toolset.ExecuteAsync("ver_contacto", Args(new { contacto = "ACME SAS" }), me));
+        Assert.Contains(ficha.GetProperty("vinculados").EnumerateArray(), v => v.GetProperty("nombre").GetString() == "Laura Compras");
+        Assert.Contains(ficha.GetProperty("campos").EnumerateArray(), c => c.GetProperty("valor").GetString() == "Oro");
+        Assert.True(ficha.GetProperty("total_notas").GetInt32() >= 2); // rastro de la edicion y del contacto agregado
+
+        // Persona suelta ligada a la empresa: queda como contacto PRINCIPAL (visible tambien en el Directorio Clasico).
+        Assert.False((await toolset.ExecuteAsync("crear_contacto", Args(new { nombre = "Mario Suelto", tipo = "persona", telefono = "3157778899" }), me)).IsError);
+        Assert.False((await toolset.ExecuteAsync("vincular_persona_empresa", Args(new { persona = "Mario Suelto", empresa = "ACME SAS", cargo = "Gerente" }), me)).IsError);
+        var mario = await ctx.Terceros.AsNoTracking().SingleAsync(t => t.Nombre == "Mario Suelto");
+        Assert.Equal(acme.Id, mario.EmpresaId);
+        Assert.Equal("Gerente", mario.Cargo);
+        Assert.False((await toolset.ExecuteAsync("vincular_persona_empresa", Args(new { persona = "Mario Suelto", empresa = "ACME SAS", accion = "desvincular" }), me)).IsError);
+        Assert.Null((await ctx.Terceros.AsNoTracking().SingleAsync(t => t.Id == mario.Id)).EmpresaId);
+
+        Assert.False((await toolset.ExecuteAsync("vincular_persona_empresa", Args(new { persona = "Laura Compras", empresa = "ACME SAS", accion = "desvincular" }), me)).IsError);
+        Assert.Equal(0, Payload(await toolset.ExecuteAsync("ver_contacto", Args(new { contacto = "ACME SAS" }), me)).GetProperty("vinculados").GetArrayLength());
+
+        Assert.False((await toolset.ExecuteAsync("nota_contacto", Args(new { contacto = "ACME SAS", texto = "Prefiere llamadas en la tarde", tipo = "Llamada" }), me)).IsError);
+        var notas = Payload(await toolset.ExecuteAsync("nota_contacto", Args(new { contacto = "ACME SAS", accion = "listar" }), me)).GetProperty("notas");
+        Assert.Contains(notas.EnumerateArray(), n => n.GetProperty("tipo").GetString() == "Llamada" && n.GetProperty("autor").GetString()!.EndsWith("(via IA)"));
+
+        // Tareas del contacto.
+        await boards.CreateBoardAsync(new CreateActivityBoardRequest("Ventas"), seed.OwnerPlatformId, "Owner");
+        var numero = Payload(await toolset.ExecuteAsync("crear_tarea", Args(new { tablero = "Ventas", titulo = "Cotizar ACME" }), me)).GetProperty("numero").GetString()!;
+        Assert.False((await toolset.ExecuteAsync("vincular_contacto", Args(new { numero, contacto = "ACME SAS" }), me)).IsError);
+        var tareas = Payload(await toolset.ExecuteAsync("tareas_del_contacto", Args(new { contacto = "ACME SAS" }), me));
+        Assert.Equal(numero, tareas.GetProperty("tareas")[0].GetProperty("numero").GetString());
+
+        // Busqueda con filtros y por digitos del telefono.
+        Assert.Equal(1, Payload(await toolset.ExecuteAsync("buscar_contacto", Args(new { texto = "acme", tipo = "empresa" }), me)).GetProperty("total").GetInt32());
+        Assert.Equal(1, Payload(await toolset.ExecuteAsync("buscar_contacto", Args(new { texto = "9998877" }), me)).GetProperty("total").GetInt32());
+
+        // Baja logica: exige motivo, desaparece de la busqueda y se reactiva; nunca se borra.
+        Assert.True((await toolset.ExecuteAsync("inactivar_contacto", Args(new { contacto = "ACME SAS", motivo = "" }), me)).IsError);
+        var off = await toolset.ExecuteAsync("inactivar_contacto", Args(new { contacto = "ACME SAS", motivo = "Cerro la empresa" }), me);
+        Assert.False(off.IsError, off.Json);
+        Assert.Equal(TerceroEstado.Inactivo, (await ctx.Terceros.AsNoTracking().SingleAsync(t => t.Id == acme.Id)).Estado);
+        Assert.Equal(0, Payload(await toolset.ExecuteAsync("buscar_contacto", Args(new { texto = "acme", tipo = "empresa" }), me)).GetProperty("total").GetInt32());
+        Assert.False((await toolset.ExecuteAsync("reactivar_contacto", Args(new { contacto = "ACME SAS", motivo = "Reabrio" }), me)).IsError);
+        Assert.Equal(TerceroEstado.Activo, (await ctx.Terceros.AsNoTracking().SingleAsync(t => t.Id == acme.Id)).Estado);
+    }
+
+    /// <summary>La IA respeta los permisos del Directorio del usuario (misma matriz de roles que la pantalla).</summary>
+    [Fact]
+    public async Task ContactTools_RespectDirectoryPermissionsOfTheUser()
+    {
+        var seed = await SeedTenantAsync("Mcp Permisos Dir");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx);
+        var owner = Actor(seed, owner: true);
+        Assert.False((await toolset.ExecuteAsync("crear_contacto", Args(new { nombre = "Cliente Uno", identificacion = "800100" }), owner)).IsError);
+
+        // Rol de solo lectura en el Directorio para el miembro.
+        var rol = new Rol { TenantId = seed.TenantId, Name = "Solo consulta" };
+        ctx.Roles.Add(rol);
+        ctx.RolPermisos.Add(new RolPermiso { TenantId = seed.TenantId, RolId = rol.Id, ModuleKey = DirectorioSubPermisos.ModuleRoute, CanView = true });
+        var member = await ctx.TenantUsers.SingleAsync(u => u.Id == seed.MemberUserId);
+        member.RolId = rol.Id;
+        await ctx.SaveChangesAsync();
+        var reader = Actor(seed, owner: false);
+
+        Assert.False((await toolset.ExecuteAsync("buscar_contacto", Args(new { texto = "cliente" }), reader)).IsError);
+        Assert.False((await toolset.ExecuteAsync("ver_contacto", Args(new { contacto = "800100" }), reader)).IsError);
+        var denied = await toolset.ExecuteAsync("editar_contacto", Args(new { contacto = "800100", ciudad = "Cali" }), reader);
+        Assert.True(denied.IsError);
+        Assert.Contains("permiso", denied.Json);
+        Assert.True((await toolset.ExecuteAsync("crear_contacto", Args(new { nombre = "Nueva SAS" }), reader)).IsError);
+        Assert.True((await toolset.ExecuteAsync("inactivar_contacto", Args(new { contacto = "800100", motivo = "x" }), reader)).IsError);
+        Assert.True((await toolset.ExecuteAsync("contacto_interno", Args(new { empresa = "800100", nombre = "Pedro" }), reader)).IsError);
+        Assert.Null((await ctx.Terceros.AsNoTracking().SingleAsync(t => t.IdValor == "800100")).Ciudad);
+    }
+
     // ---- Helpers ----
 
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(EcorexDbContext ctx, ITenantContext tenantCtx)
@@ -268,7 +414,12 @@ public abstract class McpTablerosTestsBase
         var boards = new ActivityBoardService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), tasks, new AuditWriter(ctx), new NodeAssigneeResolver(ctx),
             _fixture.CreateFactory(tenantCtx.TenantId));
         var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine), new NoOpAgentStepRunner());
-        return (boards, engine, new TableroMcpToolset(ctx, boards, tasks, inbox));
+        var tenant = tenantCtx;
+        var terceros = new TerceroService(ctx, _fixture.CreateFactory(tenant.TenantId), tenant, new DirectoryVariantService(ctx, tenant),
+            new DataLookupService(ctx, new DataContainerService(ctx, tenant)));
+        var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
+            new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)));
+        return (boards, engine, toolset);
     }
 
     private static McpActor Actor(SeedData s, bool owner) => owner

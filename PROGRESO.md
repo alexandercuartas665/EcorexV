@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-10 - MCP de tableros: gestion de contactos del Directorio INTEGRADA al tronco (ADR-0159 addendum b, release v0.16.298)
+
+- AGENTE: integrado al tronco por Claude Opus 4.8 (cherry-pick de f9fddd1b de la rama claude/mcp-tablero-tareas-7cc393; renumerado .295->.298 por colision con el fix de confidencialidad). Trabajo original de Claude Opus 5.5. Pedido: la IA no podia editar ni gestionar contactos.
+- HECHO: 9 tools nuevas en `TableroMcpToolset.Directorio.cs` (parcial): ver_contacto, editar_contacto (parcial, incluye campos configurables por clave/etiqueta/ficha.clave), nota_contacto, vincular_persona_empresa, contacto_interno, tareas_del_contacto, listar_campos_contacto, inactivar_contacto / reactivar_contacto (baja logica con motivo, destructiveHint). buscar_contacto con filtros tipo/ciudad/sector/estado y por digitos del telefono. Total 27 tools.
+- REFUERZOS: permisos del Directorio del usuario (matriz de roles + sub-permisos crear-*; cierra hueco en crear_contacto); no duplica NIT/telefono al editar ni personas al agregarlas; nota en la ficha "(via IA)" + auditoria antes/despues (`McpToolResult.AuditBefore/AuditAfter`); ligar persona->empresa visible tambien en el Directorio Clasico.
+- SIN migraciones. No toca los 6 servicios calientes ni agrega BD fuera del dispatcher (endpoint HTTP POST /api/mcp/tableros).
+- VERIFICADO: [pendiente de pegar resultado de build+tests al integrar]. Entrega original: build 0 errores, dotnet format limpio, McpTablerosTests dual 12/12 (2 nuevos: gestion completa y permisos), E2E por MCP en 5270/BITCODE + ficha en /directorio-general.
+- SIGUIENTE: doble push + deploy v0.16.298 a la senal del usuario. Tras desplegar, los clientes MCP ya conectados (Codex, Claude Desktop) ven las 27 tools sin reconfigurar. Fase 2 (OAuth, formularios de paso, rate limit, solo lectura, fusionar duplicados). Reflejar addendum b en el vault.
+
 ## 2026-11-09 - Notificacion de cierre del agente UNIFICADA: un solo mensaje al comercial (ADR-0161, release v0.16.296, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Hand-off de la sesion data-ops AGRO: la "Alerta al cierre" (`CierreJson.alertas`) NO enviaba (y fallaba en silencio), y ademas convivia con el "Aviso de tarea asignada" (`CierreJson.avisosTarea`, ADR-0140) que SI funciona -> el usuario veia la notificacion de cierre DOBLE (dos acordeones que hacen lo mismo; para el agente crear la tarea == cerrar). Decision del usuario: unificar en una sola seccion (el aviso, que ya funciona, es el canal unico) + de-dup; entregar commiteado SIN deploy.

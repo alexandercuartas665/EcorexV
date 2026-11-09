@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Directorio;
+using Ecorex.Application.Roles;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -10,7 +11,14 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Mcp;
 
 /// <summary>Resultado de una herramienta MCP: JSON para el modelo + marca de error.</summary>
-public sealed record McpToolResult(string Json, bool IsError);
+public sealed record McpToolResult(string Json, bool IsError)
+{
+    /// <summary>Estado ANTES del cambio (para la auditoria antes/despues). Null si no aplica.</summary>
+    public object? AuditBefore { get; init; }
+
+    /// <summary>Estado DESPUES del cambio (para la auditoria antes/despues). Null si no aplica.</summary>
+    public object? AuditAfter { get; init; }
+}
 
 /// <summary>
 /// Herramientas del servidor MCP de TABLEROS (ADR-0159), pensadas para una IA externa (Claude, ChatGPT,
@@ -24,12 +32,15 @@ public interface ITableroMcpToolset
     /// <summary>Herramientas que NO modifican nada (no se auditan).</summary>
     IReadOnlySet<string> ReadOnlyTools { get; }
 
+    /// <summary>Herramientas que dan de baja algo (reversible, pero la IA debe confirmar con el usuario).</summary>
+    IReadOnlySet<string> DestructiveTools { get; }
+
     IReadOnlyList<AiToolSpec> GetSpecs();
 
     Task<McpToolResult> ExecuteAsync(string toolName, string argumentsJson, McpActor actor, CancellationToken cancellationToken = default);
 }
 
-public sealed class TableroMcpToolset : ITableroMcpToolset
+public sealed partial class TableroMcpToolset : ITableroMcpToolset
 {
     private const int MaxCardsPerColumn = 40;
     private const int MaxSearch = 50;
@@ -43,8 +54,11 @@ public sealed class TableroMcpToolset : ITableroMcpToolset
     private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal)
     {
         "listar_tableros", "ver_tablero", "buscar_tareas", "ver_tarea", "mis_pasos_pendientes",
-        "listar_conceptos", "listar_usuarios", "buscar_contacto"
+        "listar_conceptos", "listar_usuarios", "buscar_contacto", "ver_contacto", "tareas_del_contacto",
+        "listar_campos_contacto"
     };
+
+    private static readonly HashSet<string> Destructive = new(StringComparer.Ordinal) { "inactivar_contacto" };
 
     private readonly IApplicationDbContext _db;
     private readonly IActivityBoardService _boards;
@@ -52,10 +66,17 @@ public sealed class TableroMcpToolset : ITableroMcpToolset
     private readonly IWorkflowInboxService _inbox;
     private readonly ITerceroService? _terceros;
     private readonly IDirectorioToolset? _directorio;
+    private readonly ITerceroVinculoService? _vinculos;
+    private readonly ITerceroFieldService? _fields;
+    private readonly IRolService? _roles;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
-        ITerceroService? terceros = null, IDirectorioToolset? directorio = null)
+        ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
+        ITerceroFieldService? fields = null, IRolService? roles = null)
     {
+        _vinculos = vinculos;
+        _fields = fields;
+        _roles = roles;
         _db = db;
         _boards = boards;
         _tasks = tasks;
@@ -66,7 +87,13 @@ public sealed class TableroMcpToolset : ITableroMcpToolset
 
     public IReadOnlySet<string> ReadOnlyTools => ReadOnly;
 
-    public IReadOnlyList<AiToolSpec> GetSpecs() => Specs;
+    public IReadOnlySet<string> DestructiveTools => Destructive;
+
+    // Perezoso: los arreglos estaticos viven en dos archivos parciales y el orden de inicializacion
+    // entre archivos no esta garantizado.
+    public IReadOnlyList<AiToolSpec> GetSpecs() => _allSpecs ??= Specs.Concat(DirectorySpecs).ToArray();
+
+    private static AiToolSpec[]? _allSpecs;
 
     private static readonly AiToolSpec[] Specs =
     {
@@ -127,17 +154,6 @@ public sealed class TableroMcpToolset : ITableroMcpToolset
             "indica 'opcion' con una de ellas EXACTA. Si el paso exige un formulario sin diligenciar, el servidor lo " +
             "rechaza: el usuario debe llenarlo en la aplicacion.",
             """{"type":"object","properties":{"numero":{"type":"string"},"opcion":{"type":"string","description":"Opcion/ruta exacta del paso (ver ver_tarea)"},"comentario":{"type":"string"},"paso":{"type":"string","description":"Nombre del paso si hay varios en curso"}},"required":["numero"],"additionalProperties":false}"""),
-        new("buscar_contacto",
-            "Busca contactos (empresas o personas) del Directorio General por nombre, identificacion, email o telefono.",
-            """{"type":"object","properties":{"texto":{"type":"string"}},"required":["texto"],"additionalProperties":false}"""),
-        new("crear_contacto",
-            "Registra un contacto (empresa o persona) en el Directorio General. No duplica: si ya existe con la misma " +
-            "identificacion o telefono, devuelve el existente. Devuelve 'contacto_id'.",
-            """{"type":"object","properties":{"nombre":{"type":"string","description":"Persona o razon social"},"tipo":{"type":"string","enum":["empresa","persona"]},"identificacion":{"type":"string","description":"NIT o cedula"},"tipo_identificacion":{"type":"string","enum":["nit","cedula","correo","telefono"]},"ciudad":{"type":"string"},"email":{"type":"string"},"telefono":{"type":"string"},"sector":{"type":"string"},"cargo":{"type":"string"}},"required":["nombre"],"additionalProperties":false}"""),
-        new("vincular_contacto",
-            "Liga un contacto del Directorio a una tarea (queda como su cliente/solicitante). 'contacto' = id, " +
-            "identificacion o nombre exacto (ver buscar_contacto).",
-            """{"type":"object","properties":{"numero":{"type":"string"},"contacto":{"type":"string"}},"required":["numero","contacto"],"additionalProperties":false}"""),
     };
 
     public async Task<McpToolResult> ExecuteAsync(string toolName, string argumentsJson, McpActor actor, CancellationToken cancellationToken = default)
@@ -170,9 +186,7 @@ public sealed class TableroMcpToolset : ITableroMcpToolset
                 "registrar_tiempo" => await WorkLogAsync(args, actor, cancellationToken),
                 "tomar_paso" => await ClaimAsync(args, actor, cancellationToken),
                 "completar_paso" => await CompleteStepAsync(args, actor, cancellationToken),
-                "buscar_contacto" => await SearchContactsAsync(args, cancellationToken),
-                "crear_contacto" => await CreateContactAsync(argumentsJson, actor, cancellationToken),
-                "vincular_contacto" => await LinkContactAsync(args, actor, cancellationToken),
+                _ when DirectoryToolNames.Contains(toolName) => await ExecuteDirectoryAsync(toolName, args, argumentsJson, actor, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };
         }
@@ -674,62 +688,6 @@ public sealed class TableroMcpToolset : ITableroMcpToolset
             opcion = option,
             siguientes_pasos = after?.Nodes.Where(n => n.IsCurrent).Select(n => new { paso = n.Name, encargado = n.AssigneeLabel })
         });
-    }
-
-    // ===================== Directorio =====================
-
-    private async Task<McpToolResult> SearchContactsAsync(JsonElement args, CancellationToken ct)
-    {
-        if (_terceros is null) { return Err("El directorio no esta disponible."); }
-        var text = Str(args, "texto");
-        if (text is null) { return Err("'texto' es obligatorio."); }
-        var rows = await _terceros.ListAsync(new TerceroListFilter(Busqueda: text, IncludeSubContacts: true), ct);
-        return Ok(new
-        {
-            total = rows.Count,
-            contactos = rows.Take(20).Select(t => new
-            {
-                id = t.Id,
-                nombre = t.Nombre,
-                tipo = t.Tipo == TerceroTipo.Empresa ? "empresa" : "persona",
-                identificacion = string.IsNullOrWhiteSpace(t.Identificacion) ? null : t.Identificacion,
-                ciudad = t.Ciudad
-            })
-        });
-    }
-
-    /// <summary>Reusa crear_contacto del agente interno (misma deduplicacion por identificacion/telefono).</summary>
-    private async Task<McpToolResult> CreateContactAsync(string argumentsJson, McpActor actor, CancellationToken ct)
-    {
-        if (_directorio is null) { return Err("El directorio no esta disponible."); }
-        var res = await _directorio.ExecuteAsync("crear_contacto", argumentsJson, actor.PlatformUserId, autonomous: false, ct);
-        bool isError;
-        try
-        {
-            using var doc = JsonDocument.Parse(res.Json);
-            isError = doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False;
-        }
-        catch (JsonException) { isError = true; }
-        return new McpToolResult(res.Json, isError);
-    }
-
-    private async Task<McpToolResult> LinkContactAsync(JsonElement args, McpActor actor, CancellationToken ct)
-    {
-        var (task, error) = await ResolveVisibleTaskAsync(Str(args, "numero"), actor, ct);
-        if (task is null) { return Err(error!); }
-        var key = Str(args, "contacto");
-        if (key is null) { return Err("'contacto' es obligatorio."); }
-
-        var low = key.ToLower();
-        var q = _db.Terceros.AsNoTracking().Where(t => t.Estado != TerceroEstado.Inactivo);
-        var hits = Guid.TryParse(key, out var gid)
-            ? await q.Where(t => t.Id == gid).Select(t => new { t.Id, t.Nombre }).ToListAsync(ct)
-            : await q.Where(t => t.IdValor == key || t.Nombre.ToLower() == low).Select(t => new { t.Id, t.Nombre }).Take(2).ToListAsync(ct);
-        if (hits.Count == 0) { return Err($"No encontre el contacto '{key}'. Usa buscar_contacto o crear_contacto."); }
-        if (hits.Count > 1) { return Err($"Hay varios contactos '{key}'; indica su id (ver buscar_contacto)."); }
-
-        var res = await _tasks.SetContactTerceroAsync(task.Id, hits[0].Id, actor.PlatformUserId, ActorName(actor), ct);
-        return res.IsOk ? Ok(new { ok = true, numero = task.Number, contacto = hits[0].Nombre }) : Err(res.Error ?? "No se pudo vincular el contacto.");
     }
 
     // ===================== Resolucion + visibilidad =====================

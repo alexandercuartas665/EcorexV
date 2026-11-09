@@ -35,7 +35,10 @@ public static class McpTablerosEndpoints
         "Servidor de tableros de tareas de ECOREX. Actuas como el usuario dueno del token: solo ves y cambias lo " +
         "que el puede. Empieza con listar_tableros o mis_pasos_pendientes. Las tareas se identifican por su numero " +
         "(ej. T00123). Si una tarea tiene flujo en curso no la muevas de columna: usa ver_tarea y completar_paso. " +
-        "Confirma con el usuario antes de cerrar pasos o mover tareas a columnas de cierre.";
+        "Confirma con el usuario antes de cerrar pasos o mover tareas a columnas de cierre. " +
+        "Directorio de contactos: busca antes de crear (buscar_contacto) para no duplicar; ver_contacto muestra la " +
+        "ficha completa; editar_contacto cambia solo lo que envies (consulta listar_campos_contacto antes de usar " +
+        "'campos'). Confirma con el usuario antes de inactivar un contacto.";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -129,7 +132,7 @@ public static class McpTablerosEndpoints
                             ["annotations"] = new JsonObject
                             {
                                 ["readOnlyHint"] = readOnly,
-                                ["destructiveHint"] = false,
+                                ["destructiveHint"] = toolset.DestructiveTools.Contains(s.Name),
                                 ["openWorldHint"] = false
                             }
                         });
@@ -152,7 +155,8 @@ public static class McpTablerosEndpoints
                         var audit = sp.GetRequiredService<IAuditWriter>();
                         var db = sp.GetRequiredService<IApplicationDbContext>();
                         audit.Write(actor.PlatformUserId, $"mcp.tableros.{name}", "McpTool", null,
-                            previousValue: null, newValue: new { tool = name, token = actor.TokenId, args = Truncate(argsJson, 2000) },
+                            previousValue: tr.AuditBefore,
+                            newValue: new { tool = name, token = actor.TokenId, args = Truncate(argsJson, 2000), despues = tr.AuditAfter },
                             tenantId: actor.TenantId, reason: AuditReason);
                         await db.SaveChangesAsync(ct);
                     }

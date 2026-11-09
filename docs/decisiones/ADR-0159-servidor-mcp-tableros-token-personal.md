@@ -73,6 +73,28 @@ API de configuracion (alcance admin) a cualquier usuario.
 - BUG del motor corregido: `StartInstanceAsync` guardaba como iniciador el id de PLATAFORMA (lo que pasan
   UI/tablero/MCP); un paso "hereda al iniciador" quedaba sin encargado. Ahora se normaliza a TenantUser.
 
+## Addendum 2026-11-09 (b): gestion de contactos del Directorio
+
+- Las tools del Directorio pasan a un archivo parcial propio (`TableroMcpToolset.Directorio.cs`). Nuevas:
+  `ver_contacto`, `editar_contacto`, `nota_contacto`, `vincular_persona_empresa`, `contacto_interno`,
+  `tareas_del_contacto`, `listar_campos_contacto`, `inactivar_contacto`, `reactivar_contacto`; `buscar_contacto`
+  gana filtros (tipo, ciudad, sector, estado) y busca por digitos del telefono. Total 27 herramientas.
+- Capa delgada sobre ITerceroService / ITerceroVinculoService / ITerceroFieldService. Sin migraciones.
+- Permisos: cada tool del Directorio respeta la matriz de roles del usuario (View/Edit/Delete del modulo
+  `directorio-general` y los sub-permisos crear-empresa / crear-cliente / crear-sospechoso), igual que la pantalla.
+  Esto tambien cierra un hueco: `crear_contacto` no miraba los sub-permisos.
+- No duplicar: `editar_contacto` rechaza un NIT o telefono (ultimos 10 digitos) que ya sea de otro contacto activo;
+  `contacto_interno` liga la persona existente (misma cedula, email o telefono) en vez de crearla.
+- Rastro: cada cambio deja nota en la ficha a nombre de "Usuario (via IA)" y la auditoria `mcp.tableros.*` guarda
+  antes/despues (`McpToolResult.AuditBefore/AuditAfter`).
+- Baja logica: `inactivar_contacto` exige motivo, pone Estado=Inactivo (nunca DELETE) y se anuncia con
+  `destructiveHint=true` para que el cliente pida confirmacion; `reactivar_contacto` la revierte.
+- Ligar persona -> empresa es visible en AMBOS directorios: si la persona no tiene empresa queda como contacto
+  principal (EmpresaId, lo unico que muestra el Clasico); si ya tiene otra, vinculo M:N (Modular).
+- Campos repetidos en varias fichas (ej. base.direccion / fiscal.direccion): se aceptan como `ficha.clave` y la
+  ambiguedad se responde con las opciones; `listar_campos_contacto` devuelve `clave_completa`.
+- Fuera de alcance: fusionar duplicados, importar contactos desde Excel por la IA.
+
 ## Fuera de alcance (siguientes fases)
 
 - OAuth 2.1 (Authorization Server + metadata `/.well-known/oauth-protected-resource`) para ChatGPT/claude.ai.

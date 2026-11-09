@@ -243,6 +243,8 @@ builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.
 builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
 // Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.
 builder.Services.AddScoped<Ecorex.Application.DocumentosAnalisis.IDocumentoAnalisisService, Ecorex.SuperAdmin.Services.DocumentoAnalisisService>();
+// Modulo de Analisis (ADR-0158): actor + compuerta unica de consultas por circuito (pagina, modal y embebidos).
+builder.Services.AddScoped<Ecorex.SuperAdmin.Services.AnalisisSesion>();
 // Aviso en proceso para el spinner por archivo (worker -> parrilla Blazor, mismo proceso).
 builder.Services.AddSingleton<Ecorex.SuperAdmin.RealTime.IDocumentoAnalisisNotifier, Ecorex.SuperAdmin.RealTime.DocumentoAnalisisNotifier>();
 // HttpClient dedicado para la llamada de VISION del Analizador (lotes de imagenes): timeout largo, aparte del

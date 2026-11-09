@@ -33,6 +33,7 @@
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject NavigationManager Nav
 @inject IFormTokenService TokensSvc
+@inject Ecorex.Application.Analisis.IAnalisisAnfitrionService AnalisisAnfitrion
 
 @* ===================== MODAL CONTACTO (agregar / editar contacto de un tercero) ===================== *@
 @if (_coOpen)
@@ -194,6 +195,13 @@
                 <button class="dg-m-tab @(_mTab == "acts" ? "active" : "")" @onclick='() => _mTab = "acts"'>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>Actividades
                 </button>
+                @if (_hojaIndicadores is not null && _editingId is not null)
+                {
+                    @* ADR-0158 D9: hoja de indicadores elegida en /analisis, filtrada por ESTE tercero. *@
+                    <button class="dg-m-tab @(_mTab == "kpi" ? "active" : "")" @onclick='() => _mTab = "kpi"'>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 5-6" /></svg>Indicadores
+                    </button>
+                }
             </div>
 
             <div class="dg-m-body">
@@ -968,6 +976,13 @@
                                 }
                             </div>
                         }
+                    }
+                    else if (_mTab == "kpi" && _hojaIndicadores is Guid hojaKpi && _editingId is Guid terceroKpi)
+                    {
+                        <div class="dg-kpi">
+                            <Ecorex.SuperAdmin.Components.Shared.Analisis.AnalisisHojaView HojaId="hojaKpi" Contexto="ContextoIndicadores(terceroKpi)"
+                                MensajeVacio="La hoja de indicadores configurada ya no esta disponible." />
+                        </div>
                     }
                     else
                     {

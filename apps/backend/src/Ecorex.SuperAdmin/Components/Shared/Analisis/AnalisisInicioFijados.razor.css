@@ -1,0 +1,18 @@
+/* Indicadores fijados en el Inicio (ADR-0158 D9). Cabecera con el mismo ritmo de las tarjetas del Inicio. */
+.aif { margin: 0 0 18px; }
+.aif-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 12px; }
+.aif-title { font-weight: 700; font-size: 15px; color: var(--ink); }
+.aif-link { font-size: 12.5px; font-weight: 600; color: var(--ink-2); text-decoration: none; }
+.aif-link:hover { color: var(--ink); }
+.aif-wrap { container-type: inline-size; width: 100%; }
+.aif-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+
+@container (max-width: 860px) {
+    .aif-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .aif-grid ::deep .aw-card[style*="span 3"], .aif-grid ::deep .aw-card[style*="span 4"] { grid-column: span 2 !important; }
+}
+
+@container (max-width: 520px) {
+    .aif-grid { grid-template-columns: minmax(0, 1fr); }
+    .aif-grid ::deep .aw-card { grid-column: auto !important; }
+}

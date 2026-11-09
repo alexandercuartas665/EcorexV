@@ -293,6 +293,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<DocumentoAnalisis> DocumentosAnalisis => Set<DocumentoAnalisis>();
     // Config del Analizador: prompt principal por agente seleccionado (seleccion, no creacion, de agentes).
     public DbSet<DocumentoAnalisisAgentePrompt> DocumentosAnalisisAgentePrompts => Set<DocumentoAnalisisAgentePrompt>();
+    // Modulo de Analisis (ADR-0158): libros de indicadores -> hojas -> widgets.
+    public DbSet<AnalisisLibro> AnalisisLibros => Set<AnalisisLibro>();
+    public DbSet<AnalisisHoja> AnalisisHojas => Set<AnalisisHoja>();
+    public DbSet<AnalisisWidget> AnalisisWidgets => Set<AnalisisWidget>();
+    public DbSet<AnalisisLibroToken> AnalisisLibroTokens => Set<AnalisisLibroToken>();
     // Paquetes resultantes de separar un documento unido (un PDF nuevo por soporte de pago).
     public DbSet<DocumentoAnalisisPaquete> DocumentosAnalisisPaquetes => Set<DocumentoAnalisisPaquete>();
     // Config del Analizador: campos de metadata que extrae el agente y columnas del modal (self-serve).
@@ -2933,6 +2938,46 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.PromptPrincipal).HasColumnType(longTextColumnType);
             // Un unico prompt de config por agente dentro del tenant.
             b.HasIndex(x => new { x.TenantId, x.AgentId }).IsUnique();
+        });
+
+        // ---- Modulo de Analisis (ADR-0158): libro -> hojas -> widgets. Tenant-scoped + soft-delete por
+        // el filtro global (reflexion). FKs Restrict: los agregados nunca se borran en fisico (regla 5).
+        modelBuilder.Entity<AnalisisLibro>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(1000);
+            b.Property(x => x.Visibilidad).HasConversion<int>();
+            b.Property(x => x.AllowedUserIdsJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasIndex(x => new { x.TenantId, x.Nombre });
+        });
+
+        modelBuilder.Entity<AnalisisHoja>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(120).IsRequired();
+            b.Property(x => x.FiltrosJson).HasColumnType(longTextColumnType);
+            b.HasOne(x => x.Libro).WithMany(l => l.Hojas).HasForeignKey(x => x.LibroId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.LibroId, x.Orden });
+        });
+
+        modelBuilder.Entity<AnalisisWidget>(b =>
+        {
+            b.Property(x => x.Tipo).HasConversion<int>();
+            b.Property(x => x.Titulo).HasMaxLength(150).IsRequired();
+            b.Property(x => x.SpecJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.IndicadorKey).HasMaxLength(120);
+            b.Property(x => x.ConfigJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.ContextBindingsJson).HasColumnType(longTextColumnType);
+            b.HasOne(x => x.Hoja).WithMany(h => h.Widgets).HasForeignKey(x => x.HojaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.HojaId, x.Orden });
+        });
+
+        modelBuilder.Entity<AnalisisLibroToken>(b =>
+        {
+            b.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            b.HasIndex(x => x.TokenHash).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.LibroId });
+            b.HasOne<AnalisisLibro>().WithMany().HasForeignKey(x => x.LibroId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // Paquetes de un documento separado. Tenant-scoped + soft-delete por el filtro global (reflexion).

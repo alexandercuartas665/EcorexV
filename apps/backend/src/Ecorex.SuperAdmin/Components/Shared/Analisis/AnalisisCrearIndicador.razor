@@ -1,0 +1,190 @@
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Roles
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Services
+@inject IAnalisisService Svc
+@inject AnalisisSesion Sesion
+@inject IReportCatalog Catalogo
+@inject IIndicadorCuradoRegistry Curados
+@inject ICurrentPermissions Perms
+
+@* "Crear indicador" desde CUALQUIER modulo (ADR-0158 D9): boton que abre el mismo modal de widget de
+   /analisis con la fuente del modulo ya elegida (Directorio, Actividades de un tablero, un Contenedor...)
+   y, arriba, el libro / hoja destino (o un libro nuevo). Guarda con IAnalisisService (mismas reglas de
+   edicion) y ofrece abrir el libro. Solo aparece a quien puede crear en el modulo de Analisis. *@
+
+@if (_puede)
+{
+    <button type="button" class="@Clase" @onclick="AbrirAsync" disabled="@_abriendo"
+            title="Crear un indicador con estos datos en un libro de indicadores">@Etiqueta</button>
+}
+
+@if (_abierto)
+{
+    <AnalisisWidgetEditor Fuentes="_fuentes" Curados="Curados.All" FuenteInicial="@FuenteKey" FiltrosIniciales="Filtros"
+                          Gate="Sesion.Gate" TextoGuardar="Crear indicador" OnGuardar="GuardarAsync" OnCancelar="Cerrar">
+        <Encabezado>
+            <div class="aci-dest">
+                <label class="aci-lbl" for="aci-destino">Guardar en</label>
+                <select id="aci-destino" class="aci-input" value="@_destino" @onchange="e => _destino = e.Value?.ToString() ?? Nuevo">
+                    @foreach (var h in _hojas)
+                    {
+                        <option value="@h.HojaId">@h.Etiqueta</option>
+                    }
+                    <option value="@Nuevo">+ Nuevo libro...</option>
+                </select>
+                @if (_destino == Nuevo)
+                {
+                    <input class="aci-input" value="@_nombreLibro" maxlength="150" placeholder="Nombre del libro"
+                           @onchange="e => _nombreLibro = e.Value?.ToString() ?? string.Empty" />
+                }
+                @if (_error is not null)
+                {
+                    <p class="aci-error">@_error</p>
+                }
+            </div>
+        </Encabezado>
+    </AnalisisWidgetEditor>
+}
+
+@if (_hecho is { } h)
+{
+    <div class="aci-toast" role="status">
+        <span>Indicador creado en <b>@h.Etiqueta</b></span>
+        <a href="@($"/analisis?libro={h.LibroId}&hoja={h.HojaId}")">Abrir libro</a>
+        <button type="button" aria-label="Cerrar" @onclick="() => _hecho = null">&#215;</button>
+    </div>
+}
+
+@code {
+    /// <summary>Fuente del modulo anfitrion (p. ej. native:tercero, native:taskitem, container:{id}).</summary>
+    [Parameter, EditorRequired] public string FuenteKey { get; set; } = string.Empty;
+
+    /// <summary>Filtros con los que arranca el widget (p. ej. el tablero abierto). Se pueden quitar en el modal.</summary>
+    [Parameter] public IReadOnlyList<WidgetFiltroDiseno>? Filtros { get; set; }
+
+    /// <summary>Nombre sugerido para un libro nuevo.</summary>
+    [Parameter] public string? LibroSugerido { get; set; }
+
+    [Parameter] public string Etiqueta { get; set; } = "Crear indicador";
+
+    /// <summary>Clase CSS del boton, para que use el estilo de botones del anfitrion.</summary>
+    [Parameter] public string Clase { get; set; } = "btn";
+
+    private const string Nuevo = "__nuevo";
+    private const string ModuleKey = "analisis";
+
+    private bool _puede;
+    private bool _abierto;
+    private bool _abriendo;
+    private string _destino = Nuevo;
+    private string _nombreLibro = string.Empty;
+    private string? _error;
+    private AnalisisHojaRef? _hecho;
+    private AnalisisActor _actor = new(null, false);
+    private IReadOnlyList<AnalisisHojaRef> _hojas = Array.Empty<AnalisisHojaRef>();
+    private IReadOnlyList<ReportSourceDescriptor> _fuentes = Array.Empty<ReportSourceDescriptor>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _actor = await Sesion.ActorAsync();
+        if (_actor.EsAdmin)
+        {
+            _puede = true;
+            return;
+        }
+
+        var eff = await Perms.GetAsync();
+        _puede = eff.Can(ModuleKey, PermissionAction.View)
+            && (eff.Can(ModuleKey, PermissionAction.Create) || eff.Can(ModuleKey, PermissionAction.Edit));
+    }
+
+    private async Task AbrirAsync()
+    {
+        _abriendo = true;
+        try
+        {
+            (_fuentes, _hojas) = await Sesion.EnCompuertaAsync(async () =>
+                (await Catalogo.GetSourcesAsync(), await Svc.ListarHojasAsync(_actor, soloEditables: true)));
+            _destino = _hojas.FirstOrDefault(h => h.HojaId.ToString() == _destino)?.HojaId.ToString()
+                ?? _hojas.FirstOrDefault()?.HojaId.ToString()
+                ?? Nuevo;
+            _nombreLibro = LibroSugerido ?? "Mis indicadores";
+            _error = _fuentes.Any(f => f.Key == FuenteKey) ? null : "Esta fuente de datos no esta disponible; elige otra.";
+            _hecho = null;
+            _abierto = true;
+        }
+        finally
+        {
+            _abriendo = false;
+        }
+    }
+
+    private void Cerrar()
+    {
+        _abierto = false;
+        _error = null;
+    }
+
+    private async Task GuardarAsync(AnalisisNuevoWidget widget)
+    {
+        _error = null;
+        var destino = await Sesion.EnCompuertaAsync(ResolverDestinoAsync);
+        if (destino is null)
+        {
+            return;
+        }
+
+        var r = await Sesion.EnCompuertaAsync(() => Svc.AgregarWidgetAsync(destino.HojaId, widget, _actor));
+        if (!r.Ok)
+        {
+            _error = r.Error ?? "No se pudo crear el indicador.";
+            return;
+        }
+
+        _hecho = destino;
+        _destino = destino.HojaId.ToString();
+        _abierto = false;
+    }
+
+    /// <summary>Hoja elegida, o la primera hoja de un libro nuevo con el nombre escrito.</summary>
+    private async Task<AnalisisHojaRef?> ResolverDestinoAsync()
+    {
+        if (_destino != Nuevo)
+        {
+            var elegida = _hojas.FirstOrDefault(h => h.HojaId.ToString() == _destino);
+            if (elegida is null)
+            {
+                _error = "Elige donde guardar el indicador.";
+            }
+
+            return elegida;
+        }
+
+        var nombre = _nombreLibro.Trim();
+        if (nombre.Length == 0)
+        {
+            _error = "Escribe el nombre del libro nuevo.";
+            return null;
+        }
+
+        var creado = await Svc.CrearLibroAsync(nombre, null, _actor);
+        if (!creado.Ok || creado.Id is not Guid libroId)
+        {
+            _error = creado.Error ?? "No se pudo crear el libro.";
+            return null;
+        }
+
+        var libro = await Svc.ObtenerLibroAsync(libroId, _actor);
+        if (libro?.Hojas.FirstOrDefault() is not { } hoja)
+        {
+            _error = "El libro se creo sin hojas.";
+            return null;
+        }
+
+        var nueva = new AnalisisHojaRef(hoja.Id, libro.Id, libro.Nombre, hoja.Nombre);
+        _hojas = _hojas.Append(nueva).ToList();
+        return nueva;
+    }
+}

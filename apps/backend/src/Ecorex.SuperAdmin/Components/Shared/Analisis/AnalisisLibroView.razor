@@ -1,0 +1,53 @@
+@using Ecorex.Application.Analisis
+@using Ecorex.SuperAdmin.Services
+@inject IAnalisisService Svc
+@inject AnalisisSesion Sesion
+
+@* Libro completo EMBEBIBLE (ADR-0158 D9), solo lectura: pestanas de hojas + AnalisisHojaView de la elegida,
+   con el Contexto del anfitrion. <AnalisisLibroView LibroId="..." Contexto="..." /> *@
+
+@if (_libro is null)
+{
+    <div class="lv-empty">@(_cargado ? "El libro de indicadores no esta disponible." : "Cargando indicadores...")</div>
+}
+else
+{
+    @if (_libro.Hojas.Count > 1)
+    {
+        <div class="lv-tabs" role="tablist">
+            @foreach (var h in _libro.Hojas)
+            {
+                <button class="lv-tab @(h.Id == _hojaId ? "on" : "")" role="tab" @onclick="() => _hojaId = h.Id">@h.Nombre</button>
+            }
+        </div>
+    }
+
+    @if (_hojaId is Guid hoja)
+    {
+        <AnalisisHojaView HojaId="hoja" Contexto="Contexto" />
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid LibroId { get; set; }
+
+    [Parameter] public IReadOnlyDictionary<string, string>? Contexto { get; set; }
+
+    private AnalisisLibroDetalle? _libro;
+    private Guid? _hojaId;
+    private bool _cargado;
+    private Guid _cargadoPara;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (LibroId == _cargadoPara)
+        {
+            return;
+        }
+
+        _cargadoPara = LibroId;
+        _libro = await Svc.ObtenerLibroAsync(LibroId, await Sesion.ActorAsync());
+        _hojaId = _libro?.Hojas.FirstOrDefault()?.Id;
+        _cargado = true;
+    }
+}

@@ -31,6 +31,9 @@
             <p class="dg-sub">Clientes tipo empresa o persona natural. Las empresas agrupan sus contactos asociados.</p>
         </div>
         <div class="dg-head-actions">
+            <Ecorex.SuperAdmin.Components.Shared.Analisis.AnalisisCrearIndicador
+                FuenteKey="@Ecorex.Application.Reporting.Sources.TerceroReportSource.SourceKey"
+                LibroSugerido="Indicadores del directorio" Clase="aci-btn" />
             @if (CanCreateAny)
             {
                 <button class="dg-btn-cfg" @onclick="OpenImportAsync" disabled="@(_loading || _reloading)" title="Descargar la plantilla Excel e importar terceros en lote">

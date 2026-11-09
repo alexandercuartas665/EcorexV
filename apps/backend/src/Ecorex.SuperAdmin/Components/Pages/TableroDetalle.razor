@@ -37,6 +37,9 @@ else
             <button class="btn btn-outline-secondary" @onclick="@(() => Nav.NavigateTo("/tableros"))">&larr; Tableros</button>
             <button class="btn btn-outline-secondary" @onclick="OpenConfig">Configurar tablero</button>
             <button class="btn btn-outline-secondary" @onclick="OpenHistorial">Historial</button>
+            <Ecorex.SuperAdmin.Components.Shared.Analisis.AnalisisCrearIndicador
+                FuenteKey="@Ecorex.Application.Reporting.Sources.TaskItemReportSource.SourceKey"
+                Filtros="FiltroTableroIndicador" LibroSugerido="@($"Indicadores {_board.Name}")" Clase="btn btn-outline-secondary" />
             <button class="btn btn-primary" @onclick="@(() => OpenNewCardModal(_columns.FirstOrDefault()?.Id ?? Guid.Empty))" disabled="@(_columns.Count == 0)">+ Nueva tarea</button>
         </div>
     </div>
@@ -806,6 +809,12 @@ else
 }
 
 @code {
+    /// <summary>"Crear indicador" desde el tablero (ADR-0158 D9): arranca filtrado por este tablero.</summary>
+    private IReadOnlyList<Ecorex.Application.Analisis.WidgetFiltroDiseno> FiltroTableroIndicador =>
+        _board is null
+            ? Array.Empty<Ecorex.Application.Analisis.WidgetFiltroDiseno>()
+            : new[] { new Ecorex.Application.Analisis.WidgetFiltroDiseno("Board", Ecorex.Application.Reporting.ReportFilterOperator.Equals, _board.Name) };
+
     [Parameter] public Guid BoardId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 

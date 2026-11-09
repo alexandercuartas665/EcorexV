@@ -592,3 +592,6 @@ select.dg-input { cursor: pointer; font-weight: 600; }
 .dg-url-btn:hover { background: var(--brand-soft); color: var(--ink); border-color: var(--ink-3); }
 .dg-url-btn svg { width: 15px; height: 15px; }
 .dg-url-copied { font-size: 11px; font-weight: 700; color: var(--t-green, var(--ink)); padding: 0 2px; }
+
+/* ADR-0158 D9: pestana Indicadores (hoja de analisis embebida, filtrada por el tercero). */
+.dg-kpi { padding: 4px 2px 12px; width: 100%; min-width: 0; flex: 1 1 auto; }

@@ -93,6 +93,10 @@ public class TenantUserServiceTests
         public DbSet<Asesor> Asesores => throw new NotSupportedException();
         public DbSet<TenantConfiguration> TenantConfigurations => throw new NotSupportedException();
         public DbSet<ConceptoActividad> ConceptosActividad => throw new NotSupportedException();
+        public DbSet<AnalisisLibro> AnalisisLibros => throw new NotSupportedException();
+        public DbSet<AnalisisHoja> AnalisisHojas => throw new NotSupportedException();
+        public DbSet<AnalisisWidget> AnalisisWidgets => throw new NotSupportedException();
+        public DbSet<AnalisisLibroToken> AnalisisLibroTokens => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => throw new NotSupportedException();
         public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => throw new NotSupportedException();
         public DbSet<DocumentTemplate> DocumentTemplates => throw new NotSupportedException();

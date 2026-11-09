@@ -1,0 +1,778 @@
+@page "/analisis"
+@attribute [Authorize(Policy = "Perm:analisis:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Security.Claims
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@using Ecorex.Application.Roles
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Analisis
+@using Ecorex.SuperAdmin.Services
+@inject IAnalisisService Svc
+@inject IAnalisisAnfitrionService Anfitrion
+@inject AnalisisSesion Sesion
+@inject IAnalisisWidgetRunner Runner
+@inject IReportCatalog Catalogo
+@inject IIndicadorCuradoRegistry Curados
+@inject ICurrentPermissions Perms
+@implements IDisposable
+
+@* Libros de indicadores (ADR-0158 Olas 2-4): libro -> hojas (tabs) -> grilla de widgets de 4 columnas,
+   con filtros globales por hoja y el modal reutilizable de configuracion (AnalisisWidgetEditor). Esta
+   pagina es UNA superficie; el pintado vive en Shared/Analisis. Todas las consultas del circuito pasan por
+   UNA compuerta (_gate): los widgets cargan en serie y la vista previa del modal espera su turno, para no
+   compartir el DbContext del circuito en paralelo (ADR-0157). Un widget roto no tumba la hoja. *@
+
+<PageTitle>Libros de indicadores - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span class="cur">Libros de indicadores</span>
+</nav>
+
+<div class="an-head">
+    <div>
+        <h1 class="an-h1">@(_libro?.Nombre ?? "Libros de indicadores")</h1>
+        <p class="an-sub">@(_libro?.Descripcion ?? "Hojas de indicadores sobre el Directorio, las Tareas y los Contenedores.")</p>
+    </div>
+    <div class="an-head-actions">
+        @if (_libros.Count > 0)
+        {
+            <select class="an-select" value="@_libro?.Id" @onchange="CambiarLibroAsync" aria-label="Libro">
+                @foreach (var l in _libros)
+                {
+                    <option value="@l.Id">@l.Nombre</option>
+                }
+            </select>
+        }
+        @if (_libro?.PuedeEditar == true)
+        {
+            <div class="an-mode" role="group" aria-label="Modo">
+                <button class="@(_modoEdicion ? "" : "on")" @onclick="() => _modoEdicion = false">Ver</button>
+                <button class="@(_modoEdicion ? "on" : "")" @onclick="() => _modoEdicion = true">Editar</button>
+            </div>
+        }
+        @if (Editable)
+        {
+            <button class="an-btn" @onclick="AbrirRenombrarLibro" title="Renombrar libro">Renombrar</button>
+            <button class="an-btn danger" @onclick="() => _modal = Modal.EliminarLibro" title="Eliminar libro">Eliminar</button>
+        }
+        @if (_canCreate)
+        {
+            <button class="an-btn primary" @onclick="AbrirNuevoLibro">+ Nuevo libro</button>
+        }
+    </div>
+</div>
+
+@if (_mensaje is not null)
+{
+    <div class="an-alert">@_mensaje <button class="an-x" @onclick="() => _mensaje = null">&#215;</button></div>
+}
+
+@if (_cargando)
+{
+    <p class="an-muted">Cargando...</p>
+}
+else if (_libro is null)
+{
+    <div class="an-empty">
+        <div class="an-empty-ico">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        </div>
+        <strong>Aun no hay libros de indicadores</strong>
+        <span class="an-muted">Crea un libro, agrega hojas y pon en cada hoja los widgets que quieras.</span>
+        @if (_canCreate)
+        {
+            <button class="an-btn primary" @onclick="AbrirNuevoLibro">+ Nuevo libro</button>
+        }
+    </div>
+}
+else
+{
+    <div class="an-tabs" role="tablist">
+        @foreach (var h in _libro.Hojas)
+        {
+            <button class="an-tab @(h.Id == _hojaId ? "active" : "")" role="tab" @onclick="() => SeleccionarHojaAsync(h.Id)">@h.Nombre</button>
+        }
+        @if (Editable)
+        {
+            <button class="an-tab add" @onclick="AbrirNuevaHoja">+ Nueva hoja</button>
+        }
+        <span class="an-tabs-fill"></span>
+        @if (Editable && Hoja is not null)
+        {
+            <button class="an-btn sm primary" @onclick="() => _modal = Modal.AgregarWidget">+ Agregar widget</button>
+            <button class="an-btn sm" @onclick="AbrirRenombrarHoja">Renombrar hoja</button>
+            <button class="an-btn sm" @onclick="DuplicarHojaAsync">Duplicar hoja</button>
+            @if (_actor.EsAdmin)
+            {
+                <button class="an-btn sm @(EnFicha ? "on" : "")" title="Mostrar esta hoja, filtrada por el tercero, en su ficha del Directorio"
+                        @onclick="AlternarFichaTerceroAsync">@(EnFicha ? "En la ficha del tercero" : "Usar en ficha del tercero")</button>
+            }
+            @if (_libro.Hojas.Count > 1)
+            {
+                <button class="an-btn sm danger" @onclick="EliminarHojaAsync">Eliminar hoja</button>
+            }
+        }
+    </div>
+
+    @if (Hoja is not null)
+    {
+        <div class="an-filters" aria-label="Filtros de la hoja">
+            <div class="an-f">
+                <label>Desde</label>
+                <input type="date" class="an-input sm" value="@Fecha(_fDesde)" @onchange="e => _fDesde = ParseFecha(e.Value)" />
+            </div>
+            <div class="an-f">
+                <label>Hasta</label>
+                <input type="date" class="an-input sm" value="@Fecha(_fHasta)" @onchange="e => _fHasta = ParseFecha(e.Value)" />
+            </div>
+            <div class="an-f">
+                <label>Vendedor</label>
+                <input class="an-input sm" value="@_fVendedor" @onchange="e => _fVendedor = e.Value?.ToString()" placeholder="Todos" />
+            </div>
+            <div class="an-f">
+                <label>Tablero</label>
+                <input class="an-input sm" value="@_fTablero" @onchange="e => _fTablero = e.Value?.ToString()" placeholder="Todos" />
+            </div>
+            <div class="an-f-actions">
+                <button class="an-btn sm primary" @onclick="AplicarFiltrosAsync">Aplicar</button>
+                @if (!FiltrosActivos.Vacio || HayFiltrosEscritos)
+                {
+                    <button class="an-btn sm" @onclick="LimpiarFiltrosAsync">Limpiar</button>
+                }
+            </div>
+            @if (!_libro.PuedeEditar && _filtrosTemporales is not null)
+            {
+                <span class="an-f-note">Filtro temporal (solo para ti, no se guarda).</span>
+            }
+        </div>
+
+        @if (Hoja.Widgets.Count == 0)
+        {
+            <div class="an-empty sm">
+                <strong>Esta hoja esta vacia</strong>
+                <span class="an-muted">@MensajeHojaVacia</span>
+            </div>
+        }
+        else
+        {
+            @if (Editable)
+            {
+                <p class="an-hint">Arrastra las tarjetas para ordenarlas; el boton de la esquina cambia el ancho.</p>
+            }
+            <div class="an-grid">
+                @foreach (var w in Hoja.Widgets)
+                {
+                    <AnalisisWidgetCard @key="w.Id" Widget="w"
+                                        Resultado="@(_resultados.TryGetValue(w.Id, out var r) ? r : null)"
+                                        PuedeEditar="Editable"
+                                        Arrastrable="Editable"
+                                        Fijado="_fijados.Contains(w.Id)"
+                                        OnEditar="() => AbrirEditor(w)"
+                                        OnDuplicar="() => DuplicarWidgetAsync(w.Id)"
+                                        OnFijar="FijarCallback(w.Id)"
+                                        OnMover="d => MoverAsync(w.Id, d)"
+                                        OnAncho="n => AnchoAsync(w.Id, n)"
+                                        OnArrastrar="() => _arrastrado = w.Id"
+                                        OnSoltar="() => SoltarSobreAsync(w.Id)"
+                                        OnEliminar="() => QuitarWidgetAsync(w.Id)" />
+                }
+            </div>
+        }
+    }
+}
+
+@if (_editorAbierto)
+{
+    <AnalisisWidgetEditor Fuentes="_fuentes" Curados="Curados.All" Inicial="_editando" HojaFiltros="FiltrosActivos"
+                          Gate="Sesion.Gate" OnGuardar="GuardarWidgetAsync" OnCancelar="CerrarEditor" />
+}
+
+@if (_modal != Modal.Ninguno)
+{
+    <div class="an-backdrop" @onclick="Cerrar"></div>
+    <div class="an-modal" role="dialog" aria-modal="true">
+        @switch (_modal)
+        {
+            case Modal.NuevoLibro:
+            case Modal.RenombrarLibro:
+                <h3 class="an-modal-title">@(_modal == Modal.NuevoLibro ? "Nuevo libro" : "Renombrar libro")</h3>
+                <label class="an-lbl">Nombre</label>
+                <input class="an-input" @bind="_nombre" @bind:event="oninput" maxlength="150" placeholder="Ej. Indicadores comerciales" />
+                <label class="an-lbl">Descripcion (opcional)</label>
+                <input class="an-input" @bind="_descripcion" maxlength="1000" />
+                <div class="an-modal-foot">
+                    <button class="an-btn" @onclick="Cerrar">Cancelar</button>
+                    <button class="an-btn primary" disabled="@string.IsNullOrWhiteSpace(_nombre)" @onclick="GuardarLibroAsync">@(_modal == Modal.NuevoLibro ? "Crear" : "Guardar")</button>
+                </div>
+                break;
+
+            case Modal.EliminarLibro:
+                <h3 class="an-modal-title">Eliminar libro</h3>
+                <p class="an-muted">Se eliminara "@_libro?.Nombre" con todas sus hojas. Los demas usuarios dejaran de verlo.</p>
+                <div class="an-modal-foot">
+                    <button class="an-btn" @onclick="Cerrar">Cancelar</button>
+                    <button class="an-btn primary danger-solid" @onclick="EliminarLibroAsync">Eliminar</button>
+                </div>
+                break;
+
+            case Modal.NuevaHoja:
+            case Modal.RenombrarHoja:
+                <h3 class="an-modal-title">@(_modal == Modal.NuevaHoja ? "Nueva hoja" : "Renombrar hoja")</h3>
+                <label class="an-lbl">Nombre de la hoja</label>
+                <input class="an-input" @bind="_nombre" @bind:event="oninput" maxlength="120" placeholder="Ej. Ventas" />
+                <div class="an-modal-foot">
+                    <button class="an-btn" @onclick="Cerrar">Cancelar</button>
+                    <button class="an-btn primary" disabled="@string.IsNullOrWhiteSpace(_nombre)" @onclick="GuardarHojaAsync">Guardar</button>
+                </div>
+                break;
+
+            case Modal.AgregarWidget:
+                <h3 class="an-modal-title">Agregar widget</h3>
+                <button class="an-pick-item main" @onclick="() => AbrirEditor(null)">
+                    <span class="an-pick-tipo">Nuevo</span>
+                    <span>Crear un widget: elige fuente, medida, agrupacion y filtros</span>
+                </button>
+                <p class="an-muted" style="margin:14px 0 8px">O parte de un ejemplo:</p>
+                <div class="an-pick">
+                    @foreach (var e in AnalisisEjemplos.Catalogo)
+                    {
+                        <button class="an-pick-item" @onclick="() => AgregarEjemploAsync(e.Key)">
+                            <span class="an-pick-tipo">@e.Widget.Tipo</span>
+                            <span>@e.Widget.Titulo</span>
+                        </button>
+                    }
+                </div>
+                <div class="an-modal-foot">
+                    <button class="an-btn" @onclick="Cerrar">Cerrar</button>
+                </div>
+                break;
+        }
+    </div>
+}
+
+@code {
+    private const string ModuleKey = "analisis";
+
+    private enum Modal { Ninguno, NuevoLibro, RenombrarLibro, EliminarLibro, NuevaHoja, RenombrarHoja, AgregarWidget }
+
+    private AnalisisActor _actor = new(null, false);
+    private bool _modoEdicion;
+    private Guid? _arrastrado;
+    private Guid? _hojaFicha;
+    private HashSet<Guid> _fijados = new();
+    private bool _canCreate;
+    private bool _cargando = true;
+    private IReadOnlyList<AnalisisLibroResumen> _libros = Array.Empty<AnalisisLibroResumen>();
+    private IReadOnlyList<ReportSourceDescriptor> _fuentes = Array.Empty<ReportSourceDescriptor>();
+    private AnalisisLibroDetalle? _libro;
+    private Guid? _hojaId;
+    private readonly Dictionary<Guid, AnalisisWidgetResultado> _resultados = new();
+    private Modal _modal;
+    private string? _nombre;
+    private string? _descripcion;
+    private string? _mensaje;
+    private int _cargaVersion;
+    private bool _editorAbierto;
+    private AnalisisWidgetDto? _editando;
+
+    // Barra de filtros (lo escrito) y filtros temporales de quien solo puede ver.
+    private DateOnly? _fDesde;
+    private DateOnly? _fHasta;
+    private string? _fVendedor;
+    private string? _fTablero;
+    private HojaFiltros? _filtrosTemporales;
+
+    private SemaphoreSlim _gate => Sesion.Gate;
+
+    /// <summary>Acciones de organizar visibles: el usuario puede editar el libro Y esta en modo Editar.</summary>
+    private bool Editable => _libro?.PuedeEditar == true && _modoEdicion;
+
+    private bool EnFicha => Hoja is not null && _hojaFicha == Hoja.Id;
+
+    private string MensajeHojaVacia => _libro?.PuedeEditar != true
+        ? "Aun no tiene widgets."
+        : _modoEdicion ? "Agrega un widget para empezar." : "Pasa a modo Editar para agregar widgets.";
+
+    /// <summary>Fijar en Inicio solo para Admin (sin callback la tarjeta no muestra la estrella).</summary>
+    private EventCallback<bool> FijarCallback(Guid widgetId) =>
+        _actor.EsAdmin ? EventCallback.Factory.Create<bool>(this, f => FijarAsync(widgetId, f)) : default;
+
+    private AnalisisHojaDto? Hoja => _libro?.Hojas.FirstOrDefault(h => h.Id == _hojaId);
+
+    private HojaFiltros FiltrosActivos => _filtrosTemporales ?? Hoja?.Filtros ?? new HojaFiltros();
+
+    private bool HayFiltrosEscritos => _fDesde is not null || _fHasta is not null || !string.IsNullOrWhiteSpace(_fVendedor) || !string.IsNullOrWhiteSpace(_fTablero);
+
+    /// <summary>Libro a abrir (enlace desde "Crear indicador" de otro modulo).</summary>
+    [SupplyParameterFromQuery(Name = "libro")] public Guid? LibroQuery { get; set; }
+
+    /// <summary>Hoja a abrir dentro del libro.</summary>
+    [SupplyParameterFromQuery(Name = "hoja")] public Guid? HojaQuery { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var eff = await Perms.GetAsync();
+        _actor = await Sesion.ActorAsync();
+        _canCreate = _actor.EsAdmin || eff.Can(ModuleKey, PermissionAction.Create) || eff.Can(ModuleKey, PermissionAction.Edit);
+        _hojaFicha = await Anfitrion.HojaFichaTerceroAsync();
+        _fijados = (await Anfitrion.WidgetsInicioAsync()).ToHashSet();
+
+        _libros = await Svc.ListarLibrosAsync(_actor);
+        if (_libros.Count > 0)
+        {
+            var inicial = _libros.FirstOrDefault(l => l.Id == LibroQuery) ?? _libros[0];
+            await AbrirLibroAsync(inicial.Id, inicial.Id == LibroQuery ? HojaQuery : null);
+        }
+
+        _cargando = false;
+    }
+
+    public void Dispose() => _cargaVersion++; // la compuerta es del circuito (AnalisisSesion), no se libera aqui
+
+    private async Task AbrirLibroAsync(Guid libroId, Guid? hojaId = null)
+    {
+        _libro = await Svc.ObtenerLibroAsync(libroId, _actor);
+        var hoja = _libro?.Hojas.FirstOrDefault(h => h.Id == hojaId) ?? _libro?.Hojas.FirstOrDefault();
+        await MostrarHojaAsync(hoja?.Id);
+    }
+
+    private async Task MostrarHojaAsync(Guid? hojaId)
+    {
+        _hojaId = hojaId;
+        _filtrosTemporales = null;
+        var f = Hoja?.Filtros ?? new HojaFiltros();
+        (_fDesde, _fHasta, _fVendedor, _fTablero) = (f.Desde, f.Hasta, f.Vendedor, f.Tablero);
+        await CargarWidgetsAsync();
+    }
+
+    /// <summary>Ejecuta los widgets de la hoja visible EN SERIE (compuerta), pintando cada uno al llegar.</summary>
+    private async Task CargarWidgetsAsync(bool soloFaltantes = false)
+    {
+        var version = ++_cargaVersion;
+        if (!soloFaltantes)
+        {
+            _resultados.Clear();
+        }
+
+        var hoja = Hoja;
+        if (hoja is null)
+        {
+            return;
+        }
+
+        StateHasChanged();
+        var ctx = new ReportContext(Guid.Empty, _actor.UserId); // el tenant real lo fija el filtro EF
+        var filtros = FiltrosActivos;
+        foreach (var w in hoja.Widgets)
+        {
+            if (soloFaltantes && _resultados.ContainsKey(w.Id))
+            {
+                continue;
+            }
+
+            AnalisisWidgetResultado r;
+            try
+            {
+                await _gate.WaitAsync();
+            }
+            catch (ObjectDisposedException)
+            {
+                return; // la pagina se cerro
+            }
+
+            try
+            {
+                if (version != _cargaVersion)
+                {
+                    return; // el usuario cambio de hoja/libro/filtros mientras cargaba
+                }
+
+                r = await Runner.RunAsync(w, ctx, default, filtros);
+            }
+            finally
+            {
+                ReleaseGate();
+            }
+
+            if (version != _cargaVersion)
+            {
+                return;
+            }
+
+            _resultados[w.Id] = r;
+            StateHasChanged();
+        }
+    }
+
+    private void ReleaseGate()
+    {
+        try
+        {
+            _gate.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // pagina cerrada
+        }
+    }
+
+    private async Task CambiarLibroAsync(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id))
+        {
+            await AbrirLibroAsync(id);
+        }
+    }
+
+    private Task SeleccionarHojaAsync(Guid hojaId) => MostrarHojaAsync(hojaId);
+
+    private void Cerrar()
+    {
+        _modal = Modal.Ninguno;
+        _nombre = null;
+        _descripcion = null;
+    }
+
+    private void AbrirNuevoLibro()
+    {
+        _nombre = null;
+        _descripcion = null;
+        _modal = Modal.NuevoLibro;
+    }
+
+    private void AbrirRenombrarLibro()
+    {
+        _nombre = _libro?.Nombre;
+        _descripcion = _libro?.Descripcion;
+        _modal = Modal.RenombrarLibro;
+    }
+
+    private void AbrirNuevaHoja()
+    {
+        _nombre = null;
+        _modal = Modal.NuevaHoja;
+    }
+
+    private void AbrirRenombrarHoja()
+    {
+        _nombre = Hoja?.Nombre;
+        _modal = Modal.RenombrarHoja;
+    }
+
+    private async Task GuardarLibroAsync()
+    {
+        if (_modal == Modal.RenombrarLibro && _libro is not null)
+        {
+            var hojaActual = _hojaId;
+            if (!Resultado(await Svc.RenombrarLibroAsync(_libro.Id, _nombre ?? string.Empty, _descripcion, _libro.Version, _actor)))
+            {
+                return;
+            }
+
+            Cerrar();
+            _libros = await Svc.ListarLibrosAsync(_actor);
+            _libro = await Svc.ObtenerLibroAsync(_libro.Id, _actor);
+            _hojaId = hojaActual;
+            return;
+        }
+
+        var r = await Svc.CrearLibroAsync(_nombre ?? string.Empty, _descripcion, _actor);
+        if (!Resultado(r))
+        {
+            return;
+        }
+
+        Cerrar();
+        _modoEdicion = true; // un libro nuevo se abre listo para armar
+        _libros = await Svc.ListarLibrosAsync(_actor);
+        await AbrirLibroAsync(r.Id!.Value);
+    }
+
+    private async Task EliminarLibroAsync()
+    {
+        if (_libro is null || !Resultado(await Svc.EliminarLibroAsync(_libro.Id, _actor)))
+        {
+            return;
+        }
+
+        Cerrar();
+        _libros = await Svc.ListarLibrosAsync(_actor);
+        _libro = null;
+        _hojaId = null;
+        _resultados.Clear();
+        if (_libros.Count > 0)
+        {
+            await AbrirLibroAsync(_libros[0].Id);
+        }
+    }
+
+    private async Task GuardarHojaAsync()
+    {
+        if (_libro is null)
+        {
+            return;
+        }
+
+        var r = _modal == Modal.NuevaHoja
+            ? await Svc.CrearHojaAsync(_libro.Id, _nombre ?? string.Empty, _actor)
+            : await Svc.RenombrarHojaAsync(_hojaId!.Value, _nombre ?? string.Empty, _actor);
+        if (!Resultado(r))
+        {
+            return;
+        }
+
+        Cerrar();
+        await AbrirLibroAsync(_libro.Id, r.Id);
+    }
+
+    private async Task EliminarHojaAsync()
+    {
+        if (_libro is null || _hojaId is null)
+        {
+            return;
+        }
+
+        if (Resultado(await Svc.EliminarHojaAsync(_hojaId.Value, _actor)))
+        {
+            await AbrirLibroAsync(_libro.Id);
+        }
+    }
+
+    // ---------------- Filtros de la hoja ----------------
+
+    private HojaFiltros FiltrosEscritos() => new()
+    {
+        Desde = _fDesde,
+        Hasta = _fHasta,
+        Vendedor = string.IsNullOrWhiteSpace(_fVendedor) ? null : _fVendedor.Trim(),
+        Tablero = string.IsNullOrWhiteSpace(_fTablero) ? null : _fTablero.Trim()
+    };
+
+    private async Task AplicarFiltrosAsync()
+    {
+        var f = FiltrosEscritos();
+        if (f.Desde is DateOnly d && f.Hasta is DateOnly h && d > h)
+        {
+            _mensaje = "La fecha inicial no puede ser posterior a la final.";
+            return;
+        }
+
+        if (_libro is { PuedeEditar: true } && _hojaId is Guid hojaId)
+        {
+            // Quien edita GUARDA los filtros en la hoja (los ven todos).
+            if (!Resultado(await Svc.GuardarFiltrosHojaAsync(hojaId, f, _actor)))
+            {
+                return;
+            }
+
+            _libro = await Svc.ObtenerLibroAsync(_libro.Id, _actor);
+            _filtrosTemporales = null;
+        }
+        else
+        {
+            _filtrosTemporales = f;
+        }
+
+        await CargarWidgetsAsync();
+    }
+
+    private Task LimpiarFiltrosAsync()
+    {
+        (_fDesde, _fHasta, _fVendedor, _fTablero) = (null, null, null, null);
+        return AplicarFiltrosAsync();
+    }
+
+    private static string? Fecha(DateOnly? d) => d?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static DateOnly? ParseFecha(object? v) =>
+        DateOnly.TryParseExact(v?.ToString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d) ? d : null;
+
+    // ---------------- Widgets ----------------
+
+    private async Task AbrirEditor(AnalisisWidgetDto? widget)
+    {
+        _modal = Modal.Ninguno;
+        if (_fuentes.Count == 0)
+        {
+            await _gate.WaitAsync();
+            try
+            {
+                _fuentes = await Catalogo.GetSourcesAsync();
+            }
+            finally
+            {
+                ReleaseGate();
+            }
+        }
+
+        _editando = widget;
+        _editorAbierto = true;
+    }
+
+    private void CerrarEditor()
+    {
+        _editorAbierto = false;
+        _editando = null;
+    }
+
+    private async Task GuardarWidgetAsync(AnalisisNuevoWidget widget)
+    {
+        if (_hojaId is null)
+        {
+            return;
+        }
+
+        var editado = _editando?.Id;
+        var r = editado is Guid id
+            ? await Svc.ActualizarWidgetAsync(id, widget, _actor)
+            : await Svc.AgregarWidgetAsync(_hojaId.Value, widget, _actor);
+        if (!Resultado(r))
+        {
+            return;
+        }
+
+        CerrarEditor();
+        if (editado is Guid e)
+        {
+            _resultados.Remove(e); // se vuelve a ejecutar con la nueva definicion
+        }
+
+        await RecargarLayoutAsync();
+    }
+
+    private async Task AgregarEjemploAsync(string key)
+    {
+        var ejemplo = AnalisisEjemplos.Find(key);
+        if (ejemplo is null || _libro is null || _hojaId is null)
+        {
+            return;
+        }
+
+        var r = await Svc.AgregarWidgetAsync(_hojaId.Value, ejemplo.Widget, _actor);
+        if (!Resultado(r))
+        {
+            return;
+        }
+
+        Cerrar();
+        await RecargarLayoutAsync();
+    }
+
+    private async Task MoverAsync(Guid widgetId, int delta)
+    {
+        if (Resultado(await Svc.MoverWidgetAsync(widgetId, delta, _actor)))
+        {
+            await RecargarLayoutAsync();
+        }
+    }
+
+    private async Task AnchoAsync(Guid widgetId, int colSpan)
+    {
+        if (Resultado(await Svc.CambiarAnchoWidgetAsync(widgetId, colSpan, _actor)))
+        {
+            await RecargarLayoutAsync();
+        }
+    }
+
+    private async Task QuitarWidgetAsync(Guid widgetId)
+    {
+        if (Resultado(await Svc.EliminarWidgetAsync(widgetId, _actor)))
+        {
+            _resultados.Remove(widgetId);
+            await RecargarLayoutAsync();
+        }
+    }
+
+    private async Task DuplicarWidgetAsync(Guid widgetId)
+    {
+        if (Resultado(await Svc.DuplicarWidgetAsync(widgetId, _actor)))
+        {
+            await RecargarLayoutAsync();
+        }
+    }
+
+    private async Task DuplicarHojaAsync()
+    {
+        if (_libro is null || _hojaId is null)
+        {
+            return;
+        }
+
+        var r = await Svc.DuplicarHojaAsync(_hojaId.Value, _actor);
+        if (Resultado(r))
+        {
+            await AbrirLibroAsync(_libro.Id, r.Id);
+        }
+    }
+
+    /// <summary>Soltar el widget arrastrado sobre otro: toma su lugar y se guarda el layout completo en lote.</summary>
+    private async Task SoltarSobreAsync(Guid destinoId)
+    {
+        var origen = _arrastrado;
+        _arrastrado = null;
+        if (origen is not Guid o || o == destinoId || Hoja is not { } hoja)
+        {
+            return;
+        }
+
+        var lista = hoja.Widgets.ToList();
+        var desde = lista.FindIndex(w => w.Id == o);
+        var hasta = lista.FindIndex(w => w.Id == destinoId);
+        if (desde < 0 || hasta < 0)
+        {
+            return;
+        }
+
+        var movido = lista[desde];
+        lista.RemoveAt(desde);
+        lista.Insert(hasta, movido);
+        var layout = lista.Select(w => new AnalisisLayoutItem(w.Id, w.ColSpan)).ToList();
+        if (Resultado(await Svc.GuardarLayoutAsync(hoja.Id, layout, _actor)))
+        {
+            await RecargarLayoutAsync();
+        }
+    }
+
+    private async Task FijarAsync(Guid widgetId, bool fijar)
+    {
+        if (Resultado(await Anfitrion.FijarEnInicioAsync(widgetId, fijar, _actor)))
+        {
+            _fijados = (await Anfitrion.WidgetsInicioAsync()).ToHashSet();
+        }
+    }
+
+    private async Task AlternarFichaTerceroAsync()
+    {
+        if (Hoja is null)
+        {
+            return;
+        }
+
+        var nueva = EnFicha ? (Guid?)null : Hoja.Id;
+        if (Resultado(await Anfitrion.GuardarHojaFichaTerceroAsync(nueva, _actor)))
+        {
+            _hojaFicha = nueva;
+        }
+    }
+
+    /// <summary>Relee el libro conservando los resultados ya calculados; solo ejecuta los widgets nuevos.</summary>
+    private async Task RecargarLayoutAsync()
+    {
+        if (_libro is null)
+        {
+            return;
+        }
+
+        _libro = await Svc.ObtenerLibroAsync(_libro.Id, _actor);
+        await CargarWidgetsAsync(soloFaltantes: true);
+    }
+
+    private bool Resultado(AnalisisOpResult r)
+    {
+        _mensaje = r.Ok ? null : r.Error;
+        return r.Ok;
+    }
+}

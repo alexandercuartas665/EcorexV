@@ -1,0 +1,51 @@
+@using Ecorex.Application.Analisis
+@using Ecorex.SuperAdmin.Services
+@inject IAnalisisAnfitrionService Anfitrion
+@inject IAnalisisService Svc
+@inject AnalisisSesion Sesion
+
+@* Widgets del modulo de Analisis FIJADOS en el Inicio (ADR-0158 D9, segundo anfitrion). Un Admin los fija
+   con la estrella en /analisis. Se cargan tras el primer render interactivo (no en el prerender, para no
+   consultar dos veces) y solo se muestran los que el usuario puede ver (libro compartido o propio). *@
+
+@if (_widgets.Count > 0)
+{
+    <div class="aif">
+        <div class="aif-head">
+            <div class="aif-title">Indicadores</div>
+            <a class="aif-link" href="/analisis">Ver libros &rarr;</a>
+        </div>
+        <div class="aif-wrap">
+            <div class="aif-grid">
+                @foreach (var w in _widgets)
+                {
+                    <AnalisisWidgetView @key="w.Id" WidgetId="w.Id" />
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<AnalisisWidgetDto> _widgets = Array.Empty<AnalisisWidgetDto>();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var ids = await Anfitrion.WidgetsInicioAsync();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        _widgets = await Svc.ObtenerWidgetsAsync(ids, await Sesion.ActorAsync());
+        if (_widgets.Count > 0)
+        {
+            StateHasChanged();
+        }
+    }
+}

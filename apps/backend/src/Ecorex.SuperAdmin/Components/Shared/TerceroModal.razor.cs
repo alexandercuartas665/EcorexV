@@ -106,6 +106,22 @@ public partial class TerceroModal
     // instancia de modal evitamos anidar dos TerceroModal sobre el mismo DbContext scoped.
     private Guid? _returnToParentId;
     private string _mTab = "datos";
+
+    // ADR-0158 D9: hoja de indicadores de la ficha (elegida en /analisis por un Admin); null = sin pestana.
+    private Guid? _hojaIndicadores;
+    private Dictionary<string, string>? _ctxIndicadores;
+
+    /// <summary>Contexto { tercero = id } para la hoja embebida; misma instancia mientras no cambie el tercero.</summary>
+    private Dictionary<string, string> ContextoIndicadores(Guid terceroId)
+    {
+        var valor = terceroId.ToString();
+        if (_ctxIndicadores is null || !_ctxIndicadores.TryGetValue(Ecorex.Application.Analisis.AnalisisContexto.Tercero, out var actual) || actual != valor)
+        {
+            _ctxIndicadores = new Dictionary<string, string> { [Ecorex.Application.Analisis.AnalisisContexto.Tercero] = valor };
+        }
+
+        return _ctxIndicadores;
+    }
     private TerceroTipo _mTipo = TerceroTipo.Empresa;
     private TerceroPerfil _mPerfiles = TerceroPerfil.Ninguno;
     private TerceroEstado _mEstado = TerceroEstado.Activo;
@@ -207,6 +223,7 @@ public partial class TerceroModal
         }
         await FieldSvc.EnsureDefaultsAsync();
         _fichas = (await FichaSvc.ListAsync()).ToList();
+        _hojaIndicadores = await AnalisisAnfitrion.HojaFichaTerceroAsync();
         // Layout de la zona principal (Sector lista/texto + anclas de los campos "general").
         var layout = await LayoutSvc.GetAsync();
         _sectorIsList = layout.SectorIsList;

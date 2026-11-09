@@ -3,6 +3,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Tenancy
 @using Ecorex.SuperAdmin.Services
+@using Ecorex.SuperAdmin.Components.Shared.Confidentiality
 @inject IWhatsAppTemplateService TemplateSvc
 @inject IWhatsAppLineService LineSvc
 @inject IWebHostEnvironment Env
@@ -51,6 +52,9 @@
         usar variables/emojis sin esperar aprobacion.
     </div>
 </div>
+
+@* Politica de confidencialidad del tenant + enlace permanente /pc/{token} (ADR-0160). *@
+<ConfidentialityPolicyPanel />
 
 <div class="wa-filters">
     <label class="pl-toggle" style="margin-left:auto;">

@@ -88,6 +88,10 @@ public interface IApplicationDbContext
     DbSet<FormToken> FormTokens { get; }
     DbSet<FormSignatureToken> FormSignatureTokens { get; }
     DbSet<FormRecordLink> FormRecordLinks { get; }
+
+    // Politica de confidencialidad por tenant + link permanente /pc/{token} (ADR-0160).
+    DbSet<ConfidentialityPolicy> ConfidentialityPolicies { get; }
+    DbSet<ConfidentialityPolicyAcceptance> ConfidentialityPolicyAcceptances { get; }
     DbSet<WorkflowNodeForm> WorkflowNodeForms { get; }
     DbSet<WorkflowNodeAgent> WorkflowNodeAgents { get; }
     /// <summary>Notas colaborativas del equipo por nodo de una instancia (ADR-0071).</summary>

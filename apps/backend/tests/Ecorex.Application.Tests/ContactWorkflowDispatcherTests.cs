@@ -296,6 +296,8 @@ public class ContactWorkflowDispatcherTests
         public DbSet<FormSubmitRule> FormSubmitRules => NotUsed<FormSubmitRule>();
         public DbSet<FormFlowLink> FormFlowLinks => NotUsed<FormFlowLink>();
         public DbSet<FormToken> FormTokens => NotUsed<FormToken>();
+        public DbSet<ConfidentialityPolicy> ConfidentialityPolicies => NotUsed<ConfidentialityPolicy>();
+        public DbSet<ConfidentialityPolicyAcceptance> ConfidentialityPolicyAcceptances => NotUsed<ConfidentialityPolicyAcceptance>();
         public DbSet<FormSignatureToken> FormSignatureTokens => NotUsed<FormSignatureToken>();
         public DbSet<FormRecordLink> FormRecordLinks => NotUsed<FormRecordLink>();
         public DbSet<WorkflowNodeForm> WorkflowNodeForms => NotUsed<WorkflowNodeForm>();

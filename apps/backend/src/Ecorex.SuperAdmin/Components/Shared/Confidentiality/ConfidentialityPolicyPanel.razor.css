@@ -1,0 +1,154 @@
+.cp-card {
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 14px;
+    background: var(--surface, #fff);
+    padding: 20px 22px;
+    margin: 18px 0 24px;
+}
+
+.cp-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.cp-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.cp-sub {
+    margin: 4px 0 0;
+    color: var(--text-muted, #6b7280);
+    font-size: .85rem;
+    max-width: 640px;
+}
+
+.cp-grid {
+    display: grid;
+    gap: 14px;
+}
+
+.cp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cp-field > span {
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--text, #374151);
+}
+
+.cp-editor {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .82rem;
+    resize: vertical;
+}
+
+.cp-help {
+    color: var(--text-muted, #6b7280);
+    font-size: .74rem;
+}
+
+.cp-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .85rem;
+    color: var(--text, #374151);
+}
+
+.cp-preview-label {
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--text, #374151);
+}
+
+.cp-preview {
+    border: 1px dashed var(--border, #e5e7eb);
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: var(--surface-muted, #f9fafb);
+    min-height: 60px;
+    overflow-x: auto;
+}
+
+.cp-preview :where(h1, h2, h3) { margin-top: 0; }
+
+.cp-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.cp-ok {
+    color: var(--success, #16a34a);
+    font-size: .8rem;
+}
+
+.cp-link {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border, #e5e7eb);
+}
+
+.cp-link-label {
+    display: block;
+    font-size: .8rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text, #374151);
+}
+
+.cp-link-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.cp-link-row .form-control {
+    flex: 1 1 320px;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .8rem;
+}
+
+.cp-accept {
+    margin-top: 20px;
+}
+
+.cp-accept-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.cp-accept-head h3 {
+    font-size: .95rem;
+    margin: 0;
+}
+
+.cp-count {
+    background: var(--surface-muted, #f3f4f6);
+    border-radius: 999px;
+    padding: 1px 10px;
+    font-size: .78rem;
+    color: var(--text-muted, #6b7280);
+}
+
+.cp-empty {
+    color: var(--text-muted, #6b7280);
+    font-size: .85rem;
+}
+
+.cp-table {
+    width: 100%;
+    font-size: .85rem;
+}

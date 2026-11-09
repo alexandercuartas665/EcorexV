@@ -1,0 +1,180 @@
+@* Panel admin de la politica de confidencialidad del tenant (ADR-0160). Se incrusta en
+   /plantillas-whatsapp. Editor HTML + vista previa saneada, link PERMANENTE /pc/{token} con
+   copiar/regenerar, y listado de constancias de aceptacion. Tenant-scoped por el servicio. *@
+@using Ecorex.Application.Confidentiality
+@using Microsoft.AspNetCore.Components
+@inject IConfidentialityPolicyService PolicySvc
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<section class="cp-card">
+    <header class="cp-head">
+        <div>
+            <h2 class="cp-title">Politica de confidencialidad</h2>
+            <p class="cp-sub">Publica la politica del tenant por un enlace permanente. Quien lo abre la lee y deja constancia de aceptacion (nombre e identificacion).</p>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <p><em>Cargando...</em></p>
+    }
+    else
+    {
+        <div class="cp-grid">
+            <label class="cp-field">
+                <span>Titulo</span>
+                <input class="form-control" @bind="_titulo" maxlength="200" placeholder="Politica de confidencialidad" />
+            </label>
+
+            <label class="cp-toggle">
+                <input type="checkbox" @bind="_activa" />
+                <span>Enlace activo (si lo desactivas, el link muestra un mensaje neutro)</span>
+            </label>
+
+            <label class="cp-field">
+                <span>Contenido (HTML)</span>
+                <textarea class="form-control cp-editor" rows="12" @bind="_contenido" @bind:event="oninput"
+                          placeholder="&lt;h2&gt;Politica de confidencialidad&lt;/h2&gt;&lt;p&gt;...&lt;/p&gt;"></textarea>
+                <small class="cp-help">Se permite formato basico (titulos, parrafos, listas, negrita, enlaces, tablas, imagenes). El contenido se depura al guardar por seguridad.</small>
+            </label>
+
+            <div class="cp-field">
+                <span class="cp-preview-label">Vista previa</span>
+                <div class="cp-preview">@((MarkupString)ConfidentialityHtmlSanitizer.Sanitize(_contenido))</div>
+            </div>
+
+            <div class="cp-actions">
+                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">@(_busy ? "Guardando..." : "Guardar politica")</button>
+                @if (_saved is not null)
+                {
+                    <span class="cp-ok">Guardado (v@(_saved.Version)).</span>
+                }
+            </div>
+        </div>
+
+        @if (_saved is not null && !string.IsNullOrEmpty(_saved.PublicToken))
+        {
+            <div class="cp-link">
+                <span class="cp-link-label">Enlace permanente (no vence)</span>
+                <div class="cp-link-row">
+                    <input class="form-control" readonly value="@PublicUrl" @ref="_linkInput" />
+                    <button class="btn btn-outline-primary" @onclick="CopyLinkAsync">Copiar</button>
+                    <a class="btn btn-outline-primary" href="@PublicUrl" target="_blank" rel="noopener">Abrir</a>
+                    <button class="btn btn-outline-danger" @onclick="RegenerateAsync" disabled="@_busy"
+                            title="Genera un enlace nuevo; el anterior deja de funcionar">Regenerar</button>
+                </div>
+                @if (_copied)
+                {
+                    <small class="cp-ok">Copiado al portapapeles.</small>
+                }
+            </div>
+
+            <div class="cp-accept">
+                <div class="cp-accept-head">
+                    <h3>Constancias de aceptacion</h3>
+                    <span class="cp-count">@_acceptances.Count</span>
+                </div>
+                @if (_acceptances.Count == 0)
+                {
+                    <p class="cp-empty">Aun no hay aceptaciones.</p>
+                }
+                else
+                {
+                    <table class="table cp-table">
+                        <thead>
+                            <tr><th>Nombre</th><th>Identificacion</th><th>Correo</th><th>Fecha</th><th>Version</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var a in _acceptances)
+                            {
+                                <tr>
+                                    <td>@a.Nombre</td>
+                                    <td>@a.Identificacion</td>
+                                    <td>@(string.IsNullOrWhiteSpace(a.Correo) ? "-" : a.Correo)</td>
+                                    <td>@a.AceptadoAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>v@(a.PolicyVersionSnapshot)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        }
+    }
+</section>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _copied;
+
+    private string _titulo = "Politica de confidencialidad";
+    private string _contenido = string.Empty;
+    private bool _activa = true;
+
+    private ConfidentialityPolicyDto? _saved;
+    private IReadOnlyList<ConfidentialityAcceptanceDto> _acceptances = [];
+    private ElementReference _linkInput;
+
+    private string PublicUrl => _saved is null ? string.Empty : $"{Nav.BaseUri}pc/{_saved.PublicToken}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _saved = await PolicySvc.GetForTenantAsync();
+        if (_saved is not null)
+        {
+            _titulo = _saved.Titulo;
+            _contenido = _saved.Contenido;
+            _activa = _saved.Activa;
+            _acceptances = await PolicySvc.ListAcceptancesAsync();
+        }
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _copied = false;
+        try
+        {
+            _saved = await PolicySvc.SaveAsync(new ConfidentialityPolicySaveRequest(_titulo, _contenido, _activa));
+            _titulo = _saved.Titulo;
+            _contenido = _saved.Contenido;
+            _activa = _saved.Activa;
+            _acceptances = await PolicySvc.ListAcceptancesAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RegenerateAsync()
+    {
+        _busy = true;
+        _copied = false;
+        try
+        {
+            var updated = await PolicySvc.RegenerateLinkAsync();
+            if (updated is not null) { _saved = updated; }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CopyLinkAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", PublicUrl);
+            _copied = true;
+        }
+        catch
+        {
+            _copied = false;
+        }
+    }
+}

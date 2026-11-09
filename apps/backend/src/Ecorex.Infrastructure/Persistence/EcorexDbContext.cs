@@ -162,6 +162,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<FormToken> FormTokens => Set<FormToken>();
     public DbSet<FormSignatureToken> FormSignatureTokens => Set<FormSignatureToken>();
     public DbSet<FormRecordLink> FormRecordLinks => Set<FormRecordLink>();
+    public DbSet<ConfidentialityPolicy> ConfidentialityPolicies => Set<ConfidentialityPolicy>();
+    public DbSet<ConfidentialityPolicyAcceptance> ConfidentialityPolicyAcceptances => Set<ConfidentialityPolicyAcceptance>();
     public DbSet<WorkflowNodeForm> WorkflowNodeForms => Set<WorkflowNodeForm>();
 
     /// <summary>Agente de IA que atiende un nodo (a lo sumo uno por nodo). Ola 1: modelo y asignacion.</summary>
@@ -2072,6 +2074,37 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasIndex(x => x.TokenHash);
             // Revocar/listar los tokens vivos de UNA celda de fila.
             b.HasIndex(x => new { x.TenantId, x.ResponseId, x.FieldCode, x.RowId, x.ColumnId });
+        });
+
+        modelBuilder.Entity<ConfidentialityPolicy>(b =>
+        {
+            // Politica de confidencialidad por tenant + link permanente /pc/{token} (ADR-0160).
+            b.Property(x => x.Titulo).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Contenido).HasColumnType(longTextColumnType);
+            b.Property(x => x.PublicToken).HasMaxLength(64).IsRequired();
+            b.Property(x => x.Version).IsConcurrencyToken();
+            // UNA politica (no borrada) por tenant.
+            b.HasIndex(x => x.TenantId)
+                .IsUnique()
+                .HasFilter(isNpgsql ? "is_deleted = false" : "[is_deleted] = 0");
+            // Resolucion del visor anonimo (IgnoreQueryFilters, ver ConfidentialityPolicyService).
+            b.HasIndex(x => x.PublicToken);
+        });
+
+        modelBuilder.Entity<ConfidentialityPolicyAcceptance>(b =>
+        {
+            // Constancia inmutable (append-only).
+            b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Identificacion).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Correo).HasMaxLength(200);
+            b.Property(x => x.Ip).HasMaxLength(64);
+            b.Property(x => x.UserAgent).HasMaxLength(400);
+            b.Property(x => x.ContenidoHashSnapshot).HasMaxLength(64).IsRequired();
+            // La constancia vive y muere con la politica (cascada; la politica es soft-delete).
+            b.HasOne(x => x.Policy).WithMany(x => x.Acceptances)
+                .HasForeignKey(x => x.PolicyId).OnDelete(DeleteBehavior.Cascade);
+            // Listado de constancias de una politica, mas reciente primero.
+            b.HasIndex(x => new { x.TenantId, x.PolicyId, x.AceptadoAt });
         });
 
         modelBuilder.Entity<WorkflowNodeForm>(b =>

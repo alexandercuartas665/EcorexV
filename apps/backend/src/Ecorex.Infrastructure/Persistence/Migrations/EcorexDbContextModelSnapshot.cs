@@ -3240,6 +3240,169 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("conciliacion_rules", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConfidentialityPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activa")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activa");
+
+                    b.Property<string>("Contenido")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("contenido");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("PublicToken")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("public_token");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("titulo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_confidentiality_policies");
+
+                    b.HasIndex("PublicToken")
+                        .HasDatabaseName("ix_confidentiality_policies_public_token");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_confidentiality_policies_tenant_id")
+                        .HasFilter("is_deleted = false");
+
+                    b.ToTable("confidentiality_policies", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConfidentialityPolicyAcceptance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AceptadoAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("aceptado_at");
+
+                    b.Property<string>("ContenidoHashSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("contenido_hash_snapshot");
+
+                    b.Property<string>("Correo")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("correo");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Identificacion")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("identificacion");
+
+                    b.Property<string>("Ip")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("nombre");
+
+                    b.Property<Guid>("PolicyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("policy_id");
+
+                    b.Property<long>("PolicyVersionSnapshot")
+                        .HasColumnType("bigint")
+                        .HasColumnName("policy_version_snapshot");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("user_agent");
+
+                    b.HasKey("Id")
+                        .HasName("pk_confidentiality_policy_acceptances");
+
+                    b.HasIndex("PolicyId")
+                        .HasDatabaseName("ix_confidentiality_policy_acceptances_policy_id");
+
+                    b.HasIndex("TenantId", "PolicyId", "AceptadoAt")
+                        .HasDatabaseName("ix_confidentiality_policy_acceptances_tenant_id_policy_id_acep");
+
+                    b.ToTable("confidentiality_policy_acceptances", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactImportBatch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -19791,6 +19954,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Renglon");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConfidentialityPolicyAcceptance", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ConfidentialityPolicy", "Policy")
+                        .WithMany("Acceptances")
+                        .HasForeignKey("PolicyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_confidentiality_policy_acceptances_confidentiality_policies");
+
+                    b.Navigation("Policy");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.TerceroFiltro", "TerceroFiltro")
@@ -21897,6 +22072,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianDocumento", b =>
                 {
                     b.Navigation("Renglones");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ConfidentialityPolicy", b =>
+                {
+                    b.Navigation("Acceptances");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflow", b =>

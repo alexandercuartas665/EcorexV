@@ -151,6 +151,7 @@ public static class DependencyInjection
         services.AddScoped<Forms.IFormTemplateRenderService, Forms.FormTemplateRenderService>();
         services.AddScoped<Forms.IQuoteDocumentRenderer, Forms.QuoteDocumentRenderer>();
         services.AddScoped<Forms.IFormTokenService, Forms.FormTokenService>();
+        services.AddScoped<Confidentiality.IConfidentialityPolicyService, Confidentiality.ConfidentialityPolicyService>();
         services.AddScoped<Forms.IFormSignatureService, Forms.FormSignatureService>();
         services.AddScoped<Forms.IFormTextAssistService, Forms.FormTextAssistService>();
         services.AddScoped<Forms.IFormAiIntakeService, Forms.FormAiIntakeService>();

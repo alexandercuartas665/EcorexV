@@ -1,0 +1,179 @@
+@using System.Globalization
+@using Ecorex.Application.Analisis
+
+@* Tarjeta de un widget del modulo de Analisis (ADR-0158 D3/D9). Componente REUTILIZABLE: pinta la forma
+   ya calculada (KPI, barras, dona) en SVG/CSS sin interop. Estilo calcado de "Indicadores del sistema" del
+   prototipo ECOREX.dc.html (tarjeta surface + line + var(--rad) + sh-sm). Las acciones de organizar solo
+   se muestran si el anfitrion pasa PuedeEditar. Todo numero que va a un atributo/estilo pasa por Inv(). *@
+
+<div class="aw-card" style="grid-column: span @Inv(Math.Clamp(Widget.ColSpan, 1, 4))">
+    <div class="aw-head">
+        <div class="aw-title" title="@Widget.Titulo">@Widget.Titulo</div>
+        @if (PuedeEditar)
+        {
+            <div class="aw-actions">
+                <button class="aw-ico" title="Mover antes" @onclick="() => OnMover.InvokeAsync(-1)">&#8592;</button>
+                <button class="aw-ico" title="Mover despues" @onclick="() => OnMover.InvokeAsync(1)">&#8594;</button>
+                <select class="aw-width" title="Ancho" value="@Widget.ColSpan" @onchange="CambiarAncho">
+                    @for (var i = 1; i <= 4; i++)
+                    {
+                        <option value="@i">@i col</option>
+                    }
+                </select>
+                <button class="aw-ico danger" title="Quitar widget" @onclick="() => OnEliminar.InvokeAsync()">&#215;</button>
+            </div>
+        }
+    </div>
+
+    @if (Resultado is null)
+    {
+        <div class="aw-state"><span class="aw-skel"></span></div>
+    }
+    else if (!Resultado.Ok)
+    {
+        <div class="aw-state err">@Resultado.Error</div>
+    }
+    else
+    {
+        @switch (Resultado.Forma)
+        {
+            case EscalarShape kpi:
+                <div class="aw-kpi">
+                    <div class="aw-kpi-ico" style="background:var(--t-@Tono(0)-bg);color:var(--t-@Tono(0))">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
+                    </div>
+                    <div class="aw-kpi-val">@Num(kpi.Valor)</div>
+                    <div class="aw-kpi-lbl">@kpi.Etiqueta</div>
+                </div>
+                break;
+
+            case CategoriasShape cat when cat.Items.Count == 0:
+                <div class="aw-state">Sin datos.</div>
+                break;
+
+            case CategoriasShape cat when Widget.Tipo == AnalisisTipoWidget.Dona:
+                <div class="aw-donut">
+                    <svg viewBox="0 0 120 120" class="aw-donut-svg" role="img" aria-label="@Widget.Titulo">
+                        <circle cx="60" cy="60" r="@Inv(Radio)" fill="none" stroke="var(--surface-3)" stroke-width="16" />
+                        @foreach (var seg in Segmentos(cat))
+                        {
+                            <circle cx="60" cy="60" r="@Inv(Radio)" fill="none" stroke="var(--t-@seg.Tono)" stroke-width="16"
+                                    stroke-dasharray="@Inv(seg.Largo) @Inv(Circunferencia - seg.Largo)"
+                                    stroke-dashoffset="@Inv(-seg.Inicio)" transform="rotate(-90 60 60)">
+                                <title>@seg.Etiqueta: @Num(seg.Valor)</title>
+                            </circle>
+                        }
+                        <text x="60" y="58" text-anchor="middle" class="aw-donut-total">@Num(cat.Total)</text>
+                        <text x="60" y="74" text-anchor="middle" class="aw-donut-cap">total</text>
+                    </svg>
+                    <div class="aw-legend">
+                        @{ var idx = 0; }
+                        @foreach (var it in cat.Items)
+                        {
+                            var tono = it.Tono ?? Tono(idx);
+                            <div class="aw-leg-row">
+                                <span class="aw-dot" style="background:var(--t-@tono)"></span>
+                                <span class="aw-leg-name" title="@it.Etiqueta">@it.Etiqueta</span>
+                                <span class="aw-leg-val">@Num(it.Valor) &middot; @Pct(it.Valor, cat.Total)</span>
+                            </div>
+                            idx++;
+                        }
+                    </div>
+                </div>
+                break;
+
+            case CategoriasShape cat:
+                var max = cat.Items.Max(i => i.Valor);
+                <div class="aw-bars">
+                    @foreach (var it in cat.Items)
+                    {
+                        <div class="aw-bar-col" title="@it.Etiqueta: @Num(it.Valor)">
+                            <span class="aw-bar-val">@Num(it.Valor)</span>
+                            <div class="aw-bar" style="height:@Inv(Alto(it.Valor, max))%;@(it.Tono is null ? "" : $"background:var(--t-{it.Tono})")"></div>
+                            <span class="aw-bar-lbl">@it.Etiqueta</span>
+                        </div>
+                    }
+                </div>
+                break;
+
+            default:
+                <div class="aw-state">Este tipo de widget llega en una proxima ola.</div>
+                break;
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public AnalisisWidgetDto Widget { get; set; } = default!;
+
+    /// <summary>Null = cargando.</summary>
+    [Parameter] public AnalisisWidgetResultado? Resultado { get; set; }
+
+    [Parameter] public bool PuedeEditar { get; set; }
+
+    [Parameter] public EventCallback<int> OnMover { get; set; }
+
+    [Parameter] public EventCallback<int> OnAncho { get; set; }
+
+    [Parameter] public EventCallback OnEliminar { get; set; }
+
+    private const double Radio = 46;
+    private static readonly double Circunferencia = 2 * Math.PI * Radio;
+
+    // Paleta de tonos del workspace (tokens --t-*), en orden de asignacion por categoria.
+    private static readonly string[] Tonos = { "blue", "violet", "green", "amber", "rose", "slate" };
+
+    private static string Tono(int i) => Tonos[i % Tonos.Length];
+
+    private static string Inv(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+
+    private static string Inv(int v) => v.ToString(CultureInfo.InvariantCulture);
+
+    private static string Num(decimal? v)
+    {
+        if (v is not decimal d)
+        {
+            return "-";
+        }
+
+        // Una cifra decimal como maximo; si al redondear queda entero (8.9997 h -> 9) se muestra sin decimal.
+        var r = Math.Round(d, 1);
+        return r == Math.Round(r) ? r.ToString("N0", CultureInfo.CurrentCulture) : r.ToString("N1", CultureInfo.CurrentCulture);
+    }
+
+    private static string Pct(decimal v, decimal total) =>
+        total == 0 ? "0%" : (v / total).ToString("P0", CultureInfo.CurrentCulture);
+
+    /// <summary>Alto de la barra en % (minimo visible 2% para valores positivos).</summary>
+    private static double Alto(decimal v, decimal max) =>
+        max <= 0 ? 0 : Math.Max(v > 0 ? 2 : 0, (double)(v / max) * 100);
+
+    private sealed record Segmento(string Etiqueta, decimal Valor, string Tono, double Inicio, double Largo);
+
+    private static IEnumerable<Segmento> Segmentos(CategoriasShape cat)
+    {
+        var total = cat.Total;
+        if (total <= 0)
+        {
+            yield break;
+        }
+
+        double acum = 0;
+        var i = 0;
+        foreach (var it in cat.Items)
+        {
+            var largo = (double)(it.Valor / total) * Circunferencia;
+            yield return new Segmento(it.Etiqueta, it.Valor, it.Tono ?? Tono(i), acum, largo);
+            acum += largo;
+            i++;
+        }
+    }
+
+    private async Task CambiarAncho(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var n))
+        {
+            await OnAncho.InvokeAsync(n);
+        }
+    }
+}

@@ -335,6 +335,12 @@ public interface IApplicationDbContext
     /// <summary>Conceptos de actividad del CRM (000125): catalogo propio del gestor de contactos.</summary>
     DbSet<ConceptoActividad> ConceptosActividad { get; }
 
+    /// <summary>Modulo de Analisis (ADR-0158): libros -> hojas -> widgets + enlaces publicos.</summary>
+    DbSet<AnalisisLibro> AnalisisLibros { get; }
+    DbSet<AnalisisHoja> AnalisisHojas { get; }
+    DbSet<AnalisisWidget> AnalisisWidgets { get; }
+    DbSet<AnalisisLibroToken> AnalisisLibroTokens { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

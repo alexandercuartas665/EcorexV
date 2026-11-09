@@ -373,8 +373,23 @@ public static class DependencyInjection
         // Catalogo semantico (nativas curadas + contenedores derivados) + datasource tenant-safe
         // (traduce el spec declarativo a EF parametrizado; el aislamiento lo garantiza el filtro
         // global del DbContext). Sumar una entidad nativa reportable = registrar otro IReportableSource.
-        services.AddScoped<Reporting.IReportableSource, Reporting.Sources.TaskItemReportSource>();
+        services.AddScoped<Reporting.IReportableSource>(sp => new Reporting.Sources.TaskItemReportSource(
+            sp.GetRequiredService<Common.IApplicationDbContext>(),
+            sp.GetRequiredService<Common.IApplicationDbContextFactory>()));
         services.AddScoped<Reporting.IReportableSource, Reporting.Sources.ExternalDataSourceReportSource>();
+        // ADR-0158 (Ola 1, modulo Analisis): Directorio, bitacora del Directorio y horas trabajadas.
+        // Consultan en un contexto EFIMERO propio (fabrica, ADR-0157) para no chocar con el DbContext
+        // del circuito cuando varios widgets cargan en paralelo.
+        services.AddScoped<Reporting.IReportableSource, Reporting.Sources.TerceroReportSource>();
+        services.AddScoped<Reporting.IReportableSource, Reporting.Sources.TerceroNotaReportSource>();
+        services.AddScoped<Reporting.IReportableSource, Reporting.Sources.WorkLogReportSource>();
+        // Indicadores curados del modulo Analisis (ADR-0158 D1): lo que un spec no expresa solo.
+        services.AddScoped<Analisis.IIndicadorCurado, Analisis.SemaforoVencimientoIndicador>();
+        services.AddScoped<Analisis.IIndicadorCurado, Analisis.TiempoPorEtapaIndicador>();
+        services.AddScoped<Analisis.IIndicadorCuradoRegistry, Analisis.IndicadorCuradoRegistry>();
+        // ADR-0158 Ola 2: CRUD de libros/hojas/widgets (contexto efimero) + ejecutor de widgets.
+        services.AddScoped<Analisis.IAnalisisService, Analisis.AnalisisService>();
+        services.AddScoped<Analisis.IAnalisisWidgetRunner, Analisis.AnalisisWidgetRunner>();
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
         // ADR-0068: fuente reportable de RESPUESTAS DE FORMULARIO (una por modulo, clave "form:{code}").
         // El catalogo la enumera como los contenedores; el datasource despacha "form:" a este lector.

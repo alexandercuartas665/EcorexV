@@ -1,0 +1,57 @@
+/* Tarjeta de widget (ADR-0158). Tokens de "Indicadores del sistema" del prototipo ECOREX.dc.html. */
+.aw-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--rad);
+    box-shadow: var(--sh-sm);
+    padding: 20px 22px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 168px;
+}
+
+.aw-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.aw-title { flex: 1 1 120px; min-width: 0; font-weight: 700; font-size: 15px; line-height: 1.3; color: var(--ink); overflow-wrap: anywhere; }
+.aw-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; margin-left: auto; }
+.aw-ico {
+    width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line-2);
+    background: var(--surface); color: var(--ink-2); cursor: pointer; font-size: 13px; line-height: 1;
+}
+.aw-ico:hover { background: var(--surface-3); color: var(--ink); }
+.aw-ico.danger:hover { background: var(--t-rose-bg); color: var(--t-rose); }
+.aw-width {
+    height: 26px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--surface);
+    color: var(--ink-2); font-size: 11.5px; font-family: inherit; padding: 0 4px;
+}
+
+.aw-state { flex: 1; display: grid; place-items: center; font-size: 13px; color: var(--ink-3); text-align: center; }
+.aw-state.err { color: var(--t-rose); }
+.aw-skel {
+    width: 70%; height: 14px; border-radius: 7px; background: var(--surface-3);
+    animation: aw-pulse 1.2s ease-in-out infinite;
+}
+@keyframes aw-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+/* KPI */
+.aw-kpi-ico { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; }
+.aw-kpi-val { font-weight: 800; font-size: 30px; letter-spacing: -.03em; margin-top: 14px; line-height: 1; color: var(--ink); }
+.aw-kpi-lbl { font-size: 13px; color: var(--ink-2); margin-top: 3px; }
+
+/* Barras verticales (degradado de marca, como "Actividad de la semana") */
+.aw-bars { display: flex; align-items: flex-end; gap: 14px; height: 200px; padding-top: 10px; }
+.aw-bar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+.aw-bar { width: 100%; border-radius: 8px 8px 0 0; background: linear-gradient(to top, var(--brand), color-mix(in oklab, var(--brand) 55%, white)); }
+.aw-bar-val { font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
+.aw-bar-lbl { font-size: 11.5px; color: var(--ink-3); font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Dona + leyenda (estilo "Uso por modulo") */
+.aw-donut { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.aw-donut-svg { width: 132px; height: 132px; flex: 0 0 132px; }
+.aw-donut-total { font-weight: 800; font-size: 20px; fill: var(--ink); letter-spacing: -.03em; }
+.aw-donut-cap { font-size: 10px; fill: var(--ink-3); font-weight: 600; }
+.aw-legend { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+.aw-leg-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.aw-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+.aw-leg-name { flex: 1; min-width: 0; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aw-leg-val { font-size: 12px; font-weight: 600; color: var(--ink-2); font-family: monospace; white-space: nowrap; }

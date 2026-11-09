@@ -2212,6 +2212,7 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
             ("000897", "Reportes imprimibles", "Reportes: imprimibles Bold RDL (ADR-0051).", "/reportes/imprimibles", ModuleArea.Sistema, false),
             ("000898", "Administrador de reportes", "Reportes: asignacion de reportes a roles (ADR-0051).", "/reportes/admin", ModuleArea.Sistema, false),
             ("000899", "Galeria de reportes", "Reportes: galeria de tarjetas + visor de doble vista (ADR-0051).", "/reportes/galeria", ModuleArea.Sistema, false),
+            ("000900", "Libros de indicadores", "Analisis: libros con hojas de widgets sobre Directorio, Tareas y Contenedores (ADR-0158).", "/analisis", ModuleArea.Sistema, false),
             ("001680", "Requerimientos de Compra", "Gestion de necesidades de compra multi-fuente (Capa 10).", "/requerimientos-compra", ModuleArea.Operaciones, false),
             ("001681", "Configuracion de Requerimientos", "Origenes y matriz de proveedores del modulo de compras.", "/requerimientos-config", ModuleArea.Operaciones, false)
         };
@@ -3943,7 +3944,9 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         ("Galeria de reportes", "reportes/galeria", "000899"),
         ("Reportes con IA", "reportes/ia", "000896"),
         ("Editor de reportes", "reportes/imprimibles", "000897"),
-        ("Administrador de reportes", "reportes/admin", "000898")
+        ("Administrador de reportes", "reportes/admin", "000898"),
+        // ADR-0158: libros de indicadores (libro -> hojas -> widgets). Codigo nuevo, sin origen legacy.
+        ("Libros de indicadores", "analisis", "000900")
     };
 
     // Items que SE QUITAN del menu (2026-07-30): el panel/tablero demo pasa a ser un reporte de la

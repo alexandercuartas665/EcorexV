@@ -46,21 +46,60 @@ public sealed class TaskItemReportSource : IReportableSource
         new ReportField("AssigneeName", "Asignado", ReportFieldType.Text),
         new ReportField("Board", "Tablero", ReportFieldType.Text),
         new ReportField("Stage", "Etapa", ReportFieldType.Text),
-        new ReportField("IsArchived", "Archivada", ReportFieldType.Boolean)
+        new ReportField("IsArchived", "Archivada", ReportFieldType.Boolean),
+        // Campos EXTENDIDOS (ADR-0158, Ola 1): se resuelven en InMemoryReportEngine (ver QueryAsync).
+        new ReportField("TerceroId", "Cliente (ID)", ReportFieldType.Text, CanGroup: false),
+        new ReportField("Cliente", "Cliente", ReportFieldType.Text),
+        new ReportField("ClienteNit", "NIT cliente (sin DV)", ReportFieldType.Text),
+        new ReportField("Vendedor", "Vendedor del cliente", ReportFieldType.Text),
+        new ReportField("Proyecto", "Proyecto (nombre)", ReportFieldType.Text),
+        new ReportField("CloseReason", "Motivo de cierre", ReportFieldType.Text),
+        new ReportField("ColumnEnteredAt", "Entro a la etapa", ReportFieldType.Date),
+        new ReportField("Vencida", "Vencida", ReportFieldType.Boolean),
+        new ReportField("CreatedMonth", "Mes de creacion", ReportFieldType.Text),
+        new ReportField("ClosedMonth", "Mes de cierre", ReportFieldType.Text),
+        new ReportField("DiasEnEtapa", "Dias en la etapa", ReportFieldType.Decimal, CanAggregate: true),
+        new ReportField("DiasAbierta", "Dias abierta", ReportFieldType.Decimal, CanAggregate: true)
     };
+
+    // Claves que la ruta EF clasica no conoce: si el spec las toca, se usa el motor en memoria.
+    private static readonly HashSet<string> ExtendedKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "TerceroId", "Cliente", "ClienteNit", "Vendedor", "Proyecto", "CloseReason", "ColumnEnteredAt",
+        "Vencida", "CreatedMonth", "ClosedMonth", "DiasEnEtapa", "DiasAbierta"
+    };
+
+    // Columnas por defecto del modo tabular cuando el spec no pide campos (se conserva el contrato previo).
+    private static readonly IReadOnlyList<ReportField> ClassicFieldSet =
+        FieldSet.Where(f => !ExtendedKeys.Contains(f.Key)).ToList();
+
+    private static readonly ReportSourceDescriptor Descriptor = new(SourceKey, "Actividades", ReportSourceKind.Native, FieldSet);
 
     private readonly IApplicationDbContext _db;
 
+    private readonly IApplicationDbContextFactory? _factory;
+
     public TaskItemReportSource(IApplicationDbContext db) => _db = db;
 
-    public ReportSourceDescriptor Describe() =>
-        new(SourceKey, "Actividades", ReportSourceKind.Native, FieldSet);
+    /// <summary>Con fabrica: la ruta extendida (en memoria) consulta en un contexto EFIMERO propio (ADR-0157).</summary>
+    public TaskItemReportSource(IApplicationDbContext db, IApplicationDbContextFactory factory)
+    {
+        _db = db;
+        _factory = factory;
+    }
+
+    public ReportSourceDescriptor Describe() => Descriptor;
 
     public async Task<ReportDataSet> QueryAsync(ReportQuerySpec spec, ReportContext ctx, CancellationToken ct = default)
     {
+        if (NeedsInMemory(spec))
+        {
+            return await QueryInMemoryAsync(spec, ct);
+        }
+
         // Catalogos tenant-scoped (id -> nombre) para los campos por nombre. Se cargan ANTES de filtrar
         // porque los filtros por nombre resuelven el conjunto de ids que casan.
-        var lk = await LoadLookupsAsync(ct);
+        var lk = await LoadLookupsAsync(_db, ct);
 
         IQueryable<TaskItem> q = _db.TaskItems.AsNoTracking();
         q = ApplyFilters(q, spec.Filters, lk);
@@ -76,9 +115,60 @@ public sealed class TaskItemReportSource : IReportableSource
         IReadOnlyDictionary<Guid, (string Sub, string? Cat)> Subcats,
         IReadOnlyDictionary<Guid, string> Boards,
         IReadOnlyDictionary<Guid, string> Columns,
-        IReadOnlyDictionary<Guid, string> Users);
+        IReadOnlyDictionary<Guid, string> Users)
+    {
+        public IReadOnlyDictionary<Guid, TerceroRef> Terceros { get; init; } = new Dictionary<Guid, TerceroRef>();
+        public IReadOnlyDictionary<Guid, string> Projects { get; init; } = new Dictionary<Guid, string>();
+        public DateTimeOffset Now { get; init; } = DateTimeOffset.UtcNow;
+    }
 
-    private async Task<Lookups> LoadLookupsAsync(CancellationToken ct)
+    // ---- Ruta EXTENDIDA (ADR-0158): campos nuevos, varios grupos o agregados numericos ----
+
+    private static bool NeedsInMemory(ReportQuerySpec spec) =>
+        spec.GroupBy.Count > 1
+        || spec.Aggregates.Any(a => a.Function != ReportAggregateFunction.Count)
+        || spec.Fields.Any(ExtendedKeys.Contains)
+        || spec.Filters.Any(f => ExtendedKeys.Contains(f.FieldKey))
+        || spec.GroupBy.Any(ExtendedKeys.Contains)
+        || spec.Aggregates.Any(a => ExtendedKeys.Contains(a.FieldKey))
+        || spec.Sort.Any(s => ExtendedKeys.Contains(s.FieldKey));
+
+    private async Task<ReportDataSet> QueryInMemoryAsync(ReportQuerySpec spec, CancellationToken ct)
+    {
+        var owned = _factory?.Create();
+        try
+        {
+            var db = (IApplicationDbContext?)owned ?? _db;
+            var lk = await LoadLookupsAsync(db, ct) with
+            {
+                Terceros = await ReportLookups.TercerosAsync(db, ct),
+                Projects = await ReportLookups.ProjectsAsync(db, ct)
+            };
+
+            var tasks = await db.TaskItems.AsNoTracking()
+                .OrderByDescending(t => t.CreatedAt)
+                .Take(MaterializeCap)
+                .ToListAsync(ct);
+
+            var getters = FieldSet.Select(f => ValueGetter(f.Key, lk)).ToArray();
+            var rows = tasks.Select(t => getters.Select(g => g(t)).ToArray()).ToList();
+
+            // Sin campos pedidos en tabular: se conserva el contrato clasico de columnas.
+            var effective = !spec.IsAggregated && spec.Fields.Count == 0
+                ? spec with { Fields = ClassicFieldSet.Select(f => f.Key).ToList() }
+                : spec;
+            return InMemoryReportEngine.Run(Descriptor, rows, effective);
+        }
+        finally
+        {
+            if (owned is not null)
+            {
+                await owned.DisposeAsync();
+            }
+        }
+    }
+
+    private static async Task<Lookups> LoadLookupsAsync(IApplicationDbContext _db, CancellationToken ct)
     {
         // Concepto (subcategoria) + Categoria (un nivel arriba). LEFT JOIN por si la categoria no existe.
         var subs = await (
@@ -113,7 +203,7 @@ public sealed class TaskItemReportSource : IReportableSource
     {
         var fields = spec.Fields.Count > 0
             ? spec.Fields.Select(ResolveField).ToList()
-            : FieldSet.ToList();
+            : ClassicFieldSet.ToList();
 
         var entities = await q.Take(MaterializeCap).ToListAsync(ct);
 
@@ -231,14 +321,30 @@ public sealed class TaskItemReportSource : IReportableSource
 
     private static List<(string? Key, int Count)> MapCountByName(List<(Guid? Id, int Count)> src, Func<Guid, string?> nameOf)
     {
-        // id -> nombre (null = "sin asignar/sin dato") y se acumula por nombre.
-        var agg = new Dictionary<string?, int>();
+        // id -> nombre (null = "sin asignar/sin dato") y se acumula por nombre. Dictionary no admite llave
+        // null (ArgumentNullException al agrupar por Etapa/Tablero con tareas sin columna): el grupo "sin dato"
+        // se acumula aparte y se emite con llave null, igual que antes.
+        var agg = new Dictionary<string, int>();
+        int? sinDato = null;
         foreach (var (id, count) in src)
         {
             var name = id is Guid g ? nameOf(g) : null;
+            if (name is null)
+            {
+                sinDato = (sinDato ?? 0) + count;
+                continue;
+            }
+
             agg[name] = agg.TryGetValue(name, out var c) ? c + count : count;
         }
-        return agg.Select(kv => (kv.Key, kv.Value)).ToList();
+
+        var result = agg.Select(kv => ((string?)kv.Key, kv.Value)).ToList();
+        if (sinDato is int n)
+        {
+            result.Add((null, n));
+        }
+
+        return result;
     }
 
     // ---- Filtros (parametrizados, traducidos a EF) ----
@@ -487,8 +593,31 @@ public sealed class TaskItemReportSource : IReportableSource
         "board" => t => t.BoardId is Guid g && lk.Boards.TryGetValue(g, out var n) ? n : null,
         "stage" => t => t.ColumnId is Guid g && lk.Columns.TryGetValue(g, out var n) ? n : null,
         "isarchived" => t => t.IsArchived,
+        "terceroid" => t => t.TerceroId?.ToString(),
+        "cliente" => t => t.TerceroId is Guid g && lk.Terceros.TryGetValue(g, out var r) ? r.Nombre : null,
+        "clientenit" => t => t.TerceroId is Guid g && lk.Terceros.TryGetValue(g, out var r) ? r.Nit : null,
+        "vendedor" => t => t.TerceroId is Guid g && lk.Terceros.TryGetValue(g, out var r) && !string.IsNullOrWhiteSpace(r.Vendedor) ? r.Vendedor.Trim() : null,
+        "proyecto" => t => t.ProjectId is Guid g && lk.Projects.TryGetValue(g, out var n) ? n : null,
+        "closereason" => t => string.IsNullOrWhiteSpace(t.CloseReason) ? null : t.CloseReason,
+        "columnenteredat" => t => t.ColumnEnteredAt,
+        "vencida" => t => IsOverdue(t, lk.Now),
+        "createdmonth" => t => InMemoryReportEngine.MonthKey(t.CreatedAt),
+        "closedmonth" => t => InMemoryReportEngine.MonthKey(t.ClosedAt),
+        "diasenetapa" => t => t.ColumnEnteredAt is DateTimeOffset e && !IsFinished(t) ? Days(e, lk.Now) : null,
+        "diasabierta" => t => Days(t.CreatedAt, t.ClosedAt ?? lk.Now),
         _ => _ => null
     };
+
+    /// <summary>Terminada = Done o Closed (o con fecha de cierre).</summary>
+    public static bool IsFinished(TaskItem t) =>
+        t.Status is TaskItemStatus.Done or TaskItemStatus.Closed || t.ClosedAt is not null;
+
+    /// <summary>Vencida = tiene fecha de vencimiento ya pasada y no esta terminada.</summary>
+    public static bool IsOverdue(TaskItem t, DateTimeOffset now) =>
+        t.DueDate is DateTimeOffset due && due < now && !IsFinished(t);
+
+    private static object? Days(DateTimeOffset from, DateTimeOffset to) =>
+        Math.Round((decimal)(to - from).TotalDays, 2);
 
     private static IEnumerable<TaskItem> ApplySort(IEnumerable<TaskItem> rows, IReadOnlyList<ReportSort> sorts, Lookups lk)
     {

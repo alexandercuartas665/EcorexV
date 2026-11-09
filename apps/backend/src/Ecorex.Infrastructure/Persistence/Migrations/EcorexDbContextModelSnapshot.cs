@@ -1482,6 +1482,294 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("ai_usage_logs", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisHoja", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("FiltrosJson")
+                        .HasColumnType("text")
+                        .HasColumnName("filtros_json");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<Guid>("LibroId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("libro_id");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("nombre");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_analisis_hojas");
+
+                    b.HasIndex("LibroId")
+                        .HasDatabaseName("ix_analisis_hojas_libro_id");
+
+                    b.HasIndex("TenantId", "LibroId", "Orden")
+                        .HasDatabaseName("ix_analisis_hojas_tenant_id_libro_id_orden");
+
+                    b.ToTable("analisis_hojas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisLibro", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AllowedUserIdsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("allowed_user_ids_json");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("nombre");
+
+                    b.Property<Guid?>("OwnerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.Property<int>("Visibilidad")
+                        .HasColumnType("integer")
+                        .HasColumnName("visibilidad");
+
+                    b.HasKey("Id")
+                        .HasName("pk_analisis_libros");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("ix_analisis_libros_tenant_id_nombre");
+
+                    b.ToTable("analisis_libros", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisLibroToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("LibroId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("libro_id");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_analisis_libro_tokens");
+
+                    b.HasIndex("LibroId")
+                        .HasDatabaseName("ix_analisis_libro_tokens_libro_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_analisis_libro_tokens_token_hash");
+
+                    b.HasIndex("TenantId", "LibroId")
+                        .HasDatabaseName("ix_analisis_libro_tokens_tenant_id_libro_id");
+
+                    b.ToTable("analisis_libro_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisWidget", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("ColSpan")
+                        .HasColumnType("integer")
+                        .HasColumnName("col_span");
+
+                    b.Property<string>("ConfigJson")
+                        .HasColumnType("text")
+                        .HasColumnName("config_json");
+
+                    b.Property<string>("ContextBindingsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("context_bindings_json");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("HojaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("hoja_id");
+
+                    b.Property<string>("IndicadorKey")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("indicador_key");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden");
+
+                    b.Property<int>("RowSpan")
+                        .HasColumnType("integer")
+                        .HasColumnName("row_span");
+
+                    b.Property<string>("SpecJson")
+                        .HasColumnType("text")
+                        .HasColumnName("spec_json");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<int>("Tipo")
+                        .HasColumnType("integer")
+                        .HasColumnName("tipo");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("titulo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_analisis_widgets");
+
+                    b.HasIndex("HojaId")
+                        .HasDatabaseName("ix_analisis_widgets_hoja_id");
+
+                    b.HasIndex("TenantId", "HojaId", "Orden")
+                        .HasDatabaseName("ix_analisis_widgets_tenant_id_hoja_id_orden");
+
+                    b.ToTable("analisis_widgets", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Asesor", b =>
                 {
                     b.Property<Guid>("Id")
@@ -19368,6 +19656,40 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Agent");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisHoja", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AnalisisLibro", "Libro")
+                        .WithMany("Hojas")
+                        .HasForeignKey("LibroId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_analisis_hojas_analisis_libros_libro_id");
+
+                    b.Navigation("Libro");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisLibroToken", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AnalisisLibro", null)
+                        .WithMany()
+                        .HasForeignKey("LibroId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_analisis_libro_tokens_analisis_libros_libro_id");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisWidget", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AnalisisHoja", "Hoja")
+                        .WithMany("Widgets")
+                        .HasForeignKey("HojaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_analisis_widgets_analisis_hojas_hoja_id");
+
+                    b.Navigation("Hoja");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Asesor", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.TenantUser", "TenantUser")
@@ -21553,6 +21875,16 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Sedes");
 
                     b.Navigation("Terceros");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisHoja", b =>
+                {
+                    b.Navigation("Widgets");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisLibro", b =>
+                {
+                    b.Navigation("Hojas");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianDocumento", b =>

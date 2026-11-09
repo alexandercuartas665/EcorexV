@@ -473,13 +473,18 @@ public abstract class TaskCoreTestsBase
     // ---- Helpers ----
 
     /// <summary>Construye el servicio con el motor de flujos real y broadcaster no-op (sin SignalR).</summary>
-    private static TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext)
+    private TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext)
         => BuildService(ctx, tenantContext, new NoOpEmailSender());
 
-    private static TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext, IEmailSender emailSender)
+    // ADR-0157 Ola 1 (tajada 3): se inyecta un IApplicationDbContextFactory real (contexto fresco sobre
+    // la MISMA BD de prueba) para ejercitar en la matriz dual el camino de lectura efimero de
+    // ListAsync/GetDetailAsync (en vez del fallback a _db); los datos ya estan commiteados, asi que la
+    // lectura fresca los ve.
+    private TaskItemService BuildService(EcorexDbContext ctx, ITenantContext tenantContext, IEmailSender emailSender)
         => new(ctx, tenantContext, new SequenceService(ctx, tenantContext),
             new WorkflowEngine(ctx, tenantContext, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()),
-            emailSender, new NodeAssigneeResolver(ctx));
+            emailSender, new NodeAssigneeResolver(ctx),
+            dbFactory: _fixture.CreateFactory(tenantContext.TenantId));
 
     private async Task<TaskCoreResult<TaskItemDetailDto>> CreateTaskAsync(SeedData seed, string title)
     {

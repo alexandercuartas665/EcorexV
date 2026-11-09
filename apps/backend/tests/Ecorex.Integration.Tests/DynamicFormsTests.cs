@@ -903,13 +903,16 @@ public abstract class DynamicFormsTestsBase
         return new(ctx, tenant, new Ecorex.Application.MenuConfig.MenuConfigService(ctx, tenant), new Ecorex.Application.Tenancy.SequenceService(ctx, tenant));
     }
 
-    private static FormResponseService BuildResponseService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine? engine = null)
+    // ADR-0157 Ola 1 (tajada 3): factory real para ejercitar en la matriz dual el camino de lectura
+    // efimero de las lecturas autocontenidas (GetAsync/ListRecords/Board*). Datos ya commiteados.
+    private FormResponseService BuildResponseService(EcorexDbContext ctx, SeedData seed, IWorkflowEngine? engine = null)
     {
         var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
         return new(ctx, engine ?? BuildEngine(ctx, seed),
             new SequenceService(ctx, tenant), tenant, new NoOpFormRecordBroadcaster(),
             new Ecorex.Application.Forms.Lookups.FormLookupService(System.Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()),
-            new NoOpRulesEngine());
+            new NoOpRulesEngine(),
+            dbFactory: _fixture.CreateFactory(seed.TenantId));
     }
 
     private static FormTokenService BuildTokenService(EcorexDbContext ctx, SeedData seed)

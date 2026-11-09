@@ -229,30 +229,57 @@ ESCRITURAS siguen en el `_db` del circuito (su unidad de trabajo):
 Verificado: build de solucion verde; integracion dual (PG + SQL Server por Testcontainers) de
 ActivityBoard + TaskField 24/24 y Dashboard 1/1 en local.
 
-**Pendiente de Ola 1 (su propia tajada)**: `TaskItemService` (1912 L) y `FormResponseService` (2194 L).
-Sus lecturas calientes (`ListAsync`, `GetDetailAsync`, ...) construyen DTOs a traves de helpers
-COMPARTIDOS (`ToSummaryAsync`/`ToSummariesAsync`/`LoadAssigneesAsync`/`TotalSecondsAsync`) que TAMBIEN
-invocan los metodos de ESCRITURA tras su `SaveChanges`. Migrarlas con seguridad exige enhebrar el
-contexto por esos helpers y actualizar cada call-site de escritura en todo el archivo -> cambio ancho
-que debe ir en su PR, con la matriz dual del CI (riesgo: una escritura leyendo el detalle del contexto
-equivocado). Se mitiga porque su vector de solape por push ya quedo acotado a nivel de componente
-(TaskKanban/ActivityBoardDetail recargan via `CreateAsyncScope` -> servicio fresco).
+**Ola 1 - tercera tajada: TaskItemService + FormResponseService (ejecutada, 2026-11-09, v0.16.285).**
+Se enhebro el contexto por los helpers COMPARTIDOS entre lectura y escritura: `ToSummaryAsync`/
+`ToSummariesAsync`/`LoadAssigneesAsync` y un nuevo `SumSecondsAsync` reciben ahora el `IApplicationDbContext`
+a usar. Las ESCRITURAS (`ChangeStatus`/`Assign`/`Unassign`/`Archive`/`Restore`) pasan el `_db` del circuito
+(la entidad viene rastreada y recien guardada); las LECTURAS abren el contexto efimero. En `TaskItemService`
+se migraron `ListAsync`, `GetDetailAsync`, `ListWorkLogsAsync`, `TotalSecondsAsync` y las lecturas de
+etiquetas. `GetDetailAsync` es seguro porque sus llamadores que escriben antes (`SetContactTercero`/
+`UpdateCustomFields`/`Copy`) ya hicieron `SaveChanges` sin transaccion abierta -> la lectura fresca ve lo
+commiteado.
+
+En `FormResponseService` se migraron SOLO las lecturas AUTOCONTENIDAS (sin sub-servicio atado al mismo `_db`):
+`GetAsync`, `ListRecords`, `ExportRecordsXlsx`, el maestro-detalle (`List/Find/CountRowChildren`),
+`ResolveDefinitionIdByCode`, `GetDerivedRecord` y la familia **`Board*`** (`GetBoardForms`/`GetBoardTaskFormValues`/
+`GetBoardGridSources`), que es la que solapa el push SignalR del tablero. Los helpers usados por estas lecturas
+(`ToDto`/`ParseDocument`/`StripOrdinal`/`ParseCodeList`) son `static` puros.
+
+Patron de call-site (ambos servicios), que respeta el fallback a `_db` en pruebas sin factory:
+`await using var lease = _dbFactory?.Create(); var db = lease ?? _db;` y las consultas se materializan sobre
+`db` dentro del `using`. El `_dbFactory` es un parametro OPCIONAL del ctor (null en tests -> `_db`; DI lo
+inyecta en prod), siguiendo el patron ya usado para `_scopeFactory`/`_notificationBroadcaster`.
+
+Integracion DUAL (PG + SQL Server, Testcontainers): se inyecto el factory real en `TaskCoreTests`,
+`DynamicFormsTests` y `FormAutoCodeTests` para ejercitar el camino efimero; `TaskCore + TaskField +
+ActivityBoard + DynamicForms + FormAutoCode = 84/84` verdes. Build Release de la solucion verde.
+
+**DEFERIDO a Ola 2** (no autocontenido): las lecturas de `FormResponseService` que delegan en
+`_workflowEngine`/`_lookup`/`_rules` (`GetTaskStepForms`, `GetTaskRelatedForms`, concepto/generos de la
+tarea) siguen en `_db`: aislarlas exige que ESOS sub-servicios usen tambien un scope corto propio, lo que
+se decide junto con el modelo de unidad de trabajo de las escrituras. Se mitiga porque su vector de solape
+por push ya quedo acotado a nivel de componente (TaskKanban/ActivityBoardDetail/DynamicFormRenderer recargan
+via `CreateAsyncScope`/`CircuitFormGate` -> servicio fresco).
 
 ## Action Items
 
 1. [ ] Prerrequisito: observabilidad en prod (sink persistente + timestamps / contador de la excepcion).
 2. [x] Ola 0 (v0.16.282): fix de `TaskDetailModal.RecalcCustomCalculatedAsync` (unico fire-and-forget sin gate que tocaba BD); el resto del camino caliente ya estaba serializado (verificado). Build verde.
-3. [~] Ola 1: migrar las lecturas calientes al factory/scope propio.
+3. [x] Ola 1: migrar las lecturas calientes al factory/scope propio.
    - [x] Componentes de chat (v0.16.283): `Conversaciones` (`ReloadConversationsAsync`) y `Pipeline`
      (`ReloadPendingFromPushAsync`) gateados con lock + scope propio + ambient tenant; `ClientChat`
      verificado sin vector (su push es solo `MessageAdded` en memoria). Build verde. SIN deploy.
    - [x] Servicios, tajada 1 (v0.16.284): lecturas al factory en `DashboardService`, `TaskBoardService`,
      `ConciliacionRuleService` (las dos lecturas puras) y `ActivityBoardService`. Integracion dual OK.
-   - [ ] Servicios, tajada 2 (su propia PR): `TaskItemService` (resto) y `FormResponseService` -> exigen
-     enhebrar el contexto por helpers compartidos entre lectura y escritura (ver Estado de ejecucion).
+   - [x] Servicios, tajada 2 (v0.16.285): `TaskItemService` (todas sus lecturas + helpers enhebrados) y
+     `FormResponseService` (lecturas autocontenidas, incl. familia `Board*`). Integracion dual 84/84.
+     SIN deploy. Lo entangled con `_workflowEngine`/`_lookup`/`_rules` queda para Ola 2 (ver abajo).
 4. [ ] Decidir el modelo de unidad de trabajo para escrituras (factory-UoW vs transaccion corta por servicio).
-5. [ ] Ola 2: migrar escrituras preservando atomicidad y auditoria en el mismo contexto.
-6. [ ] Reflejar este ADR en el vault (`04. Notas para desarrollador/ADRs`).
+5. [ ] Ola 2: migrar escrituras preservando atomicidad y auditoria en el mismo contexto; e incluir ahi las
+   lecturas de `FormResponseService` que delegan en sub-servicios atados al `_db` (`GetTaskStepForms`,
+   `GetTaskRelatedForms`, concepto/generos), dandoles scope corto propio junto con esas escrituras.
+6. [ ] Prerrequisito de medicion (bloquea la metrica, no el fix): observabilidad en prod (Action Item 1).
+7. [ ] Reflejar este ADR en el vault (`04. Notas para desarrollador/ADRs`).
 
 > Relaciona: [[dbcontext-efimero-lectura-factory]] (ADR-0138, contexto efimero de lectura),
 > ADR-0156 (el fix de surrogates se hallo en esta misma auditoria, bug distinto),

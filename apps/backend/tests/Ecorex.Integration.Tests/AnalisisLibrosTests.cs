@@ -327,6 +327,10 @@ public abstract class AnalisisLibrosTestsBase
         Assert.Equal(new[] { b, a }, (await svc.ObtenerWidgetsAsync(new[] { b, a, Guid.NewGuid() }, ActorDuena)).Select(w => w.Id));
         Assert.Equal(2, (await svc.ListarHojasAsync(ActorDuena)).Count);
         Assert.Empty(await svc.ListarHojasAsync(ActorOtro));
+        // Destinos de "Crear indicador" desde otro modulo: solo libros que el actor puede editar.
+        Assert.Equal(2, (await svc.ListarHojasAsync(ActorDuena, soloEditables: true)).Count);
+        Assert.Equal(2, (await svc.ListarHojasAsync(ActorAdmin, soloEditables: true)).Count);
+        Assert.Empty(await svc.ListarHojasAsync(ActorOtro, soloEditables: true));
 
         // Hoja borrada: sus widgets dejan de salir embebidos.
         Assert.True((await svc.EliminarHojaAsync(hoja2, ActorDuena)).Ok);

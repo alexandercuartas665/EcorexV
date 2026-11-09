@@ -1025,6 +1025,9 @@ else
                 </DataRecordsGrid>
             </div>
             <div class="modal-foot">
+                <Ecorex.SuperAdmin.Components.Shared.Analisis.AnalisisCrearIndicador
+                    FuenteKey="@Ecorex.Application.Reporting.Sources.ContainerReportReader.KeyFor(_dataTable.Id)"
+                    LibroSugerido="@($"Indicadores {_dataTable.Name}")" Clase="btn btn-outline-secondary" />
                 <button class="btn btn-outline-secondary" @onclick="() => _dataOpen = false" disabled="@_busy">Cerrar</button>
             </div>
         </div>

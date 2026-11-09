@@ -126,8 +126,10 @@ public interface IAnalisisService
     /// <summary>Widgets sueltos visibles para el actor, en el orden pedido (los que no puede ver se omiten).</summary>
     Task<IReadOnlyList<AnalisisWidgetDto>> ObtenerWidgetsAsync(IReadOnlyList<Guid> widgetIds, AnalisisActor actor, CancellationToken ct = default);
 
-    /// <summary>Hojas de los libros visibles, para elegir cual mostrar en un modulo anfitrion.</summary>
-    Task<IReadOnlyList<AnalisisHojaRef>> ListarHojasAsync(AnalisisActor actor, CancellationToken ct = default);
+    /// <summary>Hojas de los libros visibles, para elegir cual mostrar en un modulo anfitrion. Con
+    /// <paramref name="soloEditables"/> solo las de libros que el actor puede editar (crear un indicador
+    /// desde otro modulo).</summary>
+    Task<IReadOnlyList<AnalisisHojaRef>> ListarHojasAsync(AnalisisActor actor, CancellationToken ct = default, bool soloEditables = false);
 
     /// <summary>Mueve el widget una posicion (delta -1 = antes, +1 = despues) dentro de su hoja.</summary>
     Task<AnalisisOpResult> MoverWidgetAsync(Guid widgetId, int delta, AnalisisActor actor, CancellationToken ct = default);
@@ -644,7 +646,7 @@ public sealed class AnalisisService : IAnalisisService
         return ids.Where(visibles.ContainsKey).Select(id => visibles[id]).ToList();
     }
 
-    public async Task<IReadOnlyList<AnalisisHojaRef>> ListarHojasAsync(AnalisisActor actor, CancellationToken ct = default)
+    public async Task<IReadOnlyList<AnalisisHojaRef>> ListarHojasAsync(AnalisisActor actor, CancellationToken ct = default, bool soloEditables = false)
     {
         await using var db = _factory.Create();
         var filas = await db.AnalisisHojas.AsNoTracking()
@@ -653,7 +655,9 @@ public sealed class AnalisisService : IAnalisisService
             .Select(h => new { h.Id, h.LibroId, Libro = h.Libro!.Nombre, h.Nombre, h.Libro.OwnerUserId, h.Libro.Visibilidad, h.Libro.AllowedUserIdsJson })
             .ToListAsync(ct);
         return filas
-            .Where(f => PuedeVer(f.OwnerUserId, f.Visibilidad, f.AllowedUserIdsJson, actor))
+            .Where(f => soloEditables
+                ? actor.EsAdmin || (actor.UserId is Guid u && f.OwnerUserId == u)
+                : PuedeVer(f.OwnerUserId, f.Visibilidad, f.AllowedUserIdsJson, actor))
             .Select(f => new AnalisisHojaRef(f.Id, f.LibroId, f.Libro, f.Nombre))
             .ToList();
     }

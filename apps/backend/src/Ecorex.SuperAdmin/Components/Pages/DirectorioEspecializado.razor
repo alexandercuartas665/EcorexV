@@ -31,6 +31,9 @@
             <p class="dg-sub">Vista especializada del directorio de terceros (empresas y personas). Configurable por tenant.</p>
         </div>
         <div class="dg-head-actions">
+            <Ecorex.SuperAdmin.Components.Shared.Analisis.AnalisisCrearIndicador
+                FuenteKey="@Ecorex.Application.Reporting.Sources.TerceroReportSource.SourceKey"
+                LibroSugerido="Indicadores del directorio" Clase="aci-btn" />
             @if (CanCreateAny)
             {
                 <button class="dg-btn-cfg" @onclick="OpenImportAsync" disabled="@(_loading || _reloading)" title="Descargar la plantilla Excel e importar terceros en lote">

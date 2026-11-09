@@ -306,6 +306,12 @@ else
 
     private bool HayFiltrosEscritos => _fDesde is not null || _fHasta is not null || !string.IsNullOrWhiteSpace(_fVendedor) || !string.IsNullOrWhiteSpace(_fTablero);
 
+    /// <summary>Libro a abrir (enlace desde "Crear indicador" de otro modulo).</summary>
+    [SupplyParameterFromQuery(Name = "libro")] public Guid? LibroQuery { get; set; }
+
+    /// <summary>Hoja a abrir dentro del libro.</summary>
+    [SupplyParameterFromQuery(Name = "hoja")] public Guid? HojaQuery { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         var eff = await Perms.GetAsync();
@@ -317,7 +323,8 @@ else
         _libros = await Svc.ListarLibrosAsync(_actor);
         if (_libros.Count > 0)
         {
-            await AbrirLibroAsync(_libros[0].Id);
+            var inicial = _libros.FirstOrDefault(l => l.Id == LibroQuery) ?? _libros[0];
+            await AbrirLibroAsync(inicial.Id, inicial.Id == LibroQuery ? HojaQuery : null);
         }
 
         _cargando = false;

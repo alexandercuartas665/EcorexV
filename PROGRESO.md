@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - Modulo Analisis: "Crear indicador" desde Directorio, Tableros y Contenedor (ADR-0158 D9, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion del usuario: probar con el navegador integrado + dev login que se puedan crear indicadores desde el Directorio, los paneles de tareas y un contenedor.
+- HALLAZGO: desde /analisis las tres fuentes ya funcionaban (Directorio, Actividades, contenedor Cotizaciones; persisten al recargar), pero los modulos NO tenian como crear un indicador.
+- HECHO: componente reutilizable `AnalisisCrearIndicador` (boton + el mismo `AnalisisWidgetEditor` de /analisis con la fuente del modulo preseleccionada y un bloque "Guardar en": hoja de un libro editable o "+ Nuevo libro"); al guardar muestra un aviso con "Abrir libro" (/analisis?libro=&hoja=, ahora soportado por la pagina). Colocado en Directorio General y Especializado (native:tercero), detalle de tablero (native:taskitem con filtro inicial Tablero = nombre del tablero) y modal de datos de cada tabla del Contenedor (container:{id}). El editor gana `FuenteInicial`, `FiltrosIniciales`, `TextoGuardar` y la ranura `Encabezado`. `IAnalisisService.ListarHojasAsync(..., soloEditables)` lista solo hojas de libros que el actor puede editar. El boton solo aparece a Admin o a quien tiene analisis View + Create/Edit.
+- VERIFICADO: build verde; Application.Tests 1256/1256, SuperAdmin.Tests 178/178, integracion DUAL AnalisisLibros 24/24 (nuevo assert soloEditables). App viva 5269 (SOLDARCO): Directorio -> libro nuevo "Indicadores del directorio" (dona por tipo 13/8); tablero APROBAR COMPRAS -> barras por etapa filtradas por el tablero (36/11) guardadas en hoja existente; Contenedor Drones Ingenios / Cotizaciones -> libro nuevo con barras por ESTADO (30). "Abrir libro" abre la hoja correcta; sin errores en el log.
+- DEUDA: el filtro del tablero es por NOMBRE (dos tableros homonimos se mezclan) e incluye archivadas (el tablero no las muestra). SIGUIENTE: Ola 5 (widgets combinados). Deploy solo con OK del usuario.
+
 ## 2026-11-08 - Modulo Analisis: Ola 4 "Organizar + mas tipos + embebible" (ADR-0158, SIN deploy)
 
 - AGENTE: Claude Opus 5.5. Continuacion de las olas 1-3 (44296410, a4d9c54b). Peticion del usuario: "Seguir con Ola 4".

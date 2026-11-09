@@ -19,6 +19,7 @@
 
     <div class="we-body">
         <div class="we-form">
+            @Encabezado
             <div class="we-seg">
                 <button class="@(_modoCurado ? "" : "on")" @onclick="() => CambiarModo(false)">Consulta</button>
                 <button class="@(_modoCurado ? "on" : "")" @onclick="() => CambiarModo(true)">Indicador listo</button>
@@ -249,7 +250,7 @@
 
     <div class="we-foot">
         <button class="we-btn" @onclick="() => OnCancelar.InvokeAsync()">Cancelar</button>
-        <button class="we-btn primary" disabled="@(_errores.Count > 0 || _guardando)" @onclick="GuardarAsync">@(Inicial is null ? "Agregar" : "Guardar cambios")</button>
+        <button class="we-btn primary" disabled="@(_errores.Count > 0 || _guardando)" @onclick="GuardarAsync">@(TextoGuardar ?? (Inicial is null ? "Agregar" : "Guardar cambios"))</button>
     </div>
 </div>
 
@@ -266,6 +267,18 @@
 
     /// <summary>Compuerta del anfitrion: una consulta a la vez por circuito.</summary>
     [Parameter] public SemaphoreSlim? Gate { get; set; }
+
+    /// <summary>Fuente preseleccionada para un widget nuevo (crear un indicador desde otro modulo).</summary>
+    [Parameter] public string? FuenteInicial { get; set; }
+
+    /// <summary>Filtros con los que arranca un widget nuevo (p. ej. el tablero desde el que se abre).</summary>
+    [Parameter] public IReadOnlyList<WidgetFiltroDiseno>? FiltrosIniciales { get; set; }
+
+    /// <summary>Texto del boton principal; por defecto "Agregar" / "Guardar cambios".</summary>
+    [Parameter] public string? TextoGuardar { get; set; }
+
+    /// <summary>Contenido del anfitrion al inicio del formulario (p. ej. el libro / hoja destino).</summary>
+    [Parameter] public RenderFragment? Encabezado { get; set; }
 
     [Parameter] public EventCallback<AnalisisNuevoWidget> OnGuardar { get; set; }
 
@@ -333,6 +346,12 @@
                 _ordenarPorMedida = d.OrdenarPorMedida;
                 _filtros = d.Filtros.ToList();
             }
+        }
+        else if (!string.IsNullOrWhiteSpace(FuenteInicial) && Fuentes.Any(f => f.Key == FuenteInicial))
+        {
+            CambiarFuente(FuenteInicial);
+            var campos = Fuente!.Fields.Where(f => f.CanFilter).Select(f => f.Key).ToHashSet();
+            _filtros = (FiltrosIniciales ?? Array.Empty<WidgetFiltroDiseno>()).Where(f => campos.Contains(f.Campo)).ToList();
         }
 
         await RefrescarAsync();

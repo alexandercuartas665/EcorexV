@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - Modulo Analisis: libros como TARJETAS + libro abierto en MODAL GRANDE (ADR-0158, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion del usuario: que los libros se vean como tarjetas en el modulo y que la visualizacion y edicion del libro sea un modal gigante.
+- HECHO: `/analisis` ahora es una galeria de tarjetas (nombre, descripcion, visibilidad Privado/Compartido/Enlace publico, N hojas, N widgets, "Tuyo", fecha). Al hacer clic, el libro se abre en un modal grande (inset 3vh/2.5vw; pantalla completa en telefono) con Ver/Editar, Renombrar, Eliminar y cerrar; adentro siguen las hojas, los filtros y la grilla de widgets. Los dialogos pequenos y el editor de widget quedan encima (z-index 1100 vs 1200). La pagina ya no abre sola el primer libro; `/analisis?libro=&hoja=` (el "Abrir libro" de los otros modulos) abre el modal directamente. Al cerrar se cancela la carga de widgets en curso y se refrescan los conteos. `AnalisisLibroResumen` gana `Widgets` y `Actualizado` (parametros opcionales; conteo en la misma consulta).
+- VERIFICADO: build verde; Application.Tests 1275/1275, SuperAdmin.Tests 178/178, integracion DUAL AnalisisLibros 24/24; format limpio. App viva 5269 (SOLDARCO): 3 tarjetas con conteos reales, abrir/editar/editor encima/cerrar, enlace ?libro= abre el modal, telefono 375px a pantalla completa sin scroll horizontal.
+- NOTA: el error del "boton de filtro" reportado tras el merge no se reprodujo en local (Aplicar/Limpiar de hoja y "+ Agregar filtro" del editor OK); falta el detalle de donde ocurrio.
+
 ## 2026-11-09 - Confidencialidad (ADR-0160 addendum): modal con pestanas + captura de datos opcional + imagenes base64 (release v0.16.294, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Iteracion sobre ADR-0160 a pedido del usuario: (1) el panel quedaba incrustado ENCIMA de las plantillas -> pasarlo a un BOTON que abre un MODAL con pestanas tipo carpeta; (2) captura de datos OPCIONAL (solo checkbox por defecto); (3) bug: pego HTML con imagenes base64 que no se renderizaban.

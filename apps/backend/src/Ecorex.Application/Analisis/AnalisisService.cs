@@ -13,7 +13,9 @@ namespace Ecorex.Application.Analisis;
 /// <summary>Quien opera: usuario de plataforma + si es Admin/Owner del tenant (edita cualquier libro).</summary>
 public sealed record AnalisisActor(Guid? UserId, bool EsAdmin);
 
-public sealed record AnalisisLibroResumen(Guid Id, string Nombre, string? Descripcion, AnalisisVisibilidad Visibilidad, bool EsDueno, int Hojas);
+public sealed record AnalisisLibroResumen(
+    Guid Id, string Nombre, string? Descripcion, AnalisisVisibilidad Visibilidad, bool EsDueno, int Hojas,
+    int Widgets = 0, DateTimeOffset? Actualizado = null);
 
 public sealed record AnalisisWidgetDto(
     Guid Id, Guid HojaId, AnalisisTipoWidget Tipo, string Titulo, string? SpecJson, string? IndicadorKey,
@@ -171,13 +173,16 @@ public sealed class AnalisisService : IAnalisisService
                 l.Visibilidad,
                 l.OwnerUserId,
                 l.AllowedUserIdsJson,
-                Hojas = l.Hojas.Count(h => !h.IsDeleted)
+                Hojas = l.Hojas.Count(h => !h.IsDeleted),
+                Widgets = l.Hojas.Where(h => !h.IsDeleted).SelectMany(h => h.Widgets).Count(),
+                Actualizado = l.UpdatedAt ?? l.CreatedAt
             })
             .ToListAsync(ct);
 
         return libros
             .Where(l => PuedeVer(l.OwnerUserId, l.Visibilidad, l.AllowedUserIdsJson, actor))
-            .Select(l => new AnalisisLibroResumen(l.Id, l.Nombre, l.Descripcion, l.Visibilidad, actor.UserId is Guid u && l.OwnerUserId == u, l.Hojas))
+            .Select(l => new AnalisisLibroResumen(l.Id, l.Nombre, l.Descripcion, l.Visibilidad, actor.UserId is Guid u && l.OwnerUserId == u, l.Hojas,
+                l.Widgets, l.Actualizado))
             .ToList();
     }
 

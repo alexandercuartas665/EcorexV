@@ -261,6 +261,42 @@ se decide junto con el modelo de unidad de trabajo de las escrituras. Se mitiga 
 por push ya quedo acotado a nivel de componente (TaskKanban/ActivityBoardDetail/DynamicFormRenderer recargan
 via `CreateAsyncScope`/`CircuitFormGate` -> servicio fresco).
 
+**Ola 2 - escrituras + cierre (ejecutada, 2026-11-09, v0.16.286).** Antes de "migrar escrituras" se audito
+que operacion de BD puede todavia tocar el `_db` del circuito DESDE UN CONTEXTO NO SERIALIZADO (la causa real
+del "second operation": el dispatcher del circuito serializa los handlers de UI y el trabajo marshalado con
+`InvokeAsync`, asi que dos escrituras de UI nunca se solapan de verdad; el bug aparece cuando algo corre FUERA
+del dispatcher -fire-and-forget, callback de SignalR antes de `InvokeAsync`, timer/poll en hilo del pool- sobre
+el MISMO `_db`). Barrido de los dos proyectos Blazor (`Ecorex.SuperAdmin` activo; `Ecorex.Web` sin estos
+patrones) por `Task.Run`/`Timer`/`PeriodicTimer`/`ConfigureAwait(false)`/`_hub.On`:
+
+- **UNICO vector de ESCRITURA off-dispatcher**: `Lineas.PollAsync` (timer de 3 s para el QR) llamaba
+  `ConnectorSvc.RefreshAsync` (escribe el estado de la linea) sobre el `ConnectorSvc` del circuito en un hilo
+  del pool -> podia solaparse con una accion del usuario (Refrescar/Desconectar). **CORREGIDO**: la consulta
+  corre en un scope EF propio (`CreateAsyncScope` + `AmbientTenantContext.Begin`, `IWhatsAppConnectorService`
+  fresco) y las mutaciones de estado + `StateHasChanged` se marshalan con `InvokeAsync`.
+- `FormModule` (handler SignalR `FormRecord`) llama `ResponsesSvc.ListRecordsAsync` off-dispatcher: ya quedo
+  mitigado por la tajada 3 (ese metodo abre su contexto efimero). Sin cambio.
+- `ContactSearchConfig` (Task.Run) ya usaba scope propio + ambient tenant; `AnalizadorDocumentos`/`TaskToasts`
+  marshalan con `InvokeAsync` y no tocan BD fuera del dispatcher; `DynamicFormRenderer` serializa TODA su BD
+  (autosave/submit/reglas/lookups) por el `CircuitFormGate` por circuito; los demas `_hub.On` recargan via
+  `InvokeAsync` + scope fresco (Ola 0/1). Sin cambios.
+
+**Decision de unidad de trabajo (Action Item 4):** NO se adopta un factory-UoW por metodo ni se convierten las
+escrituras de los ~190 servicios (eso era la Opcion B, descartada). Las ESCRITURAS permanecen como unidad de
+trabajo sobre el `_db` del circuito -con su transaccion y su auditoria/outbox en el MISMO contexto (reglas #4/#5
+intactas)- porque, tras Olas 0/1/2, el `_db` del circuito solo lo toca trabajo SERIALIZADO por el dispatcher:
+todo lo que corre fuera del dispatcher usa un scope fresco (`CreateAsyncScope`) o el factory efimero. El patron
+de aislamiento es "scope corto en el CALL-SITE no serializado", no "convertir cada metodo de escritura".
+
+**Lecturas entangled de `FormResponseService`** (`GetTaskStepForms`/`GetTaskRelatedForms`/concepto+generos):
+no requirieron cambio porque su superficie caliente (`TaskDetailModal`) ya las invoca por el scope FRESCO en
+el camino normal (el `_db` del circuito solo en el fallback raro "sin tenant"); `MovilTablero.OnBoardChanged`/
+`TaskWizard` son handlers de UI serializados. Quedan asi cubiertas; su conversion interna al factory se hara si
+se migran los sub-servicios, sin urgencia.
+
+**Pendiente real (no es codigo de esta ola):** la OBSERVABILIDAD en prod (Action Item 1) para poder MEDIR la
+metrica "0 second operation en 24 h". El fix esta; la medicion necesita el sink.
+
 ## Action Items
 
 1. [ ] Prerrequisito: observabilidad en prod (sink persistente + timestamps / contador de la excepcion).
@@ -274,10 +310,14 @@ via `CreateAsyncScope`/`CircuitFormGate` -> servicio fresco).
    - [x] Servicios, tajada 2 (v0.16.285): `TaskItemService` (todas sus lecturas + helpers enhebrados) y
      `FormResponseService` (lecturas autocontenidas, incl. familia `Board*`). Integracion dual 84/84.
      SIN deploy. Lo entangled con `_workflowEngine`/`_lookup`/`_rules` queda para Ola 2 (ver abajo).
-4. [ ] Decidir el modelo de unidad de trabajo para escrituras (factory-UoW vs transaccion corta por servicio).
-5. [ ] Ola 2: migrar escrituras preservando atomicidad y auditoria en el mismo contexto; e incluir ahi las
-   lecturas de `FormResponseService` que delegan en sub-servicios atados al `_db` (`GetTaskStepForms`,
-   `GetTaskRelatedForms`, concepto/generos), dandoles scope corto propio junto con esas escrituras.
+4. [x] Decidir el modelo de unidad de trabajo para escrituras: las escrituras SIGUEN sobre el `_db` del
+   circuito (transaccion + auditoria en el mismo contexto, reglas #4/#5); NO factory-UoW por metodo ni
+   conversion masiva (Opcion B, descartada). El aislamiento es "scope corto en el call-site no serializado"
+   (ver Ola 2 en Estado de ejecucion).
+5. [x] Ola 2 (v0.16.286): auditoria de vectores off-dispatcher sobre el `_db` del circuito -> unico write
+   real = `Lineas.PollAsync` (timer 3 s), CORREGIDO con scope propio + ambient tenant + `InvokeAsync`.
+   `FormModule` off-dispatcher ya mitigado por la tajada 3. Lecturas entangled de `FormResponseService`
+   cubiertas por el scope fresco de `TaskDetailModal`. Build SuperAdmin verde. SIN deploy.
 6. [ ] Prerrequisito de medicion (bloquea la metrica, no el fix): observabilidad en prod (Action Item 1).
 7. [ ] Reflejar este ADR en el vault (`04. Notas para desarrollador/ADRs`).
 

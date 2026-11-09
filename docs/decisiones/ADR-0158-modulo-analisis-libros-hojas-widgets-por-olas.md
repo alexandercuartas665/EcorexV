@@ -199,6 +199,12 @@ Deploy solo con OK explicito.
   titulo/formato/colores/umbrales. Vista previa en vivo.
 - Filtros globales de la hoja (rango de fechas, tablero, vendedor) que se inyectan al spec de cada
   widget. Estados vacio/error/cargando por widget (un widget roto no tumba la hoja).
+- **Estado 2026-11-08: HECHA.** `WidgetDiseno`/`WidgetDisenoMapper` (diseno <-> spec + validacion),
+  `WidgetConfig` (formato, tono, top, umbrales), `HojaFiltros` + `HojaFiltroBinder` (mapa conocido de
+  fuentes nativas, convencion por nombre en contenedores y override por widget en ContextBindingsJson),
+  KPI sin agrupacion resuelto en memoria sobre el modo tabular, modal reutilizable
+  `AnalisisWidgetEditor` con vista previa, editar widget, barra de filtros de hoja y
+  renombrar/eliminar libro. Deuda: limites de fecha en UTC (no zona del tenant).
 
 ### Ola 4 - Organizar + mas tipos + embebible
 - Drag & drop nativo + redimensionar por handle (cicla ColSpan) + layout batch.

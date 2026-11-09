@@ -12,6 +12,10 @@
         @if (PuedeEditar)
         {
             <div class="aw-actions">
+                @if (OnEditar.HasDelegate)
+                {
+                    <button class="aw-ico" title="Editar widget" @onclick="() => OnEditar.InvokeAsync()">&#9998;</button>
+                }
                 <button class="aw-ico" title="Mover antes" @onclick="() => OnMover.InvokeAsync(-1)">&#8592;</button>
                 <button class="aw-ico" title="Mover despues" @onclick="() => OnMover.InvokeAsync(1)">&#8594;</button>
                 <select class="aw-width" title="Ancho" value="@Widget.ColSpan" @onchange="CambiarAncho">
@@ -39,10 +43,10 @@
         {
             case EscalarShape kpi:
                 <div class="aw-kpi">
-                    <div class="aw-kpi-ico" style="background:var(--t-@Tono(0)-bg);color:var(--t-@Tono(0))">
+                    <div class="aw-kpi-ico" style="background:var(--t-@(kpi.Tono ?? TonoBase)-bg);color:var(--t-@(kpi.Tono ?? TonoBase))">
                         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
                     </div>
-                    <div class="aw-kpi-val">@Num(kpi.Valor)</div>
+                    <div class="aw-kpi-val" style="@(kpi.Tono is null ? "" : $"color:var(--t-{kpi.Tono})")">@Fmt(kpi.Valor)</div>
                     <div class="aw-kpi-lbl">@kpi.Etiqueta</div>
                 </div>
                 break;
@@ -60,21 +64,21 @@
                             <circle cx="60" cy="60" r="@Inv(Radio)" fill="none" stroke="var(--t-@seg.Tono)" stroke-width="16"
                                     stroke-dasharray="@Inv(seg.Largo) @Inv(Circunferencia - seg.Largo)"
                                     stroke-dashoffset="@Inv(-seg.Inicio)" transform="rotate(-90 60 60)">
-                                <title>@seg.Etiqueta: @Num(seg.Valor)</title>
+                                <title>@seg.Etiqueta: @Fmt(seg.Valor)</title>
                             </circle>
                         }
-                        <text x="60" y="58" text-anchor="middle" class="aw-donut-total">@Num(cat.Total)</text>
+                        <text x="60" y="58" text-anchor="middle" class="aw-donut-total">@Fmt(cat.Total)</text>
                         <text x="60" y="74" text-anchor="middle" class="aw-donut-cap">total</text>
                     </svg>
                     <div class="aw-legend">
                         @{ var idx = 0; }
                         @foreach (var it in cat.Items)
                         {
-                            var tono = it.Tono ?? Tono(idx);
+                            var tono = it.Tono ?? TonoDesde(idx);
                             <div class="aw-leg-row">
                                 <span class="aw-dot" style="background:var(--t-@tono)"></span>
                                 <span class="aw-leg-name" title="@it.Etiqueta">@it.Etiqueta</span>
-                                <span class="aw-leg-val">@Num(it.Valor) &middot; @Pct(it.Valor, cat.Total)</span>
+                                <span class="aw-leg-val">@Fmt(it.Valor) &middot; @Pct(it.Valor, cat.Total)</span>
                             </div>
                             idx++;
                         }
@@ -87,9 +91,9 @@
                 <div class="aw-bars">
                     @foreach (var it in cat.Items)
                     {
-                        <div class="aw-bar-col" title="@it.Etiqueta: @Num(it.Valor)">
-                            <span class="aw-bar-val">@Num(it.Valor)</span>
-                            <div class="aw-bar" style="height:@Inv(Alto(it.Valor, max))%;@(it.Tono is null ? "" : $"background:var(--t-{it.Tono})")"></div>
+                        <div class="aw-bar-col" title="@it.Etiqueta: @Fmt(it.Valor)">
+                            <span class="aw-bar-val">@Fmt(it.Valor)</span>
+                            <div class="aw-bar" style="height:@Inv(Alto(it.Valor, max))%;@(ColorBarra(it.Tono))"></div>
                             <span class="aw-bar-lbl">@it.Etiqueta</span>
                         </div>
                     }
@@ -117,13 +121,49 @@
 
     [Parameter] public EventCallback OnEliminar { get; set; }
 
+    /// <summary>Si el anfitrion lo pasa (y PuedeEditar), aparece el boton de editar.</summary>
+    [Parameter] public EventCallback OnEditar { get; set; }
+
+    private WidgetConfig Config => WidgetConfig.Leer(Widget.ConfigJson);
+
+    /// <summary>Tono elegido en la presentacion (o azul).</summary>
+    private string TonoBase => Config.Tono ?? "blue";
+
+    /// <summary>Paleta de categorias empezando por el tono elegido.</summary>
+    private string TonoDesde(int i) => Tonos[(Array.IndexOf(Tonos, TonoBase) + i) % Tonos.Length];
+
+    /// <summary>Barras: tono de la categoria (semaforo), o el elegido; sin eleccion = degradado de marca.</summary>
+    private string ColorBarra(string? tonoItem) =>
+        tonoItem is not null ? $"background:var(--t-{tonoItem})"
+        : Config.Tono is string t ? $"background:linear-gradient(to top,var(--t-{t}),color-mix(in oklab,var(--t-{t}) 55%,white))"
+        : string.Empty;
+
+    private string Fmt(decimal? v) => Formatear(v, Config.Formato);
+
+    /// <summary>Formato de presentacion: numero (default), decimal, moneda, porcentaje.</summary>
+    public static string Formatear(decimal? v, string? formato)
+    {
+        if (v is not decimal d)
+        {
+            return "-";
+        }
+
+        var c = CultureInfo.CurrentCulture;
+        return formato switch
+        {
+            "decimal" => d.ToString("N2", c),
+            "moneda" => "$ " + Math.Round(d).ToString("N0", c),
+            "porcentaje" => Math.Round(d, 1).ToString("0.#", c) + " %",
+            _ => Num(d)
+        };
+    }
+
     private const double Radio = 46;
     private static readonly double Circunferencia = 2 * Math.PI * Radio;
 
     // Paleta de tonos del workspace (tokens --t-*), en orden de asignacion por categoria.
     private static readonly string[] Tonos = { "blue", "violet", "green", "amber", "rose", "slate" };
 
-    private static string Tono(int i) => Tonos[i % Tonos.Length];
 
     private static string Inv(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
@@ -150,7 +190,7 @@
 
     private sealed record Segmento(string Etiqueta, decimal Valor, string Tono, double Inicio, double Largo);
 
-    private static IEnumerable<Segmento> Segmentos(CategoriasShape cat)
+    private IEnumerable<Segmento> Segmentos(CategoriasShape cat)
     {
         var total = cat.Total;
         if (total <= 0)
@@ -163,7 +203,7 @@
         foreach (var it in cat.Items)
         {
             var largo = (double)(it.Valor / total) * Circunferencia;
-            yield return new Segmento(it.Etiqueta, it.Valor, it.Tono ?? Tono(i), acum, largo);
+            yield return new Segmento(it.Etiqueta, it.Valor, it.Tono ?? TonoDesde(i), acum, largo);
             acum += largo;
             i++;
         }

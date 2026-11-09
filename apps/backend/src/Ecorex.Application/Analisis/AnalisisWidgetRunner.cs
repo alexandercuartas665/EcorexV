@@ -17,7 +17,8 @@ public sealed record AnalisisWidgetResultado(WidgetShape? Forma, string? Error)
 /// </summary>
 public interface IAnalisisWidgetRunner
 {
-    Task<AnalisisWidgetResultado> RunAsync(AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default);
+    /// <param name="hoja">Filtros globales de la hoja (null = sin filtros). Cada widget los aplica sobre su fuente.</param>
+    Task<AnalisisWidgetResultado> RunAsync(AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null);
 }
 
 public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
@@ -27,14 +28,16 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
 
     private readonly IReportDataSource _data;
     private readonly IIndicadorCuradoRegistry _curados;
+    private readonly IReportCatalog? _catalog;
 
-    public AnalisisWidgetRunner(IReportDataSource data, IIndicadorCuradoRegistry curados)
+    public AnalisisWidgetRunner(IReportDataSource data, IIndicadorCuradoRegistry curados, IReportCatalog? catalog = null)
     {
         _data = data;
         _curados = curados;
+        _catalog = catalog;
     }
 
-    public async Task<AnalisisWidgetResultado> RunAsync(AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default)
+    public async Task<AnalisisWidgetResultado> RunAsync(AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null)
     {
         try
         {
@@ -46,7 +49,8 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
                     return new(null, "El indicador ya no existe.");
                 }
 
-                var forma = await curado.QueryAsync(new IndicadorContexto(ctx), ct);
+                var extra = await FiltrosDeHojaAsync(curado.SourceKey, hoja, widget.ContextBindingsJson, ct);
+                var forma = await curado.QueryAsync(new IndicadorContexto(ctx, extra), ct);
                 return new(Adaptar(forma, widget), null);
             }
 
@@ -56,8 +60,22 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
                 return new(null, "La consulta del widget no es valida.");
             }
 
+            var filtrosHoja = await FiltrosDeHojaAsync(spec.SourceKey, hoja, widget.ContextBindingsJson, ct);
+            if (filtrosHoja.Count > 0)
+            {
+                spec = spec with { Filters = spec.Filters.Concat(filtrosHoja).ToList() };
+            }
+
+            // Agregado SIN dimension (KPI "total"): casi todas las fuentes exigen exactamente un grupo, asi
+            // que se pide el campo en modo tabular (con el mismo tope de filas) y se agrega aqui.
+            if (spec.GroupBy.Count == 0 && spec.Aggregates.Count == 1)
+            {
+                var valor = await AgregarSinGrupoAsync(spec, ctx, ct);
+                return new(Adaptar(new EscalarShape(valor, widget.Titulo), widget), null);
+            }
+
             var ds = await _data.QueryAsync(spec, ctx, ct);
-            return new(AFormar(ds, widget), null);
+            return new(Adaptar(AFormar(ds, widget), widget), null);
         }
         catch (ReportValidationException ex)
         {
@@ -84,35 +102,85 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
         _ => WidgetShapes.ToTabla(ds)
     };
 
-    /// <summary>Forma de un curado -> lo que pide el tipo (p.ej. KPI sobre un curado de categorias = total).</summary>
-    public static WidgetShape Adaptar(WidgetShape forma, AnalisisWidgetDto widget) => (widget.Tipo, forma) switch
+    /// <summary>
+    /// Forma -> lo que pide el tipo (p.ej. KPI sobre un curado de categorias = total) y tono del KPI
+    /// segun los umbrales del ConfigJson.
+    /// </summary>
+    public static WidgetShape Adaptar(WidgetShape forma, AnalisisWidgetDto widget)
     {
-        (AnalisisTipoWidget.Kpi, CategoriasShape c) => new EscalarShape(c.Total, widget.Titulo),
-        _ => forma
-    };
-
-    /// <summary>Lee "top" del ConfigJson (ej. {"top":5}); por defecto <see cref="TopCategoriasPorDefecto"/>.</summary>
-    public static int Top(string? configJson)
-    {
-        if (!string.IsNullOrWhiteSpace(configJson))
+        var adaptada = (widget.Tipo, forma) switch
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(configJson);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object
-                    && doc.RootElement.TryGetProperty("top", out var t)
-                    && t.TryGetInt32(out var n) && n > 0)
-                {
-                    return n;
-                }
-            }
-            catch (JsonException)
-            {
-                // Config corrupta: se usa el valor por defecto.
-            }
+            (AnalisisTipoWidget.Kpi, CategoriasShape c) => new EscalarShape(c.Total, widget.Titulo),
+            _ => forma
+        };
+
+        if (adaptada is EscalarShape kpi && WidgetConfig.Leer(widget.ConfigJson).TonoPorUmbral(kpi.Valor) is string tono)
+        {
+            return kpi with { Tono = tono };
         }
 
-        return TopCategoriasPorDefecto;
+        return adaptada;
+    }
+
+    /// <summary>Lee "top" del ConfigJson (ej. {"top":5}); por defecto <see cref="TopCategoriasPorDefecto"/>.</summary>
+    public static int Top(string? configJson) =>
+        WidgetConfig.Leer(configJson).Top is int n and > 0 ? n : TopCategoriasPorDefecto;
+
+    /// <summary>Agrega en memoria los valores de un campo (Count/Sum/Avg/Min/Max), ignorando nulos. Puro.</summary>
+    public static decimal? Agregar(ReportAggregateFunction fn, IEnumerable<object?> valores)
+    {
+        if (fn == ReportAggregateFunction.Count)
+        {
+            return valores.Count();
+        }
+
+        var nums = valores.Select(InMemoryReportEngine.ToDecimal).Where(v => v is not null).Select(v => v!.Value).ToList();
+        if (nums.Count == 0)
+        {
+            return fn == ReportAggregateFunction.Sum ? 0m : null;
+        }
+
+        return fn switch
+        {
+            ReportAggregateFunction.Sum => nums.Sum(),
+            ReportAggregateFunction.Avg => Math.Round(nums.Average(), 4),
+            ReportAggregateFunction.Min => nums.Min(),
+            ReportAggregateFunction.Max => nums.Max(),
+            _ => null
+        };
+    }
+
+    private async Task<decimal?> AgregarSinGrupoAsync(ReportQuerySpec spec, ReportContext ctx, CancellationToken ct)
+    {
+        var agg = spec.Aggregates[0];
+        var campo = agg.Function == ReportAggregateFunction.Count || string.IsNullOrWhiteSpace(agg.FieldKey)
+            ? await CampoCualquieraAsync(spec, ct)
+            : agg.FieldKey;
+        var ds = await _data.QueryAsync(spec with { Fields = new[] { campo }, Aggregates = Array.Empty<ReportAggregate>(), Sort = Array.Empty<ReportSort>() }, ctx, ct);
+        return Agregar(agg.Function, ds.Rows.Select(r => r.Count > 0 ? r[0] : null));
+    }
+
+    /// <summary>Para contar filas basta proyectar un campo: el primero de la fuente (o el del primer filtro).</summary>
+    private async Task<string> CampoCualquieraAsync(ReportQuerySpec spec, CancellationToken ct)
+    {
+        if (_catalog is not null && await _catalog.GetSourceAsync(spec.SourceKey, ct) is { Fields.Count: > 0 } d)
+        {
+            return d.Fields[0].Key;
+        }
+
+        return spec.Filters.FirstOrDefault()?.FieldKey
+            ?? throw new ReportValidationException("No se pudo determinar un campo para contar filas.");
+    }
+
+    private async Task<IReadOnlyList<ReportFilter>> FiltrosDeHojaAsync(string sourceKey, HojaFiltros? hoja, string? bindingsJson, CancellationToken ct)
+    {
+        if (hoja is null || hoja.Vacio || _catalog is null)
+        {
+            return Array.Empty<ReportFilter>();
+        }
+
+        var fuente = await _catalog.GetSourceAsync(sourceKey, ct);
+        return fuente is null ? Array.Empty<ReportFilter>() : HojaFiltroBinder.Filtros(hoja, fuente, bindingsJson);
     }
 }
 

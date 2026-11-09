@@ -74,11 +74,25 @@
     background: var(--surface-3); color: var(--ink-2); border-radius: 6px; padding: 2px 7px; min-width: 50px; text-align: center;
 }
 
+/* Filtros globales de la hoja (Ola 3) */
+.an-filters {
+    display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin: -4px 0 16px;
+    padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+}
+.an-f { display: flex; flex-direction: column; gap: 4px; min-width: 130px; flex: 0 1 160px; }
+.an-f label { font-size: 11px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+.an-input.sm { padding: 6px 9px; font-size: 12.5px; border-radius: 8px; }
+.an-f-actions { display: flex; gap: 6px; }
+.an-f-note { font-size: 12px; color: var(--ink-3); align-self: center; }
+.an-btn.danger-solid { background: var(--t-rose); border-color: var(--t-rose); color: #fff; }
+.an-pick-item.main { width: 100%; border-color: var(--brand); }
+
 /* Telefono: una sola columna, los anchos se ignoran. */
 @media (max-width: 760px) {
     .an-grid { grid-template-columns: minmax(0, 1fr); }
     .an-grid ::deep .aw-card { grid-column: auto !important; }
     .an-select { min-width: 0; flex: 1; }
+    .an-f { flex: 1 1 140px; }
 }
 @media (min-width: 761px) and (max-width: 1100px) {
     .an-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

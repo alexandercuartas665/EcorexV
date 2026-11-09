@@ -1,0 +1,568 @@
+@using System.Text.Json
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@inject IAnalisisWidgetRunner Runner
+@implements IDisposable
+
+@* Modal "Agregar / editar widget" (ADR-0158 Ola 3). Componente REUTILIZABLE: arma un WidgetDiseno
+   (tipo -> fuente -> medida -> dimension -> filtros -> presentacion) o elige un indicador listo, muestra la
+   vista previa en vivo con los filtros de la hoja y devuelve un AnalisisNuevoWidget al anfitrion. Solo
+   habla con el catalogo que el anfitrion le pasa (Fuentes/Curados); el guardado lo hace el anfitrion.
+   La vista previa espera la compuerta (Gate) del anfitrion para no solapar el DbContext del circuito. *@
+
+<div class="we-backdrop" @onclick="() => OnCancelar.InvokeAsync()"></div>
+<div class="we-modal" role="dialog" aria-modal="true" aria-label="Configurar widget">
+    <div class="we-head">
+        <h3>@(Inicial is null ? "Agregar widget" : "Editar widget")</h3>
+        <button class="we-x" @onclick="() => OnCancelar.InvokeAsync()" aria-label="Cerrar">&#215;</button>
+    </div>
+
+    <div class="we-body">
+        <div class="we-form">
+            <div class="we-seg">
+                <button class="@(_modoCurado ? "" : "on")" @onclick="() => CambiarModo(false)">Consulta</button>
+                <button class="@(_modoCurado ? "on" : "")" @onclick="() => CambiarModo(true)">Indicador listo</button>
+            </div>
+
+            <label class="we-lbl">Tipo</label>
+            <div class="we-chips">
+                @foreach (var t in WidgetDisenoMapper.Tipos)
+                {
+                    <button class="we-chip @(_tipo == t.Tipo ? "on" : "")" @onclick="() => Cambiar(() => _tipo = t.Tipo)">@t.Nombre</button>
+                }
+            </div>
+
+            <label class="we-lbl">Titulo</label>
+            <input class="we-input" value="@_titulo" @onchange="e => Cambiar(() => _titulo = e.Value?.ToString() ?? string.Empty)" maxlength="150" placeholder="Ej. Ventas por vendedor" />
+
+            @if (_modoCurado)
+            {
+                <label class="we-lbl">Indicador</label>
+                <select class="we-input" value="@_curadoKey" @onchange="e => Cambiar(() => _curadoKey = e.Value?.ToString())">
+                    <option value="">Elige un indicador...</option>
+                    @foreach (var c in Curados)
+                    {
+                        <option value="@c.Key">@c.Nombre</option>
+                    }
+                </select>
+                @if (CuradoActual is { } cur)
+                {
+                    <p class="we-hint">@cur.Descripcion</p>
+                }
+            }
+            else
+            {
+                <label class="we-lbl">Fuente de datos</label>
+                <select class="we-input" value="@_sourceKey" @onchange="e => Cambiar(() => CambiarFuente(e.Value?.ToString()))">
+                    <option value="">Elige una fuente...</option>
+                    @foreach (var grupo in Fuentes.GroupBy(f => f.Kind))
+                    {
+                        <optgroup label="@NombreKind(grupo.Key)">
+                            @foreach (var f in grupo.OrderBy(f => f.DisplayName))
+                            {
+                                <option value="@f.Key">@f.DisplayName</option>
+                            }
+                        </optgroup>
+                    }
+                </select>
+
+                @if (Fuente is { } fuente)
+                {
+                    <label class="we-lbl">Medida</label>
+                    <div class="we-row">
+                        <select class="we-input" value="@_funcion" @onchange="e => Cambiar(() => _funcion = Enum.Parse<ReportAggregateFunction>(e.Value!.ToString()!))">
+                            @foreach (var fn in Enum.GetValues<ReportAggregateFunction>())
+                            {
+                                <option value="@fn">@NombreFuncion(fn)</option>
+                            }
+                        </select>
+                        @if (_funcion != ReportAggregateFunction.Count)
+                        {
+                            <select class="we-input" value="@_campoMedida" @onchange="e => Cambiar(() => _campoMedida = e.Value?.ToString())">
+                                <option value="">Campo numerico...</option>
+                                @foreach (var f in fuente.Fields.Where(f => f.CanAggregate))
+                                {
+                                    <option value="@f.Key">@f.DisplayName</option>
+                                }
+                            </select>
+                        }
+                    </div>
+
+                    <label class="we-lbl">Agrupar por @(WidgetDisenoMapper.PideDimension(_tipo) ? "" : "(opcional)")</label>
+                    <div class="we-row">
+                        <select class="we-input" value="@_dimension" @onchange="e => Cambiar(() => _dimension = e.Value?.ToString())">
+                            <option value="">@(WidgetDisenoMapper.PideDimension(_tipo) ? "Elige un campo..." : "Sin agrupar (total)")</option>
+                            @foreach (var f in fuente.Fields.Where(f => f.CanGroup))
+                            {
+                                <option value="@f.Key">@f.DisplayName</option>
+                            }
+                        </select>
+                        @if (!string.IsNullOrEmpty(_dimension))
+                        {
+                            <select class="we-input" value="@OrdenValor" @onchange="CambiarOrden">
+                                <option value="medida">Mayor a menor</option>
+                                <option value="etiqueta">Por etiqueta</option>
+                            </select>
+                        }
+                    </div>
+
+                    <label class="we-lbl">Filtros</label>
+                    @for (var i = 0; i < _filtros.Count; i++)
+                    {
+                        var idx = i;
+                        var fl = _filtros[idx];
+                        var campo = fuente.FindField(fl.Campo);
+                        <div class="we-filter">
+                            <select class="we-input" value="@fl.Campo" @onchange="e => FiltroCampo(idx, e.Value?.ToString())">
+                                @foreach (var f in fuente.Fields.Where(f => f.CanFilter))
+                                {
+                                    <option value="@f.Key">@f.DisplayName</option>
+                                }
+                            </select>
+                            <select class="we-input sm" value="@fl.Operador" @onchange="e => FiltroOperador(idx, e.Value?.ToString())">
+                                @foreach (var op in OperadoresDe(campo))
+                                {
+                                    <option value="@op">@NombreOperador(op)</option>
+                                }
+                            </select>
+                            @if (campo?.Type == ReportFieldType.Boolean)
+                            {
+                                <select class="we-input sm" value="@fl.Valor" @onchange="e => FiltroValor(idx, e.Value?.ToString(), false)">
+                                    <option value="">...</option>
+                                    <option value="true">Si</option>
+                                    <option value="false">No</option>
+                                </select>
+                            }
+                            else
+                            {
+                                <input class="we-input sm" type="@TipoInput(campo)" value="@fl.Valor" placeholder="@(fl.Operador == ReportFilterOperator.In ? "a, b, c" : "valor")"
+                                       @onchange="e => FiltroValor(idx, e.Value?.ToString(), false)" />
+                                @if (fl.Operador == ReportFilterOperator.Between)
+                                {
+                                    <input class="we-input sm" type="@TipoInput(campo)" value="@fl.Valor2" @onchange="e => FiltroValor(idx, e.Value?.ToString(), true)" />
+                                }
+                            }
+                            <button class="we-ico" title="Quitar filtro" @onclick="() => QuitarFiltro(idx)">&#215;</button>
+                        </div>
+                    }
+                    <button class="we-link" @onclick="AgregarFiltro">+ Agregar filtro</button>
+                }
+            }
+
+            <details class="we-more" open="@(Inicial is not null)">
+                <summary>Presentacion</summary>
+                <div class="we-grid2">
+                    <div>
+                        <label class="we-lbl">Ancho</label>
+                        <select class="we-input" value="@_colSpan" @onchange="e => Cambiar(() => _colSpan = int.Parse(e.Value!.ToString()!))">
+                            @for (var c = 1; c <= 4; c++)
+                            {
+                                <option value="@c">@c columna@(c > 1 ? "s" : "")</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="we-lbl">Formato</label>
+                        <select class="we-input" value="@(_config.Formato ?? "numero")" @onchange="e => SetConfig(nameof(WidgetConfig.Formato), e.Value)">
+                            <option value="numero">Numero</option>
+                            <option value="decimal">Decimal</option>
+                            <option value="moneda">Moneda</option>
+                            <option value="porcentaje">Porcentaje</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="we-lbl">Color</label>
+                        <div class="we-tones">
+                            @foreach (var tono in WidgetConfig.Tonos)
+                            {
+                                <button class="we-tone @(TonoActual == tono ? "on" : "")" style="background:var(--t-@tono)" title="@tono"
+                                        @onclick="() => SetConfig(nameof(WidgetConfig.Tono), tono)"></button>
+                            }
+                        </div>
+                    </div>
+                    @if (_tipo != AnalisisTipoWidget.Kpi)
+                    {
+                        <div>
+                            <label class="we-lbl">Categorias visibles</label>
+                            <input class="we-input" type="number" min="1" max="50" value="@(_config.Top ?? AnalisisWidgetRunner.TopCategoriasPorDefecto)"
+                                   @onchange="e => SetConfig(nameof(WidgetConfig.Top), e.Value)" />
+                        </div>
+                    }
+                </div>
+                @if (_tipo == AnalisisTipoWidget.Kpi)
+                {
+                    <label class="we-lbl">Umbrales (semaforo del KPI, opcional)</label>
+                    <div class="we-row">
+                        <input class="we-input" type="number" step="any" placeholder="Alerta por debajo de" value="@_config.UmbralBajo"
+                               @onchange="e => SetConfig(nameof(WidgetConfig.UmbralBajo), e.Value)" />
+                        <input class="we-input" type="number" step="any" placeholder="Bien desde" value="@_config.UmbralAlto"
+                               @onchange="e => SetConfig(nameof(WidgetConfig.UmbralAlto), e.Value)" />
+                    </div>
+                    <label class="we-check"><input type="checkbox" checked="@(!_config.MayorEsMejor)" @onchange="e => SetConfig(nameof(WidgetConfig.MayorEsMejor), e.Value)" /> Menor es mejor</label>
+                }
+                @if (!_modoCurado && Fuente is { } fte)
+                {
+                    <label class="we-lbl">Campo de fecha para los filtros de la hoja</label>
+                    <select class="we-input" value="@_campoFecha" @onchange="e => Cambiar(() => _campoFecha = e.Value?.ToString() ?? AutoFecha)">
+                        <option value="@AutoFecha">Automatico (@(HojaFiltroBinder.Resolver(HojaFiltroBinder.Fecha, fte, null) is string auto ? fte.FindField(auto)?.DisplayName : "ninguno"))</option>
+                        @foreach (var f in fte.Fields.Where(f => f.Type == ReportFieldType.Date && f.CanFilter))
+                        {
+                            <option value="@f.Key">@f.DisplayName</option>
+                        }
+                        <option value="@SinFecha">No aplicar el rango de fechas</option>
+                    </select>
+                }
+            </details>
+        </div>
+
+        <div class="we-preview">
+            <div class="we-preview-cap">Vista previa @(HojaFiltros is { Vacio: false } ? "(con los filtros de la hoja)" : "")</div>
+            @if (_errores.Count > 0)
+            {
+                <ul class="we-errs">
+                    @foreach (var err in _errores)
+                    {
+                        <li>@err</li>
+                    }
+                </ul>
+            }
+            else
+            {
+                <div class="we-preview-grid">
+                    <AnalisisWidgetCard Widget="PreviewDto" Resultado="_preview" />
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="we-foot">
+        <button class="we-btn" @onclick="() => OnCancelar.InvokeAsync()">Cancelar</button>
+        <button class="we-btn primary" disabled="@(_errores.Count > 0 || _guardando)" @onclick="GuardarAsync">@(Inicial is null ? "Agregar" : "Guardar cambios")</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ReportSourceDescriptor> Fuentes { get; set; } = Array.Empty<ReportSourceDescriptor>();
+
+    [Parameter, EditorRequired] public IReadOnlyList<IIndicadorCurado> Curados { get; set; } = Array.Empty<IIndicadorCurado>();
+
+    /// <summary>Widget a editar (null = nuevo).</summary>
+    [Parameter] public AnalisisWidgetDto? Inicial { get; set; }
+
+    /// <summary>Filtros de la hoja, para que la vista previa muestre lo mismo que la grilla.</summary>
+    [Parameter] public HojaFiltros? HojaFiltros { get; set; }
+
+    /// <summary>Compuerta del anfitrion: una consulta a la vez por circuito.</summary>
+    [Parameter] public SemaphoreSlim? Gate { get; set; }
+
+    [Parameter] public EventCallback<AnalisisNuevoWidget> OnGuardar { get; set; }
+
+    [Parameter] public EventCallback OnCancelar { get; set; }
+
+    private const string AutoFecha = "__auto";
+    private const string SinFecha = "__none";
+
+    private bool _modoCurado;
+    private AnalisisTipoWidget _tipo = AnalisisTipoWidget.Kpi;
+    private string _titulo = string.Empty;
+    private string? _curadoKey;
+    private string? _sourceKey;
+    private ReportAggregateFunction _funcion = ReportAggregateFunction.Count;
+    private string? _campoMedida;
+    private string? _dimension;
+    private bool _ordenarPorMedida = true;
+    private List<WidgetFiltroDiseno> _filtros = new();
+    private int _colSpan = 1;
+    private WidgetConfig _config = new();
+    private string _campoFecha = AutoFecha;
+    private IReadOnlyList<string> _errores = Array.Empty<string>();
+    private AnalisisWidgetResultado? _preview;
+    private bool _guardando;
+    private int _previewVersion;
+    private CancellationTokenSource? _cts;
+    private readonly Guid _previewId = Guid.NewGuid();
+
+    private ReportSourceDescriptor? Fuente => Fuentes.FirstOrDefault(f => f.Key == _sourceKey);
+
+    private IIndicadorCurado? CuradoActual => Curados.FirstOrDefault(c => c.Key == _curadoKey);
+
+    private string TonoActual => _config.Tono ?? "blue";
+
+    private AnalisisWidgetDto PreviewDto { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Inicial is { } w)
+        {
+            _colSpan = w.ColSpan;
+            _config = WidgetConfig.Leer(w.ConfigJson);
+            _tipo = w.Tipo;
+            _titulo = w.Titulo;
+            var bindings = HojaFiltroBinder.LeerBindings(w.ContextBindingsJson);
+            if (bindings.TryGetValue(HojaFiltroBinder.Fecha, out var bf))
+            {
+                _campoFecha = string.IsNullOrEmpty(bf) ? SinFecha : bf;
+            }
+
+            if (!string.IsNullOrWhiteSpace(w.IndicadorKey))
+            {
+                _modoCurado = true;
+                _curadoKey = w.IndicadorKey;
+            }
+            else
+            {
+                var d = WidgetDisenoMapper.FromWidget(w);
+                _sourceKey = d.SourceKey;
+                _funcion = d.Funcion;
+                _campoMedida = d.CampoMedida;
+                _dimension = d.Dimension;
+                _ordenarPorMedida = d.OrdenarPorMedida;
+                _filtros = d.Filtros.ToList();
+            }
+        }
+
+        await RefrescarAsync();
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+
+    private Task Cambiar(Action cambio)
+    {
+        cambio();
+        return RefrescarAsync();
+    }
+
+    private Task CambiarModo(bool curado) => Cambiar(() => _modoCurado = curado);
+
+    private void CambiarFuente(string? key)
+    {
+        _sourceKey = string.IsNullOrEmpty(key) ? null : key;
+        _campoMedida = null;
+        _dimension = null;
+        _filtros = new();
+        _campoFecha = AutoFecha;
+        if (Fuente is { } f && string.IsNullOrWhiteSpace(_titulo))
+        {
+            _titulo = f.DisplayName;
+        }
+    }
+
+    private Task AgregarFiltro()
+    {
+        var primero = Fuente?.Fields.FirstOrDefault(f => f.CanFilter);
+        if (primero is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Cambiar(() => _filtros.Add(new WidgetFiltroDiseno(primero.Key, OperadoresDe(primero)[0], null)));
+    }
+
+    private Task QuitarFiltro(int i) => Cambiar(() => _filtros.RemoveAt(i));
+
+    private Task CambiarFiltro(int i, WidgetFiltroDiseno f) => Cambiar(() => _filtros[i] = f);
+
+    /// <summary>Cambia una propiedad de la presentacion (los with-expressions no caben en atributos Razor).</summary>
+    private Task SetConfig(string prop, object? valor) => Cambiar(() =>
+    {
+        var texto = valor?.ToString();
+        _config = prop switch
+        {
+            nameof(WidgetConfig.Formato) => _config with { Formato = texto },
+            nameof(WidgetConfig.Tono) => _config with { Tono = texto },
+            nameof(WidgetConfig.Top) => _config with { Top = int.TryParse(texto, out var n) ? n : null },
+            nameof(WidgetConfig.UmbralBajo) => _config with { UmbralBajo = Dec(texto) },
+            nameof(WidgetConfig.UmbralAlto) => _config with { UmbralAlto = Dec(texto) },
+            nameof(WidgetConfig.MayorEsMejor) => _config with { MayorEsMejor = valor is not true },
+            _ => _config
+        };
+    });
+
+    private string OrdenValor => _ordenarPorMedida ? "medida" : "etiqueta";
+
+    private Task CambiarOrden(ChangeEventArgs e) => Cambiar(() => _ordenarPorMedida = e.Value?.ToString() == "medida");
+
+    private Task FiltroCampo(int i, string? campo)
+    {
+        var key = campo ?? string.Empty;
+        return CambiarFiltro(i, new WidgetFiltroDiseno(key, OperadoresDe(Fuente?.FindField(key))[0], null));
+    }
+
+    private Task FiltroOperador(int i, string? op) =>
+        Enum.TryParse<ReportFilterOperator>(op, out var o) ? CambiarFiltro(i, _filtros[i] with { Operador = o }) : Task.CompletedTask;
+
+    private Task FiltroValor(int i, string? valor, bool segundo) =>
+        CambiarFiltro(i, segundo ? _filtros[i] with { Valor2 = valor } : _filtros[i] with { Valor = valor });
+
+    private string? Bindings() => _campoFecha switch
+    {
+        AutoFecha => null,
+        SinFecha => JsonSerializer.Serialize(new Dictionary<string, string> { [HojaFiltroBinder.Fecha] = string.Empty }),
+        var campo => JsonSerializer.Serialize(new Dictionary<string, string> { [HojaFiltroBinder.Fecha] = campo })
+    };
+
+    private WidgetDiseno Diseno() => new()
+    {
+        Tipo = _tipo,
+        Titulo = _titulo.Trim(),
+        SourceKey = _sourceKey ?? string.Empty,
+        Funcion = _funcion,
+        CampoMedida = _campoMedida,
+        Dimension = _dimension,
+        Filtros = _filtros.ToList(),
+        OrdenarPorMedida = _ordenarPorMedida,
+        ColSpan = _colSpan,
+        Config = _config
+    };
+
+    /// <summary>Lo que se guardaria ahora mismo (o null si hay errores).</summary>
+    private AnalisisNuevoWidget? Construir(out IReadOnlyList<string> errores)
+    {
+        if (_modoCurado)
+        {
+            var lista = new List<string>();
+            if (string.IsNullOrWhiteSpace(_titulo))
+            {
+                lista.Add("Ponle un titulo al widget.");
+            }
+
+            if (CuradoActual is null)
+            {
+                lista.Add("Elige un indicador.");
+            }
+
+            errores = lista;
+            return lista.Count > 0 ? null : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, _curadoKey, _colSpan, _config.ToJson());
+        }
+
+        var d = Diseno();
+        errores = WidgetDisenoMapper.Validar(d, Fuente);
+        return errores.Count > 0 ? null : WidgetDisenoMapper.ToNuevoWidget(d, Bindings());
+    }
+
+    private async Task RefrescarAsync()
+    {
+        var nuevo = Construir(out var errores);
+        _errores = errores;
+        if (nuevo is null)
+        {
+            _preview = null;
+            return;
+        }
+
+        PreviewDto = new AnalisisWidgetDto(_previewId, Guid.Empty, nuevo.Tipo, nuevo.Titulo,
+            nuevo.Spec is null ? null : AnalisisJson.Serialize(nuevo.Spec), nuevo.IndicadorKey, nuevo.ConfigJson, 0, 1, 1, nuevo.ContextBindingsJson);
+        _preview = null;
+        var version = ++_previewVersion;
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        StateHasChanged();
+
+        try
+        {
+            // Pequena espera: si el usuario sigue cambiando campos, solo corre la ultima consulta.
+            await Task.Delay(250, ct);
+            if (Gate is not null)
+            {
+                await Gate.WaitAsync(ct);
+            }
+
+            try
+            {
+                var r = await Runner.RunAsync(PreviewDto, new ReportContext(Guid.Empty), ct, HojaFiltros);
+                if (version == _previewVersion)
+                {
+                    _preview = r;
+                }
+            }
+            finally
+            {
+                Gate?.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Llego un cambio mas nuevo.
+        }
+    }
+
+    private async Task GuardarAsync()
+    {
+        var nuevo = Construir(out var errores);
+        if (nuevo is null)
+        {
+            _errores = errores;
+            return;
+        }
+
+        _guardando = true;
+        try
+        {
+            await OnGuardar.InvokeAsync(nuevo);
+        }
+        finally
+        {
+            _guardando = false;
+        }
+    }
+
+    private static decimal? Dec(object? v) =>
+        decimal.TryParse(v?.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null;
+
+    private static string TipoInput(ReportField? f) => f?.Type switch
+    {
+        ReportFieldType.Date => "date",
+        ReportFieldType.Number or ReportFieldType.Decimal => "number",
+        _ => "text"
+    };
+
+    private static ReportFilterOperator[] OperadoresDe(ReportField? f) => f?.Type switch
+    {
+        ReportFieldType.Boolean => new[] { ReportFilterOperator.Equals },
+        ReportFieldType.Date => new[] { ReportFilterOperator.Between, ReportFilterOperator.GreaterThanOrEqual, ReportFilterOperator.LessThanOrEqual },
+        ReportFieldType.Number or ReportFieldType.Decimal => new[]
+        {
+            ReportFilterOperator.Equals, ReportFilterOperator.GreaterThan, ReportFilterOperator.GreaterThanOrEqual,
+            ReportFilterOperator.LessThan, ReportFilterOperator.LessThanOrEqual, ReportFilterOperator.Between
+        },
+        _ => new[] { ReportFilterOperator.Equals, ReportFilterOperator.NotEquals, ReportFilterOperator.Contains, ReportFilterOperator.In }
+    };
+
+    private static string NombreOperador(ReportFilterOperator op) => op switch
+    {
+        ReportFilterOperator.Equals => "es",
+        ReportFilterOperator.NotEquals => "no es",
+        ReportFilterOperator.Contains => "contiene",
+        ReportFilterOperator.In => "es uno de",
+        ReportFilterOperator.GreaterThan => "mayor que",
+        ReportFilterOperator.GreaterThanOrEqual => "desde",
+        ReportFilterOperator.LessThan => "menor que",
+        ReportFilterOperator.LessThanOrEqual => "hasta",
+        ReportFilterOperator.Between => "entre",
+        _ => op.ToString()
+    };
+
+    private static string NombreFuncion(ReportAggregateFunction fn) => fn switch
+    {
+        ReportAggregateFunction.Count => "Conteo de registros",
+        ReportAggregateFunction.Sum => "Suma",
+        ReportAggregateFunction.Avg => "Promedio",
+        ReportAggregateFunction.Min => "Minimo",
+        ReportAggregateFunction.Max => "Maximo",
+        _ => fn.ToString()
+    };
+
+    private static string NombreKind(ReportSourceKind k) => k switch
+    {
+        ReportSourceKind.Native => "Sistema",
+        ReportSourceKind.Container => "Contenedores de datos",
+        ReportSourceKind.External => "Fuentes externas",
+        _ => k.ToString()
+    };
+}

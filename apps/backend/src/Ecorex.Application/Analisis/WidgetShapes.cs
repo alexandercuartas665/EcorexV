@@ -10,7 +10,7 @@ namespace Ecorex.Application.Analisis;
 public abstract record WidgetShape;
 
 /// <summary>Un numero (KPI). <see cref="Delta"/> opcional = variacion vs periodo anterior.</summary>
-public sealed record EscalarShape(decimal? Valor, string Etiqueta, decimal? Delta = null) : WidgetShape;
+public sealed record EscalarShape(decimal? Valor, string Etiqueta, decimal? Delta = null, string? Tono = null) : WidgetShape;
 
 /// <summary>Un par etiqueta-valor de <see cref="CategoriasShape"/>. <see cref="Tono"/> opcional para semaforos.</summary>
 public sealed record CategoriaItem(string Etiqueta, decimal Valor, string? Tono = null);
@@ -48,10 +48,16 @@ public static class WidgetShapes
     /// <summary>KPI: suma de la medida de todas las filas (un dataset agregado sin grupos tiene 1 fila).</summary>
     public static EscalarShape ToEscalar(ReportDataSet ds, string etiqueta)
     {
-        var m = MeasureIndex(ds);
-        if (m < 0 || ds.RowCount == 0)
+        // Sin filas = no hubo nada que contar ni sumar: el KPI vale 0 (no "sin dato").
+        if (ds.RowCount == 0)
         {
-            return new EscalarShape(m < 0 && ds.RowCount > 0 ? ds.RowCount : null, etiqueta);
+            return new EscalarShape(0m, etiqueta);
+        }
+
+        var m = MeasureIndex(ds);
+        if (m < 0)
+        {
+            return new EscalarShape(ds.RowCount, etiqueta);
         }
 
         var values = ds.Rows.Select(r => InMemoryReportEngine.ToDecimal(r[m])).Where(v => v.HasValue).Select(v => v!.Value).ToList();

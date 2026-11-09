@@ -17,16 +17,19 @@ public sealed record AnalisisLibroResumen(Guid Id, string Nombre, string? Descri
 
 public sealed record AnalisisWidgetDto(
     Guid Id, Guid HojaId, AnalisisTipoWidget Tipo, string Titulo, string? SpecJson, string? IndicadorKey,
-    string? ConfigJson, int Orden, int ColSpan, int RowSpan);
+    string? ConfigJson, int Orden, int ColSpan, int RowSpan, string? ContextBindingsJson = null);
 
-public sealed record AnalisisHojaDto(Guid Id, string Nombre, int Orden, IReadOnlyList<AnalisisWidgetDto> Widgets);
+public sealed record AnalisisHojaDto(Guid Id, string Nombre, int Orden, IReadOnlyList<AnalisisWidgetDto> Widgets, string? FiltrosJson = null)
+{
+    public HojaFiltros Filtros => HojaFiltros.Leer(FiltrosJson);
+}
 
 public sealed record AnalisisLibroDetalle(
     Guid Id, string Nombre, string? Descripcion, AnalisisVisibilidad Visibilidad, long Version, bool PuedeEditar,
     IReadOnlyList<AnalisisHojaDto> Hojas);
 
 /// <summary>Widget nuevo: un spec del motor de reportes O un indicador curado (excluyentes).</summary>
-public sealed record AnalisisNuevoWidget(AnalisisTipoWidget Tipo, string Titulo, ReportQuerySpec? Spec, string? IndicadorKey, int ColSpan = 1, string? ConfigJson = null);
+public sealed record AnalisisNuevoWidget(AnalisisTipoWidget Tipo, string Titulo, ReportQuerySpec? Spec, string? IndicadorKey, int ColSpan = 1, string? ConfigJson = null, string? ContextBindingsJson = null);
 
 /// <summary>Resultado de una operacion de escritura: Ok + Id creado/afectado, o el error legible.</summary>
 public sealed record AnalisisOpResult(bool Ok, Guid? Id = null, string? Error = null)
@@ -92,6 +95,12 @@ public interface IAnalisisService
     Task<AnalisisOpResult> AgregarWidgetAsync(Guid hojaId, AnalisisNuevoWidget widget, AnalisisActor actor, CancellationToken ct = default);
 
     Task<AnalisisOpResult> EliminarWidgetAsync(Guid widgetId, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Reemplaza la definicion del widget (tipo, titulo, consulta o curado, presentacion) conservando su posicion.</summary>
+    Task<AnalisisOpResult> ActualizarWidgetAsync(Guid widgetId, AnalisisNuevoWidget widget, AnalisisActor actor, CancellationToken ct = default);
+
+    /// <summary>Guarda los filtros globales de la hoja (rango de fechas, vendedor, tablero).</summary>
+    Task<AnalisisOpResult> GuardarFiltrosHojaAsync(Guid hojaId, HojaFiltros filtros, AnalisisActor actor, CancellationToken ct = default);
 
     /// <summary>Mueve el widget una posicion (delta -1 = antes, +1 = despues) dentro de su hoja.</summary>
     Task<AnalisisOpResult> MoverWidgetAsync(Guid widgetId, int delta, AnalisisActor actor, CancellationToken ct = default);
@@ -166,7 +175,7 @@ public sealed class AnalisisService : IAnalisisService
         return new AnalisisLibroDetalle(
             libro.Id, libro.Nombre, libro.Descripcion, libro.Visibilidad, libro.Version, PuedeEditar(libro, actor),
             hojas.Select(h => new AnalisisHojaDto(h.Id, h.Nombre, h.Orden,
-                porHoja.TryGetValue(h.Id, out var ws) ? ws : new List<AnalisisWidgetDto>())).ToList());
+                porHoja.TryGetValue(h.Id, out var ws) ? ws : new List<AnalisisWidgetDto>(), h.FiltrosJson)).ToList());
     }
 
     // ---------------- Libros ----------------
@@ -337,22 +346,9 @@ public sealed class AnalisisService : IAnalisisService
 
     public async Task<AnalisisOpResult> AgregarWidgetAsync(Guid hojaId, AnalisisNuevoWidget widget, AnalisisActor actor, CancellationToken ct = default)
     {
-        var titulo = Limpio(widget.Titulo, MaxTitulo);
-        if (titulo is null)
+        if (ValidarWidget(widget) is string invalido)
         {
-            return AnalisisOpResult.Falla("El widget necesita un titulo.");
-        }
-
-        var tieneSpec = widget.Spec is not null;
-        var tieneCurado = !string.IsNullOrWhiteSpace(widget.IndicadorKey);
-        if (tieneSpec == tieneCurado)
-        {
-            return AnalisisOpResult.Falla("El widget debe tener una consulta o un indicador curado (uno solo).");
-        }
-
-        if (tieneCurado && _curados.Find(widget.IndicadorKey!) is null)
-        {
-            return AnalisisOpResult.Falla("El indicador curado no existe.");
+            return AnalisisOpResult.Falla(invalido);
         }
 
         await using var db = _factory.Create();
@@ -363,21 +359,82 @@ public sealed class AnalisisService : IAnalisisService
         }
 
         var orden = await db.AnalisisWidgets.Where(w => w.HojaId == hojaId).Select(w => (int?)w.Orden).MaxAsync(ct) ?? -1;
-        var entity = new AnalisisWidget
-        {
-            HojaId = hojaId,
-            Tipo = widget.Tipo,
-            Titulo = titulo,
-            SpecJson = tieneSpec ? AnalisisJson.Serialize(widget.Spec!) : null,
-            IndicadorKey = tieneCurado ? widget.IndicadorKey!.Trim() : null,
-            ConfigJson = widget.ConfigJson,
-            Orden = orden + 1,
-            ColSpan = Math.Clamp(widget.ColSpan, 1, MaxColumnas),
-            RowSpan = 1
-        };
+        var entity = new AnalisisWidget { HojaId = hojaId, Orden = orden + 1, RowSpan = 1 };
+        Aplicar(entity, widget);
         db.AnalisisWidgets.Add(entity);
         await db.SaveChangesAsync(ct);
         return AnalisisOpResult.Hecho(entity.Id);
+    }
+
+    public async Task<AnalisisOpResult> ActualizarWidgetAsync(Guid widgetId, AnalisisNuevoWidget widget, AnalisisActor actor, CancellationToken ct = default)
+    {
+        if (ValidarWidget(widget) is string invalido)
+        {
+            return AnalisisOpResult.Falla(invalido);
+        }
+
+        await using var db = _factory.Create();
+        var (entity, error) = await WidgetEditableAsync(db, widgetId, actor, ct);
+        if (entity is null)
+        {
+            return AnalisisOpResult.Falla(error!);
+        }
+
+        Aplicar(entity, widget);
+        await db.SaveChangesAsync(ct);
+        return AnalisisOpResult.Hecho(widgetId);
+    }
+
+    public async Task<AnalisisOpResult> GuardarFiltrosHojaAsync(Guid hojaId, HojaFiltros filtros, AnalisisActor actor, CancellationToken ct = default)
+    {
+        if (filtros.Desde is DateOnly d && filtros.Hasta is DateOnly h && d > h)
+        {
+            return AnalisisOpResult.Falla("La fecha inicial no puede ser posterior a la final.");
+        }
+
+        await using var db = _factory.Create();
+        var (hoja, error) = await HojaEditableAsync(db, hojaId, actor, ct);
+        if (hoja is null)
+        {
+            return AnalisisOpResult.Falla(error!);
+        }
+
+        hoja.FiltrosJson = filtros.ToJson();
+        await db.SaveChangesAsync(ct);
+        return AnalisisOpResult.Hecho(hojaId);
+    }
+
+    private string? ValidarWidget(AnalisisNuevoWidget widget)
+    {
+        if (Limpio(widget.Titulo, MaxTitulo) is null)
+        {
+            return "El widget necesita un titulo.";
+        }
+
+        var tieneSpec = widget.Spec is not null;
+        var tieneCurado = !string.IsNullOrWhiteSpace(widget.IndicadorKey);
+        if (tieneSpec == tieneCurado)
+        {
+            return "El widget debe tener una consulta o un indicador curado (uno solo).";
+        }
+
+        if (tieneCurado && _curados.Find(widget.IndicadorKey!) is null)
+        {
+            return "El indicador curado no existe.";
+        }
+
+        return null;
+    }
+
+    private static void Aplicar(AnalisisWidget entity, AnalisisNuevoWidget widget)
+    {
+        entity.Tipo = widget.Tipo;
+        entity.Titulo = Limpio(widget.Titulo, MaxTitulo)!;
+        entity.SpecJson = widget.Spec is not null ? AnalisisJson.Serialize(widget.Spec) : null;
+        entity.IndicadorKey = widget.Spec is null ? widget.IndicadorKey!.Trim() : null;
+        entity.ConfigJson = widget.ConfigJson;
+        entity.ContextBindingsJson = widget.ContextBindingsJson;
+        entity.ColSpan = Math.Clamp(widget.ColSpan, 1, MaxColumnas);
     }
 
     public async Task<AnalisisOpResult> EliminarWidgetAsync(Guid widgetId, AnalisisActor actor, CancellationToken ct = default)
@@ -522,5 +579,5 @@ public sealed class AnalisisService : IAnalisisService
     }
 
     private static AnalisisWidgetDto ToDto(AnalisisWidget w) =>
-        new(w.Id, w.HojaId, w.Tipo, w.Titulo, w.SpecJson, w.IndicadorKey, w.ConfigJson, w.Orden, w.ColSpan, w.RowSpan);
+        new(w.Id, w.HojaId, w.Tipo, w.Titulo, w.SpecJson, w.IndicadorKey, w.ConfigJson, w.Orden, w.ColSpan, w.RowSpan, w.ContextBindingsJson);
 }

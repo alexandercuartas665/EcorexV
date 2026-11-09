@@ -200,6 +200,92 @@ public abstract class AnalisisLibrosTestsBase
         Assert.Single(await svcA.ListarLibrosAsync(ActorAdmin));
     }
 
+    [Fact]
+    public async Task ActualizarWidget_YFiltrosDeHoja_SePersisten()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola3 persist");
+        var svc = Service(tenantId);
+        var libro = (await svc.ObtenerLibroAsync((await svc.CrearLibroAsync("L3", null, ActorDuena)).Id!.Value, ActorDuena))!;
+        var hoja = libro.Hojas[0].Id;
+        var w = (await svc.AgregarWidgetAsync(hoja, AnalisisEjemplos.Find("horas-usuario")!.Widget, ActorDuena)).Id!.Value;
+
+        var diseno = new WidgetDiseno
+        {
+            Tipo = AnalisisTipoWidget.Kpi,
+            Titulo = "Promedio de horas",
+            SourceKey = WorkLogReportSource.SourceKey,
+            Funcion = ReportAggregateFunction.Avg,
+            CampoMedida = "Horas",
+            ColSpan = 3,
+            Config = new WidgetConfig { Formato = "decimal", Tono = "violet" }
+        };
+        Assert.True((await svc.ActualizarWidgetAsync(w, WidgetDisenoMapper.ToNuevoWidget(diseno, "{\"fecha\":\"\"}"), ActorDuena)).Ok);
+        Assert.False((await svc.ActualizarWidgetAsync(w, WidgetDisenoMapper.ToNuevoWidget(diseno), ActorOtro)).Ok);
+
+        var filtros = new HojaFiltros { Desde = new DateOnly(2026, 1, 1), Vendedor = "Laura" };
+        Assert.True((await svc.GuardarFiltrosHojaAsync(hoja, filtros, ActorDuena)).Ok);
+        Assert.False((await svc.GuardarFiltrosHojaAsync(hoja, new HojaFiltros { Desde = new DateOnly(2026, 2, 1), Hasta = new DateOnly(2026, 1, 1) }, ActorDuena)).Ok);
+        Assert.False((await svc.GuardarFiltrosHojaAsync(hoja, filtros, ActorOtro)).Ok);
+
+        var leido = (await svc.ObtenerLibroAsync(libro.Id, ActorDuena))!;
+        var wd = Assert.Single(leido.Hojas[0].Widgets);
+        Assert.Equal(w, wd.Id);
+        Assert.Equal(0, wd.Orden); // conserva la posicion
+        Assert.Equal(3, wd.ColSpan);
+        Assert.Equal("{\"fecha\":\"\"}", wd.ContextBindingsJson);
+        Assert.Equal(diseno.Funcion, WidgetDisenoMapper.FromWidget(wd).Funcion);
+        Assert.Equal("violet", WidgetConfig.Leer(wd.ConfigJson).Tono);
+        Assert.Equal("Laura", leido.Hojas[0].Filtros.Vendedor);
+        Assert.Equal(new DateOnly(2026, 1, 1), leido.Hojas[0].Filtros.Desde);
+    }
+
+    [Fact]
+    public async Task Kpi_SinDimension_YFiltrosDeHoja_SeAplicanPorFuente()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola3 filtros", conDatos: true);
+        var manana = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
+        AnalisisWidgetDto Kpi(string source, ReportAggregateFunction fn, string? campo = null, string? bindings = null) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), AnalisisTipoWidget.Kpi, "K",
+                AnalisisJson.Serialize(WidgetDisenoMapper.ToSpec(new WidgetDiseno { Tipo = AnalisisTipoWidget.Kpi, Titulo = "K", SourceKey = source, Funcion = fn, CampoMedida = campo })),
+                null, null, 0, 1, 1, bindings);
+
+        decimal? Valor(AnalisisWidgetResultado r)
+        {
+            Assert.True(r.Ok, r.Error);
+            return ((EscalarShape)r.Forma!).Valor;
+        }
+
+        await RunWithRunnerAsync(tenantId, async runner =>
+        {
+            var ctx = new ReportContext(tenantId);
+            // KPI total (sin agrupar): conteo y promedio en memoria sobre el modo tabular.
+            Assert.Equal(3m, Valor(await runner.RunAsync(Kpi(TaskItemReportSource.SourceKey, ReportAggregateFunction.Count), ctx)));
+            Assert.Equal(1.25m, Valor(await runner.RunAsync(Kpi(WorkLogReportSource.SourceKey, ReportAggregateFunction.Avg, "Horas"), ctx)));
+            Assert.Equal(2m, Valor(await runner.RunAsync(Kpi(TerceroReportSource.SourceKey, ReportAggregateFunction.Count), ctx)));
+
+            // Vendedor de la hoja: tareas -> solo la del cliente de Laura; directorio -> solo ACME;
+            // horas no tiene campo vendedor -> lo ignora.
+            var porVendedor = new HojaFiltros { Vendedor = "laur" };
+            Assert.Equal(1m, Valor(await runner.RunAsync(Kpi(TaskItemReportSource.SourceKey, ReportAggregateFunction.Count), ctx, default, porVendedor)));
+            Assert.Equal(1m, Valor(await runner.RunAsync(Kpi(TerceroReportSource.SourceKey, ReportAggregateFunction.Count), ctx, default, porVendedor)));
+            Assert.Equal(2.5m, Valor(await runner.RunAsync(Kpi(WorkLogReportSource.SourceKey, ReportAggregateFunction.Sum, "Horas"), ctx, default, porVendedor)));
+
+            // Rango de fechas en el futuro: nada; salvo el widget que pidio "no aplicar la fecha".
+            var futuro = new HojaFiltros { Desde = manana };
+            Assert.Equal(0m, Valor(await runner.RunAsync(Kpi(TaskItemReportSource.SourceKey, ReportAggregateFunction.Count), ctx, default, futuro)));
+            Assert.Equal(0m, Valor(await runner.RunAsync(Kpi(WorkLogReportSource.SourceKey, ReportAggregateFunction.Sum, "Horas"), ctx, default, futuro)));
+            Assert.Equal(3m, Valor(await runner.RunAsync(Kpi(TaskItemReportSource.SourceKey, ReportAggregateFunction.Count, bindings: "{\"fecha\":\"\"}"), ctx, default, futuro)));
+
+            // El indicador curado tambien recibe los filtros de la hoja.
+            var semaforo = new AnalisisWidgetDto(Guid.NewGuid(), Guid.NewGuid(), AnalisisTipoWidget.Dona, "S", null,
+                SemaforoVencimientoIndicador.IndicadorKey, null, 0, 1, 1);
+            var sinFiltro = (CategoriasShape)(await runner.RunAsync(semaforo, ctx)).Forma!;
+            var conFiltro = (CategoriasShape)(await runner.RunAsync(semaforo, ctx, default, porVendedor)).Forma!;
+            Assert.Equal(2m, sinFiltro.Total);
+            Assert.Equal(1m, conFiltro.Total);
+        });
+    }
+
     // ---- Helpers ----
 
     private AnalisisService Service(Guid tenantId) =>
@@ -229,7 +315,7 @@ public abstract class AnalisisLibrosTestsBase
         var forms = new FormResponseReportReader(ctx);
         var catalog = new ReportCatalog(native, containers, external, forms, tenantCtx, ctx);
         var data = new ReportDataSource(catalog, native, containers, external, forms, tenantCtx);
-        await action(new AnalisisWidgetRunner(data, Registry(data)));
+        await action(new AnalisisWidgetRunner(data, Registry(data), catalog));
     }
 
     /// <summary>
@@ -257,7 +343,7 @@ public abstract class AnalisisLibrosTestsBase
         var tenantUser = new TenantUser { TenantId = tenantId, PlatformUserId = platformUser.Id, Email = platformUser.Email };
         ctx.TenantUsers.Add(tenantUser);
 
-        var cliente = new Tercero { TenantId = tenantId, Nombre = "ACME", Tipo = TerceroTipo.Empresa, Perfiles = TerceroPerfil.Cliente };
+        var cliente = new Tercero { TenantId = tenantId, Nombre = "ACME", Tipo = TerceroTipo.Empresa, Perfiles = TerceroPerfil.Cliente, Vendedor = "Laura" };
         ctx.Terceros.AddRange(cliente, new Tercero { TenantId = tenantId, Nombre = "Contacto", Tipo = TerceroTipo.Persona });
 
         var vencida = new TaskItem

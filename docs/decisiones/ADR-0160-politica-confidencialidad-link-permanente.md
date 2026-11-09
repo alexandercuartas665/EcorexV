@@ -72,11 +72,38 @@ cross-tenant) y luego fijan el tenant como ambient (`AmbientTenantContext.Begin`
 - A revisar luego (Fase 2): captura de IP/User-Agent en la aceptacion (hoy quedan null en el visor
   interactivo), exportar constancias a CSV/PDF, y opcionalmente exigir correo o segundo campo configurable.
 
+## Addendum 2026-11-09: modal con pestanas, captura de datos opcional e imagenes base64 (v0.16.294)
+
+A pedido del usuario, tres ajustes sobre la primera version:
+
+1. **Admin en MODAL con pestanas.** El panel dejaba de estar incrustado encima de las plantillas: ahora
+   `/plantillas-whatsapp` muestra un boton "Configurar politica" que abre un modal (clases globales
+   `modal-overlay/-dialog/-head/-body/-foot`) con un control de pestanas tipo carpeta: **Configurar**
+   (titulo, activo, toggle de captura de datos, enlace permanente con copiar/abrir/regenerar, constancias),
+   **HTML** (editor) y **Vista previa** (saneada). Carga diferida al abrir.
+
+2. **Captura de datos OPCIONAL (`ConfidentialityPolicy.CapturaDatos`, default `false`).** Migracion dual
+   aditiva `AddConfidentialityCapturaDatos` (una columna `captura_datos bool not null default false`).
+   - OFF (por defecto): la pagina publica muestra SOLO un checkbox ("He leido y acepto..."); la constancia
+     queda con nombre/identificacion vacios pero conserva fecha, version y hash del contenido aceptado.
+   - ON: ademas pide nombre e identificacion (obligatorios). La validacion es autoridad del SERVICIO
+     (`AcceptAsync` exige datos solo si `p.CapturaDatos`), no se confia en el formulario publico.
+   El checkbox de aceptacion es siempre obligatorio (el "aprobado del cliente").
+
+3. **Imagenes base64 (`data:image/...`) permitidas en `img/src`.** El saneador descartaba las imagenes
+   incrustadas que el admin pega. `IsSafeUrl` ahora acepta `data:image/` SOLO en `src` (no ejecuta script);
+   `data:text/html` y cualquier `data:` en `href` siguen prohibidos (XSS). Tests unitarios del saneador.
+
+Verificado: build Release 0 errores; `ConfidentialityHtmlSanitizerTests` 7/7; `ConfidentialityPolicyTests`
+dual 18/18 (incluye aceptacion solo-checkbox sin datos); `has-pending-model-changes` limpio en PG y SQL
+Server; E2E en 5234/SOLDARCO (modal con pestanas; link publico muestra solo el checkbox por defecto).
+
 ## Action Items
 
 1. [x] Entidades + migracion dual `AddConfidentialityPolicies` (PG + SQL Server).
 2. [x] Servicio `IConfidentialityPolicyService` + saneador + registro DI.
 3. [x] Panel admin en `/plantillas-whatsapp` + pagina publica `/pc/{token}`.
 4. [x] Tests de integracion dual (alta/saneo/resolucion/aceptacion/regeneracion/aislamiento).
-5. [ ] Reflejar ADR-0160 en el vault.
-6. [ ] Deploy a prod con OK explicito del usuario por version.
+5. [x] (Addendum) Modal con pestanas + captura de datos opcional + imagenes base64; migracion dual `AddConfidentialityCapturaDatos`; tests.
+6. [ ] Reflejar ADR-0160 (y su addendum) en el vault.
+7. [ ] Deploy a prod con OK explicito del usuario por version.

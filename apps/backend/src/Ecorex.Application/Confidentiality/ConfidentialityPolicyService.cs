@@ -63,6 +63,7 @@ public sealed class ConfidentialityPolicyService : IConfidentialityPolicyService
         p.Titulo = string.IsNullOrWhiteSpace(titulo) ? "Politica de confidencialidad" : Truncate(titulo, 200);
         p.Contenido = ConfidentialityHtmlSanitizer.Sanitize(request.Contenido);
         p.Activa = request.Activa;
+        p.CapturaDatos = request.CapturaDatos;
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -111,7 +112,7 @@ public sealed class ConfidentialityPolicyService : IConfidentialityPolicyService
         if (p is null) { return null; }
 
         return new ConfidentialityPolicyPublicDto(
-            p.Id, p.TenantId, p.Titulo, p.Contenido, p.Version, HashContent(p.Contenido));
+            p.Id, p.TenantId, p.Titulo, p.Contenido, p.CapturaDatos, p.Version, HashContent(p.Contenido));
     }
 
     public async Task<ConfidentialityAcceptStatus> AcceptAsync(string token, ConfidentialityAcceptRequest request, CancellationToken cancellationToken = default)
@@ -119,10 +120,6 @@ public sealed class ConfidentialityPolicyService : IConfidentialityPolicyService
         if (string.IsNullOrWhiteSpace(token) || token.Length > 64) { return ConfidentialityAcceptStatus.Unavailable; }
         var nombre = request.Nombre?.Trim();
         var identificacion = request.Identificacion?.Trim();
-        if (string.IsNullOrWhiteSpace(nombre) || string.IsNullOrWhiteSpace(identificacion))
-        {
-            return ConfidentialityAcceptStatus.MissingData;
-        }
 
         var clean = token.Trim();
         // El llamador (pagina publica) ya fijo el ambient del tenant del token; la lectura por
@@ -131,12 +128,20 @@ public sealed class ConfidentialityPolicyService : IConfidentialityPolicyService
             .FirstOrDefaultAsync(x => x.PublicToken == clean && !x.IsDeleted && x.Activa, cancellationToken);
         if (p is null) { return ConfidentialityAcceptStatus.Unavailable; }
 
+        // Nombre/identificacion SOLO son obligatorios si el tenant activo la captura de datos; de lo
+        // contrario basta el checkbox (el aprobado del cliente) y se guardan vacios. Autoridad del
+        // servidor: no se confia en el formulario publico (ADR-0160).
+        if (p.CapturaDatos && (string.IsNullOrWhiteSpace(nombre) || string.IsNullOrWhiteSpace(identificacion)))
+        {
+            return ConfidentialityAcceptStatus.MissingData;
+        }
+
         var acceptance = new ConfidentialityPolicyAcceptance
         {
             TenantId = p.TenantId,
             PolicyId = p.Id,
-            Nombre = Truncate(nombre, 200),
-            Identificacion = Truncate(identificacion, 80),
+            Nombre = string.IsNullOrWhiteSpace(nombre) ? string.Empty : Truncate(nombre, 200),
+            Identificacion = string.IsNullOrWhiteSpace(identificacion) ? string.Empty : Truncate(identificacion, 80),
             Correo = string.IsNullOrWhiteSpace(request.Correo) ? null : Truncate(request.Correo.Trim(), 200),
             AceptadoAt = DateTimeOffset.UtcNow,
             Ip = string.IsNullOrWhiteSpace(request.Ip) ? null : Truncate(request.Ip.Trim(), 64),
@@ -153,7 +158,7 @@ public sealed class ConfidentialityPolicyService : IConfidentialityPolicyService
     // ---- Helpers ----
 
     private static ConfidentialityPolicyDto Map(ConfidentialityPolicy p, int total)
-        => new(p.Id, p.Titulo, p.Contenido, p.Activa, p.PublicToken, p.Version, p.UpdatedAt, total);
+        => new(p.Id, p.Titulo, p.Contenido, p.Activa, p.CapturaDatos, p.PublicToken, p.Version, p.UpdatedAt, total);
 
     private static string Truncate(string value, int max)
         => value.Length <= max ? value : value[..max];

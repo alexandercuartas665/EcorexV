@@ -1,33 +1,72 @@
-.cp-card {
+/* Disparador compacto en la pagina de plantillas */
+.cp-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
     border: 1px solid var(--border, #e5e7eb);
     border-radius: 14px;
     background: var(--surface, #fff);
-    padding: 20px 22px;
+    padding: 14px 18px;
     margin: 18px 0 24px;
 }
 
-.cp-head {
+.cp-trigger-txt {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 14px;
+    flex-direction: column;
+    gap: 2px;
 }
 
-.cp-title {
-    font-size: 1.05rem;
-    font-weight: 600;
-    margin: 0;
+.cp-trigger-txt strong {
+    font-size: .95rem;
 }
 
-.cp-sub {
-    margin: 4px 0 0;
+.cp-trigger-txt span {
     color: var(--text-muted, #6b7280);
-    font-size: .85rem;
-    max-width: 640px;
+    font-size: .82rem;
+    max-width: 560px;
 }
 
-.cp-grid {
+/* Dialogo ancho dentro del modal global */
+.cp-dialog {
+    max-width: 880px;
+    width: 100%;
+}
+
+/* Pestanas tipo carpeta */
+.cp-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border, #e5e7eb);
+    margin-bottom: 16px;
+}
+
+.cp-tab {
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    padding: 8px 16px;
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--text-muted, #6b7280);
+    border-radius: 10px 10px 0 0;
+    cursor: pointer;
+    margin-bottom: -1px;
+}
+
+.cp-tab:hover {
+    color: var(--text, #374151);
+}
+
+.cp-tab.is-active {
+    color: var(--primary, #2563eb);
+    background: var(--surface, #fff);
+    border-color: var(--border, #e5e7eb);
+    border-bottom: 1px solid var(--surface, #fff);
+}
+
+.cp-pane {
     display: grid;
     gap: 14px;
 }
@@ -57,10 +96,14 @@
 
 .cp-toggle {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     font-size: .85rem;
     color: var(--text, #374151);
+}
+
+.cp-toggle input {
+    margin-top: 2px;
 }
 
 .cp-preview-label {
@@ -74,17 +117,13 @@
     border-radius: 10px;
     padding: 14px 16px;
     background: var(--surface-muted, #f9fafb);
-    min-height: 60px;
-    overflow-x: auto;
+    min-height: 120px;
+    max-height: 48vh;
+    overflow: auto;
 }
 
 .cp-preview :where(h1, h2, h3) { margin-top: 0; }
-
-.cp-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
+.cp-preview img { max-width: 100%; height: auto; }
 
 .cp-ok {
     color: var(--success, #16a34a);
@@ -92,7 +131,7 @@
 }
 
 .cp-link {
-    margin-top: 18px;
+    margin-top: 4px;
     padding-top: 16px;
     border-top: 1px solid var(--border, #e5e7eb);
 }
@@ -120,7 +159,7 @@
 }
 
 .cp-accept {
-    margin-top: 20px;
+    margin-top: 4px;
 }
 
 .cp-accept-head {
@@ -146,6 +185,11 @@
 .cp-empty {
     color: var(--text-muted, #6b7280);
     font-size: .85rem;
+}
+
+.cp-table-wrap {
+    max-height: 38vh;
+    overflow: auto;
 }
 
 .cp-table {

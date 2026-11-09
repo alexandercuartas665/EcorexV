@@ -93,21 +93,24 @@ public static class ConfidentialityHtmlSanitizer
                 el.RemoveAttribute(name);
                 continue;
             }
-            if ((name.Equals("href", StringComparison.OrdinalIgnoreCase)
-                 || name.Equals("src", StringComparison.OrdinalIgnoreCase))
-                && !IsSafeUrl(attr.Value))
+            var isSrc = name.Equals("src", StringComparison.OrdinalIgnoreCase);
+            if ((name.Equals("href", StringComparison.OrdinalIgnoreCase) || isSrc)
+                && !IsSafeUrl(attr.Value, allowDataImage: isSrc))
             {
                 el.RemoveAttribute(name);
             }
         }
     }
 
-    private static bool IsSafeUrl(string? value)
+    private static bool IsSafeUrl(string? value, bool allowDataImage)
     {
         if (string.IsNullOrWhiteSpace(value)) { return false; }
         var v = value.Trim();
         // Relativas (sin esquema) son seguras; con esquema solo http/https/mailto.
         if (v.StartsWith('/') || v.StartsWith('#') || v.StartsWith('.')) { return true; }
+        // Imagenes embebidas en base64 (data:image/...) SOLO en src: no ejecutan script y permiten
+        // pegar HTML con imagenes incrustadas. data:text/html y demas quedan prohibidos (XSS).
+        if (allowDataImage && v.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) { return true; }
         return v.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             || v.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
             || v.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase);

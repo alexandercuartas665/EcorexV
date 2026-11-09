@@ -3251,6 +3251,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("activa");
 
+                    b.Property<bool>("CapturaDatos")
+                        .HasColumnType("bit")
+                        .HasColumnName("captura_datos");
+
                     b.Property<string>("Contenido")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")

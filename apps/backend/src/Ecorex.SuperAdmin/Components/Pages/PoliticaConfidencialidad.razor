@@ -41,24 +41,31 @@
 
             <div class="pc-form">
                 <h3>Aceptacion</h3>
-                <p class="pc-form-sub">Declara tu nombre e identificacion y acepta la politica anterior.</p>
-                <label class="pc-field">
-                    <span>Nombre completo <em>*</em></span>
-                    <input class="form-control" @bind="_nombre" maxlength="200" />
-                </label>
-                <label class="pc-field">
-                    <span>Identificacion <em>*</em></span>
-                    <input class="form-control" @bind="_identificacion" maxlength="80" />
-                </label>
-                <label class="pc-field">
-                    <span>Correo (opcional)</span>
-                    <input class="form-control" type="email" @bind="_correo" maxlength="200" />
+                @if (_policy.CapturaDatos)
+                {
+                    <p class="pc-form-sub">Declara tu nombre e identificacion y acepta la politica anterior.</p>
+                    <label class="pc-field">
+                        <span>Nombre completo <em>*</em></span>
+                        <input class="form-control" @bind="_nombre" maxlength="200" />
+                    </label>
+                    <label class="pc-field">
+                        <span>Identificacion <em>*</em></span>
+                        <input class="form-control" @bind="_identificacion" maxlength="80" />
+                    </label>
+                    <label class="pc-field">
+                        <span>Correo (opcional)</span>
+                        <input class="form-control" type="email" @bind="_correo" maxlength="200" />
+                    </label>
+                }
+                <label class="pc-check">
+                    <input type="checkbox" @bind="_aprobado" />
+                    <span>He leido y acepto la politica de confidencialidad.</span>
                 </label>
                 @if (_error is not null)
                 {
                     <p class="pc-error">@_error</p>
                 }
-                <button class="btn btn-primary" @onclick="AcceptAsync" disabled="@_busy">
+                <button class="btn btn-primary" @onclick="AcceptAsync" disabled="@(_busy || !_aprobado)">
                     @(_busy ? "Registrando..." : "Acepto la politica")
                 </button>
             </div>
@@ -79,6 +86,7 @@
     private string _nombre = string.Empty;
     private string _identificacion = string.Empty;
     private string _correo = string.Empty;
+    private bool _aprobado;
 
     protected override async Task OnInitializedAsync()
     {
@@ -91,7 +99,13 @@
         if (_policy is null) { return; }
         _error = null;
 
-        if (string.IsNullOrWhiteSpace(_nombre) || string.IsNullOrWhiteSpace(_identificacion))
+        if (!_aprobado)
+        {
+            _error = "Debes marcar la casilla de aceptacion.";
+            return;
+        }
+
+        if (_policy.CapturaDatos && (string.IsNullOrWhiteSpace(_nombre) || string.IsNullOrWhiteSpace(_identificacion)))
         {
             _error = "El nombre y la identificacion son obligatorios.";
             return;

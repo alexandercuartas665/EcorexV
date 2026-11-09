@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - Confidencialidad (ADR-0160 addendum): modal con pestanas + captura de datos opcional + imagenes base64 (release v0.16.294, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Iteracion sobre ADR-0160 a pedido del usuario: (1) el panel quedaba incrustado ENCIMA de las plantillas -> pasarlo a un BOTON que abre un MODAL con pestanas tipo carpeta; (2) captura de datos OPCIONAL (solo checkbox por defecto); (3) bug: pego HTML con imagenes base64 que no se renderizaban.
+- ADMIN MODAL: `ConfidentialityPolicyPanel` ahora es un disparador "Configurar politica" + modal (clases globales modal-overlay/-dialog/-head/-body/-foot) con pestanas Configurar / HTML / Vista previa. Configurar = titulo, activo, toggle "capturar datos", enlace permanente (copiar/abrir/regenerar) y constancias. Carga diferida al abrir. Quitado el `<ConfidentialityPolicyPanel />` inline (sigue incrustado en /plantillas-whatsapp pero como boton).
+- CAPTURA OPCIONAL: `ConfidentialityPolicy.CapturaDatos` (default false). Migracion dual aditiva `AddConfidentialityCapturaDatos` (PG 20261109162743, SqlServer 20261109163214; una columna captura_datos bool/bit not null default false; has-pending limpio en ambos). OFF -> la pagina publica muestra SOLO el checkbox "He leido y acepto" (constancia con nombre/identificacion vacios pero conserva fecha+version+hash). ON -> ademas pide nombre e identificacion. La validacion de datos es autoridad del SERVICIO (`AcceptAsync` exige datos solo si p.CapturaDatos), no del formulario. El checkbox siempre obligatorio.
+- IMAGENES BASE64: el saneador descartaba `data:image/...`. `IsSafeUrl` ahora acepta `data:image/` SOLO en src (no ejecuta script); `data:text/html` y cualquier data: en href siguen prohibidos (XSS). DTOs propagan CapturaDatos (admin, publico, save request).
+- VERIFICADO: `dotnet build Ecorex.sln` Release 0 errores; `ConfidentialityHtmlSanitizerTests` 7/7 (base64 ok, data:text/html y javascript: fuera); `ConfidentialityPolicyTests` dual 18/18 (incluye aceptacion solo-checkbox sin datos + roundtrip del toggle); E2E en 5234/SOLDARCO (modal con pestanas; el link publico de la politica previa muestra solo el checkbox por defecto tras migrar).
+- SIGUIENTE: doble push a la senal del usuario; deploy con OK por version (apila sobre el hotfix v0.16.293 de la red de cierre, tambien SIN push/deploy aun). Reflejar addendum en el vault.
+
 ## 2026-11-09 - HOTFIX regresion ADR-0154: la red de cierre cortaba conversaciones vivas (falso positivo) (release v0.16.293, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Reporte de la sesion data-ops AGRO: ADR-0154 (v0.16.277, desplegado hoy) dejo un cliente comercial sin atender en prod (tenant AGRO, SARA, linea COMERCIAL, conv `01a07c2f-...`, cliente Gustavo). Engine COMPARTIDO (afecta a todo tenant con la red de cierre).

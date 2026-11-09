@@ -3251,6 +3251,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("activa");
 
+                    b.Property<bool>("CapturaDatos")
+                        .HasColumnType("boolean")
+                        .HasColumnName("captura_datos");
+
                     b.Property<string>("Contenido")
                         .IsRequired()
                         .HasColumnType("text")

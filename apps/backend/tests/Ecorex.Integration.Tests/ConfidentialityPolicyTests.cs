@@ -26,20 +26,23 @@ public abstract class ConfidentialityPolicyTestsBase
         await using var ctx = _fixture.CreateContext(tenantId);
         var svc = BuildService(ctx, tenantId);
 
-        var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("Mi politica", "<p>Hola</p>", true));
+        var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("Mi politica", "<p>Hola</p>", true, CapturaDatos: false));
 
         Assert.False(string.IsNullOrWhiteSpace(saved.PublicToken));
         Assert.Equal("Mi politica", saved.Titulo);
+        Assert.False(saved.CapturaDatos);
 
         var fetched = await svc.GetForTenantAsync();
         Assert.NotNull(fetched);
         Assert.Equal(saved.Id, fetched!.Id);
         Assert.Equal(saved.PublicToken, fetched.PublicToken);
 
-        // Un segundo guardado NO crea otra fila (upsert): mismo Id.
-        var again = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("Mi politica v2", "<p>Dos</p>", true));
+        // Un segundo guardado NO crea otra fila (upsert): mismo Id; y el toggle de captura persiste.
+        var again = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("Mi politica v2", "<p>Dos</p>", true, CapturaDatos: true));
         Assert.Equal(saved.Id, again.Id);
         Assert.Equal(saved.PublicToken, again.PublicToken);
+        Assert.True(again.CapturaDatos);
+        Assert.True((await svc.GetForTenantAsync())!.CapturaDatos);
     }
 
     [Fact]
@@ -50,7 +53,7 @@ public abstract class ConfidentialityPolicyTestsBase
         var svc = BuildService(ctx, tenantId);
 
         var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest(
-            "T", "<p>ok</p><script>alert(1)</script><a href=\"javascript:evil()\">x</a>", true));
+            "T", "<p>ok</p><script>alert(1)</script><a href=\"javascript:evil()\">x</a>", true, CapturaDatos: false));
 
         Assert.DoesNotContain("<script", saved.Contenido, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("javascript:", saved.Contenido, StringComparison.OrdinalIgnoreCase);
@@ -65,7 +68,7 @@ public abstract class ConfidentialityPolicyTestsBase
         await using (var ctx = _fixture.CreateContext(tenantId))
         {
             var svc = BuildService(ctx, tenantId);
-            var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("Pub", "<p>texto</p>", true));
+            var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("Pub", "<p>texto</p>", true, CapturaDatos: true));
             token = saved.PublicToken;
         }
 
@@ -77,6 +80,7 @@ public abstract class ConfidentialityPolicyTestsBase
         Assert.NotNull(pub);
         Assert.Equal(tenantId, pub!.TenantId);
         Assert.Equal("Pub", pub.Titulo);
+        Assert.True(pub.CapturaDatos);
         Assert.False(string.IsNullOrWhiteSpace(pub.ContenidoHash));
     }
 
@@ -88,7 +92,7 @@ public abstract class ConfidentialityPolicyTestsBase
         await using (var ctx = _fixture.CreateContext(tenantId))
         {
             var svc = BuildService(ctx, tenantId);
-            var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>x</p>", Activa: false));
+            var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>x</p>", Activa: false, CapturaDatos: false));
             token = saved.PublicToken;
         }
 
@@ -108,7 +112,7 @@ public abstract class ConfidentialityPolicyTestsBase
         await using (var ctx = _fixture.CreateContext(tenantId))
         {
             var svc = BuildService(ctx, tenantId);
-            var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>contenido</p>", true));
+            var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>contenido</p>", true, CapturaDatos: true));
             token = saved.PublicToken;
             version = saved.Version;
         }
@@ -144,7 +148,7 @@ public abstract class ConfidentialityPolicyTestsBase
         await using (var ctx = _fixture.CreateContext(tenantId))
         {
             var svc = BuildService(ctx, tenantId);
-            token = (await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>x</p>", true))).PublicToken;
+            token = (await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>x</p>", true, CapturaDatos: true))).PublicToken;
         }
 
         await using (var ctx = _fixture.CreateContext(tenantId))
@@ -156,6 +160,39 @@ public abstract class ConfidentialityPolicyTestsBase
     }
 
     [Fact]
+    public async Task Accept_SoloCheckbox_SinCaptura_RegistraConstanciaVacia()
+    {
+        var tenantId = await SeedTenantAsync("Policy checkbox");
+        string token;
+        long version;
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var svc = BuildService(ctx, tenantId);
+            // CapturaDatos = false: la aceptacion es solo el checkbox (sin nombre/identificacion).
+            var saved = await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>x</p>", true, CapturaDatos: false));
+            token = saved.PublicToken;
+            version = saved.Version;
+        }
+
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var svc = BuildService(ctx, tenantId);
+            // Sin nombre ni identificacion: debe quedar Ok (el aprobado del cliente ya es el checkbox).
+            var status = await svc.AcceptAsync(token, new ConfidentialityAcceptRequest("", "", null, null, null));
+            Assert.Equal(ConfidentialityAcceptStatus.Ok, status);
+        }
+
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var row = await ctx.ConfidentialityPolicyAcceptances.AsNoTracking().FirstAsync();
+            Assert.Equal(string.Empty, row.Nombre);
+            Assert.Equal(string.Empty, row.Identificacion);
+            Assert.Equal(version, row.PolicyVersionSnapshot);
+            Assert.Equal(64, row.ContenidoHashSnapshot.Length); // la constancia conserva el hash del contenido
+        }
+    }
+
+    [Fact]
     public async Task Regenerate_InvalidatesOldToken()
     {
         var tenantId = await SeedTenantAsync("Policy regen");
@@ -163,7 +200,7 @@ public abstract class ConfidentialityPolicyTestsBase
         await using (var ctx = _fixture.CreateContext(tenantId))
         {
             var svc = BuildService(ctx, tenantId);
-            oldToken = (await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>x</p>", true))).PublicToken;
+            oldToken = (await svc.SaveAsync(new ConfidentialityPolicySaveRequest("P", "<p>x</p>", true, CapturaDatos: false))).PublicToken;
             var regen = await svc.RegenerateLinkAsync();
             newToken = regen!.PublicToken;
         }
@@ -186,12 +223,12 @@ public abstract class ConfidentialityPolicyTestsBase
         await using (var ctx = _fixture.CreateContext(tenantA))
         {
             tokenA = (await BuildService(ctx, tenantA)
-                .SaveAsync(new ConfidentialityPolicySaveRequest("A", "<p>a</p>", true))).PublicToken;
+                .SaveAsync(new ConfidentialityPolicySaveRequest("A", "<p>a</p>", true, CapturaDatos: false))).PublicToken;
         }
         await using (var ctx = _fixture.CreateContext(tenantB))
         {
             await BuildService(ctx, tenantB)
-                .SaveAsync(new ConfidentialityPolicySaveRequest("B", "<p>b</p>", true));
+                .SaveAsync(new ConfidentialityPolicySaveRequest("B", "<p>b</p>", true, CapturaDatos: false));
         }
 
         // El token de A resuelve al tenant A, nunca a B.

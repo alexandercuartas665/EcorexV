@@ -6,6 +6,7 @@ public sealed record ConfidentialityPolicyDto(
     string Titulo,
     string Contenido,
     bool Activa,
+    bool CapturaDatos,
     string PublicToken,
     long Version,
     DateTimeOffset? UpdatedAt,
@@ -17,6 +18,7 @@ public sealed record ConfidentialityPolicyPublicDto(
     Guid TenantId,
     string Titulo,
     string Contenido,
+    bool CapturaDatos,
     long Version,
     string ContenidoHash);
 
@@ -33,7 +35,8 @@ public sealed record ConfidentialityAcceptanceDto(
 public sealed record ConfidentialityPolicySaveRequest(
     string Titulo,
     string Contenido,
-    bool Activa);
+    bool Activa,
+    bool CapturaDatos);
 
 /// <summary>Datos de una aceptacion desde el visor publico.</summary>
 public sealed record ConfidentialityAcceptRequest(

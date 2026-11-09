@@ -72,6 +72,23 @@
     font-style: normal;
 }
 
+.pc-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 4px 0 16px;
+    font-size: .9rem;
+    color: #374151;
+    cursor: pointer;
+}
+
+.pc-check input {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+}
+
 .pc-error {
     color: #dc2626;
     font-size: .85rem;

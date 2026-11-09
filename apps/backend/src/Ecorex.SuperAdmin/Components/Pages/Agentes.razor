@@ -344,7 +344,11 @@ else
                                     </div>
                                 </div>
 
-                                @* Bot de Telegram (nivel TENANT): credencial compartida por todas las alertas de Telegram. *@
+                                @* Bot de Telegram (nivel TENANT): credencial compartida por las alertas de Telegram.
+                                   Solo aparece cuando algun medio elegido es Telegram, para no tener la seccion abierta
+                                   siempre (confunde). ADR-0161. *@
+                                @if (_cierreAlertas.Any(a => a.Canal == CierreCanal.Telegram) || _avisoAlertas.Any(a => a.Canal == CierreCanal.Telegram))
+                                {
                                 <div class="card" style="padding:10px;margin-bottom:12px;background:var(--surface-2);">
                                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                                         <span style="font-weight:600;font-size:13px;">Bot de Telegram (del tenant)</span>
@@ -367,6 +371,7 @@ else
                                     </div>
                                     <div class="text-muted" style="font-size:11px;margin-top:4px;">Aplica a TODO el tenant. Crea el bot con @@BotFather, pega el token aqui, y usa su <code>chat_id</code> en las alertas de Telegram.</div>
                                 </div>
+                                }
 
                                 <div class="form-label">Resumen del cierre (grupo / Telegram / correo, o cierre sin tarea)</div>
                                 <div class="text-muted" style="font-size:11.5px;margin-bottom:8px;">Para avisar a un grupo/canal, o cuando el cierre NO crea tarea. Si apunta al mismo usuario ya avisado abajo, se omite para no duplicar.</div>
@@ -896,16 +901,27 @@ else
                     </div>
 
                     <hr style="border-color:var(--border);margin:14px 0;" />
-                    <div class="field">
-                        <label class="form-label">Concepto por defecto de las tareas</label>
-                        <select class="form-control" value="@(_fDefaultSubcatId?.ToString() ?? "")" @onchange="@(e => _fDefaultSubcatId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)" disabled="@_busy">
-                            <option value="">(ninguno)</option>
-                            @foreach (var c in _conceptos)
-                            {
-                                <option value="@c.Id">@c.Nombre</option>
-                            }
-                        </select>
-                        <div class="text-muted" style="font-size:12px;margin-top:6px;">Cuando el agente crea una tarea (crear_tarea), le adjunta ESTE concepto (000270) para que nazca con su <strong>checklist por defecto</strong>. Vacio = sin concepto (como hoy). El tablero sigue siendo el que elige el agente.</div>
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="() => _conceptoOpen = !_conceptoOpen">
+                            <span class="ag-accordion-chev @(_conceptoOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Concepto por defecto de las tareas</span>
+                            <span class="ag-accordion-count">@(_fDefaultSubcatId is Guid dsid ? (_conceptos.FirstOrDefault(c => c.Id == dsid)?.Nombre ?? "1") : "ninguno")</span>
+                        </div>
+                        @if (_conceptoOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="field">
+                                    <select class="form-control" value="@(_fDefaultSubcatId?.ToString() ?? "")" @onchange="@(e => _fDefaultSubcatId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null)" disabled="@_busy">
+                                        <option value="">(ninguno)</option>
+                                        @foreach (var c in _conceptos)
+                                        {
+                                            <option value="@c.Id">@c.Nombre</option>
+                                        }
+                                    </select>
+                                    <div class="text-muted" style="font-size:12px;margin-top:6px;">Cuando el agente crea una tarea (crear_tarea), le adjunta ESTE concepto (000270) para que nazca con su <strong>checklist por defecto</strong>. Vacio = sin concepto (como hoy). El tablero sigue siendo el que elige el agente.</div>
+                                </div>
+                            </div>
+                        }
                     </div>
 
                     <hr style="border-color:var(--border);margin:14px 0;" />
@@ -1511,6 +1527,9 @@ else
     private List<TaskBoardDto> _allBoards = new();
     private List<Guid> _fAllowedBoardIds = new();
 
+    // Acordeon del "Concepto por defecto de las tareas" (colapsado por defecto, como el resto).
+    private bool _conceptoOpen;
+
     // ADR-0128: lista ORDENADA de usuarios para el reparto round-robin del agente. Vacio = pool del tenant.
     private bool _assigneesOpen;
     private List<TenantUserDto> _assigneeUsers = new();
@@ -1750,6 +1769,7 @@ else
         _fAssigneeUserIds = (detail.Agent.AssigneeUserIds ?? Array.Empty<Guid>()).ToList();
         _assigneesOpen = false;
         _fDefaultSubcatId = detail.Agent.DefaultSubcategoriaId;
+        _conceptoOpen = false;
         _fReactionsEnabled = detail.Agent.ReactionsEnabled;
         _fReactionN = detail.Agent.ReactionRatioN;
         _fReactionM = detail.Agent.ReactionRatioM <= 0 ? 4 : detail.Agent.ReactionRatioM;

@@ -205,6 +205,60 @@ public abstract class McpTablerosTestsBase
         Assert.Equal("Cierre", done.GetProperty("siguientes_pasos")[0].GetProperty("paso").GetString());
     }
 
+    /// <summary>
+    /// Regresion del iniciador (ADR-0159): los llamadores pasan el id de PLATAFORMA al crear la tarea; el motor
+    /// debe normalizarlo a TenantUser para que un paso "hereda al iniciador" quede asignado a quien la creo
+    /// (antes quedaba sin encargado y nadie podia atenderlo). Tenant que clasifica solo por CONCEPTO.
+    /// </summary>
+    [Fact]
+    public async Task InheritStartFlow_AssignsCreator_AndAiClosesItByConcept()
+    {
+        var seed = await SeedTenantAsync("Mcp Iniciador");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (boards, engine, toolset) = Build(ctx, tenantCtx);
+
+        var imported = (await engine.ImportBpmnAsync(new ImportBpmnRequest("MCP-02", "Flujo iniciador", FlowXml))).Value!;
+        var design = new WorkflowDesignService(ctx, engine);
+        foreach (var n in imported.Nodes.Where(n => n.BpmnElementId is "Task_Rev" or "Task_Cierre"))
+        {
+            Assert.True((await design.SetNodeAssigneeAsync(n.Id, WorkflowAssigneeSource.InheritStart, null)).IsOk);
+        }
+        Assert.True((await engine.PublishAsync(imported.Id)).IsOk);
+
+        // Sin tipos de actividad activos: se clasifica por concepto (ligado al flujo y al tablero).
+        var type = await ctx.ActivityTypes.SingleAsync(t => t.Id == seed.ActivityTypeId);
+        type.IsArchived = true;
+        var board = (await boards.CreateBoardAsync(new CreateActivityBoardRequest("Ventas"), seed.OwnerPlatformId, "Owner")).Value!;
+        var cat = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-90", Nombre = "Pruebas" };
+        ctx.ActividadCategorias.Add(cat);
+        ctx.ActividadSubcategorias.Add(new ActividadSubcategoria
+        {
+            TenantId = seed.TenantId,
+            CategoriaId = cat.Id,
+            Codigo = "CAT-90-01",
+            Nombre = "Cotizacion IA",
+            WorkflowDefinitionId = imported.Id,
+            TaskBoardId = board.Id
+        });
+        await ctx.SaveChangesAsync();
+
+        var member = Actor(seed, owner: false);
+        var noConcept = await toolset.ExecuteAsync("crear_tarea", Args(new { tablero = "Ventas", titulo = "x" }), member);
+        Assert.False(noConcept.IsError, noConcept.Json); // un solo concepto en el tablero -> se usa ese
+
+        var created = Payload(await toolset.ExecuteAsync("crear_tarea", Args(new { concepto = "Cotizacion IA", titulo = "Cotizar portatiles" }), member));
+        Assert.True(created.GetProperty("flujo_iniciado").GetBoolean());
+        var numero = created.GetProperty("numero").GetString()!;
+
+        // El paso quedo asignado al creador: es "mio" sin tener que tomarlo, y lo cierra hasta el final.
+        var pending = Payload(await toolset.ExecuteAsync("mis_pasos_pendientes", "{}", member)).GetProperty("pasos");
+        Assert.Contains(pending.EnumerateArray(), p => p.GetProperty("tarea").GetString() == numero && p.GetProperty("es_mio").GetBoolean());
+        Assert.False((await toolset.ExecuteAsync("completar_paso", Args(new { numero }), member)).IsError);
+        var last = Payload(await toolset.ExecuteAsync("completar_paso", Args(new { numero }), member));
+        Assert.Equal("Cierre", last.GetProperty("paso_cerrado").GetString());
+    }
+
     // ---- Helpers ----
 
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(EcorexDbContext ctx, ITenantContext tenantCtx)

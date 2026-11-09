@@ -127,6 +127,8 @@ public sealed class AgentAvisoTareaService : IAgentAvisoTareaService
                     ? $"Tarea asignada - {task.Number}"
                     : _tokens.Render(aviso.Asunto, tokens);
                 var ok = await _sender.SendEmailAsync(user.Email!, subject, BuildEmailHtml(task, tokens), ct);
+                // De-dup del cierre (ADR-0161): si notificamos al asignado, la alerta de cierre no lo repite.
+                if (ok) { AiToolRunContext.MarkCloseNotified(uid); }
                 return Record(task, conversationId, agentId, ok, "Correo", $"{who} ({user.Email})", ok ? null : "el correo no se pudo enviar.", null);
 
             case CierreCanal.WhatsApp:
@@ -148,6 +150,8 @@ public sealed class AgentAvisoTareaService : IAgentAvisoTareaService
                 // bajo el nombre de la variable (normalizado), para que el llenado por nombre tome ese valor.
                 var waTokens = ApplyVariableBindings(aviso.Variables, tokens);
                 var outcome = await _sender.SendWhatsAppTemplateAsync(lid, user.Phone!, aviso.Plantilla!, aviso.Idioma, waTokens, actor, cancellationToken: ct);
+                // De-dup del cierre (ADR-0161): si notificamos al asignado, la alerta de cierre no lo repite.
+                if (outcome.Ok) { AiToolRunContext.MarkCloseNotified(uid); }
                 return Record(task, conversationId, agentId, outcome.Ok, "WhatsApp", $"{who} ({user.Phone})", outcome.Ok ? null : outcome.Error, outcome.MessageId);
 
             default:

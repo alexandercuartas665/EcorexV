@@ -19,6 +19,11 @@ public static class AiToolRunContext
         /// herramienta en el mismo turno devuelve este resultado en vez de crear otra tarea. Se descarta con
         /// el Scope al terminar el turno.</summary>
         public Dictionary<string, string> TurnResults { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Usuarios del tenant a los que el AVISO de tarea asignada (ADR-0140) ya notifico en ESTE
+        /// turno (WhatsApp/correo al asignado). La alerta de CIERRE (ADR-0161) lo consulta para NO volver a
+        /// enviar al mismo destinatario: crear la tarea == cerrar, asi que un solo mensaje al comercial.</summary>
+        public HashSet<Guid> CloseNotifiedUsers { get; } = new();
     }
     private static readonly AsyncLocal<Scope?> _current = new();
 
@@ -47,6 +52,18 @@ public static class AiToolRunContext
     /// <summary>Id del AiAgent en ejecucion. Lo usa ActividadesToolset para registrar al agente como autor
     /// del formulario que llena (executedByAiAgentId en IFormResponseService.SaveAsync).</summary>
     public static Guid? AgentId => _current.Value?.AgentId;
+
+    /// <summary>Registra que el aviso de tarea asignada ya notifico a este usuario en el turno (de-dup de cierre,
+    /// ADR-0161). No-op si no hay turno activo.</summary>
+    public static void MarkCloseNotified(Guid userId)
+    {
+        if (_current.Value is { } s) { s.CloseNotifiedUsers.Add(userId); }
+    }
+
+    /// <summary>true si el aviso de tarea ya notifico a este usuario en el turno (para que la alerta de cierre
+    /// no duplique el mensaje al mismo destinatario). ADR-0161.</summary>
+    public static bool WasCloseNotified(Guid userId)
+        => _current.Value is { } s && s.CloseNotifiedUsers.Contains(userId);
 
     public static IDisposable Begin(Guid? conversationId, string? imageBase64, string? imageMime,
         IReadOnlyList<PendingAttachment>? attachments = null, IReadOnlyList<Guid>? allowedBoardIds = null,

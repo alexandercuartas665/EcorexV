@@ -316,13 +316,13 @@ else
                         }
                     </div>
 
-                    @* ===== Cierre (olvidar cliente + alertas) - acordeon ===== *@
+                    @* ===== Notificacion de cierre: olvidar + mensaje al comercial + resumen (acordeon unico, ADR-0161) ===== *@
                     <hr style="border-color:var(--border);margin:14px 0;" />
                     <div class="ag-accordion">
                         <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleCierreAsync">
                             <span class="ag-accordion-chev @(_cierreOpen ? "open" : "")">&#9656;</span>
-                            <span class="pl-stagegroup-title" style="margin:0;">Cierre</span>
-                            <span class="ag-accordion-count">@_cierreAlertas.Count</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Notificacion de cierre</span>
+                            <span class="ag-accordion-count">@(_avisoAlertas.Count + _cierreAlertas.Count)</span>
                             <span class="ag-accordion-spacer"></span>
                             <span class="small @(_cierreOlvidar ? "" : "text-muted")" style="@(_cierreOlvidar ? "color:var(--success);" : "")">@(_cierreOlvidar ? "Olvida al cerrar" : "Recuerda")</span>
                         </div>
@@ -330,7 +330,7 @@ else
                         {
                             <div class="ag-accordion-body">
                                 <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
-                                    Se dispara al CERRAR la atencion (al crear una actividad/lead, o con el marcador <code>[[cierre]]</code>). Corre en el servidor: <strong>no consume tokens</strong>.
+                                    Se dispara al CERRAR la atencion (al crear una actividad/tarea, o con el marcador <code>[[cierre]]</code>). Corre en el servidor: <strong>no consume tokens</strong>. El comercial recibe <strong>un solo mensaje</strong>: si el cierre crea una tarea avisa el bloque "Mensaje al comercial asignado"; el "Resumen del cierre" no repite al mismo destinatario.
                                 </div>
 
                                 <div class="field" style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
@@ -368,10 +368,11 @@ else
                                     <div class="text-muted" style="font-size:11px;margin-top:4px;">Aplica a TODO el tenant. Crea el bot con @@BotFather, pega el token aqui, y usa su <code>chat_id</code> en las alertas de Telegram.</div>
                                 </div>
 
-                                <div class="form-label">Alertas al cierre</div>
+                                <div class="form-label">Resumen del cierre (grupo / Telegram / correo, o cierre sin tarea)</div>
+                                <div class="text-muted" style="font-size:11.5px;margin-bottom:8px;">Para avisar a un grupo/canal, o cuando el cierre NO crea tarea. Si apunta al mismo usuario ya avisado abajo, se omite para no duplicar.</div>
                                 @if (_cierreAlertas.Count == 0)
                                 {
-                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin alertas. Agrega una para avisar al comercial u otro usuario cuando se cierre la atencion.</div>
+                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin resumen configurado. Opcional: agrega uno para avisar a un grupo/correo al cerrar.</div>
                                 }
                                 @foreach (var a in _cierreAlertas)
                                 {
@@ -470,41 +471,14 @@ else
                                         }
                                     </div>
                                 }
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddCierreAlerta" disabled="@_busy">+ Agregar alerta</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddCierreAlerta" disabled="@_busy">+ Agregar resumen</button>
 
-                                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-                                    <button class="btn btn-primary" @onclick="SaveCierreAsync" disabled="@_busy">Guardar cierre</button>
-                                    @if (_cierreSaved)
-                                    {
-                                        <span class="small" style="color:var(--success);">Guardado.</span>
-                                    }
-                                    @if (!string.IsNullOrEmpty(_cierreError))
-                                    {
-                                        <span class="small" style="color:var(--danger);">@_cierreError</span>
-                                    }
-                                </div>
-                            </div>
-                        }
-                    </div>
-
-                    @* ===== Aviso de tarea asignada (al crear/asignar una actividad) - acordeon ===== *@
-                    <hr style="border-color:var(--border);margin:14px 0;" />
-                    <div class="ag-accordion">
-                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="ToggleAvisoAsync">
-                            <span class="ag-accordion-chev @(_avisoOpen ? "open" : "")">&#9656;</span>
-                            <span class="pl-stagegroup-title" style="margin:0;">Aviso de tarea asignada</span>
-                            <span class="ag-accordion-count">@_avisoAlertas.Count</span>
-                        </div>
-                        @if (_avisoOpen)
-                        {
-                            <div class="ag-accordion-body">
-                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
-                                    Se dispara cuando el agente CREA Y ASIGNA una actividad/tarea. Notifica al usuario <strong>asignado a la tarea</strong> (su telefono/correo), con la tarea en contexto. Corre en el servidor: <strong>no consume tokens</strong>. Queda registrado en la bitacora del agente y en la historia de la tarea.
-                                </div>
-
+                                <hr style="border-color:var(--border);margin:16px 0;" />
+                                <div class="form-label">Mensaje al comercial asignado (al crear/asignar la tarea)</div>
+                                <div class="text-muted" style="font-size:11.5px;margin-bottom:8px;">Se envia al usuario <strong>asignado a la tarea</strong> que crea el agente, con la tarea en contexto. Es la notificacion normal del cierre comercial. Queda registrado en la bitacora del agente y en la historia de la tarea.</div>
                                 @if (_avisoAlertas.Count == 0)
                                 {
-                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin avisos. Agrega uno para avisarle al asignado cuando el agente le cree una tarea.</div>
+                                    <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin mensajes. Agrega uno para avisarle al asignado cuando el agente le cree una tarea.</div>
                                 }
                                 @foreach (var a in _avisoAlertas)
                                 {
@@ -603,17 +577,17 @@ else
                                         }
                                     </div>
                                 }
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddAvisoAlerta" disabled="@_busy">+ Agregar aviso</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="AddAvisoAlerta" disabled="@_busy">+ Agregar mensaje</button>
 
-                                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-                                    <button class="btn btn-primary" @onclick="SaveAvisoAsync" disabled="@_busy">Guardar avisos</button>
-                                    @if (_avisoSaved)
+                                <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+                                    <button class="btn btn-primary" @onclick="SaveCierreAsync" disabled="@_busy">Guardar notificacion de cierre</button>
+                                    @if (_cierreSaved)
                                     {
                                         <span class="small" style="color:var(--success);">Guardado.</span>
                                     }
-                                    @if (!string.IsNullOrEmpty(_avisoError))
+                                    @if (!string.IsNullOrEmpty(_cierreError))
                                     {
-                                        <span class="small" style="color:var(--danger);">@_avisoError</span>
+                                        <span class="small" style="color:var(--danger);">@_cierreError</span>
                                     }
                                 </div>
                             </div>
@@ -1783,7 +1757,6 @@ else
         _reactionsOpen = false;
         await LoadCierreAsync(id);
         _cierreOpen = false;
-        _avisoOpen = false;
         await LoadReactivacionAsync(id);
         _reactOpen = false;
         _resources = detail.Resources.ToList();
@@ -2356,10 +2329,8 @@ else
     private List<WhatsAppLineDto> _cierreLines = new();
     private List<WhatsAppTemplateDto> _cierreTemplates = new();
 
-    // Avisos de "tarea asignada" (viven en el mismo CierreJson que el cierre; comparten usuarios/lineas/plantillas).
-    private bool _avisoOpen;
-    private bool _avisoSaved;
-    private string? _avisoError;
+    // Mensaje al comercial asignado ("aviso de tarea", ADR-0140): vive en el mismo CierreJson que el resumen de
+    // cierre y comparte el mismo acordeon "Notificacion de cierre" (una sola seccion, un solo guardado).
     private List<CierreAlertaRow> _avisoAlertas = new();
 
     // Fila editable de una alerta (usa strings para los ids: bind de <select> seguro con opcion vacia).
@@ -2396,7 +2367,6 @@ else
         if (string.IsNullOrWhiteSpace(expr)) { row.Variables.Remove(token); }
         else { row.Variables[token] = expr.Trim(); }
         _cierreSaved = false;
-        _avisoSaved = false;
     }
 
     // Construye las alertas de dominio desde las filas editables (comun a cierre y avisos de tarea).
@@ -2447,8 +2417,6 @@ else
         _avisoAlertas = (cfg.AvisosTarea ?? Array.Empty<AgentCierreAlerta>()).Select(ToRow).ToList();
         _cierreSaved = false;
         _cierreError = null;
-        _avisoSaved = false;
-        _avisoError = null;
         _cierreDataLoaded = false;
     }
 
@@ -2483,12 +2451,6 @@ else
         if (_cierreOpen) { await EnsureCierreDataAsync(); }
     }
 
-    private async Task ToggleAvisoAsync()
-    {
-        _avisoOpen = !_avisoOpen;
-        if (_avisoOpen) { await EnsureCierreDataAsync(); }
-    }
-
     private async Task SaveTelegramAsync()
     {
         _tgSaved = false;
@@ -2509,9 +2471,9 @@ else
     private void AddCierreAlerta() { _cierreAlertas.Add(new CierreAlertaRow()); _cierreSaved = false; }
     private void RemoveCierreAlerta(CierreAlertaRow r) { _cierreAlertas.Remove(r); _cierreSaved = false; }
 
-    // Destino por defecto de un aviso de tarea = el usuario ASIGNADO a la tarea.
-    private void AddAvisoAlerta() { _avisoAlertas.Add(new CierreAlertaRow { Canal = CierreCanal.WhatsApp, Destino = CierreDestino.UsuarioTarea }); _avisoSaved = false; }
-    private void RemoveAvisoAlerta(CierreAlertaRow r) { _avisoAlertas.Remove(r); _avisoSaved = false; }
+    // Destino por defecto de un mensaje al comercial = el usuario ASIGNADO a la tarea.
+    private void AddAvisoAlerta() { _avisoAlertas.Add(new CierreAlertaRow { Canal = CierreCanal.WhatsApp, Destino = CierreDestino.UsuarioTarea }); _cierreSaved = false; }
+    private void RemoveAvisoAlerta(CierreAlertaRow r) { _avisoAlertas.Remove(r); _cierreSaved = false; }
 
     // Validacion minima comun por canal. Devuelve el mensaje de error o null si todo esta completo.
     private static string? ValidateAlertas(IEnumerable<AgentCierreAlerta> alertas)
@@ -2530,6 +2492,7 @@ else
         return null;
     }
 
+    // Guarda TODA la notificacion de cierre (olvidar + mensaje al comercial + resumen) en un solo blob/boton.
     private async Task SaveCierreAsync()
     {
         if (_editId is null) { return; }
@@ -2537,27 +2500,11 @@ else
         _busy = true;
         try
         {
-            var err = ValidateAlertas(BuildAlertas(_cierreAlertas));
+            var err = ValidateAlertas(BuildAlertas(_cierreAlertas)) ?? ValidateAlertas(BuildAlertas(_avisoAlertas));
             if (err is not null) { _cierreError = err; return; }
             var ok = await SaveCierreConfigAsync();
             _cierreSaved = ok;
             if (!ok) { _cierreError = "No se pudo guardar."; }
-        }
-        finally { _busy = false; }
-    }
-
-    private async Task SaveAvisoAsync()
-    {
-        if (_editId is null) { return; }
-        _avisoError = null;
-        _busy = true;
-        try
-        {
-            var err = ValidateAlertas(BuildAlertas(_avisoAlertas));
-            if (err is not null) { _avisoError = err; return; }
-            var ok = await SaveCierreConfigAsync();
-            _avisoSaved = ok;
-            if (!ok) { _avisoError = "No se pudo guardar."; }
         }
         finally { _busy = false; }
     }

@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - Notificacion de cierre del agente UNIFICADA: un solo mensaje al comercial (ADR-0161, release v0.16.296, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Hand-off de la sesion data-ops AGRO: la "Alerta al cierre" (`CierreJson.alertas`) NO enviaba (y fallaba en silencio), y ademas convivia con el "Aviso de tarea asignada" (`CierreJson.avisosTarea`, ADR-0140) que SI funciona -> el usuario veia la notificacion de cierre DOBLE (dos acordeones que hacen lo mismo; para el agente crear la tarea == cerrar). Decision del usuario: unificar en una sola seccion (el aviso, que ya funciona, es el canal unico) + de-dup; entregar commiteado SIN deploy.
+- VALIDADO en codigo: (1) `HandleCloseAsync` no recibe taskId y `BuildTokenMap` no tenia `{tarea.*}`; (2) `DispatchAlertAsync` pasaba el tokenMap crudo sin `ApplyVariableBindings` -> plantilla con `{{1}}{{2}}{{3}}` vacia -> `NotificationChannelSender.FindEmptyTemplateParams` cortaba; (3) no habia rama `UsuarioTarea` en el cierre; (4) `try/catch` vacio + outcome ignorado = fallo silencioso (nada en bitacora).
+- FIX de-dup (sin migracion): `AiToolRunContext` gana `CloseNotifiedUsers` (HashSet) + `MarkCloseNotified`/`WasCloseNotified`. El aviso de tarea marca al asignado tras enviar con exito (WhatsApp/correo); la alerta de cierre consulta y OMITE al mismo destinatario (el cierre corre dentro del scope del contexto, abierto antes del bucle de herramientas). Rastro acotado al turno.
+- FIX no-silencioso: `AgentCierreService` inyecta `INotifyTokenResolver`, aplica `ApplyVariableBindings` y REGISTRA cada resultado (exito/fallo+motivo, incluido el de-dup "omitido: ya notificado por el aviso de tarea") en `/bitacora-agente` (`AiAgentRunLog`), por canal (WhatsApp/correo/grupo/Telegram).
+- UI: `Agentes.razor` fusiona los dos acordeones en UNO "Notificacion de cierre" con dos sub-bloques rotulados ("Mensaje al comercial asignado" = aviso; "Resumen del cierre" = grupo/Telegram/correo o cierre sin tarea) y UN solo boton Guardar. Code-behind: fuera `_avisoOpen`/`_avisoSaved`/`_avisoError`/`ToggleAvisoAsync`/`SaveAvisoAsync`; `SaveCierreAsync` valida ambas listas. Ambas listas siguen en el mismo `CierreJson` (compat.).
+- VERIFICADO: [pendiente de pegar resultado de build+tests]. Tests unitarios nuevos `AgentCierreDedupTests` (de-dup por turno, no persiste fuera del scope, scopes anidados no heredan). ADR-0161 creado.
+- SIGUIENTE: doble push a la senal del usuario; deploy con OK por version (apila sobre v0.16.295 CSS, tambien SIN push/deploy aun). Reflejar ADR-0161 en el vault (lo hace el usuario). AGRO: dejar activo solo el "Mensaje al comercial asignado" (destino Usuario de la tarea, plantilla aviso_tarea, linea COMERCIAL_AGENTE) y quitar el resumen duplicado.
+
 ## 2026-11-09 - Confidencialidad (ADR-0160 addendum bis): documento HTML completo con CSS, en iframe sandbox (release v0.16.295, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Reporte del usuario: al pegar un DOCUMENTO HTML COMPLETO (herramienta de diseno; `<head><style>`, clases, tablas) y dar Guardar, se BORRABA el CSS. Causa: el saneador por allowlist descartaba `<style>` y los atributos class/style (seguridad para MarkupString en pagina publica). Para documentos completos el allowlist es el enfoque equivocado.

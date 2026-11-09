@@ -103,6 +103,10 @@
                     {
                         <span class="ecorex-user-chip">@(context.User.FindFirst("platform_role") is not null ? "Operador" : "Workspace") · <strong>@context.User.Identity?.Name</strong></span>
                     }
+                    @if (context.User.FindFirst("tenant_id") is not null)
+                    {
+                        <a href="/conectar-ia" class="btn btn-sm btn-outline-secondary" title="Conectar Claude, Gemini u otra IA a tus tableros (MCP)">Conectar IA</a>
+                    }
                     <form method="post" action="/auth/logout" class="m-0">
                         <button type="submit" class="btn btn-sm btn-outline-secondary">Salir</button>
                     </form>
@@ -320,6 +324,7 @@
                 "modulos-web" => "Modulos web",
                 "configuracion" => "Configuracion",
                 "mi-cuenta" => "Mi cuenta",
+                "conectar-ia" => "Conectar IA",
                 "pipeline" => "Pipeline comercial",
                 "conversaciones" => "Conversaciones",
                 "lineas" => "Lineas WhatsApp",

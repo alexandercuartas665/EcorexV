@@ -2285,6 +2285,9 @@ Ecorex.SuperAdmin.Endpoints.AgentMgmtEndpoints.MapAgentMgmtEndpoints(app);
 // API REST de configuracion tenant-scoped (FASE 1, ADR-0058): Contenedores/Conectores/Agentes por
 // Bearer per-tenant (emitido desde el panel de admin). Documento OpenAPI publicado en /openapi/v1.json.
 Ecorex.SuperAdmin.Endpoints.ConfigApiEndpoints.MapConfigApiEndpoints(app);
+
+// Servidor MCP de TABLEROS para IAs externas (ADR-0159): token PERSONAL por usuario (emitido en /conectar-ia).
+Ecorex.SuperAdmin.Endpoints.McpTablerosEndpoints.MapMcpTablerosEndpoints(app);
 app.MapOpenApi();
 
 app.Run();

@@ -3699,6 +3699,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Scope).HasMaxLength(60).IsRequired();
             b.HasIndex(x => x.TokenHash).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.RevokedAt });
+            // ADR-0159: tokens personales (MCP) listados por su dueno.
+            b.HasIndex(x => new { x.TenantId, x.TenantUserId });
         });
 
         modelBuilder.Entity<ImportProcess>(b =>

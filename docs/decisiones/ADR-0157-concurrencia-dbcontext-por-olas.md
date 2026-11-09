@@ -189,11 +189,37 @@ push `BoardChanged` recarga de BD (`ReloadConversationsAsync` -> `ChatSvc`, etc.
 compartido; ademas el resto de la pagina usa ese mismo `_db` sin gate. Necesitan el tratamiento de
 scope propio/gate completo (Ola 1), no un lock parcial.
 
+**Ola 1 - primera tajada: componentes de chat (ejecutada, 2026-11-08, v0.16.283).** De los tres
+componentes marcados, solo DOS tenian un push que lee BD sin gate:
+
+- `Conversaciones.razor`: el push `BoardChanged` llamaba `ReloadConversationsAsync` (lee
+  `ChatSvc.ListConversationsAsync` + `GetUnansweredByPhoneAsync`) sobre el `_db` del circuito. Se
+  enruto por `_reloadLock` + `ScopeFactory.CreateAsyncScope` + `AmbientTenantContext.Begin` resolviendo
+  un `IChatService` fresco (mismo patron que `TaskKanban.ReloadAsync`). El push `MessageAdded` solo
+  agrega el DTO en memoria -> seguro, no se toco.
+- `Pipeline.razor`: el push `BoardChanged` recalculaba `_pending = ChatSvc.GetUnansweredByPhoneAsync()`
+  sobre el `_db` del circuito. Se extrajo a `ReloadPendingFromPushAsync()` con el mismo gate (lock +
+  scope propio + ambient tenant). `MessageAdded` es en memoria -> seguro.
+- `ClientChat.razor`: VERIFICADO sin cambio. Su unico handler de push es `MessageAdded` (agrega el DTO
+  en memoria); NO tiene recarga de BD disparada por push. No requiere gate para este vector.
+
+Trampas revisadas en esta tajada: las lecturas se materializan dentro del `using` (`.ToList()` /
+diccionario materializado); el query filter por tenant se preserva via `AmbientTenantContext.Begin`
+antes de crear el scope; no se parte ninguna operacion logica (son lecturas puras). Build verde.
+**Pendiente de Ola 1**: migrar las LECTURAS de los servicios calientes al factory (`TaskItemService`
+resto, `TaskBoardService`, `ActivityBoardService`, `DashboardService`, `FormResponseService`,
+`ConciliacionRuleService`).
+
 ## Action Items
 
 1. [ ] Prerrequisito: observabilidad en prod (sink persistente + timestamps / contador de la excepcion).
 2. [x] Ola 0 (v0.16.282): fix de `TaskDetailModal.RecalcCustomCalculatedAsync` (unico fire-and-forget sin gate que tocaba BD); el resto del camino caliente ya estaba serializado (verificado). Build verde.
-3. [ ] Ola 1: migrar las lecturas calientes al factory/scope propio: `TaskItemService` (resto), `TaskBoardService`, `ActivityBoardService`, `DashboardService`, `FormResponseService`, `ConciliacionRuleService`, **y** `Conversaciones`/`Pipeline`/`ClientChat` (hoy sin gate; su `BoardChanged` recarga sobre el `_db` del circuito).
+3. [~] Ola 1: migrar las lecturas calientes al factory/scope propio.
+   - [x] Componentes de chat (v0.16.283): `Conversaciones` (`ReloadConversationsAsync`) y `Pipeline`
+     (`ReloadPendingFromPushAsync`) gateados con lock + scope propio + ambient tenant; `ClientChat`
+     verificado sin vector (su push es solo `MessageAdded` en memoria). Build verde. SIN deploy.
+   - [ ] Servicios: `TaskItemService` (resto), `TaskBoardService`, `ActivityBoardService`,
+     `DashboardService`, `FormResponseService`, `ConciliacionRuleService` (lecturas al factory).
 4. [ ] Decidir el modelo de unidad de trabajo para escrituras (factory-UoW vs transaccion corta por servicio).
 5. [ ] Ola 2: migrar escrituras preservando atomicidad y auditoria en el mismo contexto.
 6. [ ] Reflejar este ADR en el vault (`04. Notas para desarrollador/ADRs`).

@@ -16,6 +16,7 @@
 @inject Ecorex.Application.Common.IQuotePdfRenderer PdfRenderer
 @inject Ecorex.Application.Tenancy.IQuoteTemplateService QuoteTplSvc
 @inject Ecorex.Application.Tenancy.IBusinessUnitService BizUnitSvc
+@inject IServiceScopeFactory ScopeFactory
 @using Microsoft.AspNetCore.SignalR.Client
 
 <PageTitle>Pipeline - ECOREX.tareas</PageTitle>
@@ -2554,6 +2555,34 @@ else
         await JoinConversationRealtimeAsync(_conversation.Id);
     }
 
+    // ADR-0157 Ola 1: el push "BoardChanged" puede llegar mientras el usuario tiene otra consulta en
+    // vuelo sobre el DbContext scoped del circuito. Scope EF propio + semaforo para no solapar
+    // (si no, EF lanza "second operation on this context instance").
+    private readonly SemaphoreSlim _reloadLock = new(1, 1);
+
+    private async Task ReloadPendingFromPushAsync()
+    {
+        await _reloadLock.WaitAsync();
+        try
+        {
+            if (Guid.TryParse(_tenantId, out var tenantGuid))
+            {
+                using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(tenantGuid, await ActorAsync());
+                await using var scope = ScopeFactory.CreateAsyncScope();
+                var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
+                _pending = await chat.GetUnansweredByPhoneAsync();
+            }
+            else
+            {
+                _pending = await ChatSvc.GetUnansweredByPhoneAsync();
+            }
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
+    }
+
     private async Task EnsureHubAsync()
     {
         if (_hub is not null) { return; }
@@ -2576,7 +2605,7 @@ else
             // Cualquier mensaje del tenant: recalcular el estado "sin responder" del tablero.
             _hub.On("BoardChanged", async () =>
             {
-                _pending = await ChatSvc.GetUnansweredByPhoneAsync();
+                await ReloadPendingFromPushAsync();
                 await InvokeAsync(StateHasChanged);
             });
 

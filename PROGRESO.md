@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-08 - Ola 1 (primera tajada) del plan de concurrencia (ADR-0157): gate a los componentes de chat (release v0.16.283, SIN deploy a prod)
+
+- AGENTE: Claude Opus 4.8. Primera tajada de la Ola 1 del ADR-0157 = cerrar los vectores de solape que la Ola 0 habia detectado en los componentes de chat (push `BoardChanged` que recarga BD sobre el `_db` scoped del circuito, sin gate). De los tres marcados, solo DOS tenian el vector:
+- `Conversaciones.razor`: `ReloadConversationsAsync` (lo invoca el push `BoardChanged`) ahora corre por `_reloadLock` + `ScopeFactory.CreateAsyncScope()` + `AmbientTenantContext.Begin(...)` resolviendo un `IChatService` FRESCO; materializa dentro del `using` (ToList + diccionario). Mismo patron que `TaskKanban.ReloadAsync`. El push `MessageAdded` solo agrega el DTO en memoria -> seguro, intacto. Se agrego `@inject IServiceScopeFactory ScopeFactory`.
+- `Pipeline.razor`: el push `BoardChanged` recalculaba `_pending = ChatSvc.GetUnansweredByPhoneAsync()` sobre el `_db` del circuito; se extrajo a `ReloadPendingFromPushAsync()` con el mismo gate (lock + scope propio + ambient tenant + IChatService fresco). `MessageAdded` en memoria -> seguro. Se agrego el inject de ScopeFactory.
+- `ClientChat.razor`: VERIFICADO sin cambio -> su unico handler de push es `MessageAdded` (agrega DTO en memoria); NO tiene recarga de BD por push, asi que no tiene el vector. No requiere gate.
+- TRAMPAS revisadas (checklist del ADR): lecturas materializadas dentro del `using`; query filter por tenant preservado via `AmbientTenantContext.Begin` ANTES de crear el scope; no se parte ninguna operacion logica (son lecturas puras, sin escritura cruzada). VERIFICADO: `dotnet build` de SuperAdmin verde (0 errores). AppVersion 0.16.283. ADR-0157 actualizado (Estado de ejecucion Ola 1 + Action Item 3 partido en chat[x]/servicios[ ]). Memoria [[dbcontext-efimero-lectura-factory]] con el estado.
+- SIGUIENTE: doble push tronco + espejo main; deploy v0.16.283 lo autoriza el usuario por version. Resto de la Ola 1 (lecturas de los servicios calientes al factory: TaskItemService resto, TaskBoard, ActivityBoard, Dashboard, FormResponse, ConciliacionRule) cuando se decida; recordar que la metrica "0 second operation en 24h" exige primero el prerrequisito de observabilidad (sink persistente + timestamps en prod).
+
 ## 2026-11-08 - Ola 0 del plan de concurrencia (ADR-0157): aislar el unico fire-and-forget que tocaba BD sin gate (release v0.16.282, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Ejecucion de la Ola 0 del ADR-0157 (serializar los puntos de solape del circuito SIN tocar la capa de datos). La auditoria fina revelo que casi toda la serializacion YA estaba puesta de forma incremental: los handlers de push de tableros (TaskKanban/ActivityBoardDetail/ActivityBoardsIndex) ya corren su ReloadAsync con `_reloadLock` + scope EF propio; DynamicFormRenderer ya enruta sus fire-and-forget por el `CircuitFormGate` (`_dbGate`); MainLayout.RefreshUnreadAsync ya usa scope propio.

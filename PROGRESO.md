@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-09 - MCP de tableros: gestion de contactos del Directorio (ADR-0159 addendum b, release v0.16.295, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Pedido del usuario: la IA no podia editar ni gestionar contactos.
+- HECHO: 9 tools nuevas en `TableroMcpToolset.Directorio.cs` (parcial): ver_contacto, editar_contacto (parcial, incluye
+  campos configurables por clave/etiqueta/ficha.clave), nota_contacto, vincular_persona_empresa, contacto_interno,
+  tareas_del_contacto, listar_campos_contacto, inactivar_contacto / reactivar_contacto (baja logica con motivo,
+  destructiveHint). buscar_contacto con filtros tipo/ciudad/sector/estado y por digitos del telefono. Total 27 tools.
+- REFUERZOS: permisos del Directorio del usuario (matriz de roles + sub-permisos crear-*; cierra hueco en crear_contacto);
+  no duplica NIT/telefono al editar ni personas al agregarlas; nota en la ficha "(via IA)" + auditoria antes/despues
+  (`McpToolResult.AuditBefore/AuditAfter`); ligar persona->empresa visible tambien en el Directorio Clasico.
+- SIN migraciones. No toca los 6 servicios calientes ni agrega BD fuera del dispatcher (endpoint HTTP).
+- VERIFICADO: build 0 errores; dotnet format limpio; McpTablerosTests dual 12/12 (2 nuevos: gestion completa y permisos);
+  E2E por MCP en 5270/BITCODE + ficha revisada en /directorio-general (EMPRESA · 2, auditoria con antes/despues).
+- SIGUIENTE: integracion central por el dev principal; fase 2 (OAuth, formularios de paso, rate limit, solo lectura,
+  fusionar duplicados).
+
 ## 2026-11-09 - Confidencialidad (ADR-0160 addendum): modal con pestanas + captura de datos opcional + imagenes base64 (release v0.16.294, SIN deploy a prod)
 
 - AGENTE: Claude Opus 4.8. Iteracion sobre ADR-0160 a pedido del usuario: (1) el panel quedaba incrustado ENCIMA de las plantillas -> pasarlo a un BOTON que abre un MODAL con pestanas tipo carpeta; (2) captura de datos OPCIONAL (solo checkbox por defecto); (3) bug: pego HTML con imagenes base64 que no se renderizaban.

@@ -37,7 +37,8 @@ public sealed class TerceroReportSource : IReportableSource
         new ReportField("Telefono", "Telefono", ReportFieldType.Text, CanGroup: false),
         new ReportField("Empresa", "Empresa", ReportFieldType.Text),
         new ReportField("CreatedAt", "Creado", ReportFieldType.Date),
-        new ReportField("CreadoMes", "Mes de creacion", ReportFieldType.Text)
+        new ReportField("CreadoMes", "Mes de creacion", ReportFieldType.Text),
+        new ReportField("Categoria", "Categoria", ReportFieldType.Text)
     };
 
     private static readonly ReportSourceDescriptor Descriptor = new(SourceKey, "Directorio", ReportSourceKind.Native, FieldSet);
@@ -70,9 +71,15 @@ public sealed class TerceroReportSource : IReportableSource
                 t.Email,
                 t.Telefono,
                 t.EmpresaId,
-                t.CreatedAt
+                t.CreatedAt,
+                Categorias = t.Categorias.Select(c => c.CategoriaKey).ToList()
             })
             .ToListAsync(ct);
+
+        // Categorias del motor Modular (multi-membership): titulo por clave; sin catalogo queda la clave.
+        var titulos = db is IDirectorioModularDbContext modular
+            ? await modular.DirectorioCategorias.AsNoTracking().ToDictionaryAsync(c => c.CategoriaKey, c => c.Title, ct)
+            : new Dictionary<string, string>();
 
         // Nombre de la empresa (auto-referencia) resuelto en memoria sobre el mismo conjunto acotado.
         var names = raw.ToDictionary(x => x.Id, x => x.Nombre);
@@ -106,10 +113,23 @@ public sealed class TerceroReportSource : IReportableSource
             Blank(t.Telefono),
             t.EmpresaId is Guid g && names.TryGetValue(g, out var n) ? n : null,
             t.CreatedAt,
-            InMemoryReportEngine.MonthKey(t.CreatedAt)
+            InMemoryReportEngine.MonthKey(t.CreatedAt, ctx.TenantZone),
+            CategoriasTexto(t.Categorias, titulos)
         }).ToList();
 
         return InMemoryReportEngine.Run(Descriptor, rows, spec);
+    }
+
+    /// <summary>"Comercial, Fiscal" (ordenado, sin repetidos); null si el tercero no tiene categoria.</summary>
+    private static string? CategoriasTexto(IEnumerable<string> claves, IReadOnlyDictionary<string, string> titulos)
+    {
+        var nombres = claves
+            .Where(k => !string.IsNullOrWhiteSpace(k))
+            .Select(k => titulos.TryGetValue(k, out var t) && !string.IsNullOrWhiteSpace(t) ? t.Trim() : k.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return nombres.Count == 0 ? null : string.Join(", ", nombres);
     }
 
     internal static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

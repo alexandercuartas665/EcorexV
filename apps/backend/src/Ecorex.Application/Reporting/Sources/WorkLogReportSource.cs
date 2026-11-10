@@ -75,7 +75,7 @@ public sealed class WorkLogReportSource : IReportableSource
             return new object?[]
             {
                 w.LoggedAt,
-                InMemoryReportEngine.MonthKey(w.LoggedAt),
+                InMemoryReportEngine.MonthKey(w.LoggedAt, ctx.TenantZone),
                 Math.Round(w.Seconds / 3600m, 4),
                 (long)w.Seconds,
                 w.Kind.ToString(),

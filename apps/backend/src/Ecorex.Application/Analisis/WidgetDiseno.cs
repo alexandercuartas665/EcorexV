@@ -60,6 +60,9 @@ public sealed record WidgetConfig
 
     public bool MayorEsMejor { get; init; } = true;
 
+    /// <summary>Definicion del widget COMBINADO (Ola 5); null en los widgets de una sola fuente.</summary>
+    public CombinadoDiseno? Combinado { get; init; }
+
     public static readonly string[] Tonos = { "blue", "violet", "green", "amber", "rose", "slate" };
 
     public static readonly string[] Formatos = { "numero", "decimal", "moneda", "porcentaje" };

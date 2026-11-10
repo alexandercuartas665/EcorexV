@@ -54,7 +54,7 @@ public sealed class TerceroNotaReportSource : IReportableSource
             return new object?[]
             {
                 n.CreatedAt,
-                InMemoryReportEngine.MonthKey(n.CreatedAt),
+                InMemoryReportEngine.MonthKey(n.CreatedAt, ctx.TenantZone),
                 TerceroReportSource.Blank(n.Accion),
                 TerceroReportSource.Blank(n.Categoria),
                 TerceroReportSource.Blank(n.Subcategoria),

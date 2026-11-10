@@ -10,6 +10,9 @@ namespace Ecorex.Application.Analisis;
 /// aplicar a su fuente: muestra datos GENERALES, no los del registro. La tarjeta lo advierte.</param>
 public sealed record AnalisisWidgetResultado(WidgetShape? Forma, string? Error, bool FueraDeContexto = false)
 {
+    /// <summary>Avisos no fatales (p.ej. una serie del combinado recortada por el tope de filas).</summary>
+    public IReadOnlyList<string> Avisos { get; init; } = Array.Empty<string>();
+
     public bool Ok => Error is null && Forma is not null;
 }
 
@@ -34,12 +37,14 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
     private readonly IReportDataSource _data;
     private readonly IIndicadorCuradoRegistry _curados;
     private readonly IReportCatalog? _catalog;
+    private readonly IAnalisisZonaHoraria? _zona;
 
-    public AnalisisWidgetRunner(IReportDataSource data, IIndicadorCuradoRegistry curados, IReportCatalog? catalog = null)
+    public AnalisisWidgetRunner(IReportDataSource data, IIndicadorCuradoRegistry curados, IReportCatalog? catalog = null, IAnalisisZonaHoraria? zona = null)
     {
         _data = data;
         _curados = curados;
         _catalog = catalog;
+        _zona = zona;
     }
 
     public async Task<AnalisisWidgetResultado> RunAsync(
@@ -48,6 +53,18 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
     {
         try
         {
+            // Zona del tenant en el contexto (regla 9): las fuentes la usan para derivar el "mes" de una
+            // fecha en la hora local del tenant, no en UTC. El servicio la cachea por circuito (una query).
+            if (ctx.TenantZone is null && _zona is not null)
+            {
+                ctx = ctx with { TenantZone = await _zona.ObtenerAsync(ct) };
+            }
+
+            if (string.Equals(widget.IndicadorKey, CombinadoDiseno.IndicadorKey, StringComparison.Ordinal))
+            {
+                return await RunCombinadoAsync(widget, ctx, hoja, contexto, ct);
+            }
+
             if (!string.IsNullOrWhiteSpace(widget.IndicadorKey))
             {
                 var curado = _curados.Find(widget.IndicadorKey);
@@ -96,6 +113,33 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
         {
             return new(null, "No se pudieron cargar los datos del widget.");
         }
+    }
+
+    /// <summary>
+    /// Widget combinado (Ola 5): consulta cada serie EN SERIE (mismo contexto, sin paralelismo sobre el
+    /// DbContext), con los filtros de hoja/contexto que apliquen a SU fuente, y cruza en memoria.
+    /// </summary>
+    private async Task<AnalisisWidgetResultado> RunCombinadoAsync(
+        AnalisisWidgetDto widget, ReportContext ctx, HojaFiltros? hoja, IReadOnlyDictionary<string, string>? contexto, CancellationToken ct)
+    {
+        var config = WidgetConfig.Leer(widget.ConfigJson);
+        if (config.Combinado is not { Series.Count: > 0 } diseno)
+        {
+            return new(null, "El widget combinado no tiene series.");
+        }
+
+        var datos = new List<ReportDataSet>(diseno.Series.Count);
+        var fuera = false;
+        foreach (var serie in diseno.Series.Take(CombinadoDiseno.MaxSeries))
+        {
+            var (extra, ignorado) = await FiltrosExtraAsync(serie.SourceKey, hoja, contexto, widget.ContextBindingsJson, ct);
+            fuera |= ignorado;
+            datos.Add(await _data.QueryAsync(CombinadoDiseno.SpecDe(serie, extra), ctx, ct));
+        }
+
+        var tabla = CombinadoMotor.Combinar(diseno, datos);
+        var forma = CombinadoMotor.AForma(tabla, diseno, widget.Tipo, Top(widget.ConfigJson), widget.Titulo);
+        return new(Adaptar(forma, widget), null, fuera) { Avisos = tabla.Avisos };
     }
 
     /// <summary>Dataset -> forma segun el tipo visual del widget. Puro, testeable.</summary>
@@ -196,7 +240,10 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
             return (Array.Empty<ReportFilter>(), hayContexto);
         }
 
-        var filtros = hayHoja ? HojaFiltroBinder.Filtros(hoja, fuente, bindingsJson).ToList() : new List<ReportFilter>();
+        var zona = hayHoja && _zona is not null && (hoja!.Desde is not null || hoja.Hasta is not null)
+            ? await _zona.ObtenerAsync(ct)
+            : null;
+        var filtros = hayHoja ? HojaFiltroBinder.Filtros(hoja, fuente, bindingsJson, zona).ToList() : new List<ReportFilter>();
         var (delContexto, ignorado) = AnalisisContexto.Filtros(contexto, fuente, bindingsJson);
         filtros.AddRange(delContexto);
         return (filtros, ignorado);

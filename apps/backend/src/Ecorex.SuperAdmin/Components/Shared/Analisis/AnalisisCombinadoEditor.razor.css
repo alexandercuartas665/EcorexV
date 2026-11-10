@@ -1,0 +1,30 @@
+/* "Combinar fuentes" (ADR-0158 Ola 5). Reusa las clases we-* del editor (globales via ::deep no aplica:
+   se redefinen las que este componente pinta). Tokens del workspace / prototipo ECOREX.dc.html. */
+.cb-serie { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin: 0 0 10px; background: var(--surface-2); }
+.cb-serie-head { display: flex; align-items: center; gap: 8px; }
+.cb-letra {
+    width: 26px; height: 26px; flex: 0 0 26px; border-radius: 8px; display: grid; place-items: center;
+    background: var(--brand-soft); color: var(--brand); font-weight: 800; font-size: 13px;
+}
+.cb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.cb-formula { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; margin: 0 0 8px; align-items: center; }
+
+.cb-filtros { margin: 10px 0 0; border-top: 1px dashed var(--line-2); padding-top: 8px; }
+.cb-filtros > summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--ink-2); list-style: none; padding: 2px 0; }
+.cb-filtros > summary::-webkit-details-marker { display: none; }
+.cb-filtros > summary::before { content: "\25B8"; display: inline-block; margin-right: 6px; color: var(--ink-3); transition: transform .15s; }
+.cb-filtros[open] > summary::before { transform: rotate(90deg); }
+.cb-filtro { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr) minmax(0, 1fr) auto; gap: 8px; margin: 0 0 8px; align-items: center; }
+
+.we-input {
+    width: 100%; box-sizing: border-box; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink);
+    border-radius: 9px; padding: 8px 10px; font-size: 13px; font-family: inherit; min-width: 0;
+}
+.we-input:focus { outline: none; border-color: var(--brand); }
+.we-input.bad { border-color: var(--t-rose); }
+.we-input[disabled] { opacity: .55; }
+.we-lbl { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 10px 0 6px; }
+.we-hint { font-size: 12px; color: var(--ink-3); margin: 6px 0 0; }
+.we-link { border: 0; background: none; padding: 4px 0; color: var(--brand); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.we-ico { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; flex: 0 0 30px; }
+.we-ico:hover { color: var(--t-rose); border-color: var(--t-rose); }

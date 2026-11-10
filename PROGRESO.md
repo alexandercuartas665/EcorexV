@@ -2,13 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-10 - /conectar-ia: snippets de Codex y Gemini aplicacion INTEGRADO al tronco (ADR-0159, release v0.16.300, SIN deploy)
+
+- AGENTE: integrado al tronco por Claude Opus 4.8 (merge --no-ff de claude/mcp-conectar-ia-snippets: 1 commit 738ae125, apilado sobre el merge del Analisis v0.16.299). La rama tomo v0.16.299; RENUMERADA a v0.16.300 al integrar por colision con el merge del Analisis. Trabajo original de Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393).
+- HECHO: `ConectarIa.razor` ahora ofrece tambien Codex (~/.codex/config.toml via mcp-remote) y Gemini aplicacion/Code Assist (mcp-remote, respaldo cuando la forma httpUrl del Gemini CLI falla). Antes solo salian Claude Code, Gemini CLI y Claude Desktop. ADR-0159 suma la linea de clientes compatibles.
+- VERIFICADO al integrar: [pendiente de pegar resultado de los gates post-merge]. Entrega original: build src/Ecorex.SuperAdmin 0 errores; E2E en vivo 5270/BITCODE (5 bloques con boton Copiar y token embebido). Cambio de UI (texto de snippets); sin tocar backend ni BD; sin migraciones.
+- SIGUIENTE: doble push (origin + tronco) a la senal del usuario; deploy con OK por version. Tras desplegar, los snippets nuevos aparecen para todos los tenants.
+
 ## 2026-11-10 - Modulo Analisis: addendum (tarjetas, olas 5/6, PDF, export/import) INTEGRADO al tronco (ADR-0158 addendum, release v0.16.299, SIN deploy)
 
 - AGENTE: integrado al tronco por Claude Opus 4.8 (merge --no-ff de claude/system-indicators-data-sources-e53a43: 4 commits 10a1064c->8372f5a9, sobre el tronco v0.16.298). La base del modulo (ADR-0158) ya estaba en el tronco desde v0.16.290; estos 4 commits son el addendum posterior. Trabajo original de Claude Opus 5.5 y 4.8.
 - HECHO (detalle en las entradas de abajo): libros como tarjetas + modal grande; ola 5 (widget combinado hasta 4 series) y ola 6 (compartir + enlace publico /a/{token}); cierre de 3 deudas (PDF del libro por Puppeteer, agrupar por mes en la zona del tenant, filtros por serie del combinado); exportar/importar un libro entre sistemas (paquete JSON ecorex.analisis.libro v1, sin ids/tenant/dueno/datos, a prueba de fugas).
 - SIN migraciones (todo aditivo sobre columnas existentes + ConfigJson/DefinitionJson). Conflicto de merge solo en PROGRESO.md (resuelto por orden). DependencyInjection.cs y Program.cs auto-fusionados: se conservan los DI de IAnalisisPdfTickets e IAnalisisPortabilidad y los endpoints GET /analisis/libros/{id}/pdf y /export.
 - VERIFICADO al integrar: [pendiente de pegar resultado de los gates post-merge: gitleaks, build Release, format, unitarias, matriz DUAL].
-- SIGUIENTE: doble push (origin + tronco) a la senal del usuario; deploy con OK por version. Reflejar en el vault. El trabajo del campo telefono de usuarios queda aparcado (stash) para su propio OK -> v0.16.300.
+- SIGUIENTE: doble push (origin + tronco) a la senal del usuario; deploy con OK por version. Reflejar en el vault. El trabajo del campo telefono de usuarios queda aparcado (stash) para su propio OK -> v0.16.301.
 
 ## 2026-11-10 - MCP de tableros: gestion de contactos del Directorio INTEGRADA al tronco (ADR-0159 addendum b, release v0.16.298)
 

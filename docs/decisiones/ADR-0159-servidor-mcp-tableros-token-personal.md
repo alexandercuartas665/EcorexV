@@ -57,8 +57,9 @@ API de configuracion (alcance admin) a cualquier usuario.
 
 ## Consecuencias
 
-- Clientes compatibles HOY (Bearer en header): Claude Code, Gemini CLI, Claude Desktop (via `mcp-remote`).
-  La pagina `/conectar-ia` entrega los snippets listos.
+- Clientes compatibles HOY (Bearer en header): Claude Code, Gemini CLI, Gemini aplicacion/Code Assist y Codex
+  (estos dos ultimos via `mcp-remote`), Claude Desktop (via `mcp-remote`). La pagina `/conectar-ia` entrega los
+  snippets listos. La variante `mcp-remote` para Gemini es el respaldo cuando la forma `httpUrl` del CLI falla.
 - claude.ai web y ChatGPT (conectores remotos) exigen OAuth 2.1 -> **Fase 2** (no incluido).
 - Migracion aditiva dual (PG + SQL Server): `AddPersonalMcpTokens` (columna nullable + indice).
 - Pruebas: `McpTablerosTests` (matriz dual) cubre resolucion/revocacion/alcance/usuario inactivo,

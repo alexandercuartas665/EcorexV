@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-10 - Usuarios (000073): campo Telefono para crear/editar (release v0.16.301, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: el aviso de cierre/tarea-asignada por WhatsApp decia "el usuario no tiene telefono" aunque el usuario tenia telefono "en asesores". Diagnostico: en ECOREX el asesor ES un TenantUser (no hay tabla de asesores aparte); el aviso (`AgentAvisoTareaService`) lee SOLO `tenant_users.phone` del destinatario. Causa raiz real: el modulo de Usuarios (`AdmUsuarios.razor`, via `ITenantUserService`) NO tenia campo de telefono -> no habia forma de poblar `TenantUser.Phone` (la vieja pantalla de Asesores si lo escribia, de ahi la confusion).
+- HECHO (sin migracion; la columna `tenant_users.phone` ya existe): `TenantUserDto` e `InviteTenantUserRequest` ganan `Phone`; `ITenantUserService.UpdateProfileAsync` recibe `phone`; `TenantUserService` normaliza (`NormalizePhone`: deja digitos, conserva `+`), persiste en Invite y UpdateProfile, audita antes/despues y proyecta Phone en ListAsync. UI: campo Telefono en el modal de Crear y de Editar (precarga el valor, hint de indicativo para WhatsApp).
+- VERIFICADO: build Debug/Release 0 errores; `TenantUserServiceTests` 9/9 (3 nuevos: guarda telefono, normaliza separadores "+57 300 123-4567"->"+573001234567", limpia telefono vacio); E2E en 5234/AGRO: editar Lilian Loaiza, guardar "+57 300 705 7939" -> BD `tenant_users.phone = +573007057939` (normalizado).
+- SIGUIENTE: doble push + deploy con OK por version del usuario. Apila sobre v0.16.300 (snippets) ya desplegado.
+
 ## 2026-11-10 - /conectar-ia: snippets de Codex y Gemini aplicacion INTEGRADO al tronco (ADR-0159, release v0.16.300, SIN deploy)
 
 - AGENTE: integrado al tronco por Claude Opus 4.8 (merge --no-ff de claude/mcp-conectar-ia-snippets: 1 commit 738ae125, apilado sobre el merge del Analisis v0.16.299). La rama tomo v0.16.299; RENUMERADA a v0.16.300 al integrar por colision con el merge del Analisis. Trabajo original de Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393).

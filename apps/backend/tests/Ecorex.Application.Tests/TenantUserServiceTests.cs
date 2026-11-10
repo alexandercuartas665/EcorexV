@@ -360,7 +360,7 @@ public class TenantUserServiceTests
     {
         var (svc, inner, tu, _) = Build(PlatformUserStatus.Active, displayName: "Nombre Viejo");
 
-        var result = await svc.UpdateProfileAsync(tu.Id, "Nombre Nuevo", Guid.CreateVersion7());
+        var result = await svc.UpdateProfileAsync(tu.Id, "Nombre Nuevo", null, Guid.CreateVersion7());
 
         Assert.NotNull(result);
         Assert.Equal("Nombre Nuevo", result!.DisplayName);
@@ -373,11 +373,54 @@ public class TenantUserServiceTests
     {
         var (svc, inner, tu, _) = Build(PlatformUserStatus.Active, displayName: "Con Nombre");
 
-        var result = await svc.UpdateProfileAsync(tu.Id, "   ", Guid.CreateVersion7());
+        var result = await svc.UpdateProfileAsync(tu.Id, "   ", null, Guid.CreateVersion7());
 
         Assert.NotNull(result);
         Assert.Null(result!.DisplayName);
         var pu = await inner.PlatformUsers.FirstAsync();
         Assert.Null(pu.DisplayName);
+    }
+
+    [Fact]
+    public async Task UpdateProfile_SavesPhone_NormalizingSeparators()
+    {
+        var (svc, inner, tu, _) = Build(PlatformUserStatus.Active);
+
+        var result = await svc.UpdateProfileAsync(tu.Id, null, "+57 300 123-4567", Guid.CreateVersion7());
+
+        Assert.NotNull(result);
+        Assert.Equal("+573001234567", result!.Phone);
+        var saved = await inner.TenantUsers.FirstAsync();
+        Assert.Equal("+573001234567", saved.Phone);
+    }
+
+    [Fact]
+    public async Task UpdateProfile_BlankPhone_ClearsPhone()
+    {
+        var (svc, inner, tu, _) = Build(PlatformUserStatus.Active);
+        tu.Phone = "573001234567";
+        await inner.SaveChangesAsync();
+
+        var result = await svc.UpdateProfileAsync(tu.Id, null, "   ", Guid.CreateVersion7());
+
+        Assert.NotNull(result);
+        Assert.Null(result!.Phone);
+        var saved = await inner.TenantUsers.FirstAsync();
+        Assert.Null(saved.Phone);
+    }
+
+    [Fact]
+    public async Task Invite_SavesPhone()
+    {
+        var (svc, inner, _, _) = Build(PlatformUserStatus.Active);
+
+        var created = await svc.InviteAsync(
+            new InviteTenantUserRequest("nuevo@empresa.local", TenantRole.Advisor, Password: "Clave123", Phone: "300 123 4567"),
+            Guid.CreateVersion7());
+
+        Assert.NotNull(created);
+        Assert.Equal("3001234567", created!.Phone);
+        var saved = await inner.TenantUsers.FirstAsync(t => t.Email == "nuevo@empresa.local");
+        Assert.Equal("3001234567", saved.Phone);
     }
 }

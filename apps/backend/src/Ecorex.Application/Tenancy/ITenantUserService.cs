@@ -43,10 +43,11 @@ public interface ITenantUserService
     Task<TenantUserDto?> ResetPasswordAsync(Guid tenantUserId, string newPassword, Guid actorUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Edita el DisplayName del PlatformUser vinculado a un usuario del tenant (opcional; null o
-    /// vacio lo deja sin nombre). Audita. Devuelve null si el usuario no existe en el tenant.
+    /// Edita el DisplayName del PlatformUser y el telefono (TenantUser.Phone) de un usuario del
+    /// tenant (ambos opcionales; null o vacio los deja sin valor). El telefono alimenta las
+    /// notificaciones de WhatsApp. Audita. Devuelve null si el usuario no existe en el tenant.
     /// </summary>
-    Task<TenantUserDto?> UpdateProfileAsync(Guid tenantUserId, string? displayName, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<TenantUserDto?> UpdateProfileAsync(Guid tenantUserId, string? displayName, string? phone, Guid actorUserId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// "Elimina" un usuario del tenant como BAJA LOGICA (Status = Removed): no borra la fila

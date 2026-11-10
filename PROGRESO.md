@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-10 - /conectar-ia: snippets de Codex y Gemini aplicacion (release v0.16.299, SIN deploy)
+
+- AGENTE: Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393, rama nueva sobre tronco v0.16.298 ya integrado).
+- HECHO: `ConectarIa.razor` ahora ofrece tambien Codex (~/.codex/config.toml via mcp-remote) y Gemini
+  aplicacion/Code Assist (mcp-remote, respaldo cuando la forma httpUrl del Gemini CLI falla). Antes solo salian
+  Claude Code, Gemini CLI y Claude Desktop.
+- VERIFICADO: build src/Ecorex.SuperAdmin 0 errores. Cambio de UI (snippets de texto); sin tocar backend ni BD.
+- SIGUIENTE: integracion central por el dev principal; re-numerar version si el tronco avanzo.
+
 ## 2026-11-10 - MCP de tableros: gestion de contactos del Directorio INTEGRADA al tronco (ADR-0159 addendum b, release v0.16.298)
 
 - AGENTE: integrado al tronco por Claude Opus 4.8 (cherry-pick de f9fddd1b de la rama claude/mcp-tablero-tareas-7cc393; renumerado .295->.298 por colision con el fix de confidencialidad). Trabajo original de Claude Opus 5.5. Pedido: la IA no podia editar ni gestionar contactos.

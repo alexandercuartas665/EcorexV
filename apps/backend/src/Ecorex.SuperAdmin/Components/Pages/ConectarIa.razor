@@ -206,6 +206,12 @@ else
         yield return ("Gemini CLI (~/.gemini/settings.json)",
             "{\n  \"mcpServers\": {\n    \"ecorex-tableros\": {\n      \"httpUrl\": \"" + url + "\",\n" +
             "      \"headers\": { \"Authorization\": \"Bearer " + token + "\" }\n    }\n  }\n}");
+        yield return ("Gemini (aplicacion / Code Assist, si el CLI falla; requiere Node) ~/.gemini/settings.json",
+            "{\n  \"mcpServers\": {\n    \"ecorex-tableros\": {\n      \"command\": \"npx\",\n" +
+            "      \"args\": [\"-y\", \"mcp-remote\", \"" + url + "\", \"--header\", \"Authorization:Bearer " + token + "\"]\n    }\n  }\n}");
+        yield return ("Codex (~/.codex/config.toml, requiere Node)",
+            "[mcp_servers.ecorex-tableros]\ncommand = \"npx\"\n" +
+            "args = [\"-y\", \"mcp-remote\", \"" + url + "\", \"--header\", \"Authorization:Bearer " + token + "\"]");
         yield return ("Claude Desktop (claude_desktop_config.json, requiere Node)",
             "{\n  \"mcpServers\": {\n    \"ecorex-tableros\": {\n      \"command\": \"npx\",\n" +
             "      \"args\": [\"-y\", \"mcp-remote\", \"" + url + "\", \"--header\", \"Authorization:Bearer " + token + "\"]\n    }\n  }\n}");

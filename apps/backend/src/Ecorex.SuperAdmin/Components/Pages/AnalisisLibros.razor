@@ -123,6 +123,7 @@ else
                         <button class="@(_modoEdicion ? "on" : "")" @onclick="() => _modoEdicion = true">Editar</button>
                     </div>
                 }
+                <a class="an-btn" href="@($"/analisis/libros/{_libro.Id}/pdf")" target="_blank" rel="noopener" title="Descargar el libro en PDF">Descargar PDF</a>
                 @if (_libro.PuedeEditar)
                 {
                     <button class="an-btn" @onclick="AbrirCompartirAsync" title="Compartir el libro">Compartir</button>

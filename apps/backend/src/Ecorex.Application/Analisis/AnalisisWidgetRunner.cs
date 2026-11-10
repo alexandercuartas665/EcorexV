@@ -53,6 +53,13 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
     {
         try
         {
+            // Zona del tenant en el contexto (regla 9): las fuentes la usan para derivar el "mes" de una
+            // fecha en la hora local del tenant, no en UTC. El servicio la cachea por circuito (una query).
+            if (ctx.TenantZone is null && _zona is not null)
+            {
+                ctx = ctx with { TenantZone = await _zona.ObtenerAsync(ct) };
+            }
+
             if (string.Equals(widget.IndicadorKey, CombinadoDiseno.IndicadorKey, StringComparison.Ordinal))
             {
                 return await RunCombinadoAsync(widget, ctx, hoja, contexto, ct);

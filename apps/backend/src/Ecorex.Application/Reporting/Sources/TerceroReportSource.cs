@@ -113,7 +113,7 @@ public sealed class TerceroReportSource : IReportableSource
             Blank(t.Telefono),
             t.EmpresaId is Guid g && names.TryGetValue(g, out var n) ? n : null,
             t.CreatedAt,
-            InMemoryReportEngine.MonthKey(t.CreatedAt),
+            InMemoryReportEngine.MonthKey(t.CreatedAt, ctx.TenantZone),
             CategoriasTexto(t.Categorias, titulos)
         }).ToList();
 

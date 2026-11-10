@@ -1,0 +1,99 @@
+@page "/a/pdf/{Token}"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Analisis
+@using Ecorex.SuperAdmin.Services
+@inject IAnalisisPdfTickets Tickets
+@inject IAnalisisCompartirService Compartir
+@inject IAnalisisWidgetRunner Runner
+
+@* Pagina ESTATICA (SSR, sin render mode interactivo) para el PDF de un libro (ADR-0158, "Descargar PDF").
+   A diferencia del visor publico /a/{token} (interactivo), aqui TODOS los widgets de TODAS las hojas se
+   corren DENTRO de OnInitializedAsync, antes de emitir el HTML: el Chromium interno recibe la pagina ya
+   pintada y no necesita circuito. La recibe solo quien trae un ticket de un solo uso (lo emite el endpoint
+   autorizado /analisis/libros/{id}/pdf); el ticket fija el tenant como ambient y se consume al abrir. *@
+
+<HeadContent>
+    @* Opt-in del paginador del render de PDF (PuppeteerQuotePdfRenderer): pie "Pagina X de Y". *@
+    <meta name="ecorex-pdf-footer" content="Pagina {pageNumber} de {totalPages}" />
+    <title>@(_libro?.Nombre ?? "Libro de indicadores")</title>
+</HeadContent>
+
+<div class="apdf">
+    @if (_libro is null)
+    {
+        <p class="apdf-muted">Este documento no esta disponible.</p>
+    }
+    else
+    {
+        <header class="apdf-head">
+            <h1>@_libro.Nombre</h1>
+            @if (!string.IsNullOrWhiteSpace(_libro.Descripcion))
+            {
+                <p>@_libro.Descripcion</p>
+            }
+        </header>
+
+        @foreach (var hoja in _libro.Hojas)
+        {
+            <section class="apdf-hoja">
+                @if (_libro.Hojas.Count > 1)
+                {
+                    <h2 class="apdf-hoja-tit">@hoja.Nombre</h2>
+                }
+                @if (hoja.Widgets.Count == 0)
+                {
+                    <p class="apdf-muted">Esta hoja no tiene indicadores.</p>
+                }
+                else
+                {
+                    <div class="apdf-grid">
+                        @foreach (var w in hoja.Widgets)
+                        {
+                            <AnalisisWidgetCard @key="w.Id" Widget="w" Resultado="@(_res.TryGetValue(w.Id, out var r) ? r : null)" />
+                        }
+                    </div>
+                }
+            </section>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = string.Empty;
+
+    private AnalisisLibroDetalle? _libro;
+    private readonly Dictionary<Guid, AnalisisWidgetResultado> _res = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var ticket = Tickets.Consumir(Token);
+        if (ticket is null)
+        {
+            return;
+        }
+
+        using (AmbientTenantContext.Begin(ticket.TenantId))
+        {
+            _libro = await Compartir.LibroParaPdfAsync(ticket.LibroId);
+            if (_libro is null)
+            {
+                return;
+            }
+
+            // Todos los widgets, hoja por hoja, EN SERIE y antes de emitir el HTML (la zona del tenant la
+            // pone el runner; cada widget roto queda como error en su tarjeta, no tumba el documento).
+            var ctx = new ReportContext(Guid.Empty);
+            foreach (var hoja in _libro.Hojas)
+            {
+                foreach (var w in hoja.Widgets)
+                {
+                    _res[w.Id] = await Runner.RunAsync(w, ctx, default, hoja.Filtros);
+                }
+            }
+        }
+    }
+}

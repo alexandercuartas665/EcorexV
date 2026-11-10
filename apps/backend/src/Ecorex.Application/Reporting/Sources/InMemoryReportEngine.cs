@@ -254,9 +254,21 @@ public static class InMemoryReportEngine
         _ => null
     };
 
-    /// <summary>Clave "AAAA-MM" de un instante (UTC). Para series mensuales sin tocar el spec.</summary>
-    public static string? MonthKey(DateTimeOffset? d) =>
-        d?.UtcDateTime.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// Clave "AAAA-MM" de un instante en la zona del tenant (regla 9). Si <paramref name="zona"/> es null
+    /// se usa UTC (comportamiento historico): asi, un reporte generico sin zona sigue agrupando igual.
+    /// Con zona, un instante cercano a la medianoche cae en el mes correcto para el usuario.
+    /// </summary>
+    public static string? MonthKey(DateTimeOffset? d, TimeZoneInfo? zona = null)
+    {
+        if (d is not DateTimeOffset v)
+        {
+            return null;
+        }
+
+        var local = zona is null ? v.UtcDateTime : TimeZoneInfo.ConvertTime(v, zona).DateTime;
+        return local.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+    }
 
     private sealed class GroupKey : IEquatable<GroupKey>
     {

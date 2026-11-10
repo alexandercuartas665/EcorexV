@@ -68,6 +68,8 @@ builder.Services.AddMemoryCache();
 // importacion lanzadas por la API + documento OpenAPI para /api/config. El store es singleton (una
 // corrida = un runId por proceso). AddOpenApi expone /openapi/v1.json (built-in de ASP.NET Core).
 builder.Services.AddSingleton<Ecorex.SuperAdmin.Endpoints.ConfigRunStore>();
+// Tickets de un solo uso para el PDF de un libro de indicadores (ADR-0158): singleton sobre IMemoryCache.
+builder.Services.AddSingleton<Ecorex.SuperAdmin.Services.IAnalisisPdfTickets, Ecorex.SuperAdmin.Services.AnalisisPdfTickets>();
 builder.Services.AddOpenApi();
 
 builder.Services.AddCascadingAuthenticationState();
@@ -1589,6 +1591,13 @@ static string LoopbackPort(Microsoft.AspNetCore.Hosting.Server.IServer srv)
     return (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
 }
 
+// Nombre de archivo seguro a partir del titulo del libro (sin caracteres invalidos ni rutas). Fallback "libro".
+static string NombreArchivo(string? nombre)
+{
+    var limpio = new string((nombre ?? string.Empty).Where(c => !char.IsControl(c) && Array.IndexOf(System.IO.Path.GetInvalidFileNameChars(), c) < 0).ToArray()).Trim();
+    return string.IsNullOrWhiteSpace(limpio) ? "libro" : (limpio.Length > 80 ? limpio[..80].Trim() : limpio);
+}
+
 // FEATURE D: arma el query string de la URL loopback del HTML (templateId + rowFilter) para que el PDF/IMG
 // rendericen la misma vista filtrada. rowFilter se escapa (lleva '='); vacio = no se agrega.
 static string BuildPrintQuery(Guid? templateId, string? rowFilter)
@@ -1614,6 +1623,38 @@ app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
     var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"cotizacion-{leadId}.pdf");
 }).AllowAnonymous();
+
+// PDF de un LIBRO de indicadores (ADR-0158, boton "Descargar PDF"). Autorizado por la COOKIE del usuario:
+// se comprueba que puede ver el libro (misma visibilidad que en pantalla), se emite un ticket de un solo
+// uso y el Chromium interno navega a /a/pdf/{ticket} (AllowAnonymous, estatica) que lo consume y lo pinta.
+app.MapGet("/analisis/libros/{libroId:guid}/pdf", async (
+    Guid libroId,
+    HttpContext http,
+    Microsoft.AspNetCore.Hosting.Server.IServer server,
+    Ecorex.Application.Analisis.IAnalisisService svc,
+    Ecorex.SuperAdmin.Auth.ICurrentPermissions perms,
+    Ecorex.SuperAdmin.Services.IAnalisisPdfTickets tickets,
+    Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    CancellationToken ct) =>
+{
+    if (!Guid.TryParse(http.User.FindFirst("tenant_id")?.Value, out var tenantId) || tenantId == Guid.Empty)
+    {
+        return Results.Forbid();
+    }
+
+    Guid? userId = Guid.TryParse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var u) ? u : null;
+    var actor = new Ecorex.Application.Analisis.AnalisisActor(userId, await perms.IsUnrestrictedAsync(ct));
+    var libro = await svc.ObtenerLibroAsync(libroId, actor, ct); // null si no lo puede ver: 404 (no filtra existencia)
+    if (libro is null)
+    {
+        return Results.NotFound();
+    }
+
+    var token = tickets.Emitir(tenantId, libroId);
+    var url = $"http://localhost:{LoopbackPort(server)}/a/pdf/{token}";
+    var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
+    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"{NombreArchivo(libro.Nombre)}.pdf");
+}).RequireAuthorization("Perm:analisis:View");
 
 // ---- Impresion de PLANTILLA rellenada con un registro de FORMULARIO (boton "Imprimir plantilla") ----
 // No imprime el formulario, sino una plantilla (QuoteTemplate) con los datos del registro. Misma

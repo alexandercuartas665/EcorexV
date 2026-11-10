@@ -284,3 +284,29 @@ Deploy solo con OK explicito.
   aperturas por minuto por IP (`UseRateLimiter` solo en `/a`). El visor fija el tenant del token como
   ambient (`AmbientTenantContext.Begin`) en cada lectura. Imprimir: hoja de estilos de impresion del
   visor (`window.print`); el PDF por la tuberia Puppeteer queda pendiente.
+
+## Addendum 2026-11-10 - Cierre de las 3 deudas (PDF, mes en zona del tenant, filtros por serie) (SIN deploy)
+
+- **PDF del libro (boton "Descargar PDF"):** render REAL por la tuberia Puppeteer (`IQuotePdfRenderer`),
+  no mas `window.print`. Mecanica: un endpoint AUTORIZADO por la cookie (`GET /analisis/libros/{id}/pdf`,
+  policy `Perm:analisis:View`) comprueba que el usuario puede ver el libro (`ObtenerLibroAsync`), emite un
+  ticket de UN SOLO USO y corta vida (`IAnalisisPdfTickets`, singleton sobre `IMemoryCache`, token de 32
+  bytes, 2 min, se borra al leerlo) y pide al Chromium interno que navegue a `/a/pdf/{ticket}`. Esa pagina
+  (`AnalisisPdf.razor`) es ESTATICA (SSR, sin render mode interactivo) y AllowAnonymous: corre TODOS los
+  widgets de TODAS las hojas dentro de `OnInitializedAsync` (antes de emitir el HTML, con el tenant del
+  ticket como ambient), por lo que Chromium recibe la pagina ya pintada y no necesita circuito SignalR
+  (el visor publico `/a/{token}` SI es interactivo y seria fragil para el render headless). Reusa
+  `AnalisisWidgetCard` (mismo SVG/tono que en pantalla) y el CSS de la app; opt-in del pie "Pagina X de Y"
+  via `<meta ecorex-pdf-footer>`. El ticket evita exponer el libro: sin BD nueva y sin enlace publico
+  (sirve libros privados/compartidos que su enlace publico no serviria). Decision: ticket en memoria del
+  proceso (el Chromium corre en el mismo contenedor) en vez de un token persistido.
+- **Agrupar por mes en la zona del tenant (regla 9):** `InMemoryReportEngine.MonthKey` admite
+  `TimeZoneInfo?` (null = UTC, retrocompatible). La zona viaja por `ReportContext.TenantZone`, que el
+  `AnalisisWidgetRunner` puebla una vez por circuito desde `IAnalisisZonaHoraria`; las fuentes
+  (Actividades `CreatedMonth`/`ClosedMonth`, Horas, Directorio, bitacora) la pasan a `MonthKey`. Un
+  reporte generico sin zona agrupa igual que antes. Cierra el pendiente del addendum anterior.
+- **Filtros por serie del combinado:** el modelo (`SerieCombinada.Filtros`) y `CombinadoDiseno.SpecDe`
+  (suma los filtros de la serie a los de la hoja/contexto) YA existian; faltaba la UI. Se agrega el
+  editor de filtros por serie en `AnalisisCombinadoEditor` (campo/operador/valor con los campos
+  filtrables de la fuente de esa serie), asi la serie A puede contar solo aprobadas y la B todas. Cambiar
+  la fuente de la serie limpia sus filtros (son especificos de la fuente).

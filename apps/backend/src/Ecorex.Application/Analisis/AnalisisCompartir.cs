@@ -51,6 +51,13 @@ public interface IAnalisisCompartirService
 
     /// <summary>Libro en solo lectura para el visor publico. Llamar con el tenant del token como ambient.</summary>
     Task<AnalisisLibroDetalle?> LibroPublicoAsync(Guid libroId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Libro en solo lectura para el PDF (boton "Descargar PDF"), de CUALQUIER visibilidad. A diferencia
+    /// de <see cref="LibroPublicoAsync"/> no exige enlace publico: el endpoint autorizado ya comprobo que
+    /// el usuario puede verlo y acota por su tenant. Llamar con ese tenant como ambient.
+    /// </summary>
+    Task<AnalisisLibroDetalle?> LibroParaPdfAsync(Guid libroId, CancellationToken ct = default);
 }
 
 public sealed class AnalisisCompartirService : IAnalisisCompartirService
@@ -217,6 +224,14 @@ public sealed class AnalisisCompartirService : IAnalisisCompartirService
         await using var db = _factory.Create();
         var libro = await db.AnalisisLibros.AsNoTracking()
             .FirstOrDefaultAsync(l => l.Id == libroId && l.Visibilidad == AnalisisVisibilidad.EnlacePublico, ct);
+        return libro is null ? null : await AnalisisService.CargarDetalleAsync(db, libro, puedeEditar: false, ct);
+    }
+
+    public async Task<AnalisisLibroDetalle?> LibroParaPdfAsync(Guid libroId, CancellationToken ct = default)
+    {
+        await using var db = _factory.Create();
+        // El filtro global del contexto acota al tenant ambient: solo devuelve el libro si es de ese tenant.
+        var libro = await db.AnalisisLibros.AsNoTracking().FirstOrDefaultAsync(l => l.Id == libroId, ct);
         return libro is null ? null : await AnalisisService.CargarDetalleAsync(db, libro, puedeEditar: false, ct);
     }
 

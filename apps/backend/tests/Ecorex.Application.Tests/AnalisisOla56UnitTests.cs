@@ -205,6 +205,17 @@ public class AnalisisOla56UnitTests
         Assert.Equal("2026-12-01T00:00:00-05:00", f.Single(x => x.Operator == ReportFilterOperator.LessThan).Values[0]);
     }
 
+    [Fact]
+    public void MesClave_UsaLaZonaDelTenant_NoUtc()
+    {
+        // 1 de diciembre 02:00 UTC = 30 de noviembre 21:00 en Bogota (-5): el mes del usuario es noviembre.
+        var bogota = TimeZoneInfo.CreateCustomTimeZone("co", TimeSpan.FromHours(-5), "co", "co");
+        var instante = new DateTimeOffset(2026, 12, 1, 2, 0, 0, TimeSpan.Zero);
+        Assert.Equal("2026-11", Ecorex.Application.Reporting.Sources.InMemoryReportEngine.MonthKey(instante, bogota));
+        Assert.Equal("2026-12", Ecorex.Application.Reporting.Sources.InMemoryReportEngine.MonthKey(instante, null));
+        Assert.Null(Ecorex.Application.Reporting.Sources.InMemoryReportEngine.MonthKey(null, bogota));
+    }
+
     // ---- Pendientes de fuentes ----
 
     [Fact]

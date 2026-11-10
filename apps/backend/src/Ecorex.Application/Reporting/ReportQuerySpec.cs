@@ -69,8 +69,12 @@ public sealed record ReportQuerySpec
 /// depende de este objeto sino del filtro global tenant del DbContext (fail-closed): aunque un
 /// llamador mintiera aqui, la consulta seguiria acotada al tenant activo del contexto EF. Este ctx es
 /// informativo y para politicas futuras.
+///
+/// <see cref="TenantZone"/> (opcional): zona horaria del tenant para derivar claves de calendario
+/// (p.ej. el "mes" de una fecha) en la hora local del tenant y no en UTC (regla 9). Si es null se usa
+/// UTC, que es el comportamiento historico; los consumidores de analisis la pueblan desde Tenant.TimeZoneId.
 /// </summary>
-public sealed record ReportContext(Guid TenantId, Guid? UserId = null);
+public sealed record ReportContext(Guid TenantId, Guid? UserId = null, TimeZoneInfo? TenantZone = null);
 
 /// <summary>
 /// Error de VALIDACION del spec contra el catalogo (fuente inexistente, campo fuera del catalogo,

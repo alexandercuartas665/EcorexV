@@ -95,7 +95,7 @@ public sealed class TaskItemReportSource : IReportableSource
     {
         if (NeedsInMemory(spec))
         {
-            return await QueryInMemoryAsync(spec, ct);
+            return await QueryInMemoryAsync(spec, ctx, ct);
         }
 
         // Catalogos tenant-scoped (id -> nombre) para los campos por nombre. Se cargan ANTES de filtrar
@@ -121,6 +121,9 @@ public sealed class TaskItemReportSource : IReportableSource
         public IReadOnlyDictionary<Guid, TerceroRef> Terceros { get; init; } = new Dictionary<Guid, TerceroRef>();
         public IReadOnlyDictionary<Guid, string> Projects { get; init; } = new Dictionary<Guid, string>();
         public DateTimeOffset Now { get; init; } = DateTimeOffset.UtcNow;
+
+        /// <summary>Zona del tenant para las claves de mes (null = UTC, regla 9).</summary>
+        public TimeZoneInfo? Zona { get; init; }
     }
 
     // ---- Ruta EXTENDIDA (ADR-0158): campos nuevos, varios grupos o agregados numericos ----
@@ -134,7 +137,7 @@ public sealed class TaskItemReportSource : IReportableSource
         || spec.Aggregates.Any(a => ExtendedKeys.Contains(a.FieldKey))
         || spec.Sort.Any(s => ExtendedKeys.Contains(s.FieldKey));
 
-    private async Task<ReportDataSet> QueryInMemoryAsync(ReportQuerySpec spec, CancellationToken ct)
+    private async Task<ReportDataSet> QueryInMemoryAsync(ReportQuerySpec spec, ReportContext ctx, CancellationToken ct)
     {
         var owned = _factory?.Create();
         try
@@ -143,7 +146,8 @@ public sealed class TaskItemReportSource : IReportableSource
             var lk = await LoadLookupsAsync(db, ct) with
             {
                 Terceros = await ReportLookups.TercerosAsync(db, ct),
-                Projects = await ReportLookups.ProjectsAsync(db, ct)
+                Projects = await ReportLookups.ProjectsAsync(db, ct),
+                Zona = ctx.TenantZone
             };
 
             var tasks = await db.TaskItems.AsNoTracking()
@@ -609,8 +613,8 @@ public sealed class TaskItemReportSource : IReportableSource
         "closereason" => t => string.IsNullOrWhiteSpace(t.CloseReason) ? null : t.CloseReason,
         "columnenteredat" => t => t.ColumnEnteredAt,
         "vencida" => t => IsOverdue(t, lk.Now),
-        "createdmonth" => t => InMemoryReportEngine.MonthKey(t.CreatedAt),
-        "closedmonth" => t => InMemoryReportEngine.MonthKey(t.ClosedAt),
+        "createdmonth" => t => InMemoryReportEngine.MonthKey(t.CreatedAt, lk.Zona),
+        "closedmonth" => t => InMemoryReportEngine.MonthKey(t.ClosedAt, lk.Zona),
         "diasenetapa" => t => t.ColumnEnteredAt is DateTimeOffset e && !IsFinished(t) ? Days(e, lk.Now) : null,
         "diasabierta" => t => Days(t.CreatedAt, t.ClosedAt ?? lk.Now),
         _ => _ => null

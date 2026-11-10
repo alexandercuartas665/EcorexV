@@ -30,7 +30,12 @@
     border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 0 0 16px;
     background: var(--t-rose-bg); color: var(--t-rose);
 }
+.an-alert.ok { background: var(--t-green-bg); color: var(--t-green); }
 .an-x { border: 0; background: none; color: inherit; cursor: pointer; font-size: 16px; }
+
+/* "Importar libro": el label luce como boton y el input de archivo nativo queda oculto. */
+.an-import { position: relative; overflow: hidden; }
+.an-import input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 
 .an-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 18px; flex-wrap: wrap; }
 .an-tab {

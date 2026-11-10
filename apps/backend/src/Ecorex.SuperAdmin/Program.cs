@@ -1656,6 +1656,27 @@ app.MapGet("/analisis/libros/{libroId:guid}/pdf", async (
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"{NombreArchivo(libro.Nombre)}.pdf");
 }).RequireAuthorization("Perm:analisis:View");
 
+// Exporta un LIBRO de indicadores como JSON portable (ADR-0158): definicion (hojas + widgets), sin ids,
+// tenant ni datos; para llevarlo a otro sistema/tenant e importarlo alla. Autorizado por la cookie.
+app.MapGet("/analisis/libros/{libroId:guid}/export", async (
+    Guid libroId,
+    HttpContext http,
+    Ecorex.Application.Analisis.IAnalisisPortabilidad port,
+    Ecorex.SuperAdmin.Auth.ICurrentPermissions perms,
+    CancellationToken ct) =>
+{
+    Guid? userId = Guid.TryParse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var u) ? u : null;
+    var actor = new Ecorex.Application.Analisis.AnalisisActor(userId, await perms.IsUnrestrictedAsync(ct));
+    var paquete = await port.ExportarAsync(libroId, actor, ct);
+    if (paquete is null)
+    {
+        return Results.NotFound();
+    }
+
+    var bytes = System.Text.Encoding.UTF8.GetBytes(paquete.Value.Json);
+    return Results.File(bytes, "application/json", paquete.Value.FileName);
+}).RequireAuthorization("Perm:analisis:View");
+
 // ---- Impresion de PLANTILLA rellenada con un registro de FORMULARIO (boton "Imprimir plantilla") ----
 // No imprime el formulario, sino una plantilla (QuoteTemplate) con los datos del registro. Misma
 // mecanica que /cotizacion: HTML servible + render headless para PDF/imagen. AllowAnonymous porque

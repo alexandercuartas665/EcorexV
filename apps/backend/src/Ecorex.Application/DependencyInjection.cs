@@ -397,6 +397,7 @@ public static class DependencyInjection
         services.AddScoped<Analisis.IAnalisisWidgetRunner, Analisis.AnalisisWidgetRunner>();
         services.AddScoped<Analisis.IAnalisisZonaHoraria, Analisis.AnalisisZonaHoraria>();
         services.AddScoped<Analisis.IAnalisisCompartirService, Analisis.AnalisisCompartirService>();
+        services.AddScoped<Analisis.IAnalisisPortabilidad, Analisis.AnalisisPortabilidad>();
         services.AddScoped<Analisis.IAnalisisAnfitrionService, Analisis.AnalisisAnfitrionService>();
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
         // ADR-0068: fuente reportable de RESPUESTAS DE FORMULARIO (una por modulo, clave "form:{code}").

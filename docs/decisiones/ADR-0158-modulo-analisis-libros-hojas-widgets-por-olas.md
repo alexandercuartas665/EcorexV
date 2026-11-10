@@ -310,3 +310,35 @@ Deploy solo con OK explicito.
   editor de filtros por serie en `AnalisisCombinadoEditor` (campo/operador/valor con los campos
   filtrables de la fuente de esa serie), asi la serie A puede contar solo aprobadas y la B todas. Cambiar
   la fuente de la serie limpia sus filtros (son especificos de la fuente).
+
+## Addendum 2026-11-10 - Exportar / importar un libro entre sistemas (SIN deploy)
+
+Peticion: poder llevar un libro de un sistema/tenant a otro (enviarlo). Se agrega un PAQUETE JSON
+portable, siguiendo el precedente del export/import de Contenedor (ADR-0132): se lleva la DEFINICION,
+nunca los datos ni las referencias que no cruzan sistemas.
+
+- **Paquete (`AnalisisPortabilidad.cs`, Application):** `AnalisisLibroPaquete` -> `AnalisisHojaPaquete`
+  -> `AnalisisWidgetPaquete`. Lleva SOLO nombre, descripcion, hojas (con su `FiltrosJson`) y widgets
+  (Tipo, Titulo, SpecJson, IndicadorKey, ConfigJson, ColSpan, ContextBindingsJson). NO lleva ids, tenant,
+  dueno, visibilidad, enlaces ni filas de datos. Formato `ecorex.analisis.libro` version 1; topes
+  defensivos al importar un JSON arbitrario (50 hojas, 400 widgets).
+- **Exportar:** `ExportarAsync(libroId, actor)` reusa `ObtenerLibroAsync`, que aplica la visibilidad
+  (devuelve null si el actor no puede ver el libro), mapea a paquete y serializa con `AnalisisJson.Options`.
+  Nombre de archivo `<libro saneado>.ecorex-libro.json`. Endpoint `GET /analisis/libros/{id}/export`
+  (policy `Perm:analisis:View`, actor por cookie + `IsUnrestrictedAsync`) que descarga el JSON.
+- **Importar:** `ImportarAsync(json, actor)` valida formato/version y, en UNA transaccion, crea un libro
+  NUEVO privado del usuario que importa, con sus hojas y widgets (ids nuevos). Decisiones:
+  - *Fuentes nativas* (Directorio/Actividades/Horas/bitacora) son iguales en todo sistema: viajan intactas.
+  - *Referencias que pueden no existir en el destino* NO abortan la importacion, se AVISAN: un widget que
+    usa un Contenedor (`container:` en el spec/config, sus ids son locales) o un indicador curado que no
+    existe aqui queda importado pero con un aviso para revisar/reasignar la fuente en el destino.
+  - *Widget con definicion incompleta* (sin titulo, o con spec Y curado a la vez, o sin ninguno) se saltea
+    con un aviso, sin romper el resto del libro.
+  - Paquete sin hojas -> nace con "Hoja 1" (como `CrearLibroAsync`).
+- **UI:** galeria con boton "Importar libro" (`<InputFile>` oculto, `.json`, solo si el usuario puede
+  crear; lee por la compuerta del circuito, tope 8 MB, abre el libro importado y muestra los avisos);
+  modal del libro con boton "Exportar" junto a "Descargar PDF".
+- **Verificado:** build Application + SuperAdmin verde; unitarias Ola 5/6 27/27; integracion DUAL
+  (PG + SQL Server) `Portabilidad_ExportaEnUnTenant_ImportaEnOtro_ConEstructuraYAislamiento` 2/2 (round-trip
+  cross-tenant con estructura/filtros/curado intactos, aislamiento por tenant y rechazo de JSON ajeno);
+  format limpio; ASCII.

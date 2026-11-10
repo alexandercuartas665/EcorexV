@@ -552,6 +552,60 @@ public abstract class AnalisisLibrosTestsBase
         public override DateTimeOffset GetUtcNow() => Ahora;
     }
 
+    [Fact]
+    public async Task Portabilidad_ExportaEnUnTenant_ImportaEnOtro_ConEstructuraYAislamiento()
+    {
+        var a = await SeedTenantAsync("Libros port A");
+        var b = await SeedTenantAsync("Libros port B");
+
+        IAnalisisPortabilidad Portab(Guid t) =>
+            new AnalisisPortabilidad(Service(t), new ApplicationDbContextFactory(() => _fixture.CreateContext(t)), Registry());
+
+        // Libro en A: 2 hojas, filtros en la hoja 1, dos widgets de spec y uno curado.
+        var svcA = Service(a);
+        var libroA = (await svcA.CrearLibroAsync("Comercial", "KPIs del area", ActorDuena)).Id!.Value;
+        var detA = (await svcA.ObtenerLibroAsync(libroA, ActorDuena))!;
+        var hoja1 = detA.Hojas[0].Id;
+        var hoja2 = (await svcA.CrearHojaAsync(libroA, "Ventas", ActorDuena)).Id!.Value;
+        Assert.True((await svcA.GuardarFiltrosHojaAsync(hoja1, new HojaFiltros { Vendedor = "Laura" }, ActorDuena)).Ok);
+        Assert.True((await svcA.AgregarWidgetAsync(hoja1, AnalisisEjemplos.Find("tareas-abiertas")!.Widget, ActorDuena)).Ok);
+        Assert.True((await svcA.AgregarWidgetAsync(hoja1, AnalisisEjemplos.Find("semaforo")!.Widget, ActorDuena)).Ok);
+        Assert.True((await svcA.AgregarWidgetAsync(hoja2, AnalisisEjemplos.Find("horas-usuario")!.Widget, ActorDuena)).Ok);
+
+        // El indicador curado y el spec esperados (para comparar tras el viaje).
+        detA = (await svcA.ObtenerLibroAsync(libroA, ActorDuena))!;
+        var claveCurada = detA.Hojas[0].Widgets.Single(w => w.IndicadorKey is not null).IndicadorKey;
+        Assert.NotNull(claveCurada);
+
+        // Exporta en A, importa en B (otro usuario, otro tenant).
+        var paquete = await Portab(a).ExportarAsync(libroA, ActorDuena);
+        Assert.NotNull(paquete);
+        Assert.EndsWith(".ecorex-libro.json", paquete!.Value.FileName);
+        var r = await Portab(b).ImportarAsync(paquete.Value.Json, ActorOtro);
+        Assert.True(r.Ok, r.Error);
+        Assert.Empty(r.Avisos); // solo fuentes nativas y un curado que existe en el destino
+
+        // El libro importado en B: misma estructura, dueno = quien importo, id NUEVO, privado.
+        var impo = (await Service(b).ObtenerLibroAsync(r.LibroId!.Value, ActorOtro))!;
+        Assert.NotEqual(libroA, impo.Id);
+        Assert.Equal("Comercial", impo.Nombre);
+        Assert.True(impo.PuedeEditar); // ActorOtro es el dueno en B
+        Assert.Equal(AnalisisVisibilidad.Privado, impo.Visibilidad);
+        Assert.Equal(new[] { "Hoja 1", "Ventas" }, impo.Hojas.Select(h => h.Nombre));
+        Assert.Equal("Laura", impo.Hojas[0].Filtros.Vendedor);
+        Assert.Equal(2, impo.Hojas[0].Widgets.Count);
+        var curadoImp = Assert.Single(impo.Hojas[0].Widgets, w => w.IndicadorKey is not null);
+        Assert.Equal(claveCurada, curadoImp.IndicadorKey);
+        Assert.Contains(impo.Hojas[0].Widgets, w => w.SpecJson is not null); // el spec viajo
+        Assert.Single(impo.Hojas[1].Widgets);
+
+        // Aislamiento: el libro importado vive en B; el tenant A no lo ve ni siendo Admin.
+        Assert.Null(await svcA.ObtenerLibroAsync(impo.Id, ActorAdmin));
+
+        // JSON ajeno -> error claro, sin crear nada.
+        Assert.False((await Portab(b).ImportarAsync("{\"foo\":1}", ActorOtro)).Ok);
+    }
+
     // ---- Helpers ----
 
     private AnalisisService Service(Guid tenantId) =>

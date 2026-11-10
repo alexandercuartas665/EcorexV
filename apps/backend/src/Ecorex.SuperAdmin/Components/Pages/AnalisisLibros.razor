@@ -16,6 +16,7 @@
 @inject IIndicadorCuradoRegistry Curados
 @inject ICurrentPermissions Perms
 @inject IAnalisisCompartirService Compartir
+@inject IAnalisisPortabilidad Portabilidad
 @inject NavigationManager Nav
 @implements IDisposable
 
@@ -41,10 +42,19 @@
     <div class="an-head-actions">
         @if (_canCreate)
         {
+            <label class="an-btn an-import" title="Importar un libro exportado desde otro sistema (archivo .json)">
+                @(_importando ? "Importando..." : "Importar libro")
+                <InputFile OnChange="ImportarLibroAsync" accept=".json,application/json" disabled="@_importando" />
+            </label>
             <button class="an-btn primary" @onclick="AbrirNuevoLibro">+ Nuevo libro</button>
         }
     </div>
 </div>
+
+@if (_importAviso is not null)
+{
+    <div class="an-alert ok">@_importAviso <button class="an-x" @onclick="() => _importAviso = null">&#215;</button></div>
+}
 
 @if (_mensaje is not null && _libro is null)
 {
@@ -124,6 +134,7 @@ else
                     </div>
                 }
                 <a class="an-btn" href="@($"/analisis/libros/{_libro.Id}/pdf")" target="_blank" rel="noopener" title="Descargar el libro en PDF">Descargar PDF</a>
+                <a class="an-btn" href="@($"/analisis/libros/{_libro.Id}/export")" target="_blank" rel="noopener" title="Exportar el libro a un archivo para llevarlo a otro sistema">Exportar</a>
                 @if (_libro.PuedeEditar)
                 {
                     <button class="an-btn" @onclick="AbrirCompartirAsync" title="Compartir el libro">Compartir</button>
@@ -397,6 +408,10 @@ else
     private const string ModuleKey = "analisis";
 
     private enum Modal { Ninguno, NuevoLibro, RenombrarLibro, EliminarLibro, NuevaHoja, RenombrarHoja, AgregarWidget, Compartir }
+
+    // Importar un libro desde archivo (portabilidad entre sistemas)
+    private bool _importando;
+    private string? _importAviso;
 
     // Compartir (Ola 6)
     private AnalisisCompartirEstado? _compartir;
@@ -726,6 +741,61 @@ else
         _nombre = null;
         _descripcion = null;
         _modal = Modal.NuevoLibro;
+    }
+
+    /// <summary>Importa un libro desde un archivo JSON exportado (de este u otro sistema) y lo abre.</summary>
+    private async Task ImportarLibroAsync(InputFileChangeEventArgs e)
+    {
+        if (_importando)
+        {
+            return;
+        }
+
+        _importando = true;
+        _mensaje = null;
+        _importAviso = null;
+        try
+        {
+            var archivo = e.File;
+            const long max = 8L * 1024 * 1024; // 8 MB: un libro es solo definicion (texto), nunca tan grande
+            if (archivo is null)
+            {
+                return;
+            }
+
+            if (archivo.Size > max)
+            {
+                _mensaje = "El archivo es muy grande (maximo 8 MB).";
+                return;
+            }
+
+            string json;
+            using (var lector = new StreamReader(archivo.OpenReadStream(max)))
+            {
+                json = await lector.ReadToEndAsync();
+            }
+
+            var r = await Sesion.EnCompuertaAsync(() => Portabilidad.ImportarAsync(json, _actor));
+            if (!r.Ok || r.LibroId is not Guid nuevo)
+            {
+                _mensaje = r.Error ?? "No se pudo importar el libro.";
+                return;
+            }
+
+            _importAviso = r.Avisos.Count == 0
+                ? $"Libro \"{r.Nombre}\" importado."
+                : $"Libro \"{r.Nombre}\" importado. {string.Join(" ", r.Avisos)}";
+            _libros = await Svc.ListarLibrosAsync(_actor);
+            await AbrirDesdeTarjetaAsync(nuevo); // abre el libro recien importado
+        }
+        catch (Exception)
+        {
+            _mensaje = "No se pudo leer el archivo.";
+        }
+        finally
+        {
+            _importando = false;
+        }
     }
 
     private void AbrirRenombrarLibro()

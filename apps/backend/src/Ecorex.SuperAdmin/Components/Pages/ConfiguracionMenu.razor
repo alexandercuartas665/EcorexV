@@ -54,7 +54,7 @@
                 </button>
             </div>
             <div class="mc-pick-body">
-                <input class="form-control" placeholder="Buscar por nombre, ruta o codigo..." @bind="_pickSearch" @bind:event="oninput" />
+                <DebouncedInput class="form-control" placeholder="Buscar por nombre, ruta o codigo..." @bind-Value="_pickSearch" />
                 <div class="mc-pick-list">
                     <button type="button" class="mc-pick-item @(_pickRoute == "" ? "on" : "")" @onclick="@(() => _pickRoute = "")">
                         <span class="mc-pick-item-name">Elemento personalizado (en blanco)</span>
@@ -196,7 +196,7 @@ else
                 <div class="mc-editor-body">
                     <div class="mc-tree-pane">
                         <div class="mc-toolbar">
-                            <input class="form-control" style="max-width:210px;" placeholder="Buscar en el arbol..." @bind="_search" @bind:event="oninput" />
+                            <DebouncedInput class="form-control" style="max-width:210px;" placeholder="Buscar en el arbol..." @bind-Value="_search" />
                             <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetAllExpanded(true))">Expandir</button>
                             <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SetAllExpanded(false))">Contraer</button>
                             <button class="btn btn-sm btn-primary" style="margin-left:auto;" @onclick="AddSectionAsync" disabled="@_busy">+ Seccion</button>

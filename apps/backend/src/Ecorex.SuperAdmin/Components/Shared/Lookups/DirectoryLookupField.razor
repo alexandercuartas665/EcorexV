@@ -3,6 +3,7 @@
 @using Ecorex.Domain.Enums
 @inject IFormLookupService LookupSvc
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+@implements IDisposable
 
 @* Captura de un campo tipo "Lista del Directorio": lista terceros del Directorio General
    (modulo 000232) filtrados por perfil. Guarda el Id del tercero (referencia viva); la etiqueta
@@ -159,10 +160,14 @@
         await BuscarAsync(_texto);
     }
 
+    private readonly Debouncer _debounce = new();
+
+    public void Dispose() => _debounce.Dispose();
+
     private async Task OnTypeAsync(ChangeEventArgs e)
     {
         _texto = e.Value?.ToString() ?? "";
-        await BuscarAsync(_texto);
+        await _debounce.RunAsync(250, () => BuscarAsync(_texto));
     }
 
     private async Task BuscarAsync(string? texto)
@@ -183,6 +188,7 @@
 
     private async Task ChooseAsync(FormLookupItem row)
     {
+        _debounce.Cancel();
         _abierto = false;
         _texto = "";
         await SetAsync(row.Value, row);
@@ -190,6 +196,7 @@
 
     private async Task ClearAsync()
     {
+        _debounce.Cancel();
         _texto = "";
         await SetAsync(null, null);
     }

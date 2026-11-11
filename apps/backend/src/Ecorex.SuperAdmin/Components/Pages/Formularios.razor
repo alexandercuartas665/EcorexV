@@ -81,7 +81,7 @@
     <div class="fx-toolbar">
         <div class="fx-search">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-            <input value="@_query" @oninput="@(e => _query = e.Value?.ToString() ?? "")" placeholder="Buscar formulario..." />
+            <DebouncedInput @bind-Value="_query" placeholder="Buscar formulario..." />
         </div>
         <div class="fx-tagfilter">
             <button class="fx-viewtab @(_filterTags.Count == 0 ? "on" : "")" @onclick="() => _filterTags.Clear()">Todas</button>
@@ -358,9 +358,9 @@
             <div class="fx-m-body">
                 <div class="fx-m-title">Publicar al marketplace</div>
                 <p class="fx-muted">Se publica una PLANTILLA de este formulario para que otros tenants lo puedan traer.</p>
-                <input class="fx-tag-input" placeholder="Titulo" value="@_pubTitle" @oninput="@(e => _pubTitle = e.Value?.ToString() ?? "")" />
-                <textarea class="fx-tag-input" rows="3" placeholder="Descripcion (para que sirve)" @oninput="@(e => _pubDesc = e.Value?.ToString() ?? "")">@_pubDesc</textarea>
-                <input class="fx-tag-input" placeholder="Categoria (ej. Comercial)" value="@_pubCat" @oninput="@(e => _pubCat = e.Value?.ToString() ?? "")" />
+                <input class="fx-tag-input" placeholder="Titulo" @bind="_pubTitle" />
+                <textarea class="fx-tag-input" rows="3" placeholder="Descripcion (para que sirve)" @bind="_pubDesc"></textarea>
+                <input class="fx-tag-input" placeholder="Categoria (ej. Comercial)" @bind="_pubCat" />
                 <div class="fx-muted" style="margin-top:6px;">Imagen (opcional, max ~480 KB)</div>
                 <InputFile OnChange="OnPublishImagePicked" accept="image/*" />
                 @if (!string.IsNullOrEmpty(_pubImage))

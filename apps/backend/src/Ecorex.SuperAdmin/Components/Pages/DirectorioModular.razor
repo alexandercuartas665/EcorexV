@@ -51,7 +51,7 @@
                 </div>
                 <div class="dm-dlg-body">
                     <label class="dm-dlg-lbl">Nombre de la categoria</label>
-                    <input class="dm-dlg-input" @bind="_nuevaCatTitle" @bind:event="oninput" placeholder="Ej. Aliados, Transportadores..." />
+                    <input class="dm-dlg-input" @bind="_nuevaCatTitle" placeholder="Ej. Aliados, Transportadores..." />
                     <p class="dm-dlg-hint">Se creara vacia; luego le agregas secciones desde "Configurar directorio".</p>
                     @if (_nuevaCatError is not null) { <div class="dm-dlg-err">@_nuevaCatError</div> }
                 </div>
@@ -223,7 +223,7 @@
         @* --- Buscador --- *@
         <div class="dm-search">
             <i class="fa fa-search"></i>
-            <input placeholder="Buscar por nombre, razon social, sigla, NIT, telefono, correo o codigo..." @bind="_search" @bind:event="oninput" />
+            <DebouncedInput @bind-Value="_search" placeholder="Buscar por nombre, razon social, sigla, NIT, telefono, correo o codigo..." />
             @if (!string.IsNullOrWhiteSpace(_search))
             {
                 <button class="dm-search-x" title="Limpiar" @onclick="() => _search = string.Empty"><i class="fa fa-xmark"></i></button>

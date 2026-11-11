@@ -760,19 +760,19 @@ else
                                                 @if (_procRecurrence == ScheduleRecurrence.Monthly)
                                                 {
                                                     <label class="dc-inline-field">Dia del mes
-                                                        <input class="form-control" type="number" min="1" max="31" style="max-width:90px;" @bind="_procDayOfMonth" @bind:event="oninput" />
+                                                        <input class="form-control" type="number" min="1" max="31" style="max-width:90px;" @bind="_procDayOfMonth" />
                                                     </label>
                                                 }
                                                 @if (_procRecurrence is ScheduleRecurrence.Daily or ScheduleRecurrence.Weekly or ScheduleRecurrence.Monthly)
                                                 {
                                                     <label class="dc-inline-field">Hora
-                                                        <input class="form-control" type="time" style="max-width:130px;" @bind="_procTime" @bind:event="oninput" />
+                                                        <input class="form-control" type="time" style="max-width:130px;" @bind="_procTime" />
                                                     </label>
                                                 }
                                                 @if (_procRecurrence == ScheduleRecurrence.EveryN)
                                                 {
                                                     <div class="dc-inline-field">Cada
-                                                        <input class="form-control" type="number" min="1" style="max-width:90px;" @bind="_procEveryValue" @bind:event="oninput" />
+                                                        <input class="form-control" type="number" min="1" style="max-width:90px;" @bind="_procEveryValue" />
                                                         <select class="form-control" style="max-width:130px;" @bind="_procEveryUnit">
                                                             <option value="@ScheduleEveryUnit.Minutes">minutos</option>
                                                             <option value="@ScheduleEveryUnit.Hours">horas</option>

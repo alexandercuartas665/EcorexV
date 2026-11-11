@@ -2,6 +2,7 @@
 @using Ecorex.Domain.Enums
 @inject IFormLookupService LookupSvc
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+@implements IDisposable
 
 @* Autocompletado de TERCEROS (Directorio General, 000232) sobre un campo de texto.
 
@@ -99,18 +100,22 @@
     private bool _hayMas;
     private int _total;
 
+    private readonly Debouncer _debounce = new();
+
+    public void Dispose() => _debounce.Dispose();
+
     private async Task OnEscribirAsync(ChangeEventArgs e)
     {
         var texto = e.Value?.ToString() ?? "";
         Value = texto;
         // El texto se propaga SIEMPRE, se elija o no del directorio: es un campo libre.
         await ValueChanged.InvokeAsync(texto);
-        await BuscarAsync(texto);
+        await _debounce.RunAsync(250, () => BuscarAsync(texto));
     }
 
     private async Task OnFocoAsync(FocusEventArgs _) => await BuscarAsync(Value);
 
-    private void OnDesenfocar(FocusEventArgs _) => _abierto = false;
+    private void OnDesenfocar(FocusEventArgs _) { _debounce.Cancel(); _abierto = false; }
 
     private async Task BuscarAsync(string? texto)
     {
@@ -158,6 +163,7 @@
 
     private async Task ElegirAsync(FormLookupItem item)
     {
+        _debounce.Cancel();
         _abierto = false;
         _resultados.Clear();
 

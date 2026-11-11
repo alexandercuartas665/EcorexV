@@ -43,7 +43,7 @@
                 <strong>Tablas</strong>
                 <span class="sq-count">@_tablas.Count</span>
             </div>
-            <input class="sq-input" placeholder="Filtrar tablas..." @bind="_filtroTabla" @bind:event="oninput" />
+            <DebouncedInput class="sq-input" placeholder="Filtrar tablas..." @bind-Value="_filtroTabla" />
             <div class="sq-explorer-list">
                 @if (_tablas.Count == 0)
                 {

@@ -78,7 +78,7 @@ else
     <div class="pl-toolbar">
         <div class="pl-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input placeholder="Buscar cliente o destino..." @bind="_search" @bind:event="oninput" />
+            <DebouncedInput placeholder="Buscar cliente o destino..." @bind-Value="_search" />
             @if (!string.IsNullOrEmpty(_search))
             {
                 <button class="pl-search-clear" @onclick="() => _search = string.Empty" title="Limpiar">&times;</button>
@@ -795,7 +795,7 @@ else
                 @if (_leadTab == "notas")
                 {
                     <div class="pl-notes-composer">
-                        <textarea class="form-control" rows="2" placeholder="Escribe una observacion sobre el cliente..." @bind="_noteText" @bind:event="oninput"></textarea>
+                        <textarea class="form-control" rows="2" placeholder="Escribe una observacion sobre el cliente..." @bind="_noteText"></textarea>
                         <div class="pl-notes-bar">
                             <div class="pl-notes-colors">
                                 @foreach (var c in NoteColors)
@@ -1323,7 +1323,7 @@ else
                     <div class="pl-hist-filters">
                         <div class="pl-search" style="flex:1;min-width:200px;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                            <input placeholder="Buscar cliente, telefono o destino..." @bind="_histSearch" @bind:event="oninput" />
+                            <DebouncedInput placeholder="Buscar cliente, telefono o destino..." @bind-Value="_histSearch" />
                             @if (!string.IsNullOrEmpty(_histSearch))
                             {
                                 <button class="pl-search-clear" @onclick="() => _histSearch = string.Empty" title="Limpiar">&times;</button>

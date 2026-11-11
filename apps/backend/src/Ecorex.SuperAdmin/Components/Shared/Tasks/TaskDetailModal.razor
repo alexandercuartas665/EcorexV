@@ -157,7 +157,7 @@
                         <div class="tk-closeask-h">Reabrir actividad</div>
                         <p class="tk-closeask-sub">Esta tarea esta en la columna de cierre <strong>@_pendingReopenFromName</strong>. Vas a sacarla a <strong>@_pendingReopenTarget.Name</strong> y se reabrira.</p>
                         <div class="tk-closeask-sub" style="margin:0 0 6px;font-weight:600;color:var(--foreground,var(--ink));">Motivo del movimiento <span style="font-weight:500;color:var(--ink-3);">(queda en la bitacora)</span></div>
-                        <textarea rows="2" placeholder="Por que reabres esta actividad?" @bind="_reopenReason" @bind:event="oninput" disabled="@_busy"
+                        <textarea rows="2" placeholder="Por que reabres esta actividad?" @bind="_reopenReason" disabled="@_busy"
                                   style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border,var(--line-2));border-radius:9px;font:inherit;font-size:13px;resize:vertical;"></textarea>
                         <div class="tk-closeask-foot">
                             <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => CancelReopen())" disabled="@_busy">Cancelar</button>

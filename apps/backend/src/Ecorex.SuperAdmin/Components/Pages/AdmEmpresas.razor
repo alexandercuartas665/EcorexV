@@ -54,7 +54,7 @@
                 <div class="ae-side-title">Empresas <span class="ae-side-count">@_tenants.Count</span></div>
             </div>
             <div class="ae-side-search">
-                <input placeholder="Buscar..." @bind="_search" @bind:event="oninput" />
+                <DebouncedInput placeholder="Buscar..." @bind-Value="_search" />
             </div>
             <div class="ae-side-list">
                 @if (FilteredTenants.Count == 0)

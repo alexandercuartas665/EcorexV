@@ -7,6 +7,7 @@
 @inject ITerceroVinculoService Vinculos
 @inject IDirectorioModularFichaService Fichas
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+@implements IDisposable
 
 <div class="dm-rel">
     <div class="dm-rel-head">
@@ -155,12 +156,16 @@
     // Orden persona/organizacion segun de que lado esta la ficha actual.
     private (Guid persona, Guid org) Par(Guid otro) => EsEmpresa ? (otro, TerceroId) : (TerceroId, otro);
 
+    private readonly Debouncer _debounce = new();
+
+    public void Dispose() => _debounce.Dispose();
+
     private async Task OnInput(ChangeEventArgs e)
     {
         _query = e.Value?.ToString() ?? "";
         _selId = null; _selNombre = null;
-        if (_query.Trim().Length < 2) { _matches = Array.Empty<TerceroBuscarDto>(); _open = false; return; }
-        await BuscarAsync();
+        if (_query.Trim().Length < 2) { _debounce.Cancel(); _matches = Array.Empty<TerceroBuscarDto>(); _open = false; return; }
+        await _debounce.RunAsync(250, BuscarAsync);
     }
 
     private async Task OnFocus(FocusEventArgs _)
@@ -178,10 +183,11 @@
         _open = _matches.Count > 0;
     }
 
-    private void OnBlur(FocusEventArgs _) => _open = false;
+    private void OnBlur(FocusEventArgs _) { _debounce.Cancel(); _open = false; }
 
     private void Elegir(TerceroBuscarDto m)
     {
+        _debounce.Cancel();
         _open = false;
         _selId = m.Id;
         _selNombre = m.Nombre;

@@ -277,7 +277,7 @@ else
             case Modal.RenombrarLibro:
                 <h3 class="an-modal-title">@(_modal == Modal.NuevoLibro ? "Nuevo libro" : "Renombrar libro")</h3>
                 <label class="an-lbl">Nombre</label>
-                <input class="an-input" @bind="_nombre" @bind:event="oninput" maxlength="150" placeholder="Ej. Indicadores comerciales" />
+                <input class="an-input" @bind="_nombre" maxlength="150" placeholder="Ej. Indicadores comerciales" />
                 <label class="an-lbl">Descripcion (opcional)</label>
                 <input class="an-input" @bind="_descripcion" maxlength="1000" />
                 <div class="an-modal-foot">
@@ -299,7 +299,7 @@ else
             case Modal.RenombrarHoja:
                 <h3 class="an-modal-title">@(_modal == Modal.NuevaHoja ? "Nueva hoja" : "Renombrar hoja")</h3>
                 <label class="an-lbl">Nombre de la hoja</label>
-                <input class="an-input" @bind="_nombre" @bind:event="oninput" maxlength="120" placeholder="Ej. Ventas" />
+                <input class="an-input" @bind="_nombre" maxlength="120" placeholder="Ej. Ventas" />
                 <div class="an-modal-foot">
                     <button class="an-btn" @onclick="Cerrar">Cancelar</button>
                     <button class="an-btn primary" disabled="@string.IsNullOrWhiteSpace(_nombre)" @onclick="GuardarHojaAsync">Guardar</button>

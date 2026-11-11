@@ -672,7 +672,7 @@ else
             <div class="cd-ctx-sep"></div>
             <div class="cd-ctx-note-title">Observacion (tooltip de la fila)</div>
             <textarea class="cd-ctx-note" rows="3" placeholder="Nota para esta fila..."
-                      @bind="_menuNote" @bind:event="oninput" @onclick:stopPropagation="true"></textarea>
+                      @bind="_menuNote" @onclick:stopPropagation="true"></textarea>
             <div class="cd-ctx-note-acts">
                 <button type="button" class="cd-ctx-note-save" @onclick="SaveNoteAsync">Guardar</button>
                 @if (!string.IsNullOrWhiteSpace(_menuNoteOriginal))
@@ -911,7 +911,7 @@ else
             <div class="cd-fb-foot">
                 <button class="btn btn-link btn-sm" @onclick="ClearFilterTree" title="Quita todas las condiciones">Vaciar</button>
                 <div class="cd-fb-foot-spacer"></div>
-                <input class="cd-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" @bind:event="oninput" />
+                <input class="cd-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" />
                 <button class="btn btn-outline-secondary btn-sm" @onclick="SaveFilterAsync" disabled="@(string.IsNullOrWhiteSpace(_saveName) || FilterCount == 0)" title="Guarda este filtro para todo el equipo">Guardar</button>
                 <button class="btn btn-primary btn-sm" @onclick="CloseFilterBuilder">Aplicar y cerrar</button>
             </div>

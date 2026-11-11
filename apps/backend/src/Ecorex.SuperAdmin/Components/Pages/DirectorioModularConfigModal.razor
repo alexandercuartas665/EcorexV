@@ -94,7 +94,7 @@
                         </div>
                         <div class="cfg-fld">
                             <label>Nombre de la categoria</label>
-                            <input class="cfg-input" @bind="_tName" @bind:event="oninput" />
+                            <input class="cfg-input" @bind="_tName" />
                             <div class="cfg-hint">Las pestanas se ordenan solas alfabeticamente.</div>
                         </div>
                         <div class="cfg-row2">
@@ -109,7 +109,7 @@
                         </div>
                         <div class="cfg-fld">
                             <label>Descripcion</label>
-                            <input class="cfg-input" @bind="_tDesc" @bind:event="oninput" />
+                            <input class="cfg-input" @bind="_tDesc" />
                         </div>
                         <div class="cfg-fld">
                             <label>Areas que tienen autorizada esta categoria</label>
@@ -199,7 +199,7 @@
                         <div class="cfg-grid-sec">
                             <div class="cfg-fld cfg-c6">
                                 <label>Nombre de la seccion</label>
-                                <input class="cfg-input" @bind="_sName" @bind:event="oninput" />
+                                <input class="cfg-input" @bind="_sName" />
                                 <div class="cfg-hint">Asi se ve en la ficha del tercero.</div>
                             </div>
                             <div class="cfg-fld cfg-c3">
@@ -212,7 +212,7 @@
                             </div>
                             <div class="cfg-fld cfg-c12">
                                 <label>Descripcion</label>
-                                <input class="cfg-input" @bind="_sDesc" @bind:event="oninput" />
+                                <input class="cfg-input" @bind="_sDesc" />
                             </div>
                             <div class="cfg-fld cfg-c6">
                                 <label>Aplica a</label>
@@ -295,7 +295,7 @@
                     <div class="cfg-lateral">
                         <h6 class="cfg-mb3">@(_fEditId is null ? "Nuevo campo" : "Editar campo")</h6>
                         <div class="cfg-fld"><label>Etiqueta <span class="cfg-req">*</span></label>
-                            <input class="cfg-input" @bind="_fLabel" @bind:event="oninput" placeholder="Ej. Zona de despacho" /></div>
+                            <input class="cfg-input" @bind="_fLabel" placeholder="Ej. Zona de despacho" /></div>
                         <div class="cfg-row2">
                             <div class="cfg-fld"><label>Tipo</label>
                                 <select class="cfg-input" @bind="_fTipo" @bind:after="OnTipoCampoChangedAsync">
@@ -311,7 +311,7 @@
                         @if (_fTipo == TerceroFieldType.Select || _fTipo == TerceroFieldType.MultiSelect)
                         {
                             <div class="cfg-fld"><label>Opciones <span class="cfg-meta">(una por linea)</span></label>
-                                <textarea class="cfg-input" rows="4" @bind="_fOpciones" @bind:event="oninput" placeholder="Opcion 1&#10;Opcion 2"></textarea></div>
+                                <textarea class="cfg-input" rows="4" @bind="_fOpciones" placeholder="Opcion 1&#10;Opcion 2"></textarea></div>
                         }
                         @if (_fTipo == TerceroFieldType.Table)
                         {
@@ -326,7 +326,7 @@
                                     var col = _fCols[i];
                                     var idx = i;
                                     <div class="cfg-col-row">
-                                        <input class="cfg-input" placeholder="Etiqueta" @bind="col.Label" @bind:event="oninput" />
+                                        <input class="cfg-input" placeholder="Etiqueta" @bind="col.Label" />
                                         <select class="cfg-input" @bind="col.Type">
                                             <option value="texto">Texto</option>
                                             <option value="numero">Numero</option>
@@ -336,7 +336,7 @@
                                     </div>
                                     @if (col.Type == "select")
                                     {
-                                        <textarea class="cfg-input cfg-mb1" rows="2" placeholder="Opciones de la lista (una por linea)" @bind="col.Options" @bind:event="oninput"></textarea>
+                                        <textarea class="cfg-input cfg-mb1" rows="2" placeholder="Opciones de la lista (una por linea)" @bind="col.Options"></textarea>
                                     }
                                 }
                                 <button class="cfg-btn-soft cfg-mt3" @onclick="() => _fCols.Add(new CampoTablaCol())"><i class="fa fa-plus"></i> Agregar columna</button>
@@ -429,9 +429,9 @@
                             <div class="cfg-meta">Lista los terceros del Directorio del perfil elegido. Guarda la referencia al tercero (la etiqueta se actualiza sola).</div>
                         }
                         <div class="cfg-fld"><label>Descripcion <span class="cfg-meta">(opcional)</span></label>
-                            <input class="cfg-input" @bind="_fDesc" @bind:event="oninput" /></div>
+                            <input class="cfg-input" @bind="_fDesc" /></div>
                         <div class="cfg-fld"><label>Notas de desarrollador <span class="cfg-meta">(interna, no se muestra al usuario)</span></label>
-                            <textarea class="cfg-input" rows="2" @bind="_fNotas" @bind:event="oninput" placeholder="Notas internas del configurador: de donde sale el dato, decisiones, TODOs..."></textarea></div>
+                            <textarea class="cfg-input" rows="2" @bind="_fNotas" placeholder="Notas internas del configurador: de donde sale el dato, decisiones, TODOs..."></textarea></div>
                         <label class="cfg-check"><input type="checkbox" @bind="_fReq" /> Obligatorio al crear el tercero</label>
                         <div class="cfg-row2 cfg-mt3">
                             <button class="cfg-btn-primary" @onclick="GuardarCampoAsync">

@@ -204,7 +204,7 @@ h1, h2, h3 { letter-spacing: -0.01em; }
 .form-label { font-size: 0.8rem; font-weight: 600; color: var(--muted-foreground); }
 
 /* ===== Tables (override bootstrap) ===== */
-.table { --bs-table-bg: transparent; color: var(--foreground); }
+.table { --bs-table-bg: transparent; --bs-table-color: var(--foreground); color: var(--foreground); }
 .table > thead th { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-foreground); font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
 .table > tbody td { border-bottom: 1px solid var(--border); padding: 12px 8px; vertical-align: middle; }
 .table.table-hover > tbody > tr:hover > * { background: var(--muted); }

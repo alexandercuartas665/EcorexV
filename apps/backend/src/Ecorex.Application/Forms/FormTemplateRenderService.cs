@@ -19,6 +19,7 @@ namespace Ecorex.Application.Forms;
 /// <item><c>{{empresa}}</c>, <c>{{fecha}}</c>, <c>{{numero}}</c>: sistema (tenant, fecha, numero de registro).</item>
 /// <item><c>{{tarea}}</c>: numero de la TAREA (la Reference del registro sin el ordinal final, ej.
 /// "T00042-1" -> "T00042"). Tambien <c>{{barcode:tarea}}</c> para su codigo de barras.</item>
+/// <item><c>{{referencia}}</c>: la Reference COMPLETA del registro, con ordinal (ej. "T00717-1").</item>
 /// <item><c>{{barcode:numero|tarea|campo.x[:alto]}}</c>: codigo de barras Code39 (SVG, 1D).</item>
 /// <item><c>{{qr:numero|tarea|campo.x[:lado]}}</c>: codigo QR (SVG, 2D, correccion de errores H;
 /// mas robusto que el Code39 para impresoras de baja calidad + escaneo con celular).</item>
@@ -104,6 +105,12 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         // {{barcode:tarea}} en la impresion. Fallback al numero de registro si la Reference viene vacia.
         var tarea = StripTrailingOrdinal(response.Reference);
         if (string.IsNullOrEmpty(tarea)) { tarea = response.RecordNumber ?? response.Reference ?? string.Empty; }
+        // Referencia COMPLETA con ordinal (ej. "T00717-1"). A diferencia de {{tarea}} (que recorta el ordinal),
+        // imprime el identificador exacto del registro: dos registros de una misma tarea (-1 y -2) se distinguen.
+        // Fallback al numero de registro si la Reference viene vacia.
+        var referencia = string.IsNullOrWhiteSpace(response.Reference)
+            ? (response.RecordNumber ?? string.Empty)
+            : response.Reference;
 
         // FEATURE E (fix impresion): las celdas de firma guardan "/archivo/{id}", que exige sesion. En el PDF/IMG
         // (Puppeteer navega en loopback ANONIMO) esa URL redirige a /login y la firma no carga. Se resuelven aqui los
@@ -113,6 +120,7 @@ public sealed class FormTemplateRenderService : IFormTemplateRenderService
         return FormTemplateMerge.Render(
             template.HtmlContent ?? string.Empty, response.Data, fieldFormat, gridOptions, canvasOptions,
             tenant?.Name ?? string.Empty, fecha, response.RecordNumber ?? response.Reference ?? string.Empty, tarea,
+            referencia,
             fieldChoices, rowFilter, signatureDataUris);
     }
 
@@ -212,6 +220,9 @@ public static class FormTemplateMerge
         DateTimeOffset fecha,
         string numero,
         string tarea,
+        // Reference COMPLETA del registro, con el ordinal final (ej. "T00717-1"). {{referencia}} imprime esto;
+        // {{tarea}} imprime la misma Reference pero SIN el ordinal.
+        string referencia,
         // Campos de eleccion (Select/Radio/MultiCheck): fieldCode -> (options_json, esMulti). Con esto un
         // {{campo.x}} de un campo de lista imprime la ETIQUETA (o "A, B" en multi) en vez del id/JSON crudo.
         IReadOnlyDictionary<string, (string? OptionsJson, bool IsMulti)>? fieldChoices = null,
@@ -246,6 +257,7 @@ public static class FormTemplateMerge
         sb.Replace("{{empresa}}", Esc(empresa));
         sb.Replace("{{numero}}", Esc(numero));
         sb.Replace("{{tarea}}", Esc(tarea));
+        sb.Replace("{{referencia}}", Esc(referencia));
         // Fechas: {{fecha}} (dd/MM/yyyy), {{fechahora}} (dd/MM/yyyy HH:mm del registro) e {{impreso}}
         // (dd/MM/yyyy HH:mm del momento de impresion). Texto plano.
         return ResolveDateTokens(sb.ToString(), fecha);

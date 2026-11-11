@@ -2,7 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-11 - Fix transversal "se comen las letras / salta el cursor" en inputs Blazor Server (SIN commit/deploy)
+## 2026-11-11 - Render de PDF: reintento + cap de concurrencia (ADR-0162, release v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: foto de un `500` en prod (v0.16.303) en `/formularios/plantilla/{id}/pdf?templateId=...`. Lectura de logs del contenedor `ecorex-app`: `PuppeteerSharp.TargetClosedException: ... Target closed / Session closed (Network.policyUpdated. Timeout of 1000 ms)` dentro de `PuppeteerQuotePdfRenderer.RenderUrlToPdfAsync`. El Chromium headless se moria a mitad del arranque. Clave: la MAYORIA de PDFs si salian (decenas de cotizaciones OK el mismo dia) -> fallo INTERMITENTE por carga, no mala config (ya traia `--no-sandbox/--disable-dev-shm-usage`).
+- CAUSA: (1) se lanzaba un Chromium nuevo POR cada peticion sin limite -> con varios PDFs a la vez, pico de memoria/CPU -> algun target excede el timeout interno de 1s de PuppeteerSharp y cierra. (2) sin reintento -> el transitorio reventaba en 500.
+- HECHO (`Ecorex.Infrastructure/Rendering/PuppeteerQuotePdfRenderer.cs`, sin cambiar firmas de IQuotePdfRenderer): las 3 rutas (RenderUrlToPdf/RenderHtmlToPdf/RenderUrlToImage) pasan por un nucleo comun `RunAsync(gate + retry)`. (a) Cap de concurrencia con `SemaphoreSlim` ESTATICO (el servicio es AddScoped -> el tope debe ser de proceso), default 2, env `ECOREX_PDF_MAX_CONCURRENCY`. (b) Reintento de `PuppeteerException` (incluye TargetClosedException) relanzando Chromium FRESCO por intento, backoff lineal, default 2 reintentos (env `ECOREX_PDF_RENDER_RETRIES`); al agotar, relanza con stack preservado (ExceptionDispatchInfo). (c) Args endurecidos: `--disable-gpu`, `--no-zygote`.
+- VERIFICADO: build Debug Infrastructure + SuperAdmin 0 errores. E2E en 5234/AGRO sobre la MISMA plantilla que fallaba en prod: 200, `application/pdf`, 52.557 bytes, cabecera `%PDF-`. 4 PDFs en paralelo: los 4 en 200 en ~20.8s (= 2 tandas de 2), el semaforo serializa a N=2 sin deadlock. ADR-0162.
+- SIGUIENTE: commit + doble push (hecho a la senal del usuario, SIN deploy). Deploy queda pendiente de OK por version aparte. Mejora futura opcional: pool de navegadores reutilizados en vez de lanzar+cerrar por peticion.
+
+## 2026-11-11 - Fix texto de tablas invisible en modo oscuro (release v0.16.303, DESPLEGADO)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: en el modulo de usuarios (000073) en modo oscuro no se veian Usuario ni Email. Causa: Bootstrap pinta el color de celda via `--bs-table-color` (gris casi negro fijo) en `.table > :not(caption) > * > *`, con mas especificidad que nuestro `.table { color }`; las celdas sin color propio (Usuario `<strong>`, Email `<span>`) heredaban ese negro -> invisibles sobre la tarjeta oscura.
+- HECHO (`wwwroot/app.css:207`, solo CSS estatico): `.table` ahora fija `--bs-table-color: var(--foreground)`, token que conmuta en `html.dark`. Fix GLOBAL: corrige Usuarios y TODA tabla `.table` de la consola en oscuro.
+- VERIFICADO: E2E en 5234/AGRO con el toggle real claro/oscuro; color computado de celda = `rgb(244,244,245)` en oscuro. DESPLEGADO a prod (HTTP 200, v0.16.303). Imagen anterior para rollback: bdc363041429.
+
+## 2026-11-11 - Fix transversal "se comen las letras / salta el cursor" en inputs Blazor Server (release v0.16.302, DESPLEGADO)
 
 - AGENTE: Claude Opus 4.8. Reporte del usuario: campos que al teclear rapido pierden letras o mueven el cursor al inicio (otra sesion ya lo habia diagnosticado). Diagnostico preciso: el bug REAL en Blazor Server ocurre solo cuando (1) el handler TRANSFORMA el valor en cada tecla (mayus/trim/mascara), o (2) recarga pesada que setea el texto DESPUES de un await. Un `@bind:event="oninput"` plano NO come letras (el value renderizado == lo tecleado, Blazor no lo pisa); solo cuesta un round-trip por tecla.
 - INFRAESTRUCTURA nueva (ASCII): `Components/Shared/DebouncedInput.razor` (input que guarda su texto local y avisa al padre tras 250ms o en blur/Enter; no transforma -> nunca pisa el cursor) y `Components/Shared/Debouncer.cs` (helper RunAsync/Cancel/Dispose para handlers async de autocompletar).

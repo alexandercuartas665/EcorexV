@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Ecorex.Application.Common;
 using Microsoft.Extensions.Configuration;
 using PuppeteerSharp;
@@ -9,9 +10,31 @@ namespace Ecorex.Infrastructure.Rendering;
 /// Render de PDF de cotizaciones con un Chromium headless (PuppeteerSharp). Navega a la pagina publica
 /// de la cotizacion e imprime a PDF. El ejecutable de Chrome se resuelve por env (ECOREX_CHROME_PATH),
 /// rutas comunes del SO, o se descarga con BrowserFetcher como ultimo recurso.
+///
+/// Robustez (ADR-0162): en prod se observaron fallos intermitentes TargetClosedException
+/// ("Target closed" / "Session closed" por "Network.policyUpdated. Timeout of 1000 ms") cuando caen
+/// varios PDFs a la vez y Chromium se cuelga en el arranque. Dos defensas aqui:
+///   1) Limite de concurrencia (semaforo estatico, compartido entre instancias scoped): no se lanzan
+///      mas de N Chromium a la vez, evitando el pico de memoria que mata los targets.
+///   2) Reintento de los fallos transitorios de Puppeteer, relanzando un navegador FRESCO en cada intento.
+/// Ambos se afinan por env: ECOREX_PDF_MAX_CONCURRENCY (default 2) y ECOREX_PDF_RENDER_RETRIES (default 2).
 /// </summary>
 public sealed class PuppeteerQuotePdfRenderer : IQuotePdfRenderer
 {
+    // Tope de renders simultaneos. Estatico porque el servicio es scoped (una instancia por request) y el
+    // limite debe ser de proceso, no por request. Se fija una sola vez al cargar el tipo.
+    private static readonly int MaxConcurrent =
+        int.TryParse(Environment.GetEnvironmentVariable("ECOREX_PDF_MAX_CONCURRENCY"), out var mc) && mc > 0 ? mc : 2;
+
+    private static readonly SemaphoreSlim Gate = new(MaxConcurrent, MaxConcurrent);
+
+    // Reintentos ante fallos transitorios (ademas del primer intento). 2 => hasta 3 intentos.
+    private static readonly int Retries =
+        int.TryParse(Environment.GetEnvironmentVariable("ECOREX_PDF_RENDER_RETRIES"), out var rt) && rt >= 0 ? rt : 2;
+
+    // Backoff base entre intentos; crece linealmente (400ms, 800ms, ...).
+    private const int RetryBaseDelayMs = 400;
+
     private readonly IConfiguration _config;
 
     public PuppeteerQuotePdfRenderer(IConfiguration config)
@@ -19,30 +42,85 @@ public sealed class PuppeteerQuotePdfRenderer : IQuotePdfRenderer
         _config = config;
     }
 
-    public async Task<byte[]> RenderUrlToPdfAsync(string url, CancellationToken cancellationToken = default)
-    {
-        await using var browser = await LaunchAsync();
-        await using var page = await browser.NewPageAsync();
-        await page.GoToAsync(url, new NavigationOptions
+    public Task<byte[]> RenderUrlToPdfAsync(string url, CancellationToken cancellationToken = default) =>
+        RunAsync(async browser =>
         {
-            WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
-            Timeout = 30000
-        });
-        return await page.PdfDataAsync(await BuildPdfOptionsAsync(page));
-    }
+            await using var page = await browser.NewPageAsync();
+            await page.GoToAsync(url, new NavigationOptions
+            {
+                WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
+                Timeout = 30000
+            });
+            return await page.PdfDataAsync(await BuildPdfOptionsAsync(page));
+        }, cancellationToken);
 
-    public async Task<byte[]> RenderHtmlToPdfAsync(string html, CancellationToken cancellationToken = default)
-    {
-        await using var browser = await LaunchAsync();
-        await using var page = await browser.NewPageAsync();
-        // SetContent en vez de GoTo: el HTML ya viene renderizado (IFormTemplateRenderService), no hay que
-        // navegar a un endpoint. Networkidle0 espera a que carguen imagenes/fuentes embebidas por URL.
-        await page.SetContentAsync(html, new NavigationOptions
+    public Task<byte[]> RenderHtmlToPdfAsync(string html, CancellationToken cancellationToken = default) =>
+        RunAsync(async browser =>
         {
-            WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
-            Timeout = 30000
-        });
-        return await page.PdfDataAsync(await BuildPdfOptionsAsync(page));
+            await using var page = await browser.NewPageAsync();
+            // SetContent en vez de GoTo: el HTML ya viene renderizado (IFormTemplateRenderService), no hay que
+            // navegar a un endpoint. Networkidle0 espera a que carguen imagenes/fuentes embebidas por URL.
+            await page.SetContentAsync(html, new NavigationOptions
+            {
+                WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
+                Timeout = 30000
+            });
+            return await page.PdfDataAsync(await BuildPdfOptionsAsync(page));
+        }, cancellationToken);
+
+    public Task<byte[]> RenderUrlToImageAsync(string url, CancellationToken cancellationToken = default) =>
+        RunAsync(async browser =>
+        {
+            await using var page = await browser.NewPageAsync();
+            // Ancho fijo acorde al diseno de la cotizacion (tarjeta ~800px) para una imagen consistente y nitida.
+            await page.SetViewportAsync(new ViewPortOptions { Width = 820, Height = 1160, DeviceScaleFactor = 2 });
+            await page.GoToAsync(url, new NavigationOptions
+            {
+                WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
+                Timeout = 30000
+            });
+            return await page.ScreenshotDataAsync(new ScreenshotOptions
+            {
+                FullPage = true,
+                Type = ScreenshotType.Png
+            });
+        }, cancellationToken);
+
+    // Nucleo comun: cap de concurrencia + reintento con navegador fresco por intento. Cada intento abre y
+    // CIERRA su propio Chromium (await using), asi un target muerto no contamina el siguiente intento.
+    private async Task<byte[]> RunAsync(Func<IBrowser, Task<byte[]>> work, CancellationToken cancellationToken)
+    {
+        await Gate.WaitAsync(cancellationToken);
+        try
+        {
+            PuppeteerException? last = null;
+            for (var attempt = 0; attempt <= Retries; attempt++)
+            {
+                try
+                {
+                    await using var browser = await LaunchAsync();
+                    return await work(browser);
+                }
+                catch (PuppeteerException ex)
+                {
+                    // Transitorio tipico: TargetClosedException / NavigationException por un Chromium que
+                    // se cayo en el arranque. Reintentamos con uno nuevo; si es el ultimo intento, relanzamos.
+                    last = ex;
+                    if (attempt < Retries)
+                    {
+                        await Task.Delay(RetryBaseDelayMs * (attempt + 1), cancellationToken);
+                    }
+                }
+            }
+
+            // Se agotaron los intentos: relanzar la ultima excepcion preservando su stack original.
+            ExceptionDispatchInfo.Capture(last!).Throw();
+            return default!; // inalcanzable; satisface al compilador.
+        }
+        finally
+        {
+            Gate.Release();
+        }
     }
 
     // Arma las PdfOptions leyendo el opt-in de paginador de la plantilla. Chromium al imprimir a PDF IGNORA
@@ -91,31 +169,22 @@ public sealed class PuppeteerQuotePdfRenderer : IQuotePdfRenderer
         };
     }
 
-    public async Task<byte[]> RenderUrlToImageAsync(string url, CancellationToken cancellationToken = default)
-    {
-        await using var browser = await LaunchAsync();
-        await using var page = await browser.NewPageAsync();
-        // Ancho fijo acorde al diseno de la cotizacion (tarjeta ~800px) para una imagen consistente y nitida.
-        await page.SetViewportAsync(new ViewPortOptions { Width = 820, Height = 1160, DeviceScaleFactor = 2 });
-        await page.GoToAsync(url, new NavigationOptions
-        {
-            WaitUntil = new[] { WaitUntilNavigation.Networkidle0 },
-            Timeout = 30000
-        });
-        return await page.ScreenshotDataAsync(new ScreenshotOptions
-        {
-            FullPage = true,
-            Type = ScreenshotType.Png
-        });
-    }
-
     // Lanza un Chromium headless (sistema si esta configurado, o el de BrowserFetcher).
     private async Task<IBrowser> LaunchAsync()
     {
         var options = new LaunchOptions
         {
             Headless = true,
-            Args = new[] { "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage" }
+            // --disable-gpu / --no-zygote endurecen el headless en contenedor (menos procesos hijos que se
+            // cuelguen). --disable-dev-shm-usage evita el /dev/shm de 64MB por defecto de Docker.
+            Args = new[]
+            {
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--no-zygote"
+            }
         };
 
         var exe = ConfiguredChromePath();

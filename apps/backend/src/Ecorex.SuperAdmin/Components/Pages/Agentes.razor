@@ -2371,7 +2371,9 @@ else
     }
 
     // Tokens sugeridos para el binding de variables de plantilla (ayuda del editor).
-    private const string AvisoTokenHint = "{tarea.numero}, {tarea.titulo}, {tarea.cliente}, {tarea.solicitante}, {tarea.telefono}, {tarea.enlace}, {usuario.nombre}, {usuario.telefono}, {usuario.email}, {sistema.fecha}, {sistema.hora}";
+    // OJO: {tarea.cliente} y {tarea.solicitante} salen del "nombre del solicitante" escrito en la tarea y
+    // pueden ir VACIOS; para el contacto del Directorio enlazado usar {tercero.nombre} / {directorio.nombre}.
+    private const string AvisoTokenHint = "{tarea.numero}, {tarea.titulo}, {tarea.cliente} / {tarea.solicitante} (nombre del solicitante de la tarea; puede ir vacio), {tarea.telefono}, {tarea.email}, {tarea.enlace}, {tercero.nombre} / {directorio.nombre} (contacto del Directorio enlazado a la tarea), {tercero.telefono}, {tercero.email}, {empresa.nombre}, {usuario.nombre}, {usuario.telefono}, {usuario.email}, {sistema.fecha}, {sistema.hora}";
 
     // Variables (tokens) declaradas por la plantilla elegida (de whats_app_templates.variables_json). Vacio si
     // la plantilla no declara variables o no se ha elegido.

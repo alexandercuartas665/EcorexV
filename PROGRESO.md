@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-11 - Avisos del agente: ampliar la ayuda de tokens (contacto del Directorio) (release v0.16.305)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: el aviso de cierre/asignado por WhatsApp fallaba con "La plantilla 'aviso_tarea' exige el/los dato(s) [3] y no se tiene valor" aunque la tarea mostraba el cliente. El mapeo era {{3}}={tarea.cliente}. Diagnostico: {tarea.cliente}/{tarea.solicitante} salen SOLO de TaskItem.RequesterName (NotifyTokenResolver.cs:64), que estaba vacio en T00783; el cliente visible viene del contacto del Directorio enlazado (Tercero) -> token {tercero.nombre}/{directorio.nombre}, que la ayuda del editor NO ofrecia. La ruta de aviso (AgentAvisoTareaService) arma tokens con NotifyTokenResolver, que SI expone {tercero.*}/{empresa.*} cuando la tarea tiene TerceroId.
+- HECHO (solo texto de ayuda, Agentes.razor const AvisoTokenHint; alimenta aviso de cierre y de asignado): la ayuda ahora ofrece {tercero.nombre}/{directorio.nombre} (contacto del Directorio), {tercero.telefono}, {tercero.email}, {empresa.nombre}, {tarea.email}, y aclara que {tarea.cliente}/{tarea.solicitante} es el nombre del solicitante escrito en la tarea y puede ir vacio. Sin cambios de motor: los tokens ya resolvian; solo faltaba anunciarlos.
+- FIX INMEDIATO para el usuario (sin deploy): remapear {{3}} de {tarea.cliente} a {tercero.nombre} en la config del aviso; el token ya funciona en prod.
+- VERIFICADO: build Debug SuperAdmin 0 errores; preview 5234 activa. Release v0.16.305 (apila el token {{referencia}} de abajo y el fix de PDF v0.16.304, aun sin desplegar).
+
+## 2026-11-11 - Plantillas de impresion: token {{referencia}} (Reference completa con ordinal)
+
+- AGENTE: Claude Opus 4.8 (prompt para dev del usuario). Objetivo: imprimir el identificador EXACTO del registro (ej. "T00717-1"), ya que {{tarea}} recorta el ordinal ("T00717-1"->"T00717") y una misma tarea puede tener -1 y -2 que con {{tarea}} se ven iguales. Formatos AGRO afectados: Registro contable y Orden de produccion.
+- HECHO (FormTemplateRenderService.cs, sin migracion; es solo render): nuevo token {{referencia}} = response.Reference COMPLETA (fallback a RecordNumber si viene vacia). Se calcula en RenderHtmlAsync junto a {{tarea}}, se pasa como nuevo parametro posicional a FormTemplateMerge.Render (tras 'tarea'), se reemplaza en el merge (Esc) y se documenta en el XML.
+- GAP del prompt: decia "unico call site" pero habia 13 llamadas en tests (FormTemplateMergeTests + QrMarkerTests) con la firma vieja; actualizadas todas + test nuevo Referencia_imprime_la_reference_completa_con_ordinal_y_tarea_la_recorta (tarea "T00041" / referencia "T00041-2").
+- VERIFICADO: build 0 errores; tests FormTemplateMergeTests+QrMarkerTests 17/17. NO se toco canvas/printHeader (opcional en el prompt; los formatos afectados son HTML plano).
+- SIGUIENTE (lado plantillas, el usuario por SQL cuando despliegue): poner {{referencia}} bajo el QR en Impresion contabilidad (0cb623e4), Orden de Trabajo (0ed7de15) y OT con totales (f010510c).
+
 ## 2026-11-11 - Render de PDF: reintento + cap de concurrencia (ADR-0162, release v0.16.304, SIN deploy)
 
 - AGENTE: Claude Opus 4.8. Reporte del usuario: foto de un `500` en prod (v0.16.303) en `/formularios/plantilla/{id}/pdf?templateId=...`. Lectura de logs del contenedor `ecorex-app`: `PuppeteerSharp.TargetClosedException: ... Target closed / Session closed (Network.policyUpdated. Timeout of 1000 ms)` dentro de `PuppeteerQuotePdfRenderer.RenderUrlToPdfAsync`. El Chromium headless se moria a mitad del arranque. Clave: la MAYORIA de PDFs si salian (decenas de cotizaciones OK el mismo dia) -> fallo INTERMITENTE por carga, no mala config (ya traia `--no-sandbox/--disable-dev-shm-usage`).

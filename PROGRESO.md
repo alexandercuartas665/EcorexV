@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-12 (b) - MCP: inventario + revision de suficiencia/seguridad (rama, v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion: validar si los MCP dan todas las herramientas para usar el sistema, inventariar
+  todos los MCP y revisar documentacion.
+- INVENTARIO (nuevo `docs/mcp/INVENTARIO-MCP.md`): 2 servidores. MCP PERSONAL `/api/mcp/tableros` = 83 tools
+  (15 nucleo + 12 directorio + 16 flujos + 40 formularios); MCP ADMIN `/api/mgmt/agent/mcp` = 64 tools de 8
+  IAgentToolsets (los mismos de los agentes internos).
+- HALLAZGOS Y CORRECCIONES (en mi propio trabajo de la sesion anterior, nunca integrado): (1) SEGURIDAD: el puente
+  de formularios exponia `list_tenants` (IgnoreQueryFilters -> lista TODOS los tenants) a cualquier usuario con
+  token personal -> LISTA PERMITIDA de 40 (fuera list_tenants, menu y escritura de contenedores). (2) Flujos rotos:
+  no habia como quitar la conexion inicio->fin y el motor sigue TODAS las salidas de un nodo no-compuerta -> el
+  recorrido de prueba entregado armaba un flujo que salta al fin. Nuevo `agregar_nodo` con desde/hasta (inserta) y
+  `eliminar_conexion`. (3) `origen=politica` sin forma de asignar cargo -> `asignar_cargo_nodo`. (4) Editar flujo
+  publicado -> `nueva_version_flujo`. (5) Avisos de revision del grafo en ver_flujo y publicar_flujo se niega con
+  avisos salvo forzar=true. (6) El ADR decia "40 herramientas" (eran 86) -> corregido.
+- VERIFICADO: dual PG+SQL Server `McpTablerosTests` 20/20 (nuevas: puente seguro, integridad del catalogo; el de
+  flujo cubre insercion, avisos, cargo, eliminar_conexion, nueva version y re-apunte del concepto). EN VIVO (5270,
+  BD local, DI real): 83 tools, 0 problemas de catalogo con el toolset de formularios real, list_tenants ->
+  desconocida; avisos sin falsos positivos en flujos reales. Token de prueba emitido y revocado (401).
+- HALLAZGO EN DATOS (copia local de prod): FLW-003 "COMPRAS BITCODE" en marcha tiene un nodo suelto "Hola" (rama
+  paralela desde el inicio, sin salida ni cargo) -> pasos huerfanos por instancia. Verificar en prod.
+- SIGUIENTE: brechas priorizadas en el inventario (editar_tarea + diligenciar formulario de paso; conceptos/tableros
+  de autoria; operaciones de paso; puentes de lectura datasets/inventario; proyectos). Integracion a main por dev
+  principal (renumerar version: main ya va en v0.16.307). Reflejar en el vault (pendiente).
+
 ## 2026-11-12 - MCP: autoria de FLUJOS y FORMULARIOS por la IA (rama, release v0.16.304, SIN deploy)
 
 - AGENTE: Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393). Peticion del usuario: usar el MCP no solo para

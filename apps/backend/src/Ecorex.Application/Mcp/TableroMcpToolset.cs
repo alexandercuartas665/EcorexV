@@ -72,12 +72,15 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private readonly IFormAuthoringToolset? _formAuthoring;
     private readonly IWorkflowDesignService? _flowDesign;
     private readonly IWorkflowEngine? _engine;
+    private readonly Organization.IWorkflowNodePolicyService? _nodePolicies;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
         ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
         ITerceroFieldService? fields = null, IRolService? roles = null,
-        IFormAuthoringToolset? formAuthoring = null, IWorkflowDesignService? flowDesign = null, IWorkflowEngine? engine = null)
+        IFormAuthoringToolset? formAuthoring = null, IWorkflowDesignService? flowDesign = null, IWorkflowEngine? engine = null,
+        Organization.IWorkflowNodePolicyService? nodePolicies = null)
     {
+        _nodePolicies = nodePolicies;
         _vinculos = vinculos;
         _fields = fields;
         _roles = roles;
@@ -106,17 +109,18 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
 
     private HashSet<string> BuildReadOnly()
     {
+        // Siempre subconjunto de lo EXPUESTO (GetSpecs): lo garantiza la prueba de integridad del catalogo.
         var set = new HashSet<string>(ReadOnly, StringComparer.Ordinal);
-        set.UnionWith(FlowReadOnly);
-        if (_formAuthoring is not null) { set.UnionWith(_formAuthoring.ReadOnlyTools); }
+        if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); }
+        if (_formAuthoring is not null) { set.UnionWith(_formAuthoring.ReadOnlyTools.Where(FormToolNames.Contains)); }
         return set;
     }
 
     private HashSet<string> BuildDestructive()
     {
         var set = new HashSet<string>(Destructive, StringComparer.Ordinal);
-        set.UnionWith(FlowDestructive);
-        set.UnionWith(FormDestructive);
+        if (_flowDesign is not null) { set.UnionWith(FlowDestructive); }
+        set.UnionWith(FormDestructive.Where(FormToolNames.Contains));
         return set;
     }
 
@@ -125,7 +129,8 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         var all = new List<AiToolSpec>(Specs);
         all.AddRange(DirectorySpecs);
         if (_flowDesign is not null) { all.AddRange(FlowSpecs); }
-        if (_formAuthoring is not null) { all.AddRange(_formAuthoring.GetSpecs()); }
+        // Solo las herramientas de formularios PERMITIDAS al usuario final (ver FormBridgeAllowed).
+        if (_formAuthoring is not null) { all.AddRange(_formAuthoring.GetSpecs().Where(s => FormBridgeAllowed.Contains(s.Name))); }
         return all.ToArray();
     }
 

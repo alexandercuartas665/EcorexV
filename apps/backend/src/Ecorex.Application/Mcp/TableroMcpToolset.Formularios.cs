@@ -23,16 +23,44 @@ public sealed partial class TableroMcpToolset
         "delete_container", "delete_question", "archive"
     };
 
+    /// <summary>
+    /// LISTA PERMITIDA (segura por construccion): solo estas herramientas del toolset de formularios se
+    /// exponen al usuario final. Una herramienta nueva del toolset NO aparece aqui sola. Quedan FUERA, y solo
+    /// en el MCP de administracion (/api/mgmt):
+    /// - list_tenants: lee TODOS los tenants (IgnoreQueryFilters) -> fuga cross-tenant (regla #1 de CLAUDE.md).
+    /// - list_menu_views, list_menu_nodes, set_module: configuracion del MENU del tenant (otro modulo/permiso).
+    /// - create_data_container, add_container_rows: escritura en el Contenedor de datos (otro modulo/permiso);
+    ///   sus LECTURAS si se permiten porque el disenador las usa para configurar listas/lookups.
+    /// </summary>
+    private static readonly HashSet<string> FormBridgeAllowed = new(StringComparer.Ordinal)
+    {
+        // Descubrimiento (lectura)
+        "describe_components", "list_forms", "get_form", "verify_form", "export_form", "get_render_urls",
+        "list_templates", "list_data_containers", "describe_data_container", "list_tercero_fields",
+        "list_org_units", "list_activity_types",
+        // Estructura
+        "apply_form_spec", "create_form", "import_form", "update_form_header",
+        "add_container", "update_container", "move_container", "delete_container",
+        "add_question", "update_question", "move_question", "delete_question",
+        // Comportamiento y ciclo de vida
+        "set_transactional", "set_sequence_next", "set_custom_css", "set_theme", "set_status_ladder",
+        "wire_submit_task_rule", "activate", "deactivate", "archive",
+        // Impresion, enlaces y registros
+        "create_template", "update_template", "set_default_template", "wire_print_button", "wire_convert_button",
+        "create_share_link", "create_record"
+    };
+
     private HashSet<string>? _formToolNames;
 
-    /// <summary>Nombres de las herramientas del toolset de formularios inyectado (vacio si no hay).</summary>
+    /// <summary>Herramientas de formularios EXPUESTAS: las del toolset inyectado que estan en la lista permitida.</summary>
     private HashSet<string> FormToolNames => _formToolNames ??= _formAuthoring is null
         ? new HashSet<string>(StringComparer.Ordinal)
-        : _formAuthoring.GetSpecs().Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+        : _formAuthoring.GetSpecs().Select(s => s.Name).Where(FormBridgeAllowed.Contains).ToHashSet(StringComparer.Ordinal);
 
     private async Task<McpToolResult> ExecuteFormAsync(string tool, string argumentsJson, McpActor actor, CancellationToken ct)
     {
         if (_formAuthoring is null) { return Err("La autoria de formularios no esta disponible."); }
+        if (!FormBridgeAllowed.Contains(tool)) { return Err($"Herramienta desconocida: {tool}"); }
 
         // Mismo permiso que la pantalla de diseno (Formularios.Disenar = Ver + Editar). Lectura => Ver; cambio => Editar.
         var perms = _roles is null ? EffectivePermissions.UnrestrictedAccess()

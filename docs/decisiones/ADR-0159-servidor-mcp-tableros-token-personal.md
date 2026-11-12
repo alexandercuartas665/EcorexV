@@ -99,7 +99,8 @@ API de configuracion (alcance admin) a cualquier usuario.
 ## Addendum 2026-11-12 - Autoria de flujos y formularios por la IA (v0.16.304)
 
 - La IA ahora CREA flujos y formularios nuevos desde el MCP (no solo opera tableros/tareas). 13 herramientas de
-  flujo nativas + el toolset de formularios existente puenteado. Total 40 herramientas.
+  flujo nativas + el toolset de formularios existente puenteado. (Correccion de la revision 2026-11-12: el texto
+  original decia "40 en total"; eran 40 NATIVAS + 46 puenteadas. Tras la revision: ver addendum siguiente.)
 - Flujos (`TableroMcpToolset.Flujos.cs`, capa delgada sobre IWorkflowDesignService + IWorkflowEngine):
   `listar_flujos`, `ver_flujo`, `crear_flujo`, `agregar_nodo`, `renombrar_nodo`, `conectar_nodos`,
   `condicion_ruta`, `asignar_encargado_nodo`, `poner_formulario_a_nodo`, `eliminar_nodo` (destructiveHint),
@@ -117,6 +118,32 @@ API de configuracion (alcance admin) a cualquier usuario.
 - Pruebas duales (PG + SQL Server): construir un flujo completo (crear -> nodo -> conectar -> encargado por campo
   -> formulario obligatorio -> publicar -> enganchar a concepto) y el gate de permisos flujos/formularios + el
   mapeo del puente (corre como el usuario, ok:false -> error).
+
+## Addendum 2026-11-12 (c) - Revision de seguridad y suficiencia (v0.16.304, misma rama)
+
+Revision completa contra el codigo y en vivo (inventario en `docs/mcp/INVENTARIO-MCP.md`). Correcciones:
+
+- SEGURIDAD: el puente exponia las 46 herramientas de `IFormAuthoringToolset`, incluida `list_tenants`, que lee
+  TODOS los tenants con `IgnoreQueryFilters` -> cualquier usuario (y los sin rol son "sin restriccion") podia
+  enumerar los tenants de la plataforma con su token personal. Ahora el puente usa una LISTA PERMITIDA (40):
+  quedan fuera `list_tenants` (cross-tenant), `list_menu_views`/`list_menu_nodes`/`set_module` (menu del tenant,
+  otro permiso) y `create_data_container`/`add_container_rows` (escritura en Contenedor de datos, otro permiso).
+  Una herramienta nueva del toolset no se expone sola. Nunca se integro ni desplego la version insegura.
+- FLUJOS ROTOS POR IA: `crear_flujo` nace con inicio->fin conectados y no habia como quitar una conexion; como el
+  motor sigue TODAS las salidas de un nodo que no es compuerta, insertar un paso dejaba una rama paralela al fin.
+  Nuevo: `agregar_nodo` con `desde_nodo_id`/`hasta_nodo_id` INSERTA y quita la conexion directa (conserva su
+  condicion) y `eliminar_conexion`.
+- ENCARGADO POR POLITICA SIN SALIDA: `origen=politica` no tenia como asignar cargos. Nuevo `asignar_cargo_nodo`
+  (IWorkflowNodePolicyService; responde las opciones validas si el cargo no existe). `ver_flujo` muestra cargos.
+- EDITAR UN FLUJO PUBLICADO: nuevo `nueva_version_flujo` (EnsureDraftAsync; copia formularios, reglas y cargos); al
+  publicar, el motor re-apunta los conceptos a la version nueva.
+- REVISION DEL GRAFO: `ver_flujo` devuelve `avisos` (rama paralela involuntaria, nodo sin entrada/salida, compuerta
+  con <2 salidas, paso por politica sin cargo, sin pasos de tarea) y `publicar_flujo` se niega con avisos salvo
+  `forzar=true` (visto bueno del usuario). Validado sobre flujos reales: 0 falsos positivos.
+- Conjuntos `ReadOnlyTools`/`DestructiveTools` siempre dentro de lo expuesto. Total: 15 nucleo + 12 directorio +
+  16 flujos + 40 formularios = 83 herramientas.
+- Pruebas: `McpTablerosTests` dual 20/20 (nuevas: puente seguro e integridad del catalogo). En vivo: 83 tools,
+  0 problemas de catalogo, `list_tenants` -> desconocida.
 
 ## Fuera de alcance (siguientes fases)
 

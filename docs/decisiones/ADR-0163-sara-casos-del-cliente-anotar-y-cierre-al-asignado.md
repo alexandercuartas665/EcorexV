@@ -30,9 +30,10 @@ el servidor no puede distinguir por si solo "tema distinto" de "repeticion del m
      Rechaza casos cerrados/archivados (indica crear uno nuevo) y casos de otro cliente. Cuenta como cierre del
      turno (SessionCompleted) y se agrega a `CloseToolNames` (red de seguridad ADR-0154).
    - La descripcion de `crear_tarea` instruye consultar `casos_del_cliente` antes de crear.
-2. **Capa 2 de crear_tarea = red de seguridad estrecha**: misma conversacion + mismo tablero + MISMO TITULO
-   (normalizado) dentro de 30 min devuelve la tarea existente. Titulo distinto siempre crea. `crear_actividad`
-   conserva la Capa 2 de rev.3 (no se toco su comportamiento).
+2. **Capa 2 = red de seguridad estrecha**: misma conversacion + mismo tablero + MISMO TITULO (normalizado)
+   dentro de 30 min devuelve la tarea existente. Titulo distinto siempre crea. En v0.16.306 solo se aplico a
+   `crear_tarea`; en **v0.16.307** tambien a `crear_actividad` (SARA en AGRO registra primero con
+   crear_actividad y conservaba la dedup ciega de rev.3). Se retiro `FindByConversationAndBoardAsync`.
 3. **La alerta de cierre avisa al asignado del caso tocado**: `AiToolRunContext` registra los casos que el
    agente CREO o ANOTO en el turno. Con destino "Usuario asignado" / "Usuario de la tarea" la alerta va al
    `AssigneeTenantUserId` de cada caso tocado, con los tokens del caso ({tarea.*}, {usuario.*}, {tercero.*}).

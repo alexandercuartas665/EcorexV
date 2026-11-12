@@ -2,7 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-11 - SARA: casos del cliente + anotar caso + cierre al asignado del caso (ADR-0163, release v0.16.306, SIN deploy)
+## 2026-11-11 - crear_actividad con la misma dedup que crear_tarea + prompt de SARA (ADR-0163, release v0.16.307)
+
+- AGENTE: Claude Opus 5.5. Al revisar el prompt de SARA en prod (solo lectura) se vio que registra PRIMERO con crear_actividad (concepto "Seguimiento comercial agente IA") y crear_tarea es respaldo; en prod SARA tiene crear_actividad ENCENDIDA. v0.16.306 solo habia cambiado la dedup de crear_tarea, asi que un reclamo registrado con crear_actividad se lo seguia tragando la dedup ciega de rev.3.
+- HECHO (codigo): ActividadesToolset usa FindRecentSameTitleAsync (mismo titulo en 30 min, titulo calculado antes de la dedup) + la descripcion de crear_actividad pide revisar casos_del_cliente. Retirado FindByConversationAndBoardAsync (sin uso). Tests de ActividadesToolset actualizados (tema distinto crea, mismo titulo en 30 min devuelve, fuera de ventana crea). Application.Tests 1325/1325.
+- HECHO (config prod, prompt de SARA v1, 3 cambios): (A) 2.7 seguimiento de O.T.: revisar casos_del_cliente y anotar_caso si la orden/cotizacion esta abierta, en vez de "registra el seguimiento con crear_tarea"; (B) seccion nueva "## Casos existentes del cliente (revisar SIEMPRE antes de registrar)" antes de "## Crear tarea (cierre)"; (C) en "## Confirmacion y numero de ticket": entregar el numero del caso anotado y tratar idempotente como caso ya existente. Textos originales e inversos en el scratchpad de la sesion.
+- VERIFICADO (local 5234, emulador, prompt local con los 3 cambios + concepto de prueba, todo revertido): reclamo con cotizacion abierta -> caso NUEVO; "como va mi reclamo" -> anotar_caso en el reclamo; "como va mi cotizacion, urgente" -> casos_del_cliente + anotar_caso en la cotizacion; avisos al asignado de CADA caso. OJO: en el primer registro SARA no consulto casos_del_cliente (acerto por ser tema distinto); blindarlo requeriria que crear_* exija confirmar si hay casos abiertos (propuesto, no hecho).
+
+## 2026-11-11 - SARA: casos del cliente + anotar caso + cierre al asignado del caso (ADR-0163, release v0.16.306, DESPLEGADO 2026-11-11)
 
 - AGENTE: Claude Opus 5.5. Caso real AGRO prod (conv 573217626882, 17:03): cliente con COTIZACION abierta (T00783) pide un RECLAMO; crear_tarea devolvio `idempotente:true` con T00783 (Capa 2 ADR-0101 rev.3 = conversacion+tablero SIN ventana) -> el reclamo NO se creo, SARA entrego el ticket equivocado, el aviso de tarea asignada no salio y la alerta de cierre registro un error enganoso ("la linea de la conversacion no tiene usuario asignado": resolvia el dueno de la LINEA, concepto del backbone sin UI). Diagnostico con la bitacora de prod (solo lectura, navegador).
 - DECISIONES DEL USUARIO: SARA ve los ultimos 5 casos del CONTACTO (Directorio; cae a la conversacion), ve cerrados pero anota solo abiertos; red de seguridad = mismo titulo en 30 min; un solo mensaje al asignado.

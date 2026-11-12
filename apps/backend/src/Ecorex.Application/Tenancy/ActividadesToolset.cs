@@ -69,7 +69,9 @@ public sealed class ActividadesToolset : IActividadesToolset
             "seleccion). Si el concepto NO tiene formulario, 'datos' no es necesario (solo se registra la " +
             "actividad). Los archivos que el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE. " +
             "Devuelve un 'ticket' (numero de la actividad) que DEBES entregarle al cliente como comprobante. " +
-            "Incluye una 'descripcion' con un resumen corto de la necesidad del cliente.",
+            "Incluye una 'descripcion' con un resumen corto de la necesidad del cliente. ANTES de crear, revisa " +
+            "casos_del_cliente: si lo que pide es sobre un caso ABIERTO del mismo tema, NO crees otro, usa " +
+            "anotar_caso; si es un tema distinto o el caso ya esta cerrado, crea la actividad aqui.",
             """{"type":"object","properties":{"concepto":{"type":"string","description":"Nombre o codigo del concepto / tipo de actividad"},"titulo":{"type":"string","description":"Titulo corto de la actividad (opcional; si falta se genera uno)"},"descripcion":{"type":"string","description":"Resumen breve de lo que necesita el cliente (va a la descripcion de la actividad). Opcional pero recomendado."},"datos":{"type":"object","description":"Valores del formulario por field_code (ver ver_formulario_concepto). Solo si el concepto tiene formulario; en campos de seleccion usa una opcion valida.","additionalProperties":true}},"required":["concepto"],"additionalProperties":false}"""),
     };
 
@@ -228,12 +230,17 @@ public sealed class ActividadesToolset : IActividadesToolset
             clienteTelefono = real ?? clienteTelefono;
         }
 
-        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO (el del concepto, sub.TaskBoardId), SIN
-        // ventana de tiempo. Si esta conversacion ya tiene una actividad NO archivada en ese tablero, se
-        // devuelve ese ticket (aunque cambien telefono/resumen o pasen horas). Otro tablero -> actividad nueva.
+        var titulo = Str(args, "titulo");
+        if (string.IsNullOrWhiteSpace(titulo)) { titulo = clienteNombre ?? sub.Nombre; }
+
+        // Capa 2 (ADR-0163, igual que crear_tarea; reemplaza rev.3): red de seguridad por MISMO TITULO en la misma
+        // conversacion y tablero del concepto dentro de 30 min. Temas distintos SIEMPRE crean actividad nueva: la
+        // dedup SIN ventana de rev.3 le devolvia a un RECLAMO el ticket de una COTIZACION abierta. Decidir caso
+        // nuevo vs viejo lo hace el agente con casos_del_cliente / anotar_caso.
         if (conversationId is Guid convDupId)
         {
-            var dup = await AgentTaskIdempotency.FindByConversationAndBoardAsync(_db, convDupId, sub.TaskBoardId, ct);
+            var dup = await AgentTaskIdempotency.FindRecentSameTitleAsync(
+                _db, convDupId, sub.TaskBoardId, titulo!, DateTimeOffset.UtcNow, ct);
             if (dup is { } ex)
             {
                 var dupJson = JsonSerializer.Serialize(new
@@ -243,15 +250,12 @@ public sealed class ActividadesToolset : IActividadesToolset
                     tarea_id = ex.Id,
                     concepto = sub.Nombre,
                     idempotente = true,
-                    mensaje = $"Ya existe la actividad con ticket {ex.Number} (no se duplico)."
+                    mensaje = $"Ya existe la actividad con ticket {ex.Number}, creada hace menos de 30 minutos con el mismo titulo (no se duplico)."
                 }, JsonOut);
                 AgentTaskIdempotency.RememberTurnResult("crear_actividad", dupJson);
                 return new AgentToolResult(dupJson, SessionCompleted: true);
             }
         }
-
-        var titulo = Str(args, "titulo");
-        if (string.IsNullOrWhiteSpace(titulo)) { titulo = clienteNombre ?? sub.Nombre; }
 
         // Resumen de la necesidad -> descripcion de la actividad (mismo patron que crear_tarea).
         var descripcion = Str(args, "descripcion");

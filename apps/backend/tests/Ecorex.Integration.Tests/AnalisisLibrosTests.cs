@@ -606,6 +606,58 @@ public abstract class AnalisisLibrosTestsBase
         Assert.False((await Portab(b).ImportarAsync("{\"foo\":1}", ActorOtro)).Ok);
     }
 
+    [Fact]
+    public async Task Ola7_KpiConPeriodo_Calendario_Y_TiposNuevos_CorrenContraDatosReales()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola 7", conDatos: true);
+        var conteo = new ReportAggregate(string.Empty, ReportAggregateFunction.Count);
+        AnalisisWidgetDto W(AnalisisTipoWidget tipo, string titulo, ReportQuerySpec spec, WidgetConfig? cfg = null) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), tipo, titulo, AnalisisJson.Serialize(spec), null, cfg?.ToJson(), 0, 1, 1);
+
+        var tareas = new ReportQuerySpec { SourceKey = TaskItemReportSource.SourceKey, Aggregates = new[] { conteo } };
+        var kpiMes = W(AnalisisTipoWidget.Kpi, "Creadas este mes", tareas, new WidgetConfig { Periodo = KpiPeriodos.Mes });
+        var horas30 = W(AnalisisTipoWidget.Velocimetro, "Horas 30 dias",
+            new ReportQuerySpec { SourceKey = WorkLogReportSource.SourceKey, Aggregates = new[] { new ReportAggregate("Horas", ReportAggregateFunction.Sum) } },
+            new WidgetConfig { Periodo = KpiPeriodos.Ultimos30, Meta = 10 });
+        var calendario = W(AnalisisTipoWidget.Calendario, "Tareas por dia", tareas);
+        var embudo = W(AnalisisTipoWidget.Embudo, "Embudo por estado", tareas with { GroupBy = new[] { "Status" } });
+        var apiladas = W(AnalisisTipoWidget.BarrasApiladas, "Estado x prioridad", tareas with { GroupBy = new[] { "Status", "Priority" } });
+
+        var r = new Dictionary<string, AnalisisWidgetResultado>();
+        await RunWithRunnerAsync(tenantId, async runner =>
+        {
+            foreach (var w in new[] { kpiMes, horas30, calendario, embudo, apiladas })
+            {
+                r[w.Titulo] = await runner.RunAsync(w, new ReportContext(tenantId));
+            }
+        });
+        Assert.All(r, kv => Assert.True(kv.Value.Ok, $"{kv.Key}: {kv.Value.Error}"));
+
+        // KPI del mes: las 3 tareas se crearon hoy; el mes anterior no tiene base -> sin delta, con tendencia.
+        var kpi = Assert.IsType<EscalarShape>(r["Creadas este mes"].Forma);
+        Assert.Equal(3m, kpi.Valor);
+        Assert.Equal(0m, kpi.ValorAnterior);
+        Assert.Null(kpi.Delta);
+        Assert.Equal("vs mes anterior", kpi.Comparacion);
+        Assert.Equal(6, kpi.Tendencia.Count);
+        Assert.Equal(3m, kpi.Tendencia[^1].Valor);
+
+        // Velocimetro sobre Horas (suma) en los ultimos 30 dias: 1.5 h + 1 h.
+        Assert.Equal(2.5m, Assert.IsType<EscalarShape>(r["Horas 30 dias"].Forma).Valor);
+
+        // Calendario: un solo dia con actividad (hoy) con las 3 tareas.
+        var cal = Assert.IsType<CalendarioShape>(r["Tareas por dia"].Forma);
+        Assert.Equal(3m, Assert.Single(cal.Dias).Valor);
+        Assert.Equal(cal.Hasta, cal.Dias[0].Dia);
+
+        Assert.Equal(3m, Assert.IsType<CategoriasShape>(r["Embudo por estado"].Forma).Total);
+        Assert.NotEmpty(Assert.IsType<SerieShape>(r["Estado x prioridad"].Forma).Series);
+
+        // Cada forma produce su grafico (lo que la tarjeta entrega a ECharts).
+        Assert.NotNull(AnalisisGraficos.Opcion(r["Horas 30 dias"].Forma!, AnalisisTipoWidget.Velocimetro, WidgetConfig.Leer(horas30.ConfigJson), v => v?.ToString() ?? "-"));
+        Assert.NotNull(AnalisisGraficos.Opcion(cal, AnalisisTipoWidget.Calendario, new WidgetConfig(), v => v?.ToString() ?? "-"));
+    }
+
     // ---- Helpers ----
 
     private AnalisisService Service(Guid tenantId) =>

@@ -267,7 +267,7 @@ public static class CombinadoMotor
     /// <summary>Tabla combinada -> forma segun el tipo visual del widget.</summary>
     public static WidgetShape AForma(CombinadoTabla t, CombinadoDiseno d, AnalisisTipoWidget tipo, int top, string titulo)
     {
-        if (tipo == AnalisisTipoWidget.Kpi)
+        if (WidgetDisenoMapper.EsEscalar(tipo))
         {
             // KPI: la PRIMERA formula evaluada sobre los TOTALES de cada serie (ej. tasa de conversion =
             // B / A * 100 con totales, no el promedio de las tasas); sin formula, el total de la serie A.
@@ -290,7 +290,8 @@ public static class CombinadoMotor
             return new TablaShape(cols, filas);
         }
 
-        if (tipo is AnalisisTipoWidget.Dona or AnalisisTipoWidget.Semaforo)
+        if (tipo is AnalisisTipoWidget.Dona or AnalisisTipoWidget.Semaforo or AnalisisTipoWidget.Embudo
+            or AnalisisTipoWidget.BarrasHorizontales or AnalisisTipoWidget.Treemap)
         {
             // Una sola medida: la ultima columna (la formula, si hay).
             var c = t.Columnas.Count - 1;

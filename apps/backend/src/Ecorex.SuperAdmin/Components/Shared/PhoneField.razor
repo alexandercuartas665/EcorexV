@@ -13,7 +13,7 @@
         }
     </select>
     <input class="ph-num" inputmode="numeric" autocomplete="tel"
-           placeholder="@PlaceholderFor(_cc)" value="@_display" @oninput="OnLocalInput" disabled="@Disabled" />
+           placeholder="@PlaceholderFor(_cc)" value="@_display" @oninput="OnLocalInput" @onchange="OnLocalChange" disabled="@Disabled" />
 </div>
 @if (_touched && HasDigits && !IsValid)
 {
@@ -112,6 +112,20 @@
 
     private async Task OnLocalInput(ChangeEventArgs e)
     {
+        // EN VIVO: mostramos solo digitos, SIN la mascara de espacios. Asi el texto que renderiza el
+        // servidor coincide con lo que hay en el DOM (cuando tecleas digitos normales) y Blazor no pisa
+        // el <input> -> el cursor no salta ni se comen letras. La mascara visual se aplica al salir (blur).
+        var digits = new string((e.Value?.ToString() ?? "").Where(char.IsDigit).ToArray());
+        _localDigits = Trunc(digits, Meta(_cc).Len);
+        _display = _localDigits;
+        _touched = true;
+        await EmitAsync();
+    }
+
+    private async Task OnLocalChange(ChangeEventArgs e)
+    {
+        // Al perder el foco: ahora si aplicamos la mascara visual (agrupa por espacios). Ya no estas
+        // tecleando, asi que reescribir el valor una sola vez aqui no molesta al cursor.
         var digits = new string((e.Value?.ToString() ?? "").Where(char.IsDigit).ToArray());
         _localDigits = Trunc(digits, Meta(_cc).Len);
         _display = Mask(_localDigits, _cc);

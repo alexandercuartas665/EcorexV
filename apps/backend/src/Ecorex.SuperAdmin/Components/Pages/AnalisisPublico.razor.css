@@ -1,0 +1,38 @@
+/* Visor publico /a/{token} (ADR-0158 Ola 6). Tokens del workspace / prototipo ECOREX.dc.html. */
+.ap-shell { min-height: 100vh; box-sizing: border-box; background: var(--surface-2); color: var(--ink); padding: 28px clamp(16px, 3vw, 40px) 40px; }
+.ap-muted { color: var(--ink-2); font-size: 13px; }
+.ap-neutral { max-width: 460px; margin: 12vh auto 0; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--rad); padding: 32px 24px; box-shadow: var(--sh-sm); }
+.ap-neutral h2 { margin: 0 0 8px; font-size: 18px; }
+.ap-neutral p { margin: 0; color: var(--ink-2); font-size: 14px; }
+
+.ap-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.ap-head h1 { margin: 0; font-weight: 800; font-size: 26px; letter-spacing: -.03em; overflow-wrap: anywhere; }
+.ap-head p { margin: 6px 0 0; color: var(--ink-2); font-size: 14px; }
+.ap-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ap-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: var(--t-green-bg); color: var(--t-green); border-radius: 6px; padding: 4px 9px; }
+.ap-btn { border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); border-radius: 9px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ap-btn:hover { background: var(--surface-3); }
+
+.ap-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 0 18px; flex-wrap: wrap; }
+.ap-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.ap-tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+.ap-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.ap-foot { margin-top: 28px; text-align: center; font-size: 12px; color: var(--ink-3); }
+
+@media (max-width: 760px) {
+    .ap-grid { grid-template-columns: minmax(0, 1fr); }
+    .ap-grid ::deep .aw-card { grid-column: auto !important; }
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+    .ap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ap-grid ::deep .aw-card[style*="span 3"], .ap-grid ::deep .aw-card[style*="span 4"] { grid-column: span 2 !important; }
+}
+
+/* Imprimir: una hoja limpia, sin botones ni pestanas. */
+@media print {
+    .ap-shell { background: #fff; padding: 0; }
+    .ap-head-actions, .ap-tabs, .ap-foot { display: none; }
+    .ap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ap-grid ::deep .aw-card { break-inside: avoid; box-shadow: none; }
+}

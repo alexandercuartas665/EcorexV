@@ -373,8 +373,8 @@ else
                                 </div>
                                 }
 
-                                <div class="form-label">Resumen del cierre (grupo / Telegram / correo, o cierre sin tarea)</div>
-                                <div class="text-muted" style="font-size:11.5px;margin-bottom:8px;">Para avisar a un grupo/canal, o cuando el cierre NO crea tarea. Si apunta al mismo usuario ya avisado abajo, se omite para no duplicar.</div>
+                                <div class="form-label">Notificacion al cerrar (crear o anotar un caso)</div>
+                                <div class="text-muted" style="font-size:11.5px;margin-bottom:8px;">Se envia cada vez que el agente crea un caso o agrega una anotacion a un caso abierto. "Usuario asignado" = el usuario asignado a ESE caso. Si ese usuario ya recibio el aviso de tarea asignada en el mismo turno, no se repite (un solo mensaje).</div>
                                 @if (_cierreAlertas.Count == 0)
                                 {
                                     <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Sin resumen configurado. Opcional: agrega uno para avisar a un grupo/correo al cerrar.</div>
@@ -392,7 +392,7 @@ else
                                             @if (a.Canal != CierreCanal.WhatsAppGrupo)
                                             {
                                                 <select class="form-control" style="width:170px;" @bind="a.Destino" disabled="@_busy">
-                                                    <option value="@CierreDestino.Asignado">Usuario asignado</option>
+                                                    <option value="@CierreDestino.Asignado">Usuario asignado del caso</option>
                                                     <option value="@CierreDestino.Usuario">Otro usuario...</option>
                                                 </select>
                                                 @if (a.Destino == CierreDestino.Usuario)
@@ -428,7 +428,7 @@ else
                                                     }
                                                 </select>
                                             </div>
-                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Plantilla HSM (YCloud). Variables por nombre: {{cliente}}, {{telefono}}, {{resumen}}, {{agente}}. Se envia al telefono del usuario.</div>
+                                            <div class="text-muted" style="font-size:11px;margin-top:4px;">Plantilla HSM (YCloud). Variables por nombre: {{cliente}}, {{telefono}}, {{resumen}}, {{agente}}, mas los tokens del caso (ver abajo). Se envia al telefono del usuario.</div>
                                             @if (cVars.Count > 0)
                                             {
                                                 <div style="margin-top:8px;padding:8px;background:var(--surface-2);border-radius:6px;">
@@ -2371,7 +2371,9 @@ else
     }
 
     // Tokens sugeridos para el binding de variables de plantilla (ayuda del editor).
-    private const string AvisoTokenHint = "{tarea.numero}, {tarea.titulo}, {tarea.cliente}, {tarea.solicitante}, {tarea.telefono}, {tarea.enlace}, {usuario.nombre}, {usuario.telefono}, {usuario.email}, {sistema.fecha}, {sistema.hora}";
+    // OJO: {tarea.cliente} y {tarea.solicitante} salen del "nombre del solicitante" escrito en la tarea y
+    // pueden ir VACIOS; para el contacto del Directorio enlazado usar {tercero.nombre} / {directorio.nombre}.
+    private const string AvisoTokenHint = "{tarea.numero}, {tarea.titulo}, {tarea.cliente} / {tarea.solicitante} (nombre del solicitante de la tarea; puede ir vacio), {tarea.telefono}, {tarea.email}, {tarea.enlace}, {tercero.nombre} / {directorio.nombre} (contacto del Directorio enlazado a la tarea), {tercero.telefono}, {tercero.email}, {empresa.nombre}, {usuario.nombre}, {usuario.telefono}, {usuario.email}, {sistema.fecha}, {sistema.hora}";
 
     // Variables (tokens) declaradas por la plantilla elegida (de whats_app_templates.variables_json). Vacio si
     // la plantilla no declara variables o no se ha elegido.

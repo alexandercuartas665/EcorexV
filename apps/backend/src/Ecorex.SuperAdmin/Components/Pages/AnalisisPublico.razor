@@ -1,0 +1,143 @@
+@page "/a/{Token}"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Analisis
+@inject IAnalisisCompartirService Compartir
+@inject IAnalisisWidgetRunner Runner
+@implements IDisposable
+
+@* Visor publico de SOLO LECTURA de un libro de indicadores (ADR-0158 D7, Ola 6). Sin policy: el acceso lo
+   gobierna el token opaco (solo se guarda su hash; rotable, revocable, con expiracion opcional; tope de
+   aperturas por IP en Program.cs). La resolucion del token es el UNICO punto cross-tenant; resuelto, cada
+   lectura corre con el tenant del token fijado como ambient (AmbientTenantContext.Begin). Se comparte la
+   DEFINICION: los datos son en vivo. Token invalido, vencido o revocado muestran el mismo mensaje neutro. *@
+
+<PageTitle>@(_libro?.Nombre ?? "Libro de indicadores")</PageTitle>
+
+<div class="ap-shell">
+    @if (_cargando)
+    {
+        <p class="ap-muted">Validando enlace...</p>
+    }
+    else if (_libro is null)
+    {
+        <div class="ap-neutral">
+            <h2>Enlace no disponible</h2>
+            <p>Este enlace no esta disponible. Verifica con quien te lo compartio.</p>
+        </div>
+    }
+    else
+    {
+        <header class="ap-head">
+            <div>
+                <h1>@_libro.Nombre</h1>
+                @if (!string.IsNullOrWhiteSpace(_libro.Descripcion))
+                {
+                    <p>@_libro.Descripcion</p>
+                }
+            </div>
+            <div class="ap-head-actions">
+                <span class="ap-badge">Solo lectura - datos en vivo</span>
+                <button class="ap-btn" onclick="window.print()">Imprimir</button>
+            </div>
+        </header>
+
+        @if (_libro.Hojas.Count > 1)
+        {
+            <nav class="ap-tabs" role="tablist">
+                @foreach (var h in _libro.Hojas)
+                {
+                    <button class="ap-tab @(h.Id == _hojaId ? "active" : "")" role="tab" @onclick="() => MostrarHojaAsync(h.Id)">@h.Nombre</button>
+                }
+            </nav>
+        }
+
+        @if (Hoja is { } hoja)
+        {
+            @if (hoja.Widgets.Count == 0)
+            {
+                <p class="ap-muted">Esta hoja no tiene indicadores.</p>
+            }
+            else
+            {
+                <div class="ap-grid">
+                    @foreach (var w in hoja.Widgets)
+                    {
+                        <AnalisisWidgetCard @key="w.Id" Widget="w" Resultado="@(_resultados.TryGetValue(w.Id, out var r) ? r : null)" />
+                    }
+                </div>
+            }
+        }
+
+        <footer class="ap-foot">ECOREX - Libros de indicadores</footer>
+    }
+</div>
+
+@code {
+    [Parameter] public string Token { get; set; } = string.Empty;
+
+    private bool _cargando = true;
+    private Guid _tenantId;
+    private AnalisisLibroDetalle? _libro;
+    private Guid? _hojaId;
+    private int _version;
+    private readonly Dictionary<Guid, AnalisisWidgetResultado> _resultados = new();
+
+    private AnalisisHojaDto? Hoja => _libro?.Hojas.FirstOrDefault(h => h.Id == _hojaId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var enlace = await Compartir.ResolverAsync(Token);
+        if (enlace is not null)
+        {
+            _tenantId = enlace.TenantId;
+            using (AmbientTenantContext.Begin(_tenantId))
+            {
+                _libro = await Compartir.LibroPublicoAsync(enlace.LibroId);
+            }
+        }
+
+        _cargando = false;
+        if (_libro?.Hojas.FirstOrDefault() is { } primera)
+        {
+            await MostrarHojaAsync(primera.Id);
+        }
+    }
+
+    public void Dispose() => _version++;
+
+    /// <summary>Corre los widgets de la hoja EN SERIE, con el tenant del token como ambient.</summary>
+    private async Task MostrarHojaAsync(Guid hojaId)
+    {
+        var version = ++_version;
+        _hojaId = hojaId;
+        _resultados.Clear();
+        if (Hoja is not { } hoja)
+        {
+            return;
+        }
+
+        StateHasChanged();
+        var ctx = new ReportContext(Guid.Empty);
+        foreach (var w in hoja.Widgets)
+        {
+            AnalisisWidgetResultado r;
+            using (AmbientTenantContext.Begin(_tenantId))
+            {
+                r = await Runner.RunAsync(w, ctx, default, hoja.Filtros);
+            }
+
+            if (version != _version)
+            {
+                return; // cambio de hoja o pagina cerrada
+            }
+
+            _resultados[w.Id] = r;
+            StateHasChanged();
+        }
+    }
+}

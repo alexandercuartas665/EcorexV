@@ -7,6 +7,16 @@ namespace Ecorex.Application.Tenancy;
 /// </summary>
 public interface IWhatsAppConnectorService
 {
+    /// <summary>
+    /// MCP de WhatsApp (ADR-0164): llamada GENERICA a Evolution sobre la instancia de la LINEA. pathTemplate usa
+    /// "{instance}" (se sustituye por el nombre real de la instancia, escapado). Solo lineas Evolution del tenant
+    /// ACTUAL (filtro global: una linea de otro tenant no existe). requireConnected exige la linea Conectada.
+    /// Implementacion por defecto = no soportado (los dobles de prueba no necesitan implementarla).
+    /// </summary>
+    Task<Admin.EvolutionRawResult> EvolutionCallAsync(Guid lineId, string method, string pathTemplate, object? body,
+        bool requireConnected = true, CancellationToken cancellationToken = default)
+        => Task.FromResult(new Admin.EvolutionRawResult(false, 0, string.Empty, null, "Llamada a Evolution no soportada por este conector."));
+
     Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Define si la agencia usa el servidor maestro o uno propio (URL + API key). Null si no hay tenant.</summary>

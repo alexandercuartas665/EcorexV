@@ -431,6 +431,233 @@ public abstract class AnalisisLibrosTestsBase
         });
     }
 
+    [Fact]
+    public async Task Combinado_CruzaDirectorioXTareasPorCliente_ConFormulaYCategoria()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola5 combinado", conDatos: true);
+        await using (var db = _fixture.CreateContext(tenantId))
+        {
+            var acme = await db.Terceros.SingleAsync(t => t.Nombre == "ACME");
+            db.DirectorioCategorias.Add(new DirectorioCategoria { TenantId = tenantId, CategoriaKey = "comercial", Title = "Comercial" });
+            db.TerceroCategorias.Add(new TerceroCategoria { TenantId = tenantId, TerceroId = acme.Id, CategoriaKey = "comercial" });
+            await db.SaveChangesAsync();
+        }
+
+        var diseno = new CombinadoDiseno
+        {
+            Series = new[]
+            {
+                new SerieCombinada { Nombre = "Terceros", SourceKey = TerceroReportSource.SourceKey, Dimension = "Nombre" },
+                new SerieCombinada { Nombre = "Tareas", SourceKey = TaskItemReportSource.SourceKey, Dimension = "Cliente" },
+                new SerieCombinada { Nombre = "Horas", SourceKey = WorkLogReportSource.SourceKey, Dimension = "Cliente", Funcion = ReportAggregateFunction.Sum, CampoMedida = "Horas" }
+            },
+            Formulas = new[] { new FormulaCombinada("Horas por tarea", "C / B") },
+            Llave = LlaveCombinado.Texto,
+            SoloComunes = true
+        };
+        AnalisisWidgetDto Widget(AnalisisTipoWidget tipo) => new(Guid.NewGuid(), Guid.NewGuid(), tipo, "Cruce", null,
+            CombinadoDiseno.IndicadorKey, new WidgetConfig { Combinado = diseno }.ToJson(), 0, 2, 1);
+
+        await RunWithRunnerAsync(tenantId, async runner =>
+        {
+            var ctx = new ReportContext(tenantId);
+            var tabla = await runner.RunAsync(Widget(AnalisisTipoWidget.Tabla), ctx);
+            Assert.True(tabla.Ok, tabla.Error);
+            var fila = Assert.Single(((TablaShape)tabla.Forma!).Filas); // solo ACME esta en las tres series
+            Assert.Equal("ACME", fila[0]);
+            Assert.Equal(1m, Convert.ToDecimal(fila[1]));
+            Assert.Equal(1m, Convert.ToDecimal(fila[2]));
+            Assert.Equal(2.5m, Convert.ToDecimal(fila[3]));
+            Assert.Equal(2.5m, Convert.ToDecimal(fila[4]));
+
+            var kpi = await runner.RunAsync(Widget(AnalisisTipoWidget.Kpi), ctx);
+            Assert.Equal(2.5m, ((EscalarShape)kpi.Forma!).Valor);
+
+            // Categoria del Directorio (motor Modular) visible como campo reportable.
+            var porCategoria = await runner.RunAsync(new AnalisisWidgetDto(Guid.NewGuid(), Guid.NewGuid(), AnalisisTipoWidget.Barras, "Cat",
+                AnalisisJson.Serialize(WidgetDisenoMapper.ToSpec(new WidgetDiseno { Tipo = AnalisisTipoWidget.Barras, Titulo = "Cat", SourceKey = TerceroReportSource.SourceKey, Dimension = "Categoria" })),
+                null, null, 0, 1, 1), ctx);
+            Assert.True(porCategoria.Ok, porCategoria.Error);
+            Assert.Equal(1m, ((CategoriasShape)porCategoria.Forma!).Items.Single(i => i.Etiqueta == "Comercial").Valor);
+        });
+
+        // El servicio acepta el combinado (definicion en el ConfigJson) y rechaza uno sin series.
+        var svc = Service(tenantId);
+        var libro = (await svc.CrearLibroAsync("Combinado", null, ActorDuena)).Id!.Value;
+        var hoja = (await svc.ObtenerLibroAsync(libro, ActorDuena))!.Hojas[0].Id;
+        Assert.True((await svc.AgregarWidgetAsync(hoja, new AnalisisNuevoWidget(AnalisisTipoWidget.Barras, "C", null, CombinadoDiseno.IndicadorKey, 2, new WidgetConfig { Combinado = diseno }.ToJson()), ActorDuena)).Ok);
+        Assert.False((await svc.AgregarWidgetAsync(hoja, new AnalisisNuevoWidget(AnalisisTipoWidget.Barras, "C", null, CombinadoDiseno.IndicadorKey), ActorDuena)).Ok);
+    }
+
+    [Fact]
+    public async Task Compartir_UsuariosYEnlacePublico_RotarRevocarVencer_YAislamiento()
+    {
+        var a = await SeedTenantAsync("Libros ola6 A");
+        var b = await SeedTenantAsync("Libros ola6 B");
+        var svcA = Service(a);
+        var libro = (await svcA.CrearLibroAsync("Publico", null, ActorDuena)).Id!.Value;
+        var otroLibroB = (await Service(b).CrearLibroAsync("De B", null, ActorDuena)).Id!.Value;
+
+        var reloj = new RelojFijo(DateTimeOffset.UtcNow);
+        IAnalisisCompartirService Comp(Guid? t) => new AnalisisCompartirService(new ApplicationDbContextFactory(() => _fixture.CreateContext(t)), reloj);
+        var compA = Comp(a);
+
+        // Lista de usuarios: el otro usuario ve el libro privado; un tercero no.
+        Assert.False((await compA.CambiarVisibilidadAsync(libro, AnalisisVisibilidad.CompartidoEnTenant, Array.Empty<Guid>(), ActorOtro)).Ok);
+        Assert.True((await compA.CambiarVisibilidadAsync(libro, AnalisisVisibilidad.Privado, new[] { ActorOtro.UserId!.Value }, ActorDuena)).Ok);
+        Assert.NotNull(await svcA.ObtenerLibroAsync(libro, ActorOtro));
+        Assert.Null(await svcA.ObtenerLibroAsync(libro, new AnalisisActor(Guid.CreateVersion7(), false)));
+
+        // Solo un Admin publica con enlace.
+        Assert.False((await compA.GenerarEnlaceAsync(libro, null, ActorDuena)).Ok);
+        var e1 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin);
+        Assert.True(e1.Ok, e1.Error);
+
+        // El visor anonimo (sin tenant) resuelve el token al tenant y libro correctos.
+        var anon = Comp(null);
+        var r = await anon.ResolverAsync(e1.Token);
+        Assert.Equal(new AnalisisEnlaceResuelto(a, libro), r);
+        Assert.NotNull(await Comp(a).LibroPublicoAsync(libro));
+        Assert.Null(await Comp(b).LibroPublicoAsync(libro)); // con el tenant B el filtro global lo oculta
+        Assert.Null(await Comp(b).LibroPublicoAsync(otroLibroB)); // privado: no es publico
+        Assert.Null(await anon.ResolverAsync("no-existe"));
+        Assert.Null(await anon.ResolverAsync(new string('x', 200)));
+
+        // Rotar invalida el anterior.
+        var e2 = await compA.GenerarEnlaceAsync(libro, reloj.Ahora.AddDays(1), ActorAdmin);
+        Assert.Null(await anon.ResolverAsync(e1.Token));
+        Assert.NotNull(await anon.ResolverAsync(e2.Token));
+        var estado = await compA.EstadoAsync(libro, ActorDuena);
+        Assert.True(estado!.EnlaceActivo);
+        Assert.NotNull(estado.EnlaceExpira);
+
+        // Vence.
+        reloj.Ahora = reloj.Ahora.AddDays(2);
+        Assert.Null(await anon.ResolverAsync(e2.Token));
+
+        // Revocar y pasar a privado apagan el enlace.
+        reloj.Ahora = reloj.Ahora.AddDays(-2);
+        var e3 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin);
+        Assert.True((await compA.RevocarEnlaceAsync(libro, ActorDuena)).Ok);
+        Assert.Null(await anon.ResolverAsync(e3.Token));
+        var e4 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin);
+        Assert.True((await compA.CambiarVisibilidadAsync(libro, AnalisisVisibilidad.Privado, Array.Empty<Guid>(), ActorDuena)).Ok);
+        Assert.Null(await anon.ResolverAsync(e4.Token));
+    }
+
+    private sealed class RelojFijo(DateTimeOffset inicio) : TimeProvider
+    {
+        public DateTimeOffset Ahora { get; set; } = inicio;
+
+        public override DateTimeOffset GetUtcNow() => Ahora;
+    }
+
+    [Fact]
+    public async Task Portabilidad_ExportaEnUnTenant_ImportaEnOtro_ConEstructuraYAislamiento()
+    {
+        var a = await SeedTenantAsync("Libros port A");
+        var b = await SeedTenantAsync("Libros port B");
+
+        IAnalisisPortabilidad Portab(Guid t) =>
+            new AnalisisPortabilidad(Service(t), new ApplicationDbContextFactory(() => _fixture.CreateContext(t)), Registry());
+
+        // Libro en A: 2 hojas, filtros en la hoja 1, dos widgets de spec y uno curado.
+        var svcA = Service(a);
+        var libroA = (await svcA.CrearLibroAsync("Comercial", "KPIs del area", ActorDuena)).Id!.Value;
+        var detA = (await svcA.ObtenerLibroAsync(libroA, ActorDuena))!;
+        var hoja1 = detA.Hojas[0].Id;
+        var hoja2 = (await svcA.CrearHojaAsync(libroA, "Ventas", ActorDuena)).Id!.Value;
+        Assert.True((await svcA.GuardarFiltrosHojaAsync(hoja1, new HojaFiltros { Vendedor = "Laura" }, ActorDuena)).Ok);
+        Assert.True((await svcA.AgregarWidgetAsync(hoja1, AnalisisEjemplos.Find("tareas-abiertas")!.Widget, ActorDuena)).Ok);
+        Assert.True((await svcA.AgregarWidgetAsync(hoja1, AnalisisEjemplos.Find("semaforo")!.Widget, ActorDuena)).Ok);
+        Assert.True((await svcA.AgregarWidgetAsync(hoja2, AnalisisEjemplos.Find("horas-usuario")!.Widget, ActorDuena)).Ok);
+
+        // El indicador curado y el spec esperados (para comparar tras el viaje).
+        detA = (await svcA.ObtenerLibroAsync(libroA, ActorDuena))!;
+        var claveCurada = detA.Hojas[0].Widgets.Single(w => w.IndicadorKey is not null).IndicadorKey;
+        Assert.NotNull(claveCurada);
+
+        // Exporta en A, importa en B (otro usuario, otro tenant).
+        var paquete = await Portab(a).ExportarAsync(libroA, ActorDuena);
+        Assert.NotNull(paquete);
+        Assert.EndsWith(".ecorex-libro.json", paquete!.Value.FileName);
+        var r = await Portab(b).ImportarAsync(paquete.Value.Json, ActorOtro);
+        Assert.True(r.Ok, r.Error);
+        Assert.Empty(r.Avisos); // solo fuentes nativas y un curado que existe en el destino
+
+        // El libro importado en B: misma estructura, dueno = quien importo, id NUEVO, privado.
+        var impo = (await Service(b).ObtenerLibroAsync(r.LibroId!.Value, ActorOtro))!;
+        Assert.NotEqual(libroA, impo.Id);
+        Assert.Equal("Comercial", impo.Nombre);
+        Assert.True(impo.PuedeEditar); // ActorOtro es el dueno en B
+        Assert.Equal(AnalisisVisibilidad.Privado, impo.Visibilidad);
+        Assert.Equal(new[] { "Hoja 1", "Ventas" }, impo.Hojas.Select(h => h.Nombre));
+        Assert.Equal("Laura", impo.Hojas[0].Filtros.Vendedor);
+        Assert.Equal(2, impo.Hojas[0].Widgets.Count);
+        var curadoImp = Assert.Single(impo.Hojas[0].Widgets, w => w.IndicadorKey is not null);
+        Assert.Equal(claveCurada, curadoImp.IndicadorKey);
+        Assert.Contains(impo.Hojas[0].Widgets, w => w.SpecJson is not null); // el spec viajo
+        Assert.Single(impo.Hojas[1].Widgets);
+
+        // Aislamiento: el libro importado vive en B; el tenant A no lo ve ni siendo Admin.
+        Assert.Null(await svcA.ObtenerLibroAsync(impo.Id, ActorAdmin));
+
+        // JSON ajeno -> error claro, sin crear nada.
+        Assert.False((await Portab(b).ImportarAsync("{\"foo\":1}", ActorOtro)).Ok);
+    }
+
+    [Fact]
+    public async Task Ola7_KpiConPeriodo_Calendario_Y_TiposNuevos_CorrenContraDatosReales()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola 7", conDatos: true);
+        var conteo = new ReportAggregate(string.Empty, ReportAggregateFunction.Count);
+        AnalisisWidgetDto W(AnalisisTipoWidget tipo, string titulo, ReportQuerySpec spec, WidgetConfig? cfg = null) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), tipo, titulo, AnalisisJson.Serialize(spec), null, cfg?.ToJson(), 0, 1, 1);
+
+        var tareas = new ReportQuerySpec { SourceKey = TaskItemReportSource.SourceKey, Aggregates = new[] { conteo } };
+        var kpiMes = W(AnalisisTipoWidget.Kpi, "Creadas este mes", tareas, new WidgetConfig { Periodo = KpiPeriodos.Mes });
+        var horas30 = W(AnalisisTipoWidget.Velocimetro, "Horas 30 dias",
+            new ReportQuerySpec { SourceKey = WorkLogReportSource.SourceKey, Aggregates = new[] { new ReportAggregate("Horas", ReportAggregateFunction.Sum) } },
+            new WidgetConfig { Periodo = KpiPeriodos.Ultimos30, Meta = 10 });
+        var calendario = W(AnalisisTipoWidget.Calendario, "Tareas por dia", tareas);
+        var embudo = W(AnalisisTipoWidget.Embudo, "Embudo por estado", tareas with { GroupBy = new[] { "Status" } });
+        var apiladas = W(AnalisisTipoWidget.BarrasApiladas, "Estado x prioridad", tareas with { GroupBy = new[] { "Status", "Priority" } });
+
+        var r = new Dictionary<string, AnalisisWidgetResultado>();
+        await RunWithRunnerAsync(tenantId, async runner =>
+        {
+            foreach (var w in new[] { kpiMes, horas30, calendario, embudo, apiladas })
+            {
+                r[w.Titulo] = await runner.RunAsync(w, new ReportContext(tenantId));
+            }
+        });
+        Assert.All(r, kv => Assert.True(kv.Value.Ok, $"{kv.Key}: {kv.Value.Error}"));
+
+        // KPI del mes: las 3 tareas se crearon hoy; el mes anterior no tiene base -> sin delta, con tendencia.
+        var kpi = Assert.IsType<EscalarShape>(r["Creadas este mes"].Forma);
+        Assert.Equal(3m, kpi.Valor);
+        Assert.Equal(0m, kpi.ValorAnterior);
+        Assert.Null(kpi.Delta);
+        Assert.Equal("vs mes anterior", kpi.Comparacion);
+        Assert.Equal(6, kpi.Tendencia.Count);
+        Assert.Equal(3m, kpi.Tendencia[^1].Valor);
+
+        // Velocimetro sobre Horas (suma) en los ultimos 30 dias: 1.5 h + 1 h.
+        Assert.Equal(2.5m, Assert.IsType<EscalarShape>(r["Horas 30 dias"].Forma).Valor);
+
+        // Calendario: un solo dia con actividad (hoy) con las 3 tareas.
+        var cal = Assert.IsType<CalendarioShape>(r["Tareas por dia"].Forma);
+        Assert.Equal(3m, Assert.Single(cal.Dias).Valor);
+        Assert.Equal(cal.Hasta, cal.Dias[0].Dia);
+
+        Assert.Equal(3m, Assert.IsType<CategoriasShape>(r["Embudo por estado"].Forma).Total);
+        Assert.NotEmpty(Assert.IsType<SerieShape>(r["Estado x prioridad"].Forma).Series);
+
+        // Cada forma produce su grafico (lo que la tarjeta entrega a ECharts).
+        Assert.NotNull(AnalisisGraficos.Opcion(r["Horas 30 dias"].Forma!, AnalisisTipoWidget.Velocimetro, WidgetConfig.Leer(horas30.ConfigJson), v => v?.ToString() ?? "-"));
+        Assert.NotNull(AnalisisGraficos.Opcion(cal, AnalisisTipoWidget.Calendario, new WidgetConfig(), v => v?.ToString() ?? "-"));
+    }
+
     // ---- Helpers ----
 
     private AnalisisService Service(Guid tenantId) =>

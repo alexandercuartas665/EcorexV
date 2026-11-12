@@ -756,6 +756,30 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
         return ($"{baseUrl!.TrimEnd('/')}/webhooks/evolution", master.WebhookToken);
     }
 
+    public async Task<Admin.EvolutionRawResult> EvolutionCallAsync(Guid lineId, string method, string pathTemplate, object? body,
+        bool requireConnected = true, CancellationToken cancellationToken = default)
+    {
+        // CON filtro global (sin IgnoreQueryFilters): el MCP corre en el tenant del token, asi que una linea de otro
+        // tenant simplemente no existe aunque se cambie el id en la URL.
+        var line = await _db.WhatsAppLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lineId, cancellationToken);
+        if (line is null) { return new Admin.EvolutionRawResult(false, 404, string.Empty, null, "La linea no existe."); }
+        if (line.Provider != WhatsAppProvider.Evolution)
+        {
+            return new Admin.EvolutionRawResult(false, 400, string.Empty, null, "La linea no es de Evolution API.");
+        }
+        if (requireConnected && line.Status != WhatsAppLineStatus.Connected)
+        {
+            return new Admin.EvolutionRawResult(false, 409, string.Empty, null, "La linea no esta conectada.");
+        }
+        var server = await ResolveServerAsync(cancellationToken);
+        if (server is null)
+        {
+            return new Admin.EvolutionRawResult(false, 503, string.Empty, null, "No hay servidor Evolution configurado para la empresa.");
+        }
+        var path = pathTemplate.Replace("{instance}", Uri.EscapeDataString(EvoInstance(line)), StringComparison.Ordinal);
+        return await _client.CallAsync(server.Value.baseUrl, server.Value.apiKey, method, path, body, cancellationToken);
+    }
+
     // Servidor efectivo (URL + API key descifrada) segun la eleccion del tenant.
     private async Task<(string baseUrl, string apiKey)?> ResolveServerAsync(CancellationToken ct)
     {

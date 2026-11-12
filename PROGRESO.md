@@ -2,6 +2,204 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-12 - Conciliador DIAN: scroll superior, copiar en clic derecho y descarga por No. de factura (release v0.16.312, DESPLEGADO 2026-11-12)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Cherry-pick de 191c1f8a (worktree ECOREX.dian, rama feat/agente-tls-instalador-adr0152) sobre el tronco v0.16.311. 4 archivos de Ecorex.SuperAdmin, sin conflictos, sin migracion EF. El commit no tocaba AppVersion: 0.16.311 -> 0.16.312.
+- Trae: (1) barra de scroll horizontal SUPERIOR en la grilla, sincronizada con la de abajo y oculta si no hay desbordamiento; (2) menu de clic derecho de la fila con "Copiar" del texto seleccionado; (3) /archivo/{id} honra ?dl=<nombre> (saneado, max 120) para descargar con nombre legible; boton "Descargar" del visor arma el nombre con el No. de factura del proveedor + tipo (DIAN/NEWTON PDF/XML). Sin el parametro sigue sirviendo inline (visor/iframe/firmas).
+- Ademas en este lote: commit aparte `style: dotnet format` (espacios en ConciliacionDianService/ConciliacionRuleService, deuda previa del tronco).
+
+## 2026-11-12 - Integracion a main de la rama Analisis Ola 7a/7b (release v0.16.311, DESPLEGADO 2026-11-12 en v0.16.312)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/system-indicators-data-sources-e53a43` (cec8d203: Ola 7a graficos ECharts + 7b tipos nuevos y KPI con periodo, ADR-0158 addendum) sobre el tronco 964db59e (v0.16.310). Sin conflictos. La rama no traia version propia: AppVersion 0.16.310 -> 0.16.311. El commit estaba solo en la rama LOCAL (worktree); el remoto de la rama no lo tenia.
+- Sin migraciones (los 7 tipos nuevos van al final del enum, se guardan como int). Sin secretos; adiciones en ASCII. appout5269 no se versiona.
+- Su entrada detallada de rama queda mas abajo ("Modulo Analisis: Ola 7a ... 7b").
+- Despues del deploy: recarga dura del navegador (analisis-graficos.js va con ?v=2).
+- SIGUIENTE: deploy SOLO a la senal del usuario.
+
+## 2026-11-12 - Integracion a main de la rama MCP de WhatsApp por linea Evolution (release v0.16.310, DESPLEGADO 2026-11-12 en v0.16.312)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-whatsapp-evolution` (a17d9982 permisos de /lineas y /conversaciones v0.16.309 + d0807016 MCP de WhatsApp ADR-0164 v0.16.310) sobre el tronco 22c79c96 (v0.16.308). Sin conflictos; AppVersion queda en 0.16.310 (no choca).
+- Sin migraciones (TenantApiToken solo gana la constante de alcance `mcp:whatsapp`), sin secretos, adiciones en ASCII.
+- SIGUIENTE: deploy SOLO a la senal del usuario. Reflejar ADR-0164 en el vault.
+
+## 2026-11-13 (b) - MCP de WhatsApp POR LINEA Evolution API (ADR-0164, rama, v0.16.310, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Peticion: un MCP que de "todo el poder" de Evolution
+  API (enviar, leer, contactos, grupos...) para cada linea Evolution, configurado desde el modulo de Lineas, con varias
+  lineas conectadas. Alcance elegido por el usuario: las 3 fases; acceso por permiso.
+- DIAGNOSTICO: catalogo real de Evolution v2.3.7 (~95 endpoints, de los archivos de rutas del repo de Evolution) vs ~13
+  usados por el sistema; lineas comparten servidor+llave del tenant e instancia derivada `ecorex_{tenant}_{linea}`; el
+  webhook descarta fromMe y grupos; SARA cede el turno si el ultimo saliente tiene autor humano.
+- HECHO: `POST /api/mcp/whatsapp/{lineId}` (un servidor por linea, token personal nuevo `mcp:whatsapp`, sin migracion),
+  `WhatsAppMcpToolset` (36 herramientas: lectura, envio de todo tipo, gestion de chats/etiquetas/agente/Directorio,
+  grupos completos, perfil/privacidad/reinicio de la linea), puerta generica `EvolutionCallAsync` (resuelve servidor +
+  llave + instancia, filtro global), envios 1:1 por IChatService ("Usuario (via IA)", SARA cede) y registro de los
+  envios directos (`RecordOutboundAsync`), conversacion por linea (`GetOrCreateForLineAsync`, misma llave que la
+  ingesta). Salvaguardas: primer contacto confirmado, limite 20/min y 300/h por linea, 1 destinatario. Media anti-SSRF
+  (IP validada al conectar, sin redirecciones). Host JSON-RPC comun (`McpJsonRpcHost`) y bloques comunes
+  (`McpClientSnippets`); /conectar-ia muestra el servidor de cada token. /lineas -> "Configurar MCP" por linea.
+- EXCLUIDO a proposito: logout/borrar/crear instancia, webhook, proxy, settings (romperian Conversaciones y SARA).
+- VERIFICADO: build Debug solucion 0 errores; `McpWhatsAppTests` dual PG+SQL Server 18/18 contra el conector REAL y
+  `McpTablerosTests` 20/20 (sin regresion tras mover el host). En vivo (local, linea temporal propia en BITCODE, luego
+  borrada): modal, token, initialize, tools/list 36 sin problemas, 404/401 correctos, tableros sigue en 83. No se llamo
+  a Evolution real (la unica linea Evolution local es de AGRO).
+- SIGUIENTE: integracion a main por dev principal (la rama incluye el commit de permisos v0.16.309). Fuera de alcance:
+  ingerir grupos/fromMe/acuses en el webhook, interruptor de MCP por linea, limite en Redis si hay varias instancias.
+
+## 2026-11-13 - Seguridad: /lineas y /conversaciones exigen el permiso del modulo (rama, v0.16.309, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Hallazgo al mapear WhatsApp/Evolution para el MCP:
+  las paginas `Lineas.razor` y `Conversaciones.razor` solo tenian `[Authorize]`; el menu las ocultaba por perfil pero
+  la URL directa entraba (cualquier usuario del tenant veia TODAS las conversaciones y podia enviar o vaciar historial).
+- HECHO: policies `Lineas.Ver` y `Conversaciones.Ver` en `Program.cs` (PermissionRequirement modulo `lineas` /
+  `conversaciones`, View) aplicadas a las paginas. Acciones finas con ICurrentPermissions: Lineas -> Crear = conectar
+  linea; Editar = conectar/desconectar/renombrar/probar envio + acordeon Avanzado (servidor y webhook); Eliminar =
+  borrar linea. Conversaciones -> Crear = enviar (texto, adjuntos, ubicacion, pregrabados; sin permiso queda aviso de
+  solo lectura); Editar = archivar, soportes, llevar a pipeline, reiniciar memoria, gestionar pregrabados; Eliminar =
+  borrar mensaje para todos y vaciar historial. Flags en false hasta resolver. Regla B2 intacta (Owner/Admin y sin rol
+  = sin restriccion). En Blazor Server un boton no renderizado no tiene manejador invocable: ocultar = control real.
+- VERIFICADO E2E (rama en local, BD 5442): usuario con rol SIN `conversaciones`/`lineas` (OPERATIVO1) -> ambas rutas lo
+  devuelven al login, y una ruta permitida (/actividades) si abre; usuario con SOLO Ver (simple@sky-system.local) ->
+  entra a ambas en solo lectura (sin Conectar linea, Avanzado, Editar, Eliminar ni Vaciar historial); Owner -> ve
+  todo (sin regresion). Build Debug SuperAdmin 0 errores.
+- SIGUIENTE: integracion a main por dev principal. NO desplegar sin senal del usuario.
+
+## 2026-11-12 - Integracion a main de la rama MCP autoria de flujos y formularios (release v0.16.308, DESPLEGADO 2026-11-12 en v0.16.312)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-autoria-flujos-formularios` (06ed1742 + 676c74de, base 81b25104) sobre el tronco v0.16.307. Conflictos solo en AppVersion.cs (rama 0.16.304 -> renumerado a 0.16.308) y en esta bitacora (se conservan las entradas de ambos lados).
+- Incluye: MCP personal /api/mcp/tableros con 83 herramientas (16 de flujos + 40 de formularios por lista permitida; list_tenants FUERA). Sin migraciones.
+- Ignorada la rama remota vieja `claude/mcp-tablero-tareas-7cc393` (f9fddd1b ya esta en main).
+- SIGUIENTE: deploy SOLO a la senal del usuario. Reflejar ADR-0159 addendum en el vault.
+
+## 2026-11-12 (b) - MCP: inventario + revision de suficiencia/seguridad (rama, v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion: validar si los MCP dan todas las herramientas para usar el sistema, inventariar
+  todos los MCP y revisar documentacion.
+- INVENTARIO (nuevo `docs/mcp/INVENTARIO-MCP.md`): 2 servidores. MCP PERSONAL `/api/mcp/tableros` = 83 tools
+  (15 nucleo + 12 directorio + 16 flujos + 40 formularios); MCP ADMIN `/api/mgmt/agent/mcp` = 64 tools de 8
+  IAgentToolsets (los mismos de los agentes internos).
+- HALLAZGOS Y CORRECCIONES (en mi propio trabajo de la sesion anterior, nunca integrado): (1) SEGURIDAD: el puente
+  de formularios exponia `list_tenants` (IgnoreQueryFilters -> lista TODOS los tenants) a cualquier usuario con
+  token personal -> LISTA PERMITIDA de 40 (fuera list_tenants, menu y escritura de contenedores). (2) Flujos rotos:
+  no habia como quitar la conexion inicio->fin y el motor sigue TODAS las salidas de un nodo no-compuerta -> el
+  recorrido de prueba entregado armaba un flujo que salta al fin. Nuevo `agregar_nodo` con desde/hasta (inserta) y
+  `eliminar_conexion`. (3) `origen=politica` sin forma de asignar cargo -> `asignar_cargo_nodo`. (4) Editar flujo
+  publicado -> `nueva_version_flujo`. (5) Avisos de revision del grafo en ver_flujo y publicar_flujo se niega con
+  avisos salvo forzar=true. (6) El ADR decia "40 herramientas" (eran 86) -> corregido.
+- VERIFICADO: dual PG+SQL Server `McpTablerosTests` 20/20 (nuevas: puente seguro, integridad del catalogo; el de
+  flujo cubre insercion, avisos, cargo, eliminar_conexion, nueva version y re-apunte del concepto). EN VIVO (5270,
+  BD local, DI real): 83 tools, 0 problemas de catalogo con el toolset de formularios real, list_tenants ->
+  desconocida; avisos sin falsos positivos en flujos reales. Token de prueba emitido y revocado (401).
+- HALLAZGO EN DATOS (copia local de prod): FLW-003 "COMPRAS BITCODE" en marcha tiene un nodo suelto "Hola" (rama
+  paralela desde el inicio, sin salida ni cargo) -> pasos huerfanos por instancia. Verificar en prod.
+- SIGUIENTE: brechas priorizadas en el inventario (editar_tarea + diligenciar formulario de paso; conceptos/tableros
+  de autoria; operaciones de paso; puentes de lectura datasets/inventario; proyectos). Integracion a main por dev
+  principal (renumerar version: main ya va en v0.16.307). Reflejar en el vault (pendiente).
+
+## 2026-11-12 - MCP: autoria de FLUJOS y FORMULARIOS por la IA (rama, release v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393). Peticion del usuario: usar el MCP no solo para
+  operar tableros/tareas sino para CREAR flujos nuevos y formularios nuevos desde la IA externa (su token `ecx_`).
+- DIAGNOSTICO (2 subagentes de mapeo): formularios YA tienen toolset de autoria completo (`FormAuthoringToolset`,
+  ADR-0067) y hasta un MCP (/api/mgmt) pero con llave de admin y actor "Sistema"; flujos NO tenian ninguna
+  autoria por MCP, solo los servicios `IWorkflowDesignService`/`IWorkflowEngine` que consume la pantalla /flujos.
+- HECHO (ASCII): (a) `TableroMcpToolset.Flujos.cs` - 13 herramientas nativas de autoria de flujos (crear, nodos,
+  conectar, condicion, encargado por campo/politica, formulario a nodo, publicar, enganchar a concepto, importar
+  BPMN, eliminar nodo), capa delgada sobre los dos servicios, devolviendo ids para encadenar. (b)
+  `TableroMcpToolset.Formularios.cs` - PUENTE del `IFormAuthoringToolset` existente (sus ~45 tools con nombre
+  nativo: create_form, apply_form_spec, add_container, add_question, activate...), mapeando `ok:false` -> error.
+  (c) Nucleo: el toolset recibe 3 servicios opcionales mas (IFormAuthoringToolset, IWorkflowDesignService,
+  IWorkflowEngine); GetSpecs/ReadOnlyTools/DestructiveTools pasan a armarse por instancia. Total 40 herramientas.
+- GOBIERNO: la autoria respeta los permisos del usuario sobre `flujos` y `formularios` (View/Create/Edit/Delete),
+  igual que la pantalla; Owner/Admin y sin-rol = sin restriccion. Toda escritura va a la auditoria `mcp.tableros.*`
+  con el usuario como actor y a la bitacora "(via IA)". `enganchar_flujo_a_concepto` es la unica escritura directa
+  (fija `actividad_subcategorias.workflow_definition_id`, guardada y con aviso si el flujo no esta publicado).
+- DECISION: flujos como partial NATIVO (espanol, reusa helpers, como el partial de Directorio) en vez de un
+  IAgentToolset nuevo (menos codigo, menor riesgo); formularios como PUENTE del toolset existente (no reinventar).
+- VERIFICADO: build Release solucion completa 0 errores; `dotnet test` matriz dual (PG + SQL Server) de
+  `McpTablerosTests` 16/16 incl. 2 nuevos (construir flujo completo crear->nodo->conectar->encargado->formulario
+  obligatorio->publicar->enganchar a concepto; y gate de permisos flujos/formularios + puente que corre como el
+  usuario y mapea ok:false). SIN deploy, SIN tocar tronco/main (solo mi rama).
+- SIGUIENTE: a la senal del usuario, prompt de integracion para dev principal (apila sobre main actual v0.16.303).
+  Fuera de alcance: OAuth (ChatGPT/claude.ai web) y LLENAR formularios de paso en runtime (la AUTORIA ya entro).
+
+## 2026-11-11 - crear_actividad con la misma dedup que crear_tarea + prompt de SARA (ADR-0163, release v0.16.307, DESPLEGADO 2026-11-11)
+
+- AGENTE: Claude Opus 5.5. Al revisar el prompt de SARA en prod (solo lectura) se vio que registra PRIMERO con crear_actividad (concepto "Seguimiento comercial agente IA") y crear_tarea es respaldo; en prod SARA tiene crear_actividad ENCENDIDA. v0.16.306 solo habia cambiado la dedup de crear_tarea, asi que un reclamo registrado con crear_actividad se lo seguia tragando la dedup ciega de rev.3.
+- HECHO (codigo): ActividadesToolset usa FindRecentSameTitleAsync (mismo titulo en 30 min, titulo calculado antes de la dedup) + la descripcion de crear_actividad pide revisar casos_del_cliente. Retirado FindByConversationAndBoardAsync (sin uso). Tests de ActividadesToolset actualizados (tema distinto crea, mismo titulo en 30 min devuelve, fuera de ventana crea). Application.Tests 1325/1325.
+- HECHO (config prod, prompt de SARA v1, 3 cambios): (A) 2.7 seguimiento de O.T.: revisar casos_del_cliente y anotar_caso si la orden/cotizacion esta abierta, en vez de "registra el seguimiento con crear_tarea"; (B) seccion nueva "## Casos existentes del cliente (revisar SIEMPRE antes de registrar)" antes de "## Crear tarea (cierre)"; (C) en "## Confirmacion y numero de ticket": entregar el numero del caso anotado y tratar idempotente como caso ya existente. Textos originales e inversos en el scratchpad de la sesion.
+- VERIFICADO (local 5234, emulador, prompt local con los 3 cambios + concepto de prueba, todo revertido): reclamo con cotizacion abierta -> caso NUEVO; "como va mi reclamo" -> anotar_caso en el reclamo; "como va mi cotizacion, urgente" -> casos_del_cliente + anotar_caso en la cotizacion; avisos al asignado de CADA caso. OJO: en el primer registro SARA no consulto casos_del_cliente (acerto por ser tema distinto); blindarlo requeriria que crear_* exija confirmar si hay casos abiertos (propuesto, no hecho).
+
+## 2026-11-11 - SARA: casos del cliente + anotar caso + cierre al asignado del caso (ADR-0163, release v0.16.306, DESPLEGADO 2026-11-11)
+
+- AGENTE: Claude Opus 5.5. Caso real AGRO prod (conv 573217626882, 17:03): cliente con COTIZACION abierta (T00783) pide un RECLAMO; crear_tarea devolvio `idempotente:true` con T00783 (Capa 2 ADR-0101 rev.3 = conversacion+tablero SIN ventana) -> el reclamo NO se creo, SARA entrego el ticket equivocado, el aviso de tarea asignada no salio y la alerta de cierre registro un error enganoso ("la linea de la conversacion no tiene usuario asignado": resolvia el dueno de la LINEA, concepto del backbone sin UI). Diagnostico con la bitacora de prod (solo lectura, navegador).
+- DECISIONES DEL USUARIO: SARA ve los ultimos 5 casos del CONTACTO (Directorio; cae a la conversacion), ve cerrados pero anota solo abiertos; red de seguridad = mismo titulo en 30 min; un solo mensaje al asignado.
+- HECHO: TasksToolset + `casos_del_cliente` (solo lectura) y `anotar_caso` (comentario en caso ABIERTO del cliente; rechaza cerrados/ajenos; SessionCompleted; idempotente en el turno); descripcion de crear_tarea pide consultar antes. Capa 2 de crear_tarea -> AgentTaskIdempotency.FindRecentSameTitleAsync (crear_actividad sin cambios). AiToolRunContext.MarkTaskTouched/TouchedTaskIds (crear_tarea, crear_actividad, anotar_caso). AgentCierreService: destino Asignado/UsuarioTarea = asignado de cada caso tocado (tokens del caso fusionados); sin casos -> dueno de linea; sin nadie -> "omitida" (Info); marca al usuario notificado; bitacora "Cierre del caso Txxx". CloseToolNames + anotar_caso. Agentes.razor: textos "Notificacion al cerrar (crear o anotar un caso)" y "Usuario asignado del caso". ADR-0163.
+- VERIFICADO: build 0 errores; Application.Tests 1323/1323 + nuevos (TasksToolsetBoardWhitelistTests, AgentCierreDedupTests, AiCloseSafetyNetTests: 70/70). E2E dev 5234 con el EMULADOR de canal (BD local, fixture temporal revertido): cotizacion abierta + reclamo -> caso NUEVO T00098 asignado por round-robin + "Cierre del caso T00098: se notifico por WhatsApp a <asignado>"; vuelta sobre el reclamo -> casos_del_cliente + anotar_caso(T00098), sin caso nuevo, aviso al asignado. UI de la ficha verificada.
+- OJO: en la 1a vuelta SARA no consulto casos_del_cliente antes de crear (acerto igual por ser tema distinto). Recomendado reforzarlo en el guion del agente (config del usuario).
+- SIGUIENTE: commit + doble push + deploy con OK del usuario. Reflejar ADR-0163 en el vault.
+
+## 2026-11-11 - Avisos del agente: ampliar la ayuda de tokens (contacto del Directorio) (release v0.16.305, DESPLEGADO)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: el aviso de cierre/asignado por WhatsApp fallaba con "La plantilla 'aviso_tarea' exige el/los dato(s) [3] y no se tiene valor" aunque la tarea mostraba el cliente. El mapeo era {{3}}={tarea.cliente}. Diagnostico: {tarea.cliente}/{tarea.solicitante} salen SOLO de TaskItem.RequesterName (NotifyTokenResolver.cs:64), que estaba vacio en T00783; el cliente visible viene del contacto del Directorio enlazado (Tercero) -> token {tercero.nombre}/{directorio.nombre}, que la ayuda del editor NO ofrecia. La ruta de aviso (AgentAvisoTareaService) arma tokens con NotifyTokenResolver, que SI expone {tercero.*}/{empresa.*} cuando la tarea tiene TerceroId.
+- HECHO (solo texto de ayuda, Agentes.razor const AvisoTokenHint; alimenta aviso de cierre y de asignado): la ayuda ahora ofrece {tercero.nombre}/{directorio.nombre} (contacto del Directorio), {tercero.telefono}, {tercero.email}, {empresa.nombre}, {tarea.email}, y aclara que {tarea.cliente}/{tarea.solicitante} es el nombre del solicitante escrito en la tarea y puede ir vacio. Sin cambios de motor: los tokens ya resolvian; solo faltaba anunciarlos.
+- FIX INMEDIATO para el usuario (sin deploy): remapear {{3}} de {tarea.cliente} a {tercero.nombre} en la config del aviso; el token ya funciona en prod.
+- VERIFICADO: build Debug SuperAdmin 0 errores; preview 5234 activa. Release v0.16.305 (apila el token {{referencia}} de abajo y el fix de PDF v0.16.304, aun sin desplegar).
+
+## 2026-11-11 - Plantillas de impresion: token {{referencia}} (Reference completa con ordinal)
+
+- AGENTE: Claude Opus 4.8 (prompt para dev del usuario). Objetivo: imprimir el identificador EXACTO del registro (ej. "T00717-1"), ya que {{tarea}} recorta el ordinal ("T00717-1"->"T00717") y una misma tarea puede tener -1 y -2 que con {{tarea}} se ven iguales. Formatos AGRO afectados: Registro contable y Orden de produccion.
+- HECHO (FormTemplateRenderService.cs, sin migracion; es solo render): nuevo token {{referencia}} = response.Reference COMPLETA (fallback a RecordNumber si viene vacia). Se calcula en RenderHtmlAsync junto a {{tarea}}, se pasa como nuevo parametro posicional a FormTemplateMerge.Render (tras 'tarea'), se reemplaza en el merge (Esc) y se documenta en el XML.
+- GAP del prompt: decia "unico call site" pero habia 13 llamadas en tests (FormTemplateMergeTests + QrMarkerTests) con la firma vieja; actualizadas todas + test nuevo Referencia_imprime_la_reference_completa_con_ordinal_y_tarea_la_recorta (tarea "T00041" / referencia "T00041-2").
+- VERIFICADO: build 0 errores; tests FormTemplateMergeTests+QrMarkerTests 17/17. NO se toco canvas/printHeader (opcional en el prompt; los formatos afectados son HTML plano).
+- SIGUIENTE (lado plantillas, el usuario por SQL cuando despliegue): poner {{referencia}} bajo el QR en Impresion contabilidad (0cb623e4), Orden de Trabajo (0ed7de15) y OT con totales (f010510c).
+
+## 2026-11-11 - Render de PDF: reintento + cap de concurrencia (ADR-0162, release v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: foto de un `500` en prod (v0.16.303) en `/formularios/plantilla/{id}/pdf?templateId=...`. Lectura de logs del contenedor `ecorex-app`: `PuppeteerSharp.TargetClosedException: ... Target closed / Session closed (Network.policyUpdated. Timeout of 1000 ms)` dentro de `PuppeteerQuotePdfRenderer.RenderUrlToPdfAsync`. El Chromium headless se moria a mitad del arranque. Clave: la MAYORIA de PDFs si salian (decenas de cotizaciones OK el mismo dia) -> fallo INTERMITENTE por carga, no mala config (ya traia `--no-sandbox/--disable-dev-shm-usage`).
+- CAUSA: (1) se lanzaba un Chromium nuevo POR cada peticion sin limite -> con varios PDFs a la vez, pico de memoria/CPU -> algun target excede el timeout interno de 1s de PuppeteerSharp y cierra. (2) sin reintento -> el transitorio reventaba en 500.
+- HECHO (`Ecorex.Infrastructure/Rendering/PuppeteerQuotePdfRenderer.cs`, sin cambiar firmas de IQuotePdfRenderer): las 3 rutas (RenderUrlToPdf/RenderHtmlToPdf/RenderUrlToImage) pasan por un nucleo comun `RunAsync(gate + retry)`. (a) Cap de concurrencia con `SemaphoreSlim` ESTATICO (el servicio es AddScoped -> el tope debe ser de proceso), default 2, env `ECOREX_PDF_MAX_CONCURRENCY`. (b) Reintento de `PuppeteerException` (incluye TargetClosedException) relanzando Chromium FRESCO por intento, backoff lineal, default 2 reintentos (env `ECOREX_PDF_RENDER_RETRIES`); al agotar, relanza con stack preservado (ExceptionDispatchInfo). (c) Args endurecidos: `--disable-gpu`, `--no-zygote`.
+- VERIFICADO: build Debug Infrastructure + SuperAdmin 0 errores. E2E en 5234/AGRO sobre la MISMA plantilla que fallaba en prod: 200, `application/pdf`, 52.557 bytes, cabecera `%PDF-`. 4 PDFs en paralelo: los 4 en 200 en ~20.8s (= 2 tandas de 2), el semaforo serializa a N=2 sin deadlock. ADR-0162.
+- SIGUIENTE: commit + doble push (hecho a la senal del usuario, SIN deploy). Deploy queda pendiente de OK por version aparte. Mejora futura opcional: pool de navegadores reutilizados en vez de lanzar+cerrar por peticion.
+
+## 2026-11-11 - Fix texto de tablas invisible en modo oscuro (release v0.16.303, DESPLEGADO)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: en el modulo de usuarios (000073) en modo oscuro no se veian Usuario ni Email. Causa: Bootstrap pinta el color de celda via `--bs-table-color` (gris casi negro fijo) en `.table > :not(caption) > * > *`, con mas especificidad que nuestro `.table { color }`; las celdas sin color propio (Usuario `<strong>`, Email `<span>`) heredaban ese negro -> invisibles sobre la tarjeta oscura.
+- HECHO (`wwwroot/app.css:207`, solo CSS estatico): `.table` ahora fija `--bs-table-color: var(--foreground)`, token que conmuta en `html.dark`. Fix GLOBAL: corrige Usuarios y TODA tabla `.table` de la consola en oscuro.
+- VERIFICADO: E2E en 5234/AGRO con el toggle real claro/oscuro; color computado de celda = `rgb(244,244,245)` en oscuro. DESPLEGADO a prod (HTTP 200, v0.16.303). Imagen anterior para rollback: bdc363041429.
+
+## 2026-11-11 - Fix transversal "se comen las letras / salta el cursor" en inputs Blazor Server (release v0.16.302, DESPLEGADO)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: campos que al teclear rapido pierden letras o mueven el cursor al inicio (otra sesion ya lo habia diagnosticado). Diagnostico preciso: el bug REAL en Blazor Server ocurre solo cuando (1) el handler TRANSFORMA el valor en cada tecla (mayus/trim/mascara), o (2) recarga pesada que setea el texto DESPUES de un await. Un `@bind:event="oninput"` plano NO come letras (el value renderizado == lo tecleado, Blazor no lo pisa); solo cuesta un round-trip por tecla.
+- INFRAESTRUCTURA nueva (ASCII): `Components/Shared/DebouncedInput.razor` (input que guarda su texto local y avisa al padre tras 250ms o en blur/Enter; no transforma -> nunca pisa el cursor) y `Components/Shared/Debouncer.cs` (helper RunAsync/Cancel/Dispose para handlers async de autocompletar).
+- HECHO: (a) `PhoneField.razor` -> el unico roto de verdad (reescribia con mascara en cada tecla): ahora en vivo muestra solo digitos y enmascara en blur. (b) 24 buscadores convertidos a `<DebouncedInput>` (DirectorioModular, GestorContactos, AdmEmpresas, Catalogos/Bodegas compartidos, ConfiguracionMenu x2, Extraccion, SqlAdmin, TableroDetalle, Pipeline x2, FlowEditor x2, Flujos, Marketplace x2, Formularios, FormModule, ModulosWeb, Reglas, Conceptos x2). (c) 6 autocompletar con debounce + cancelacion al elegir/blur: DataLookupField, DirectoryLookupField, TerceroPicker (compartidos), DmCiudadAutocomplete, DmRelacionesPanel, y la ciudad de TerceroModal. (d) ~30 campos planos (nombre/descripcion/nota/config incl. DirectorioModularConfigModal x10, modales de publicar de Flujos/Formularios) pasados a commit-al-salir quitando `@bind:event="oninput"`.
+- YA ESTABAN (no se re-tocaron): buscador de `DirectorioSharedBase` (General/Especializado), `TerceroPickerModal` (debounce 300ms) y el buscador de tercero de `TerceroModal` (OnBuscadorInput). Ese es el patron que se calco.
+- SALTADOS A PROPOSITO (acoplados, romperian): inputs con `@onkeydown` (chats, tag/cc inputs, SQL, escaner movil), campos de confirmacion que habilitan un boton en vivo ("VACIAR", nombre-a-borrar, "Confirmar anulacion" de DynamicFormRenderer/FormModule), el editor de politica de confidencialidad, el XML de Reglas con resaltado en vivo, y el autocompletar por `datalist` de RequerimientosCompra.
+- VERIFICADO: build Debug `src/Ecorex.SuperAdmin` 0 errores (76 warnings preexistentes, ninguno nuevo). E2E en 5234/AGRO: PhoneField (teclear 3001234567 -> completo, cursor al final, mascara "300 123 4567" al salir), filtro de contactos y buscador de flujos (texto intacto tecleando rapido). Gotcha hallado y resuelto: en un COMPONENTE el `placeholder` no admite contenido mixto C#+markup (`"Buscar @Title..."`) -> paso a interpolacion `@($"Buscar {Title}...")` en los 2 Catalog/ActivityCatalog managers.
+- SIGUIENTE: a la senal del usuario, bump de AppVersion + commit + doble push + deploy con OK por version. Pendiente opcional menor: debounce de los filtros de grilla y lookups del runtime de formularios (DynamicFormRenderer) y de InventarioItems/Conversaciones (cursor-safe hoy, solo reduciria consultas).
+
+## 2026-11-10 - Usuarios (000073): campo Telefono para crear/editar (release v0.16.301, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Reporte del usuario: el aviso de cierre/tarea-asignada por WhatsApp decia "el usuario no tiene telefono" aunque el usuario tenia telefono "en asesores". Diagnostico: en ECOREX el asesor ES un TenantUser (no hay tabla de asesores aparte); el aviso (`AgentAvisoTareaService`) lee SOLO `tenant_users.phone` del destinatario. Causa raiz real: el modulo de Usuarios (`AdmUsuarios.razor`, via `ITenantUserService`) NO tenia campo de telefono -> no habia forma de poblar `TenantUser.Phone` (la vieja pantalla de Asesores si lo escribia, de ahi la confusion).
+- HECHO (sin migracion; la columna `tenant_users.phone` ya existe): `TenantUserDto` e `InviteTenantUserRequest` ganan `Phone`; `ITenantUserService.UpdateProfileAsync` recibe `phone`; `TenantUserService` normaliza (`NormalizePhone`: deja digitos, conserva `+`), persiste en Invite y UpdateProfile, audita antes/despues y proyecta Phone en ListAsync. UI: campo Telefono en el modal de Crear y de Editar (precarga el valor, hint de indicativo para WhatsApp).
+- VERIFICADO: build Debug/Release 0 errores; `TenantUserServiceTests` 9/9 (3 nuevos: guarda telefono, normaliza separadores "+57 300 123-4567"->"+573001234567", limpia telefono vacio); E2E en 5234/AGRO: editar Lilian Loaiza, guardar "+57 300 705 7939" -> BD `tenant_users.phone = +573007057939` (normalizado).
+- SIGUIENTE: doble push + deploy con OK por version del usuario. Apila sobre v0.16.300 (snippets) ya desplegado.
+
+## 2026-11-10 - /conectar-ia: snippets de Codex y Gemini aplicacion INTEGRADO al tronco (ADR-0159, release v0.16.300, SIN deploy)
+
+- AGENTE: integrado al tronco por Claude Opus 4.8 (merge --no-ff de claude/mcp-conectar-ia-snippets: 1 commit 738ae125, apilado sobre el merge del Analisis v0.16.299). La rama tomo v0.16.299; RENUMERADA a v0.16.300 al integrar por colision con el merge del Analisis. Trabajo original de Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393).
+- HECHO: `ConectarIa.razor` ahora ofrece tambien Codex (~/.codex/config.toml via mcp-remote) y Gemini aplicacion/Code Assist (mcp-remote, respaldo cuando la forma httpUrl del Gemini CLI falla). Antes solo salian Claude Code, Gemini CLI y Claude Desktop. ADR-0159 suma la linea de clientes compatibles.
+- VERIFICADO al integrar: [pendiente de pegar resultado de los gates post-merge]. Entrega original: build src/Ecorex.SuperAdmin 0 errores; E2E en vivo 5270/BITCODE (5 bloques con boton Copiar y token embebido). Cambio de UI (texto de snippets); sin tocar backend ni BD; sin migraciones.
+- SIGUIENTE: doble push (origin + tronco) a la senal del usuario; deploy con OK por version. Tras desplegar, los snippets nuevos aparecen para todos los tenants.
+
+## 2026-11-10 - Modulo Analisis: addendum (tarjetas, olas 5/6, PDF, export/import) INTEGRADO al tronco (ADR-0158 addendum, release v0.16.299, SIN deploy)
+
+- AGENTE: integrado al tronco por Claude Opus 4.8 (merge --no-ff de claude/system-indicators-data-sources-e53a43: 4 commits 10a1064c->8372f5a9, sobre el tronco v0.16.298). La base del modulo (ADR-0158) ya estaba en el tronco desde v0.16.290; estos 4 commits son el addendum posterior. Trabajo original de Claude Opus 5.5 y 4.8.
+- HECHO (detalle en las entradas de abajo): libros como tarjetas + modal grande; ola 5 (widget combinado hasta 4 series) y ola 6 (compartir + enlace publico /a/{token}); cierre de 3 deudas (PDF del libro por Puppeteer, agrupar por mes en la zona del tenant, filtros por serie del combinado); exportar/importar un libro entre sistemas (paquete JSON ecorex.analisis.libro v1, sin ids/tenant/dueno/datos, a prueba de fugas).
+- SIN migraciones (todo aditivo sobre columnas existentes + ConfigJson/DefinitionJson). Conflicto de merge solo en PROGRESO.md (resuelto por orden). DependencyInjection.cs y Program.cs auto-fusionados: se conservan los DI de IAnalisisPdfTickets e IAnalisisPortabilidad y los endpoints GET /analisis/libros/{id}/pdf y /export.
+- VERIFICADO al integrar: [pendiente de pegar resultado de los gates post-merge: gitleaks, build Release, format, unitarias, matriz DUAL].
+- SIGUIENTE: doble push (origin + tronco) a la senal del usuario; deploy con OK por version. Reflejar en el vault. El trabajo del campo telefono de usuarios queda aparcado (stash) para su propio OK -> v0.16.301.
+
 ## 2026-11-10 - MCP de tableros: gestion de contactos del Directorio INTEGRADA al tronco (ADR-0159 addendum b, release v0.16.298)
 
 - AGENTE: integrado al tronco por Claude Opus 4.8 (cherry-pick de f9fddd1b de la rama claude/mcp-tablero-tareas-7cc393; renumerado .295->.298 por colision con el fix de confidencialidad). Trabajo original de Claude Opus 5.5. Pedido: la IA no podia editar ni gestionar contactos.
@@ -28,6 +226,45 @@
 - UI: pagina publica `/pc/{token}` y Vista previa del admin pasan de `MarkupString` a `<iframe sandbox srcdoc="...">`. Textarea admite pegar documentos completos.
 - VERIFICADO: build Release 0 errores; `ConfidentialityHtmlSanitizerTests` 9/9 (conserva style/class/documento completo; quita script/on*/javascript:/expression()); `ConfidentialityPolicyTests` dual 18/18; E2E en 5234 sembrando en la BD local un documento con `<style>` + un `<script>` embebido -> el srcdoc conserva el CSS (.document-container/.badge) y el encabezado, y ELIMINA el script (xss) en el render. Sin migracion.
 - SIGUIENTE: doble push a la senal del usuario; deploy con OK por version (corrige un bug VIVO en prod: la v0.16.294 desplegada borra el CSS al pegar documentos).
+
+## 2026-11-12 - Modulo Analisis: Ola 7a (graficos ECharts) + 7b (7 tipos nuevos + KPI con periodo) (ADR-0158 addendum, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion del usuario: auditar el modulo y validar si los graficos pueden ser mucho mas dinamicos; aprobo atacar la 7a y la 7b.
+- AUDITORIA (hallazgos): los 8 tipos eran SVG/CSS a mano (estaticos: sin animacion, tooltip basico, sin zoom ni leyenda interactiva) aunque ECharts ya estaba vendorizado y lo usan 10+ paneles de Reportes; `Echarts = 8` reservado y sin implementar; `EscalarShape.Delta` modelado pero nunca calculado; el importador no validaba el tipo; widgets de una hoja en serie y sin cache (lentitud); sin creacion por IA dentro del modulo.
+- HECHO 7a: `AnalisisGraficos` (Application, puro) arma la option de ECharts de cada tipo con los tokens del prototipo como `var(--t-*)`; `analisis-graficos.js` (nuevo, ASCII) resuelve los tokens contra el tema activo y repinta al cambiar claro/oscuro, aplica formatos de numero (`__fmt`) y formateadores por tipo (`__kind`), y reacomoda con `ResizeObserver`; componente `AnalisisGrafico` (interactivo por interop; en render estatico deja `data-aw-grafico` y el JS pinta SVG sin animacion para el PDF). `AnalisisWidgetCard` pinta los graficos con ECharts y conserva KPI/semaforo/tabla en HTML; se elimino el SVG dibujado a mano.
+- HECHO 7b: tipos Velocimetro (meta + bandas de umbral), Embudo, Barras apiladas, Barras horizontales, Barras + linea (Pareto en una fuente; doble eje en el combinado), Calendario de actividad y Mapa de arbol (1-2 niveles, zoom al nodo); KPI/velocimetro con `Periodo` (mes, trimestre, anio, 30d, 7d): variacion vs el periodo anterior AL MISMO CORTE + mini tendencia de 6 puntos (`KpiPeriodos`/`AnalisisFechas`, puros); un rango completo de la hoja manda. Calendario y KPI con periodo hacen UNA consulta tabular (fecha + medida) y agrupan en memoria en la zona del tenant; aviso si se alcanza el tope de 50.000 filas. Editor: 15 tipos, calendario solo en Consulta, meta y periodo en Presentacion, validacion del campo de fecha. Importador: omite con aviso tipos inexistentes o el reservado. Sin migraciones (tipo = int, valores al final del enum).
+- VERIFICADO: build Application + SuperAdmin 0 errores; Application.Tests Analisis 104/104 (nuevos `AnalisisOla7UnitTests`: periodos y corte, fechas en zona, calendario, option de cada tipo, mapeo, config, validacion); integracion DUAL AnalisisLibros 32/32 (nueva `Ola7_KpiConPeriodo_Calendario_Y_TiposNuevos_CorrenContraDatosReales` en PG y SQL Server). App viva 5269 (SOLDARCO, hoja de QA "Ola 7 - graficos" sembrada por SQL en la BD LOCAL con 12 widgets): los 12 pintan con su serie ECharts correcta y sin errores (KPI 8 este mes y 51 en 30 dias con chip "nuevo" y tendencia; velocimetro 45 de meta 300 con bandas; embudo; horizontales; apiladas; Pareto con % acumulado; dona con leyenda valor y %, que pasa abajo en tarjetas angostas; treemap de 2 niveles con migas; area por mes; mapa de calor; calendario de 1 ano con "53 en total"); ningun `var(--` sin resolver; el modo oscuro repinta con los tokens oscuros. PDF ("Descargar PDF" del libro, pagina estatica por Puppeteer): 200 application/pdf, 8 paginas, 508 KB, graficos en SVG (tendencias de los KPI, velocimetro con bandas, embudo, barras) con el pie "Pagina X de Y". Bug encontrado y corregido en la verificacion: en el PDF los graficos salian vacios porque el ajuste de SVG escalable ponia height:auto y el contenedor colapsaba a 0 (ECharts posiciona el svg en absoluto); ahora el contenedor conserva su alto. Pulidos: raiz del treemap "Todo" sin etiqueta propia y suavizado monotono en lineas. Quedo en la BD LOCAL la hoja de QA "Ola 7 - graficos" en "QA Ficha tercero" (SOLDARCO).
+- SIGUIENTE: 7c (clic para profundizar + zoom con barra) y 7d (crear con IA + MCP); cache corta de resultados. Integrar a main / desplegar SOLO con OK del usuario por version.
+
+## 2026-11-10 - Modulo Analisis: EXPORTAR / IMPORTAR un libro entre sistemas (ADR-0158 addendum, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Peticion del usuario: poder importar/exportar los libros para enviarlos de un sistema a otro.
+- HECHO: `IAnalisisPortabilidad` (`AnalisisPortabilidad.cs`, Application) con un PAQUETE JSON autocontenido (`AnalisisLibroPaquete` -> `AnalisisHojaPaquete` -> `AnalisisWidgetPaquete`): lleva SOLO la definicion (nombre, descripcion, hojas con filtros y widgets con su Tipo/Titulo/SpecJson/IndicadorKey/ConfigJson/ColSpan/ContextBindingsJson), NUNCA ids, tenant, dueno, visibilidad ni datos; formato `ecorex.analisis.libro` v1 con topes defensivos (50 hojas, 400 widgets). `ExportarAsync` reusa `ObtenerLibroAsync` (respeta la visibilidad: null si el actor no ve el libro) y devuelve nombre de archivo (`<libro>.ecorex-libro.json`, saneado) + JSON. `ImportarAsync` valida formato/version, y en UNA transaccion crea un libro NUEVO (privado, del usuario que importa) con sus hojas y widgets; saltea widgets con definicion incompleta (titulo + exactamente uno de spec/curado) y avisa, sin abortar, cuando un widget referencia un Contenedor (`container:`, sus ids no cruzan sistemas) o un indicador curado que no existe en el destino; si el paquete viene sin hojas nace con "Hoja 1" como en `CrearLibroAsync`. Precedente: export/import de Contenedor (ADR-0132). Endpoint `GET /analisis/libros/{id}/export` (policy `Perm:analisis:View`, actor por cookie + `IsUnrestrictedAsync`) que descarga el JSON. UI en la galeria: boton "Importar libro" (`<InputFile>` oculto, `.json`, solo si puede crear) que lee el archivo (tope 8 MB) por la compuerta del circuito, abre el libro importado y muestra los avisos; en el modal del libro, boton "Exportar" junto a "Descargar PDF". Registrado en DI (`IAnalisisPortabilidad`).
+- VERIFICADO: build Application + SuperAdmin verde (0 errores); unitarias Ola 5/6 27/27; nueva prueba de integracion DUAL (PG + SQL Server) `Portabilidad_ExportaEnUnTenant_ImportaEnOtro_ConEstructuraYAislamiento` 2/2 (crea libro con 2 hojas + filtros + spec + curado en el tenant A, exporta, importa en el tenant B con otro usuario: estructura/filtros/indicador curado intactos, libro nuevo privado del importador, el tenant A no lo ve ni como Admin, y un JSON ajeno `{"foo":1}` se rechaza sin crear nada); format limpio; ASCII. App viva 5269 (SOLDARCO, republicado appout5269): "Exportar" de "QA Ficha tercero" -> 200 application/json, Content-Disposition `QA Ficha tercero.ecorex-libro.json`, 3 hojas / 5 widgets en la hoja 0, y el JSON NO lleva tenant/id/owner (a prueba de fugas, solo la definicion); boton "Importar libro" renderiza en la galeria. La subida del archivo por `<InputFile>` no se acciono en vivo (pane oculto + el navegador interno no sube archivos); el servicio de importacion queda cubierto por la integracion dual.
+- SIGUIENTE: integrar a main / desplegar SOLO con OK del usuario por version.
+
+## 2026-11-10 - Modulo Analisis: cierre de las 3 deudas (PDF Puppeteer, mes en zona del tenant, filtros por serie) (ADR-0158 addendum, SIN deploy)
+
+- AGENTE: Claude Opus 4.8. Peticion del usuario: atacar una por una las deudas que quedaron del modulo y commitear.
+- DEUDA 1 - PDF del libro por Puppeteer (ya no window.print): boton "Descargar PDF" en el modal del libro -> endpoint AUTORIZADO por cookie `GET /analisis/libros/{id}/pdf` (policy `Perm:analisis:View`) que comprueba que el usuario ve el libro (`ObtenerLibroAsync`), emite un ticket de UN SOLO USO (`IAnalisisPdfTickets`, singleton sobre IMemoryCache, token 32 bytes, 2 min, se borra al leerlo) y pide al Chromium interno navegar a `/a/pdf/{ticket}`. Esa pagina (`AnalisisPdf.razor`) es ESTATICA (SSR, sin render mode): corre TODOS los widgets de TODAS las hojas en `OnInitializedAsync` antes de emitir el HTML (tenant del ticket como ambient), asi Chromium recibe la pagina pintada y no necesita circuito (el visor publico /a/{token} SI es interactivo, fragil para el headless). Reusa `AnalisisWidgetCard` + CSS de la app + pie "Pagina X de Y" (`<meta ecorex-pdf-footer>`). Sin BD nueva; sirve tambien libros privados/compartidos (no exige enlace publico). Nuevo `LibroParaPdfAsync` (carga por id en el tenant ambient, cualquier visibilidad).
+- DEUDA 2 - Agrupar por mes en la zona del tenant (regla 9): `InMemoryReportEngine.MonthKey` admite `TimeZoneInfo?` (null = UTC, retrocompatible); la zona viaja por `ReportContext.TenantZone`, que `AnalisisWidgetRunner` puebla una vez por circuito desde `IAnalisisZonaHoraria`; las fuentes (Actividades CreatedMonth/ClosedMonth, Horas, Directorio, bitacora) la pasan a MonthKey. Cierra el pendiente del addendum anterior.
+- DEUDA 3 - Filtros por serie del combinado: el modelo (`SerieCombinada.Filtros`) y `CombinadoDiseno.SpecDe` (suma filtros de serie + hoja) YA existian; faltaba la UI. Editor de filtros por serie en `AnalisisCombinadoEditor` (campo/operador/valor con los campos filtrables de la fuente de esa serie); cambiar la fuente limpia sus filtros. Asi la serie A cuenta solo aprobadas y la B todas.
+- VERIFICADO: build Application + SuperAdmin verde (0 errores); Application.Tests 1302/1302 (nueva prueba `MesClave_UsaLaZonaDelTenant_NoUtc`); integracion DUAL Analisis + Report 76/76; format limpio; ASCII. App viva 5269 (SOLDARCO, libro "QA Ficha tercero" 3 hojas/10 widgets): "Descargar PDF" -> 200 application/pdf, Content-Disposition con el nombre del libro, magic %PDF-, 171 KB (sin errores en el log; la pagina estatica corrio los 10 widgets); editor del combinado muestra "Filtros de la serie A/B" con fila campo/operador/valor y la nota "acotan SOLO esta serie".
+- SIGUIENTE: integrar a main / desplegar SOLO con OK del usuario por version.
+
+## 2026-11-09 - Modulo Analisis: Olas 5 (combinado) y 6 (compartir + /a/{token}) + 5 pendientes (ADR-0158 addendum, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion del usuario: atacar los pendientes del modulo (filtro de tablero, fechas UTC, sugerencias de filtro, tactil, Categoria del Directorio) y las Olas 5 y 6.
+- HECHO: (1) "Crear indicador" del tablero filtra por `BoardId` (campo nuevo de Actividades, solo filtrable) + `IsArchived = false`: APROBAR COMPRAS da 43 (antes 47 con archivadas, y por nombre). (2) Fechas de la hoja en la zona del tenant (`IAnalisisZonaHoraria` lee `Tenant.TimeZoneId`): limites con offset en fuentes nativas; contenedores conservan el dia calendario. (3) Filtros de texto con sugerencias (datalist, top 50 valores de la fuente, por la compuerta). (4) Tactil: asa tocable -> "Soltar aqui" en el destino (sin JS). (5) Directorio: campo `Categoria` (TerceroCategoria + titulo de DirectorioCategoria). (6) Ola 5: widget COMBINADO (`CombinadoDiseno` en ConfigJson, IndicadorKey `analisis.combinado`, sin migracion): hasta 4 series de cualquier fuente, cruce por llave normalizada (texto/NIT/exacta), union o interseccion, hasta 3 formulas A-D con parser propio, tope 5.000 llaves por serie con aviso, KPI = formula sobre totales; modo "Combinar fuentes" en el modal y barras agrupadas en la tarjeta. (7) Ola 6: dialogo "Compartir" (Privado + usuarios o Compartido en el tenant; dueno/Admin) y enlace publico `/a/{token}` (solo Admin; hash SHA-256, rotar/revocar/vencer; 30 aperturas/min por IP con `AddRateLimiter` solo en /a; visor anonimo con el tenant del token como ambient; Imprimir con hoja de impresion).
+- VERIFICADO: build verde; Application.Tests 1301/1301 (nuevos `AnalisisOla56UnitTests`), SuperAdmin.Tests 178/178; integracion DUAL Analisis + Report* + TenantIsolation 82/82 (nuevos: cruce Directorio x Tareas x Horas con formula y Categoria; compartir con usuarios, enlace rotar/revocar/vencer y aislamiento por tenant); format limpio; ASCII. App viva 5269 (SOLDARCO): generar enlace -> /a/... muestra el libro en vivo (44/0/3/semaforo), token falso -> mensaje neutro; widget combinado creado y guardado; mover por toque persiste; sugerencias de Etapa ("Por hacer", "En progreso"); tablero -> filtros BoardId + no archivadas = 43. Sin errores en el log.
+- PENDIENTE: PDF del libro por la tuberia Puppeteer (hoy imprime el navegador); agrupar por mes sigue en UTC; filtros por serie del combinado sin UI (se aplican los de la hoja). Quedaron en la BD local un widget combinado y un enlace publico en "QA Ficha tercero" (SOLDARCO).
+
+## 2026-11-09 - Modulo Analisis: libros como TARJETAS + libro abierto en MODAL GRANDE (ADR-0158, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion del usuario: que los libros se vean como tarjetas en el modulo y que la visualizacion y edicion del libro sea un modal gigante.
+- HECHO: `/analisis` ahora es una galeria de tarjetas (nombre, descripcion, visibilidad Privado/Compartido/Enlace publico, N hojas, N widgets, "Tuyo", fecha). Al hacer clic, el libro se abre en un modal grande (inset 3vh/2.5vw; pantalla completa en telefono) con Ver/Editar, Renombrar, Eliminar y cerrar; adentro siguen las hojas, los filtros y la grilla de widgets. Los dialogos pequenos y el editor de widget quedan encima (z-index 1100 vs 1200). La pagina ya no abre sola el primer libro; `/analisis?libro=&hoja=` (el "Abrir libro" de los otros modulos) abre el modal directamente. Al cerrar se cancela la carga de widgets en curso y se refrescan los conteos. `AnalisisLibroResumen` gana `Widgets` y `Actualizado` (parametros opcionales; conteo en la misma consulta).
+- VERIFICADO: build verde; Application.Tests 1275/1275, SuperAdmin.Tests 178/178, integracion DUAL AnalisisLibros 24/24; format limpio. App viva 5269 (SOLDARCO): 3 tarjetas con conteos reales, abrir/editar/editor encima/cerrar, enlace ?libro= abre el modal, telefono 375px a pantalla completa sin scroll horizontal.
+- NOTA: el error del "boton de filtro" reportado tras el merge no se reprodujo en local (Aplicar/Limpiar de hoja y "+ Agregar filtro" del editor OK); falta el detalle de donde ocurrio.
 
 ## 2026-11-09 - Confidencialidad (ADR-0160 addendum): modal con pestanas + captura de datos opcional + imagenes base64 (release v0.16.294, SIN deploy a prod)
 

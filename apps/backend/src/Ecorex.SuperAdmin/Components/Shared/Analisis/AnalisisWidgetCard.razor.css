@@ -1,4 +1,5 @@
-/* Tarjeta de widget (ADR-0158). Tokens de "Indicadores del sistema" del prototipo ECOREX.dc.html. */
+/* Tarjeta de widget (ADR-0158). Tokens de "Indicadores del sistema" del prototipo ECOREX.dc.html.
+   Desde la Ola 7a los graficos son ECharts (AnalisisGrafico); aqui quedan la tarjeta, el KPI, el semaforo y la tabla. */
 .aw-card {
     background: var(--surface);
     border: 1px solid var(--line);
@@ -20,10 +21,6 @@
 }
 .aw-ico:hover { background: var(--surface-3); color: var(--ink); }
 .aw-ico.danger:hover { background: var(--t-rose-bg); color: var(--t-rose); }
-.aw-width {
-    height: 26px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--surface);
-    color: var(--ink-2); font-size: 11.5px; font-family: inherit; padding: 0 4px;
-}
 
 .aw-state { flex: 1; display: grid; place-items: center; font-size: 13px; color: var(--ink-3); text-align: center; }
 .aw-state.err { color: var(--t-rose); }
@@ -33,26 +30,26 @@
 }
 @keyframes aw-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 
-/* KPI */
-.aw-kpi-ico { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; }
+/* Grafico ECharts: ocupa el ancho de la tarjeta; el alto lo fija el componente. */
+.aw-chart { width: 100%; min-width: 0; }
+
+/* KPI (+ variacion y tendencia, Ola 7b) */
+.aw-kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.aw-kpi-ico { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; flex: 0 0 40px; }
 .aw-kpi-val { font-weight: 800; font-size: 30px; letter-spacing: -.03em; margin-top: 14px; line-height: 1; color: var(--ink); }
 .aw-kpi-lbl { font-size: 13px; color: var(--ink-2); margin-top: 3px; }
+.aw-kpi-cmp { color: var(--ink-3); font-size: 12px; }
+.aw-delta {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700;
+    padding: 3px 9px; border-radius: 999px; white-space: nowrap; cursor: default;
+}
+.aw-delta.good { background: var(--t-green-bg); color: var(--t-green); }
+.aw-delta.bad { background: var(--t-rose-bg); color: var(--t-rose); }
+.aw-delta.flat, .aw-delta.na { background: var(--surface-3); color: var(--ink-2); }
+.aw-spark { margin-top: 10px; }
+.aw-gauge-foot { display: flex; justify-content: center; margin-top: -8px; }
 
-/* Barras verticales (degradado de marca, como "Actividad de la semana") */
-.aw-bars { display: flex; align-items: flex-end; gap: 14px; height: 200px; padding-top: 10px; }
-.aw-bar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
-.aw-bar { width: 100%; border-radius: 8px 8px 0 0; background: linear-gradient(to top, var(--brand), color-mix(in oklab, var(--brand) 55%, white)); }
-.aw-bar-val { font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
-.aw-bar-lbl { font-size: 11.5px; color: var(--ink-3); font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Dona + leyenda (estilo "Uso por modulo") */
-.aw-donut { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-.aw-donut-svg { width: 132px; height: 132px; flex: 0 0 132px; }
-.aw-donut-total { font-weight: 800; font-size: 20px; fill: var(--ink); letter-spacing: -.03em; }
-.aw-donut-cap { font-size: 10px; fill: var(--ink-3); font-weight: 600; }
-.aw-legend { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
-.aw-leg-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.aw-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+/* Leyenda de texto (semaforo) */
 .aw-leg-name { flex: 1; min-width: 0; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .aw-leg-val { font-size: 12px; font-weight: 600; color: var(--ink-2); font-family: monospace; white-space: nowrap; }
 
@@ -77,24 +74,29 @@
 .aw-progress { height: 7px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
 .aw-progress > div { height: 100%; border-radius: 6px; }
 
-/* ---- Linea / area ---- */
-.aw-line { width: 100%; height: auto; display: block; }
-.aw-grid-line { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 4; }
-.aw-axis { font-size: 11px; fill: var(--ink-3); font-weight: 600; }
-.aw-legend.inline { flex-direction: row; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
-.aw-leg-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
-
-/* ---- Mapa de calor y tabla ---- */
+/* ---- Tabla ---- */
 .aw-scroll { overflow: auto; max-height: 320px; border-radius: 10px; }
-.aw-heat, .aw-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
-.aw-heat th, .aw-table th {
+.aw-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; }
+.aw-table th {
     position: sticky; top: 0; background: var(--surface); color: var(--ink-3); font-weight: 700;
     font-size: 11px; text-align: left; padding: 6px 8px; white-space: nowrap; max-width: 140px;
     overflow: hidden; text-overflow: ellipsis;
 }
-.aw-heat tbody th { position: sticky; left: 0; color: var(--ink-2); }
-.aw-heat td { text-align: center; padding: 7px 6px; border: 2px solid var(--surface); border-radius: 6px; font-weight: 600; min-width: 34px; }
 .aw-table td { padding: 7px 8px; border-top: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
 .aw-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .aw-foot-note { font-size: 11.5px; color: var(--ink-3); margin-top: 8px; }
 .aw-foot-note.warn { color: var(--t-amber); }
+
+/* Mover en tactil: tocar el asa elige la tarjeta; las demas muestran "Soltar aqui". */
+.aw-grip.btn { border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; padding: 4px 7px 4px 4px; cursor: pointer; font-family: inherit; touch-action: manipulation; }
+.aw-grip.btn:hover { border-color: var(--brand); color: var(--brand); }
+.aw-card.picked { outline: 2px solid var(--brand); outline-offset: 3px; }
+.aw-card.picked .aw-grip.btn { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.aw-drop {
+    position: absolute; inset: 0; z-index: 3; border: 2px dashed var(--brand); border-radius: inherit; cursor: pointer;
+    background: color-mix(in srgb, var(--surface) 78%, transparent); color: var(--brand); font: inherit; font-weight: 700; font-size: 14px;
+}
+.aw-drop:hover { background: var(--brand-soft); }
+
+/* Avisos no fatales (combinado recortado, tope de filas). */
+.aw-aviso { font-size: 11.5px; color: var(--t-amber); background: var(--t-amber-bg); border-radius: 8px; padding: 6px 9px; margin: 0 0 8px; }

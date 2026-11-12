@@ -1,0 +1,17 @@
+/* PDF de un libro de indicadores (ADR-0158). Pensado para A4 vertical: 2 columnas, saltos por hoja.
+   Fondo blanco y sin sombras para que el render de Chromium salga limpio. Tokens del workspace. */
+.apdf { background: #fff; color: var(--ink); padding: 8px 10px 0; }
+.apdf-muted { color: var(--ink-2); font-size: 12.5px; }
+
+.apdf-head { margin: 0 0 14px; }
+.apdf-head h1 { margin: 0; font-weight: 800; font-size: 22px; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.apdf-head p { margin: 5px 0 0; color: var(--ink-2); font-size: 13px; }
+
+.apdf-hoja { margin: 0 0 10px; }
+.apdf-hoja + .apdf-hoja { break-before: page; padding-top: 6px; }
+.apdf-hoja-tit { margin: 0 0 10px; font-size: 15px; font-weight: 700; color: var(--ink); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+
+.apdf-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+/* El ancho del widget (span 3/4 sobre una grilla de 4) se acota a las 2 columnas del PDF. */
+.apdf-grid ::deep .aw-card { break-inside: avoid; box-shadow: none; }
+.apdf-grid ::deep .aw-card[style*="span 3"], .apdf-grid ::deep .aw-card[style*="span 4"] { grid-column: span 2 !important; }

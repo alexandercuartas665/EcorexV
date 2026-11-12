@@ -68,6 +68,8 @@ builder.Services.AddMemoryCache();
 // importacion lanzadas por la API + documento OpenAPI para /api/config. El store es singleton (una
 // corrida = un runId por proceso). AddOpenApi expone /openapi/v1.json (built-in de ASP.NET Core).
 builder.Services.AddSingleton<Ecorex.SuperAdmin.Endpoints.ConfigRunStore>();
+// Tickets de un solo uso para el PDF de un libro de indicadores (ADR-0158): singleton sobre IMemoryCache.
+builder.Services.AddSingleton<Ecorex.SuperAdmin.Services.IAnalisisPdfTickets, Ecorex.SuperAdmin.Services.AnalisisPdfTickets>();
 builder.Services.AddOpenApi();
 
 builder.Services.AddCascadingAuthenticationState();
@@ -125,6 +127,13 @@ builder.Services.AddAuthorizationBuilder()
         .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("proyectos", Ecorex.Application.Roles.PermissionAction.View)))
     .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id")
         .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("flujos", Ecorex.Application.Roles.PermissionAction.View)))
+    // Lineas WhatsApp y Conversaciones: antes solo [Authorize] (la URL directa entraba aunque el menu las ocultara).
+    // Route-keys sembradas en DatabaseSeeder (seccion Infraestructura IA). Las acciones finas (crear/editar/eliminar)
+    // se resuelven dentro de cada pagina con ICurrentPermissions.
+    .AddPolicy("Lineas.Ver", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("lineas", Ecorex.Application.Roles.PermissionAction.View)))
+    .AddPolicy("Conversaciones.Ver", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("conversaciones", Ecorex.Application.Roles.PermissionAction.View)))
     // ADR-0038: la policy "MisPasos.Ver" y la pagina /mis-pasos fueron RETIRADAS. El runtime de
     // flujos vive en el detalle de la tarea; los pasos pendientes se descubren en el tablero.
     // COMPUESTA (AND): disenar formularios exige ver Y editar el modulo formularios.
@@ -325,6 +334,24 @@ builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
 // ECOREX_RUN_ONBOARDING=true al arrancar; los datos sensibles (cadena db3dev, cedulas) van en
 // configuracion NO versionada (appsettings.Development.local.json).
 builder.Services.AddScoped<Ecorex.SuperAdmin.Seeders.LegacyOnboardingSeeder>();
+
+// Tope de aperturas del enlace publico /a/{token} (ADR-0158 D7): 30 por minuto por IP, para que el token
+// no se pueda tantear a fuerza bruta. Fuera de /a no hay limite.
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        ctx.Request.Path.StartsWithSegments("/a")
+            ? System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+                "a:" + (ctx.Connection.RemoteIpAddress?.ToString() ?? "sin-ip"),
+                _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 30,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                })
+            : System.Threading.RateLimiting.RateLimitPartition.GetNoLimiter("libre"));
+});
 
 var app = builder.Build();
 
@@ -907,6 +934,9 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+// Enlace publico de libros de indicadores /a/{token} (ADR-0158 D7): tope por IP solo en /a
+// (el limitador global no limita nada fuera de esa ruta).
+app.UseRateLimiter();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
@@ -1581,6 +1611,13 @@ static string LoopbackPort(Microsoft.AspNetCore.Hosting.Server.IServer srv)
     return (Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS") ?? "8080").Split(';', ',')[0].Trim();
 }
 
+// Nombre de archivo seguro a partir del titulo del libro (sin caracteres invalidos ni rutas). Fallback "libro".
+static string NombreArchivo(string? nombre)
+{
+    var limpio = new string((nombre ?? string.Empty).Where(c => !char.IsControl(c) && Array.IndexOf(System.IO.Path.GetInvalidFileNameChars(), c) < 0).ToArray()).Trim();
+    return string.IsNullOrWhiteSpace(limpio) ? "libro" : (limpio.Length > 80 ? limpio[..80].Trim() : limpio);
+}
+
 // FEATURE D: arma el query string de la URL loopback del HTML (templateId + rowFilter) para que el PDF/IMG
 // rendericen la misma vista filtrada. rowFilter se escapa (lleva '='); vacio = no se agrega.
 static string BuildPrintQuery(Guid? templateId, string? rowFilter)
@@ -1606,6 +1643,59 @@ app.MapGet("/cotizacion/{leadId:guid}/pdf", async (
     var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
     return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"cotizacion-{leadId}.pdf");
 }).AllowAnonymous();
+
+// PDF de un LIBRO de indicadores (ADR-0158, boton "Descargar PDF"). Autorizado por la COOKIE del usuario:
+// se comprueba que puede ver el libro (misma visibilidad que en pantalla), se emite un ticket de un solo
+// uso y el Chromium interno navega a /a/pdf/{ticket} (AllowAnonymous, estatica) que lo consume y lo pinta.
+app.MapGet("/analisis/libros/{libroId:guid}/pdf", async (
+    Guid libroId,
+    HttpContext http,
+    Microsoft.AspNetCore.Hosting.Server.IServer server,
+    Ecorex.Application.Analisis.IAnalisisService svc,
+    Ecorex.SuperAdmin.Auth.ICurrentPermissions perms,
+    Ecorex.SuperAdmin.Services.IAnalisisPdfTickets tickets,
+    Ecorex.Application.Common.IQuotePdfRenderer pdf,
+    CancellationToken ct) =>
+{
+    if (!Guid.TryParse(http.User.FindFirst("tenant_id")?.Value, out var tenantId) || tenantId == Guid.Empty)
+    {
+        return Results.Forbid();
+    }
+
+    Guid? userId = Guid.TryParse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var u) ? u : null;
+    var actor = new Ecorex.Application.Analisis.AnalisisActor(userId, await perms.IsUnrestrictedAsync(ct));
+    var libro = await svc.ObtenerLibroAsync(libroId, actor, ct); // null si no lo puede ver: 404 (no filtra existencia)
+    if (libro is null)
+    {
+        return Results.NotFound();
+    }
+
+    var token = tickets.Emitir(tenantId, libroId);
+    var url = $"http://localhost:{LoopbackPort(server)}/a/pdf/{token}";
+    var bytes = await pdf.RenderUrlToPdfAsync(url, ct);
+    return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "application/pdf", $"{NombreArchivo(libro.Nombre)}.pdf");
+}).RequireAuthorization("Perm:analisis:View");
+
+// Exporta un LIBRO de indicadores como JSON portable (ADR-0158): definicion (hojas + widgets), sin ids,
+// tenant ni datos; para llevarlo a otro sistema/tenant e importarlo alla. Autorizado por la cookie.
+app.MapGet("/analisis/libros/{libroId:guid}/export", async (
+    Guid libroId,
+    HttpContext http,
+    Ecorex.Application.Analisis.IAnalisisPortabilidad port,
+    Ecorex.SuperAdmin.Auth.ICurrentPermissions perms,
+    CancellationToken ct) =>
+{
+    Guid? userId = Guid.TryParse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var u) ? u : null;
+    var actor = new Ecorex.Application.Analisis.AnalisisActor(userId, await perms.IsUnrestrictedAsync(ct));
+    var paquete = await port.ExportarAsync(libroId, actor, ct);
+    if (paquete is null)
+    {
+        return Results.NotFound();
+    }
+
+    var bytes = System.Text.Encoding.UTF8.GetBytes(paquete.Value.Json);
+    return Results.File(bytes, "application/json", paquete.Value.FileName);
+}).RequireAuthorization("Perm:analisis:View");
 
 // ---- Impresion de PLANTILLA rellenada con un registro de FORMULARIO (boton "Imprimir plantilla") ----
 // No imprime el formulario, sino una plantilla (QuoteTemplate) con los datos del registro. Misma
@@ -2303,6 +2393,7 @@ Ecorex.SuperAdmin.Endpoints.ConfigApiEndpoints.MapConfigApiEndpoints(app);
 
 // Servidor MCP de TABLEROS para IAs externas (ADR-0159): token PERSONAL por usuario (emitido en /conectar-ia).
 Ecorex.SuperAdmin.Endpoints.McpTablerosEndpoints.MapMcpTablerosEndpoints(app);
+Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.MapMcpWhatsAppEndpoints(app);
 app.MapOpenApi();
 
 app.Run();

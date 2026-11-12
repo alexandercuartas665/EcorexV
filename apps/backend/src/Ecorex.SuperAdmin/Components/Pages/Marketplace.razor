@@ -18,7 +18,7 @@
     </div>
 
     <div class="mk-toolbar">
-        <input class="mk-search" placeholder="Buscar plantilla..." value="@_query" @oninput="@(e => _query = e.Value?.ToString() ?? "")" />
+        <DebouncedInput class="mk-search" placeholder="Buscar plantilla..." @bind-Value="_query" />
         <div class="mk-tabs">
             <button class="mk-tab @(_kind is null ? "on" : "")" @onclick="() => _kind = null">Todos <span class="mk-n">@_items.Count</span></button>
             <button class="mk-tab @(_kind == MarketplaceItemKind.Flow ? "on" : "")" @onclick="() => _kind = MarketplaceItemKind.Flow">Flujos <span class="mk-n">@_items.Count(i => i.Kind == MarketplaceItemKind.Flow)</span></button>

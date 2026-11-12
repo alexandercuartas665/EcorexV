@@ -618,7 +618,7 @@ else
         <div class="cd-fb-foot">
             <button class="btn btn-link btn-sm" @onclick="ClearFilterTree" title="Quita todas las condiciones">Vaciar</button>
             <div class="cd-fb-foot-spacer"></div>
-            <input class="cd-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" @bind:event="oninput" />
+            <input class="cd-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" />
             <button class="btn btn-outline-secondary btn-sm" @onclick="SaveFilterAsync" disabled="@(string.IsNullOrWhiteSpace(_saveName) || FilterCount == 0)" title="Guarda este filtro para todo el equipo">Guardar</button>
             <button class="btn btn-primary btn-sm" @onclick="CloseFilterBuilder">Aplicar y cerrar</button>
         </div>

@@ -50,7 +50,7 @@ public class QrMarkerTests
         const string tpl = "<div>OT {{tarea}}</div><div class=\"q\">{{qr:tarea:110}}</div>";
         var html = FormTemplateMerge.Render(
             tpl, responseDataJson: "{}", fieldFormat: NoFmt, gridOptions: NoFmt, canvasOptions: NoFmt,
-            empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "T00041-1", tarea: "T00041");
+            empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "T00041-1", tarea: "T00041", referencia: "T00041-1");
 
         Assert.Contains("<svg", html);
         Assert.Contains("shape-rendering=\"crispEdges\"", html);
@@ -67,7 +67,7 @@ public class QrMarkerTests
         const string tpl = "{{qr:campo.folio}}";
         var html = FormTemplateMerge.Render(
             tpl, responseDataJson: "{\"folio\":\"ABC-999\"}", fieldFormat: NoFmt, gridOptions: NoFmt,
-            canvasOptions: NoFmt, empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "R-1", tarea: "T1");
+            canvasOptions: NoFmt, empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "R-1", tarea: "T1", referencia: "T1-1");
         Assert.Contains("<svg", html);
         Assert.DoesNotContain("{{qr:", html);
     }
@@ -79,7 +79,7 @@ public class QrMarkerTests
         const string tpl = "{{barcode:tarea}}";
         var html = FormTemplateMerge.Render(
             tpl, responseDataJson: "{}", fieldFormat: NoFmt, gridOptions: NoFmt, canvasOptions: NoFmt,
-            empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "T00041-1", tarea: "T00041");
+            empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "T00041-1", tarea: "T00041", referencia: "T00041-1");
         Assert.Contains("<svg", html);
         Assert.Contains("Codigo de barras", html);
     }
@@ -98,7 +98,7 @@ public class QrMarkerTests
                 + "<div style=\"margin-top:6px;font-family:monospace\">{{tarea}}</div></div>";
         var html = FormTemplateMerge.Render(
             tpl, responseDataJson: "{}", fieldFormat: NoFmt, gridOptions: NoFmt, canvasOptions: NoFmt,
-            empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "T00041-1", tarea: "T00041");
+            empresa: "ACME", fecha: DateTimeOffset.UtcNow, numero: "T00041-1", tarea: "T00041", referencia: "T00041-1");
         File.WriteAllText(path, "<!doctype html><meta charset=\"utf-8\"><title>QR OT</title>" + html);
     }
 }

@@ -22,9 +22,10 @@
         </div>
         <h1 class="page-title" style="margin-top:12px;">Conectar IA a mis tableros</h1>
         <p class="page-sub" style="margin-bottom:0;">
-            Conecta Claude, Gemini u otra IA compatible con MCP para que consulte tus tableros, cree y comente tareas
-            y avance tus pasos de flujo. La IA actua con TU usuario: solo ve y cambia lo que tu puedes, y todo queda
-            en la bitacora como "@(_displayName) (via IA)".
+            Conecta Claude, Gemini u otra IA compatible con MCP para que consulte tus tableros, cree y comente tareas,
+            avance tus pasos de flujo y, ademas, DISENE flujos y formularios nuevos. La IA actua con TU usuario: solo
+            ve y cambia lo que tu puedes (incluidos tus permisos de flujos y formularios), y todo queda en la bitacora
+            como "@(_displayName) (via IA)".
         </p>
     </div>
 </div>
@@ -93,7 +94,7 @@ else
         {
             <table class="table" style="margin:0;font-size:13px;">
                 <thead>
-                    <tr><th>Nombre</th><th>Creado</th><th>Ultimo uso</th><th>Estado</th><th></th></tr>
+                    <tr><th>Nombre</th><th>Servidor</th><th>Creado</th><th>Ultimo uso</th><th>Estado</th><th></th></tr>
                 </thead>
                 <tbody>
                     @foreach (var t in _tokens)
@@ -101,6 +102,7 @@ else
                         var tt = t;
                         <tr>
                             <td>@tt.Name</td>
+                            <td>@(tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMcpWhatsApp ? "WhatsApp (lineas)" : "Tableros")</td>
                             <td>@tt.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")</td>
                             <td>@(tt.LastUsedAt is { } lu ? lu.LocalDateTime.ToString("dd MMM yyyy HH:mm") : "Nunca")</td>
                             <td><span class="badge bg-@(tt.IsActive ? "success" : "secondary")">@(tt.IsActive ? "Activo" : "Revocado")</span></td>
@@ -197,19 +199,9 @@ else
         finally { _busy = false; }
     }
 
-    /// <summary>Configuraciones listas para copiar, por cliente MCP.</summary>
+    /// <summary>Configuraciones listas para copiar, por cliente MCP (comunes con el MCP de WhatsApp de /lineas).</summary>
     private IEnumerable<(string Title, string Snippet)> Snippets(string token)
-    {
-        var url = ServerUrl;
-        yield return ("Claude Code (terminal)",
-            $"claude mcp add --transport http ecorex-tableros {url} --header \"Authorization: Bearer {token}\"");
-        yield return ("Gemini CLI (~/.gemini/settings.json)",
-            "{\n  \"mcpServers\": {\n    \"ecorex-tableros\": {\n      \"httpUrl\": \"" + url + "\",\n" +
-            "      \"headers\": { \"Authorization\": \"Bearer " + token + "\" }\n    }\n  }\n}");
-        yield return ("Claude Desktop (claude_desktop_config.json, requiere Node)",
-            "{\n  \"mcpServers\": {\n    \"ecorex-tableros\": {\n      \"command\": \"npx\",\n" +
-            "      \"args\": [\"-y\", \"mcp-remote\", \"" + url + "\", \"--header\", \"Authorization:Bearer " + token + "\"]\n    }\n  }\n}");
-    }
+        => Ecorex.SuperAdmin.Endpoints.McpClientSnippets.Build("ecorex-tableros", ServerUrl, token);
 
     private async Task Copy(string text)
     {

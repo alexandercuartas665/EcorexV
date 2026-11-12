@@ -105,8 +105,7 @@ else
         @* Barra: busqueda + boton de filtros con popover (patron CUBOT.travels: chips agrupados). *@
         <div class="fm-toolbar">
             <div class="fm-search-wrap">
-                <input class="fm-filter fm-search" placeholder="Buscar numero / referencia..."
-                       value="@_search" @oninput="@(e => { _search = e.Value?.ToString(); })" />
+                <DebouncedInput class="fm-filter fm-search" placeholder="Buscar numero / referencia..." @bind-Value="_search" />
             </div>
             <div class="fm-filt-anchor">
                 <button class="fm-filter fm-filt-btn @(FiltersActive ? "on" : "")" @onclick="() => _filtersOpen = !_filtersOpen">

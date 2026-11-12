@@ -63,6 +63,9 @@ public sealed class TasksToolset : ITasksToolset
             "imagenes que el cliente haya enviado en la conversacion se adjuntan AUTOMATICAMENTE a la tarea. " +
             "Incluye SIEMPRE los datos del cliente que ya tienes (cliente_nombre, cliente_telefono, cliente_email, " +
             "cliente_identificacion) para que la tarea quede ligada al contacto y el asesor lo pueda contactar. " +
+            "ANTES de crear, revisa casos_del_cliente: si lo que pide es sobre un caso ABIERTO del mismo tema, NO " +
+            "crees otro, usa anotar_caso. Si es un tema distinto (ej. un reclamo cuando tiene una cotizacion " +
+            "abierta) o el caso de ese tema ya esta cerrado, crea uno nuevo aqui. " +
             "Devuelve un 'ticket' (numero de la solicitud) que DEBES entregarle al cliente como comprobante.",
             """{"type":"object","properties":{"tablero":{"type":"string","description":"Nombre exacto del tablero destino (ver listar_tableros)"},"titulo":{"type":"string","description":"Titulo corto de la tarea"},"descripcion":{"type":"string","description":"Detalle de lo que necesita el cliente"},"prioridad":{"type":"string","enum":["baja","media","alta","urgente"],"description":"Prioridad (opcional, por defecto media)"},"vence":{"type":"string","description":"Fecha limite ISO 8601 opcional (ej. 2026-08-10)"},"cliente_nombre":{"type":"string","description":"Nombre del cliente/contacto que solicita (opcional pero recomendado)"},"cliente_telefono":{"type":"string","description":"Telefono del cliente (opcional pero recomendado)"},"cliente_email":{"type":"string","description":"Email del cliente (opcional)"},"cliente_identificacion":{"type":"string","description":"Identificacion/NIT del cliente (opcional)"}},"required":["tablero","titulo"],"additionalProperties":false}"""),
         new AiToolSpec(
@@ -83,6 +86,23 @@ public sealed class TasksToolset : ITasksToolset
             "reenvia la cotizacion del caso). Entrega el documento OFICIAL ya generado: no transcribas ni menciones " +
             "valores en el chat. Solo entrega si la ventana de conversacion esta abierta (el cliente escribio hace poco).",
             """{"type":"object","properties":{"numero":{"type":"string","description":"Numero del caso, ej. T00303 (opcional; por defecto el ligado a la conversacion)"},"documento":{"type":"string","description":"Nombre o codigo del formulario a reenviar (opcional; por defecto la cotizacion)"},"mensaje":{"type":"string","description":"Texto breve que acompana el documento (opcional)"}},"additionalProperties":false}"""),
+        new AiToolSpec(
+            "casos_del_cliente",
+            "Muestra los ULTIMOS 5 casos (tareas) del cliente con el que hablas: los de su contacto en el Directorio " +
+            "(por telefono o identificacion) y los creados desde esta conversacion. Por cada caso: numero, titulo, " +
+            "descripcion, tablero, estado, si esta ABIERTO y su ultima anotacion. USALA ANTES de crear_tarea para " +
+            "decidir: si lo que pide el cliente es sobre un caso ABIERTO del mismo tema, NO crees otro, usa " +
+            "anotar_caso. Si es un tema DISTINTO, o el caso de ese tema ya esta cerrado, crea uno nuevo con " +
+            "crear_tarea. NO crea ni modifica nada.",
+            """{"type":"object","properties":{"identificacion":{"type":"string","description":"Cedula/NIT del cliente si te la dio (opcional; ayuda a encontrar sus casos)"}},"additionalProperties":false}"""),
+        new AiToolSpec(
+            "anotar_caso",
+            "Agrega una ANOTACION a un caso EXISTENTE y ABIERTO del cliente (ver casos_del_cliente) en vez de crear " +
+            "uno nuevo. Usala cuando el cliente vuelve sobre el MISMO tema de un caso abierto (pregunta por el, " +
+            "agrega informacion, reclama demora). Indica 'numero' (ej. T00303) y en 'texto' lo que dijo o pide el " +
+            "cliente. Solo funciona con casos de este cliente que esten abiertos; si el caso esta cerrado, crea uno " +
+            "nuevo con crear_tarea. Devuelve el 'ticket' del caso, que debes entregarle al cliente.",
+            """{"type":"object","properties":{"numero":{"type":"string","description":"Numero del caso abierto, ej. T00303"},"texto":{"type":"string","description":"Lo que el cliente dijo o pide sobre ese caso"},"identificacion":{"type":"string","description":"Cedula/NIT del cliente (opcional; ayuda a validar que el caso es suyo)"}},"required":["numero","texto"],"additionalProperties":false}"""),
     };
 
     public async Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
@@ -103,6 +123,8 @@ public sealed class TasksToolset : ITasksToolset
                 "crear_tarea" => await CreateTaskAsync(args, actorUserId, cancellationToken),
                 "consultar_tarea" => await ConsultTaskAsync(args, cancellationToken),
                 "reenviar_documento" => await ResendDocumentAsync(args, cancellationToken),
+                "casos_del_cliente" => await ListClientCasesAsync(args, cancellationToken),
+                "anotar_caso" => await AnnotateCaseAsync(args, actorUserId, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };
         }
@@ -221,13 +243,15 @@ public sealed class TasksToolset : ITasksToolset
             clienteTelefono = Clean(convPhone) ?? clienteTelefono;
         }
 
-        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO, SIN ventana de tiempo. Si esta
-        // conversacion ya tiene una tarea NO archivada en ESTE tablero, se devuelve ese ticket (aunque cambien
-        // telefono/resumen o pasen horas). Se comprueba ANTES de repartir asesor para no avanzar el round-robin
-        // en un re-cierre. Otro tablero -> tarea nueva. Sin conversacion -> no aplica.
+        // Capa 2 (ADR-0163, reemplaza rev.3): red de seguridad por MISMO TITULO en la misma conversacion y tablero
+        // dentro de 30 min (el modelo repitio el cierre). Temas distintos SIEMPRE crean caso nuevo: decidir nuevo
+        // vs viejo lo hace el agente con casos_del_cliente / anotar_caso. La dedup SIN ventana de rev.3 devolvia
+        // el ticket de OTRO caso abierto (un reclamo recibio el numero de una cotizacion). Se comprueba ANTES de
+        // repartir asesor para no avanzar el round-robin en una repeticion. Sin conversacion -> no aplica.
         if (conversationId is Guid convDupId)
         {
-            var dup = await AgentTaskIdempotency.FindByConversationAndBoardAsync(_db, convDupId, board.Id, ct);
+            var dup = await AgentTaskIdempotency.FindRecentSameTitleAsync(
+                _db, convDupId, board.Id, titulo!, DateTimeOffset.UtcNow, ct);
             if (dup is { } ex)
             {
                 var dupJson = JsonSerializer.Serialize(new
@@ -236,7 +260,7 @@ public sealed class TasksToolset : ITasksToolset
                     ticket = ex.Number,
                     tarea_id = ex.Id,
                     idempotente = true,
-                    mensaje = $"Ya existe la solicitud con ticket {ex.Number} (no se duplico)."
+                    mensaje = $"Ya existe la solicitud con ticket {ex.Number}, creada hace menos de 30 minutos con el mismo titulo (no se duplico)."
                 }, JsonOut);
                 AgentTaskIdempotency.RememberTurnResult("crear_tarea", dupJson);
                 return new AgentToolResult(dupJson, SessionCompleted: true);
@@ -290,6 +314,9 @@ public sealed class TasksToolset : ITasksToolset
         // pendientes del contexto (los que sube la herramienta de pruebas del agente).
         var adjuntados = await AttachConversationMediaAsync(taskId, ct);
         adjuntados += await AttachPendingAsync(taskId, ct);
+
+        // ADR-0163: caso tocado en el turno -> la alerta de cierre notifica a SU usuario asignado.
+        AiToolRunContext.MarkTaskTouched(taskId);
 
         // Aviso de "tarea asignada" al usuario ASIGNADO (ADR-0140): best-effort, solo en la creacion REAL
         // (los caminos idempotentes de arriba ya devolvieron). Un fallo de envio no rompe la respuesta.
@@ -592,6 +619,217 @@ public sealed class TasksToolset : ITasksToolset
         }
         await _db.SaveChangesAsync(ct);
         return pend.Count;
+    }
+
+    // ===== Casos del cliente (ADR-0163) =====
+
+    private const int ClientCasesLimit = 5;
+
+    /// <summary>Como se reconoce al cliente: la conversacion en curso, los ultimos 10 digitos de su telefono, su
+    /// identificacion (si la dio) y los contactos del Directorio que calzan con todo eso.</summary>
+    private sealed record ClientKey(Guid? ConversationId, string? Phone10, string? Document, HashSet<Guid> TerceroIds)
+    {
+        public bool IsEmpty => ConversationId is null && Phone10 is null && Document is null && TerceroIds.Count == 0;
+    }
+
+    private async Task<ClientKey> ResolveClientAsync(string? identificacion, CancellationToken ct)
+    {
+        var convId = AiToolRunContext.ConversationId;
+        string? phone10 = null;
+        if (convId is Guid cid)
+        {
+            var phone = await _db.Conversations.AsNoTracking()
+                .Where(c => c.Id == cid).Select(c => c.ContactPhone).FirstOrDefaultAsync(ct);
+            phone10 = Last10(phone);
+        }
+        var doc = string.IsNullOrWhiteSpace(identificacion) ? null : identificacion!.Trim();
+
+        // Contactos del Directorio del cliente: por telefono (ultimos 10 digitos, mismo criterio que crear_contacto),
+        // por identificacion, y los ya ligados a tareas de esta conversacion. Se excluyen los inactivos.
+        var terceroIds = new HashSet<Guid>();
+        if (phone10 is not null)
+        {
+            var byPhone = await _db.Terceros.AsNoTracking()
+                .Where(t => t.Estado != TerceroEstado.Inactivo && t.Telefono != null
+                    && EF.Functions.Like(t.Telefono, "%" + phone10))
+                .Select(t => new { t.Id, t.Telefono })
+                .Take(50)
+                .ToListAsync(ct);
+            foreach (var t in byPhone.Where(t => Last10(t.Telefono) == phone10)) { terceroIds.Add(t.Id); }
+        }
+        if (doc is not null)
+        {
+            var byDoc = await _db.Terceros.AsNoTracking()
+                .Where(t => t.Estado != TerceroEstado.Inactivo && t.IdValor == doc)
+                .Select(t => t.Id).Take(20).ToListAsync(ct);
+            foreach (var id in byDoc) { terceroIds.Add(id); }
+        }
+        if (convId is Guid cid2)
+        {
+            var linked = await _db.TaskItems.AsNoTracking()
+                .Where(t => t.ConversationId == cid2 && t.TerceroId != null)
+                .Select(t => t.TerceroId!.Value).Distinct().Take(20).ToListAsync(ct);
+            foreach (var id in linked) { terceroIds.Add(id); }
+        }
+        return new ClientKey(convId, phone10, doc, terceroIds);
+    }
+
+    /// <summary>true si la tarea es de este cliente (por conversacion, contacto, identificacion o telefono).</summary>
+    private static bool BelongsToClient(TaskItem t, ClientKey k)
+        => (k.ConversationId is Guid c && t.ConversationId == c)
+            || (t.TerceroId is Guid tid && k.TerceroIds.Contains(tid))
+            || (k.Document is not null && string.Equals(t.RequesterDocument?.Trim(), k.Document, StringComparison.OrdinalIgnoreCase))
+            || (k.Phone10 is not null && Last10(t.RequesterPhone) == k.Phone10);
+
+    /// <summary>Caso abierto = no archivado y ni terminado ni cerrado.</summary>
+    private static bool IsOpen(TaskItem t)
+        => !t.IsArchived && t.Status != TaskItemStatus.Done && t.Status != TaskItemStatus.Closed;
+
+    private static string EstadoLabel(TaskItem t) => t.IsArchived ? "archivado" : t.Status switch
+    {
+        TaskItemStatus.Pending => "pendiente",
+        TaskItemStatus.Active => "activo",
+        TaskItemStatus.InProgress => "en progreso",
+        TaskItemStatus.Done => "terminado",
+        TaskItemStatus.Suspended => "suspendido",
+        TaskItemStatus.Closed => "cerrado",
+        _ => t.Status.ToString()
+    };
+
+    /// <summary>Tareas del cliente, mas recientes primero. El LIKE por telefono es un pre-filtro por sufijo; la
+    /// pertenencia exacta se verifica en memoria con <see cref="BelongsToClient"/>.</summary>
+    private async Task<List<TaskItem>> ClientTasksAsync(ClientKey k, int take, CancellationToken ct)
+    {
+        var conv = k.ConversationId;
+        var ids = k.TerceroIds.ToList();
+        var doc = k.Document;
+        var p10 = k.Phone10;
+        var rows = await _db.TaskItems.AsNoTracking()
+            .Where(t => (conv != null && t.ConversationId == conv)
+                || (t.TerceroId != null && ids.Contains(t.TerceroId.Value))
+                || (doc != null && t.RequesterDocument == doc)
+                || (p10 != null && t.RequesterPhone != null && EF.Functions.Like(t.RequesterPhone, "%" + p10)))
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(take * 4)
+            .ToListAsync(ct);
+        return rows.Where(t => BelongsToClient(t, k)).Take(take).ToList();
+    }
+
+    /// <summary>
+    /// SOLO LECTURA (ADR-0163): los ultimos 5 casos del cliente (contacto del Directorio + conversacion) para que
+    /// el agente decida si lo que pide es un caso NUEVO (crear_tarea) o sobre uno ABIERTO (anotar_caso). Incluye
+    /// los cerrados para poder informarlos, marcados como no abiertos.
+    /// </summary>
+    private async Task<AgentToolResult> ListClientCasesAsync(JsonElement args, CancellationToken ct)
+    {
+        var key = await ResolveClientAsync(Str(args, "identificacion"), ct);
+        if (key.IsEmpty)
+        {
+            return Err("No hay una conversacion activa para reconocer al cliente. Pide su cedula/NIT e intenta de nuevo con 'identificacion'.");
+        }
+
+        var tasks = await ClientTasksAsync(key, ClientCasesLimit, ct);
+        if (tasks.Count == 0)
+        {
+            return Ok(new
+            {
+                ok = true,
+                casos = Array.Empty<object>(),
+                mensaje = "El cliente no tiene casos registrados. Si necesita algo, crea uno nuevo con crear_tarea."
+            });
+        }
+
+        var taskIds = tasks.Select(t => t.Id).ToList();
+        var boardIds = tasks.Where(t => t.BoardId != null).Select(t => t.BoardId!.Value).Distinct().ToList();
+        var boards = await _db.TaskBoards.AsNoTracking()
+            .Where(b => boardIds.Contains(b.Id))
+            .Select(b => new { b.Id, b.Name })
+            .ToListAsync(ct);
+        var comments = await _db.TaskItemActivities.AsNoTracking()
+            .Where(a => taskIds.Contains(a.TaskItemId) && a.Type == TaskActivityType.Comment)
+            .Select(a => new { a.TaskItemId, a.CreatedAt, a.Text })
+            .ToListAsync(ct);
+
+        static string? Short(string? s, int max)
+            => string.IsNullOrWhiteSpace(s) ? null : (s!.Trim().Length <= max ? s.Trim() : s.Trim()[..max] + "...");
+
+        var casos = tasks.Select(t =>
+        {
+            var last = comments.Where(c => c.TaskItemId == t.Id).OrderByDescending(c => c.CreatedAt).FirstOrDefault();
+            return new
+            {
+                numero = t.Number,
+                titulo = t.Title,
+                descripcion = Short(t.Description, 200),
+                tablero = boards.FirstOrDefault(b => b.Id == t.BoardId)?.Name,
+                estado = EstadoLabel(t),
+                abierto = IsOpen(t),
+                creado = t.CreatedAt,
+                ultima_anotacion = last is null ? null : new { fecha = last.CreatedAt, texto = Short(last.Text, 200) }
+            };
+        }).ToList();
+
+        return Ok(new
+        {
+            ok = true,
+            casos,
+            indicacion = "Si el cliente habla de uno de los casos ABIERTOS (mismo tema), usa anotar_caso con ese numero. " +
+                         "Si es un tema distinto, o el caso de ese tema ya esta cerrado, crea uno nuevo con crear_tarea."
+        });
+    }
+
+    /// <summary>
+    /// ADR-0163: agrega una ANOTACION a un caso ABIERTO del cliente (en vez de crear uno nuevo). Valida que el caso
+    /// sea del cliente y este abierto. Cuenta como cierre del turno (SessionCompleted) para que la notificacion de
+    /// cierre avise al usuario asignado del caso. Idempotente en el turno por numero de caso.
+    /// </summary>
+    private async Task<AgentToolResult> AnnotateCaseAsync(JsonElement args, Guid actor, CancellationToken ct)
+    {
+        var numero = Str(args, "numero")?.Trim();
+        var texto = Str(args, "texto")?.Trim();
+        if (string.IsNullOrWhiteSpace(numero)) { return Err("Falta el numero del caso (numero)."); }
+        if (string.IsNullOrWhiteSpace(texto)) { return Err("Falta el texto de la anotacion (texto)."); }
+
+        var turnKey = "anotar_caso:" + numero!.ToUpperInvariant();
+        var prior = AgentTaskIdempotency.TryGetTurnResult(turnKey);
+        if (prior is not null) { return new AgentToolResult(prior, SessionCompleted: true); }
+
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Number == numero, ct);
+        if (task is null) { return Err($"No existe el caso '{numero}'. Revisa los numeros con casos_del_cliente."); }
+
+        var key = await ResolveClientAsync(Str(args, "identificacion"), ct);
+        if (!BelongsToClient(task, key))
+        {
+            return Err($"El caso {task.Number} no es de este cliente; no se puede anotar. Revisa sus casos con casos_del_cliente.");
+        }
+        if (!IsOpen(task))
+        {
+            return Err($"El caso {task.Number} esta {EstadoLabel(task)}; no se anota. Si el cliente necesita algo, crea un caso nuevo con crear_tarea.");
+        }
+
+        var res = await _tasks.AddCommentAsync(task.Id, texto!, actor, ActorName, ct);
+        if (!res.IsOk) { return Err(res.Error ?? "No se pudo agregar la anotacion."); }
+
+        AiToolRunContext.MarkTaskTouched(task.Id);
+        var okJson = JsonSerializer.Serialize(new
+        {
+            ok = true,
+            ticket = task.Number,
+            tarea_id = task.Id,
+            titulo = task.Title,
+            mensaje = $"Se agrego la anotacion al caso {task.Number} ({task.Title})."
+        }, JsonOut);
+        AgentTaskIdempotency.RememberTurnResult(turnKey, okJson);
+        return new AgentToolResult(okJson, SessionCompleted: true);
+    }
+
+    /// <summary>Ultimos 10 digitos de un telefono (absorbe el prefijo de pais). Null si tiene menos de 7 digitos.</summary>
+    private static string? Last10(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) { return null; }
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        if (digits.Length < 7) { return null; }
+        return digits.Length <= 10 ? digits : digits[^10..];
     }
 
     // ===== Reparto de asesores =====

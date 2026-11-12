@@ -18,13 +18,14 @@ public enum CierreCanal
 /// <summary>A quien se le envia la alerta de cierre.</summary>
 public enum CierreDestino
 {
-    /// <summary>Usuario asignado a la LINEA de la conversacion (el "comercial" que la atiende).</summary>
+    /// <summary>ADR-0163: usuario ASIGNADO de cada caso que el agente CREO o ANOTO en el turno. Si el turno no toco
+    /// ningun caso, cae al usuario asignado a la LINEA de la conversacion (concepto heredado del backbone).</summary>
     Asignado = 0,
     /// <summary>Un usuario del tenant elegido explicitamente (UsuarioId).</summary>
     Usuario = 1,
-    /// <summary>Usuario asignado a la TAREA (AssigneeTenantUserId). Solo aplica a los AVISOS de tarea
-    /// asignada (<see cref="AgentCierreConfig.AvisosTarea"/>), que SI conocen la tarea; en el cierre de
-    /// conversacion no hay tarea en contexto, asi que ahi se ignora.</summary>
+    /// <summary>Usuario asignado a la TAREA (AssigneeTenantUserId). En los AVISOS de tarea asignada
+    /// (<see cref="AgentCierreConfig.AvisosTarea"/>) es la tarea creada; en el cierre se comporta igual que
+    /// <see cref="Asignado"/> (casos tocados en el turno, ADR-0163).</summary>
     UsuarioTarea = 2
 }
 

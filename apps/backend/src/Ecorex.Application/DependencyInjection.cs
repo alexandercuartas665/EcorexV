@@ -334,6 +334,8 @@ public static class DependencyInjection
         // NO se registra como IAgentToolset: no entra al catalogo de los agentes internos ni al MCP de /api/mgmt.
         services.AddScoped<Mcp.IPersonalAccessTokenService, Mcp.PersonalAccessTokenService>();
         services.AddScoped<Mcp.ITableroMcpToolset, Mcp.TableroMcpToolset>();
+        // ADR-0164: MCP de WhatsApp por linea Evolution (token personal mcp:whatsapp).
+        services.AddScoped<Mcp.IWhatsAppMcpToolset, Mcp.WhatsAppMcpToolset>();
         services.AddScoped<Tenancy.TasksToolset>();
         services.AddScoped<Tenancy.ITasksToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
@@ -395,6 +397,9 @@ public static class DependencyInjection
         // ADR-0158 Ola 2: CRUD de libros/hojas/widgets (contexto efimero) + ejecutor de widgets.
         services.AddScoped<Analisis.IAnalisisService, Analisis.AnalisisService>();
         services.AddScoped<Analisis.IAnalisisWidgetRunner, Analisis.AnalisisWidgetRunner>();
+        services.AddScoped<Analisis.IAnalisisZonaHoraria, Analisis.AnalisisZonaHoraria>();
+        services.AddScoped<Analisis.IAnalisisCompartirService, Analisis.AnalisisCompartirService>();
+        services.AddScoped<Analisis.IAnalisisPortabilidad, Analisis.AnalisisPortabilidad>();
         services.AddScoped<Analisis.IAnalisisAnfitrionService, Analisis.AnalisisAnfitrionService>();
         services.AddScoped<Reporting.Sources.ContainerReportReader>();
         // ADR-0068: fuente reportable de RESPUESTAS DE FORMULARIO (una por modulo, clave "form:{code}").

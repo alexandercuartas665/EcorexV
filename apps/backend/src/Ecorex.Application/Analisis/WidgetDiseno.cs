@@ -60,6 +60,18 @@ public sealed record WidgetConfig
 
     public bool MayorEsMejor { get; init; } = true;
 
+    /// <summary>Velocimetro (Ola 7b): valor objetivo = tope de la escala. Sin meta se usa el umbral alto.</summary>
+    public decimal? Meta { get; init; }
+
+    /// <summary>
+    /// KPI/velocimetro (Ola 7b): periodo a medir (<see cref="KpiPeriodos"/>: mes, trimestre, anio, 30d, 7d).
+    /// Con periodo, el KPI muestra la variacion vs el anterior y su tendencia. Null = total sin comparar.
+    /// </summary>
+    public string? Periodo { get; init; }
+
+    /// <summary>Definicion del widget COMBINADO (Ola 5); null en los widgets de una sola fuente.</summary>
+    public CombinadoDiseno? Combinado { get; init; }
+
     public static readonly string[] Tonos = { "blue", "violet", "green", "amber", "rose", "slate" };
 
     public static readonly string[] Formatos = { "numero", "decimal", "moneda", "porcentaje" };
@@ -93,7 +105,9 @@ public sealed record WidgetConfig
         {
             Top = Top is > 0 ? Top : null,
             Formato = Formatos.Contains(Formato) ? Formato : null,
-            Tono = Tonos.Contains(Tono) ? Tono : null
+            Tono = Tonos.Contains(Tono) ? Tono : null,
+            Meta = Meta is > 0 ? Meta : null,
+            Periodo = KpiPeriodos.EsValido(Periodo) ? Periodo : null
         };
         return limpio == new WidgetConfig() ? null : JsonSerializer.Serialize(limpio, AnalisisJson.Options);
     }
@@ -125,32 +139,59 @@ public sealed record WidgetConfig
 /// <summary>Traduccion WidgetDiseno &lt;-&gt; ReportQuerySpec + validacion contra el catalogo. Puro.</summary>
 public static class WidgetDisenoMapper
 {
-    /// <summary>Tipos que el modal ofrece en esta ola y si exigen dimension.</summary>
+    /// <summary>Tipos que ofrece el modal (en este orden) y si exigen dimension. Echarts (8) es reservado.</summary>
     public static readonly IReadOnlyList<(AnalisisTipoWidget Tipo, string Nombre, bool PideDimension)> Tipos = new[]
     {
         (AnalisisTipoWidget.Kpi, "KPI", false),
+        (AnalisisTipoWidget.Velocimetro, "Velocimetro", false),
         (AnalisisTipoWidget.Barras, "Barras", true),
+        (AnalisisTipoWidget.BarrasHorizontales, "Barras horizontales", true),
+        (AnalisisTipoWidget.BarrasApiladas, "Barras apiladas", true),
+        (AnalisisTipoWidget.BarrasLinea, "Barras + linea", true),
         (AnalisisTipoWidget.Dona, "Dona", true),
+        (AnalisisTipoWidget.Embudo, "Embudo", true),
+        (AnalisisTipoWidget.Treemap, "Mapa de arbol", true),
         (AnalisisTipoWidget.Linea, "Linea", true),
         (AnalisisTipoWidget.Area, "Area", true),
         (AnalisisTipoWidget.Heatmap, "Mapa de calor", true),
+        (AnalisisTipoWidget.Calendario, "Calendario", false),
         (AnalisisTipoWidget.Semaforo, "Semaforo", true),
         (AnalisisTipoWidget.Tabla, "Tabla", true)
     };
 
+    /// <summary>Tipos validos para guardar/importar (todos los ofrecidos; no el reservado ni valores fuera del enum).</summary>
+    public static bool EsTipoValido(AnalisisTipoWidget tipo) => Tipos.Any(t => t.Tipo == tipo);
+
     public static bool PideDimension(AnalisisTipoWidget tipo) =>
         Tipos.FirstOrDefault(t => t.Tipo == tipo).PideDimension;
 
-    /// <summary>Tipos que aceptan una segunda agrupacion (series o columnas).</summary>
+    /// <summary>Un solo numero (KPI clasico o velocimetro): admite umbrales y periodo.</summary>
+    public static bool EsEscalar(AnalisisTipoWidget tipo) =>
+        tipo is AnalisisTipoWidget.Kpi or AnalisisTipoWidget.Velocimetro;
+
+    /// <summary>Tipos que agregan sobre el CAMPO DE FECHA de la fuente (no agrupan por una dimension).</summary>
+    public static bool UsaCampoFecha(AnalisisTipoWidget tipo) => tipo == AnalisisTipoWidget.Calendario;
+
+    /// <summary>Tipos que aceptan una segunda agrupacion (series, columnas, pila o segundo nivel).</summary>
     public static bool AdmiteDimension2(AnalisisTipoWidget tipo) =>
-        tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Tabla;
+        tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Tabla
+            or AnalisisTipoWidget.BarrasApiladas or AnalisisTipoWidget.Treemap;
 
     /// <summary>El mapa de calor necesita filas Y columnas.</summary>
     public static bool PideDimension2(AnalisisTipoWidget tipo) => tipo == AnalisisTipoWidget.Heatmap;
 
-    /// <summary>Series y mapa de calor se leen en orden del eje (cronologico), no por valor.</summary>
+    /// <summary>Series, mapa de calor y pilas se leen en orden del eje (cronologico), no por valor.</summary>
     public static bool OrdenPorEjePorDefecto(AnalisisTipoWidget tipo) =>
-        tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap;
+        tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.BarrasApiladas;
+
+    /// <summary>Ancho inicial sugerido al elegir el tipo (el usuario lo puede cambiar).</summary>
+    public static int AnchoSugerido(AnalisisTipoWidget tipo) => tipo switch
+    {
+        AnalisisTipoWidget.Calendario => 4,
+        AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Tabla
+            or AnalisisTipoWidget.BarrasApiladas or AnalisisTipoWidget.BarrasLinea or AnalisisTipoWidget.Treemap => 2,
+        _ => 1
+    };
 
     public static string AggregateKey(ReportAggregateFunction fn, string? campo) =>
         fn == ReportAggregateFunction.Count ? "Count" : $"{fn}_{campo}";
@@ -210,7 +251,9 @@ public static class WidgetDisenoMapper
     }
 
     /// <summary>Errores del diseno frente al descriptor de la fuente (vacio = valido).</summary>
-    public static IReadOnlyList<string> Validar(WidgetDiseno d, ReportSourceDescriptor? fuente)
+    /// <param name="bindingsJson">ContextBindingsJson del widget (campo de fecha elegido), para los tipos
+    /// que agregan sobre la fecha (calendario, KPI con periodo).</param>
+    public static IReadOnlyList<string> Validar(WidgetDiseno d, ReportSourceDescriptor? fuente, string? bindingsJson = null)
     {
         var errores = new List<string>();
         if (string.IsNullOrWhiteSpace(d.Titulo))
@@ -218,10 +261,23 @@ public static class WidgetDisenoMapper
             errores.Add("Ponle un titulo al widget.");
         }
 
+        if (!EsTipoValido(d.Tipo))
+        {
+            errores.Add("Elige un tipo de widget.");
+        }
+
         if (fuente is null)
         {
             errores.Add("Elige una fuente de datos.");
             return errores;
+        }
+
+        var necesitaFecha = UsaCampoFecha(d.Tipo) || (EsEscalar(d.Tipo) && KpiPeriodos.EsValido(d.Config.Periodo));
+        if (necesitaFecha && HojaFiltroBinder.Resolver(HojaFiltroBinder.Fecha, fuente, bindingsJson) is null)
+        {
+            errores.Add(UsaCampoFecha(d.Tipo)
+                ? "El calendario necesita un campo de fecha: elige uno en Presentacion."
+                : "Para comparar periodos se necesita un campo de fecha: elige uno en Presentacion.");
         }
 
         if (d.Funcion != ReportAggregateFunction.Count)
@@ -283,5 +339,12 @@ public static class WidgetDisenoMapper
 
     /// <summary>Widget listo para guardar a partir del diseno.</summary>
     public static AnalisisNuevoWidget ToNuevoWidget(WidgetDiseno d, string? contextBindingsJson = null) =>
-        new(d.Tipo, d.Titulo, ToSpec(d), null, d.ColSpan, d.Config.ToJson(), contextBindingsJson);
+        new(d.Tipo, d.Titulo, ToSpec(d), null, d.ColSpan, LimpiarConfig(d.Tipo, d.Config).ToJson(), contextBindingsJson);
+
+    /// <summary>Quita de la presentacion lo que el tipo no usa (periodo/meta fuera de KPI y velocimetro).</summary>
+    public static WidgetConfig LimpiarConfig(AnalisisTipoWidget tipo, WidgetConfig c) => c with
+    {
+        Periodo = EsEscalar(tipo) ? c.Periodo : null,
+        Meta = tipo == AnalisisTipoWidget.Velocimetro ? c.Meta : null
+    };
 }

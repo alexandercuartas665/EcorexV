@@ -14,7 +14,7 @@
 else
 {
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
-        <input class="form-control" style="max-width:280px;" placeholder="Buscar @Title.ToLowerInvariant()..." @bind="_search" @bind:event="oninput" />
+        <DebouncedInput class="form-control" style="max-width:280px;" placeholder="@($"Buscar {Title.ToLowerInvariant()}...")" @bind-Value="_search" />
         <button class="btn btn-primary" @onclick="@(() => OpenEditor(null))">+ @NewLabel</button>
         <label class="pl-toggle" style="margin-left:auto;">
             <input type="checkbox" checked="@_includeInactive" @onchange="@(async e => { _includeInactive = (bool)e.Value!; await LoadAsync(); })" />

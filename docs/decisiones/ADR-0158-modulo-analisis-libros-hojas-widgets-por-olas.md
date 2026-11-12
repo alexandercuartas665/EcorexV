@@ -254,3 +254,134 @@ Deploy solo con OK explicito.
 2. `/analisis` es un modulo nuevo Y un componente reutilizable desde otros modulos (D9).
 3. Alcance completo en v1, incluido el enlace publico (D11).
 4. Si: un libro puede tener hojas con widgets que combinan datos de todo el sistema (D10).
+
+## Addendum 2026-11-09 - Olas 5 y 6 + pendientes (implementado, SIN deploy)
+
+- **Galeria + modal grande:** `/analisis` lista los libros como tarjetas; el libro se ve y se edita en
+  un modal grande (pantalla completa en telefono). `?libro=&hoja=` abre el modal directo.
+- **Filtro de tablero en "Crear indicador":** por `BoardId` (campo nuevo de Actividades, solo filtrable)
+  y `IsArchived = false`; ya no por nombre (los homonimos se mezclaban) ni con archivadas.
+- **Fechas de la hoja en la zona del tenant (regla 9):** `IAnalisisZonaHoraria` lee `Tenant.TimeZoneId`;
+  en fuentes NATIVAS (marcas de tiempo) los limites del rango son las 00:00 locales con su offset. En
+  contenedores (fechas sin hora) se mantiene el dia calendario: poner offset excluiria el primer dia.
+  Pendiente menor: `MonthKey` (agrupar por mes) sigue en UTC.
+- **Sugerencias de valores:** los filtros de texto agrupables del modal ofrecen (datalist) los 50
+  valores mas frecuentes de la fuente, consultados por la misma compuerta que la vista previa.
+- **Tactil:** el HTML5 drag & drop no existe en touch; se agrega "tocar el asa -> Soltar aqui" (sin JS
+  ni librerias), que tambien sirve con raton. El arrastre con raton se conserva.
+- **Directorio:** campo `Categoria` (pertenencias `TerceroCategoria` del motor Modular, con el titulo de
+  `DirectorioCategoria`; un tercero en varias categorias muestra "A, B").
+- **Ola 5 (combinado):** `CombinadoDiseno` en `WidgetConfig.Combinado` con `IndicadorKey =
+  "analisis.combinado"` (sin columnas nuevas ni migracion). Hasta 4 series, cada una con fuente,
+  medida y campo de cruce; llave normalizada (texto sin tildes/mayusculas, NIT sin DV, exacta); union o
+  interseccion; hasta 3 formulas (A-D, + - * /, parentesis; parser propio, sin eval). Tope de 5.000
+  llaves por serie con aviso. KPI = primera formula sobre los TOTALES. Las series se consultan en serie.
+  Se generaliza la idea de `PanelJoin` alineando agregados por llave (no un join fila a fila).
+- **Ola 6 (compartir):** dialogo "Compartir": Privado + lista de usuarios, o Compartido en el tenant
+  (dueno o Admin). Enlace publico `/a/{token}`: token de 32 bytes, se guarda solo el SHA-256, rotar
+  revoca el anterior, expiracion opcional, revocar vuelve a Compartido. Lo activa SOLO un Admin (no
+  existe la accion de permiso "Compartir"; se usa Admin por exponer datos fuera del sistema). Tope de 30
+  aperturas por minuto por IP (`UseRateLimiter` solo en `/a`). El visor fija el tenant del token como
+  ambient (`AmbientTenantContext.Begin`) en cada lectura. Imprimir: hoja de estilos de impresion del
+  visor (`window.print`); el PDF por la tuberia Puppeteer queda pendiente.
+
+## Addendum 2026-11-10 - Cierre de las 3 deudas (PDF, mes en zona del tenant, filtros por serie) (SIN deploy)
+
+- **PDF del libro (boton "Descargar PDF"):** render REAL por la tuberia Puppeteer (`IQuotePdfRenderer`),
+  no mas `window.print`. Mecanica: un endpoint AUTORIZADO por la cookie (`GET /analisis/libros/{id}/pdf`,
+  policy `Perm:analisis:View`) comprueba que el usuario puede ver el libro (`ObtenerLibroAsync`), emite un
+  ticket de UN SOLO USO y corta vida (`IAnalisisPdfTickets`, singleton sobre `IMemoryCache`, token de 32
+  bytes, 2 min, se borra al leerlo) y pide al Chromium interno que navegue a `/a/pdf/{ticket}`. Esa pagina
+  (`AnalisisPdf.razor`) es ESTATICA (SSR, sin render mode interactivo) y AllowAnonymous: corre TODOS los
+  widgets de TODAS las hojas dentro de `OnInitializedAsync` (antes de emitir el HTML, con el tenant del
+  ticket como ambient), por lo que Chromium recibe la pagina ya pintada y no necesita circuito SignalR
+  (el visor publico `/a/{token}` SI es interactivo y seria fragil para el render headless). Reusa
+  `AnalisisWidgetCard` (mismo SVG/tono que en pantalla) y el CSS de la app; opt-in del pie "Pagina X de Y"
+  via `<meta ecorex-pdf-footer>`. El ticket evita exponer el libro: sin BD nueva y sin enlace publico
+  (sirve libros privados/compartidos que su enlace publico no serviria). Decision: ticket en memoria del
+  proceso (el Chromium corre en el mismo contenedor) en vez de un token persistido.
+- **Agrupar por mes en la zona del tenant (regla 9):** `InMemoryReportEngine.MonthKey` admite
+  `TimeZoneInfo?` (null = UTC, retrocompatible). La zona viaja por `ReportContext.TenantZone`, que el
+  `AnalisisWidgetRunner` puebla una vez por circuito desde `IAnalisisZonaHoraria`; las fuentes
+  (Actividades `CreatedMonth`/`ClosedMonth`, Horas, Directorio, bitacora) la pasan a `MonthKey`. Un
+  reporte generico sin zona agrupa igual que antes. Cierra el pendiente del addendum anterior.
+- **Filtros por serie del combinado:** el modelo (`SerieCombinada.Filtros`) y `CombinadoDiseno.SpecDe`
+  (suma los filtros de la serie a los de la hoja/contexto) YA existian; faltaba la UI. Se agrega el
+  editor de filtros por serie en `AnalisisCombinadoEditor` (campo/operador/valor con los campos
+  filtrables de la fuente de esa serie), asi la serie A puede contar solo aprobadas y la B todas. Cambiar
+  la fuente de la serie limpia sus filtros (son especificos de la fuente).
+
+## Addendum 2026-11-10 - Exportar / importar un libro entre sistemas (SIN deploy)
+
+Peticion: poder llevar un libro de un sistema/tenant a otro (enviarlo). Se agrega un PAQUETE JSON
+portable, siguiendo el precedente del export/import de Contenedor (ADR-0132): se lleva la DEFINICION,
+nunca los datos ni las referencias que no cruzan sistemas.
+
+- **Paquete (`AnalisisPortabilidad.cs`, Application):** `AnalisisLibroPaquete` -> `AnalisisHojaPaquete`
+  -> `AnalisisWidgetPaquete`. Lleva SOLO nombre, descripcion, hojas (con su `FiltrosJson`) y widgets
+  (Tipo, Titulo, SpecJson, IndicadorKey, ConfigJson, ColSpan, ContextBindingsJson). NO lleva ids, tenant,
+  dueno, visibilidad, enlaces ni filas de datos. Formato `ecorex.analisis.libro` version 1; topes
+  defensivos al importar un JSON arbitrario (50 hojas, 400 widgets).
+- **Exportar:** `ExportarAsync(libroId, actor)` reusa `ObtenerLibroAsync`, que aplica la visibilidad
+  (devuelve null si el actor no puede ver el libro), mapea a paquete y serializa con `AnalisisJson.Options`.
+  Nombre de archivo `<libro saneado>.ecorex-libro.json`. Endpoint `GET /analisis/libros/{id}/export`
+  (policy `Perm:analisis:View`, actor por cookie + `IsUnrestrictedAsync`) que descarga el JSON.
+- **Importar:** `ImportarAsync(json, actor)` valida formato/version y, en UNA transaccion, crea un libro
+  NUEVO privado del usuario que importa, con sus hojas y widgets (ids nuevos). Decisiones:
+  - *Fuentes nativas* (Directorio/Actividades/Horas/bitacora) son iguales en todo sistema: viajan intactas.
+  - *Referencias que pueden no existir en el destino* NO abortan la importacion, se AVISAN: un widget que
+    usa un Contenedor (`container:` en el spec/config, sus ids son locales) o un indicador curado que no
+    existe aqui queda importado pero con un aviso para revisar/reasignar la fuente en el destino.
+  - *Widget con definicion incompleta* (sin titulo, o con spec Y curado a la vez, o sin ninguno) se saltea
+    con un aviso, sin romper el resto del libro.
+  - Paquete sin hojas -> nace con "Hoja 1" (como `CrearLibroAsync`).
+- **UI:** galeria con boton "Importar libro" (`<InputFile>` oculto, `.json`, solo si el usuario puede
+  crear; lee por la compuerta del circuito, tope 8 MB, abre el libro importado y muestra los avisos);
+  modal del libro con boton "Exportar" junto a "Descargar PDF".
+- **Verificado:** build Application + SuperAdmin verde; unitarias Ola 5/6 27/27; integracion DUAL
+  (PG + SQL Server) `Portabilidad_ExportaEnUnTenant_ImportaEnOtro_ConEstructuraYAislamiento` 2/2 (round-trip
+  cross-tenant con estructura/filtros/curado intactos, aislamiento por tenant y rechazo de JSON ajeno);
+  format limpio; ASCII.
+
+## Addendum 2026-11-12 - Ola 7a (motor visual ECharts) y 7b (tipos nuevos + KPI con periodo) (SIN deploy)
+
+Peticion (tras una auditoria del modulo): graficos mucho mas dinamicos. La auditoria encontro que los 8 tipos
+se dibujaban con SVG/CSS a mano (D3): estaticos, sin animacion, tooltip basico del navegador, sin zoom ni
+leyenda interactiva; que el valor reservado `Echarts = 8` nunca se implemento; que `EscalarShape.Delta`
+(variacion del KPI) estaba modelado pero nunca se calculaba; y que el importador no validaba el tipo.
+
+**Decision (reemplaza D3 en la app):** los graficos se pintan con Apache ECharts, que YA estaba vendorizado
+(ADR-0051, `wwwroot/lib/echarts`), sin dependencias nuevas ni Node. Sin migraciones: el tipo se guarda como
+int y los tipos nuevos van al final del enum.
+
+- **Separacion pura / interop.** `AnalisisGraficos` (Application, puro y testeable) traduce cada forma +
+  tipo + presentacion a la "option" de ECharts. Los colores viajan como tokens del prototipo
+  (`"var(--t-blue)"`, `"var(--t-blue)/0.4"` con alfa) y `analisis-graficos.js` los resuelve contra el tema
+  ACTIVO (y repinta al cambiar claro/oscuro); el formato de numeros (`__fmt`) y los formateadores por tipo
+  (`__kind`) se completan en JS porque JSON no lleva funciones. `ResizeObserver` reacomoda cada grafico al
+  cambiar el ancho del widget o abrir el modal (el interop de Reportes solo escuchaba window.resize).
+- **Componente `AnalisisGrafico`.** En circuito interactivo pinta por interop (canvas, animacion, tooltips,
+  leyenda clicable, zoom en series largas). En render ESTATICO (pagina del PDF, sin circuito) deja la option
+  en `data-aw-grafico` y el JS la pinta en SVG sin animacion al cargar (Puppeteer espera Networkidle0); el
+  SVG lleva viewBox para escalar al ancho de impresion sin colapsar su contenedor.
+- **Siguen en HTML** (no son graficos): KPI clasico, semaforo y tabla, con el estilo del prototipo.
+- **Tipos nuevos (7b):** Velocimetro (KPI contra una meta, bandas de los umbrales), Embudo, Barras apiladas
+  (eje + "apilar por"), Barras horizontales (rankings), Barras + linea (una fuente = Pareto con % acumulado;
+  combinado = primera serie en barras y el resto en lineas con doble eje), Calendario de actividad por dia y
+  Mapa de arbol (uno o dos niveles con migas de pan y zoom al nodo). La dona pasa la leyenda abajo en
+  tarjetas angostas (media query de ECharts).
+- **KPI con periodo (7b):** `WidgetConfig.Periodo` (mes, trimestre, anio en curso; ultimos 30 o 7 dias). El
+  KPI mide solo ese periodo, muestra la variacion contra el anterior y una mini tendencia (6 puntos). En
+  periodos de calendario la comparacion es AL MISMO CORTE (12 dias de este mes vs los mismos 12 del
+  anterior), no medio mes contra un mes entero; un rango COMPLETO de la hoja manda y se compara con el rango
+  anterior de igual largo. El chip respeta "menor es mejor". Calculo puro en `KpiPeriodos`/`AnalisisFechas`.
+- **Una sola consulta por widget de fecha:** calendario y KPI con periodo piden en modo tabular el campo de
+  fecha (el que resuelve `HojaFiltroBinder`, o el elegido en el editor) y el campo medido, con los filtros
+  del widget, de la hoja (sin su rango) y del contexto; luego agrupan por dia/ventana en memoria, en la zona
+  del tenant (regla 9). Si se alcanza el tope de 50.000 filas se avisa en la tarjeta.
+- **Editor:** los 15 tipos como chips; el calendario solo en modo Consulta (necesita fecha) y el combinado
+  no ofrece mapa de calor ni calendario; meta para el velocimetro; selector de periodo para KPI/velocimetro;
+  la validacion exige campo de fecha para calendario y periodos. `LimpiarConfig` quita de la presentacion lo
+  que el tipo no usa.
+- **Importador:** omite (con aviso) widgets de un tipo que no existe en el sistema o del reservado.
+- **Verificado:** ver PROGRESO 2026-11-12.

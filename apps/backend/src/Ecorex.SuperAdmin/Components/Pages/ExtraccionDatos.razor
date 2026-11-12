@@ -51,7 +51,7 @@
                 <div class="xd-side-title">Configuraciones <span class="xd-side-count">@_flows.Count</span></div>
             </div>
             <div class="xd-side-search">
-                <input placeholder="Buscar..." @bind="_search" @bind:event="oninput" />
+                <DebouncedInput placeholder="Buscar..." @bind-Value="_search" />
             </div>
             <div class="xd-side-list">
                 @if (FilteredFlows.Count == 0)

@@ -149,6 +149,7 @@ public partial class TerceroModal
     private string _ciudadQuery = "";
     private bool _ciudadOpen;
     private IReadOnlyList<CiudadDto> _ciudadMatches = Array.Empty<CiudadDto>();
+    private CancellationTokenSource? _ciudadCts;
     private string _mSector = "";
     private string _mCargo = "";
     private string _mEmail = "";
@@ -455,11 +456,25 @@ public partial class TerceroModal
     {
         _ciudadQuery = e.Value?.ToString() ?? "";
         _ciudadOpen = true;
-        _ciudadMatches = await CiudadSvc.SearchAsync(_ciudadQuery, 30);
+        // Debounce: solo busca tras una pausa al teclear (evita una consulta por tecla).
+        _ciudadCts?.Cancel();
+        var q = _ciudadQuery;
+        var cts = new CancellationTokenSource();
+        _ciudadCts = cts;
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            var rows = await CiudadSvc.SearchAsync(q, 30);
+            if (cts.IsCancellationRequested) { return; }
+            _ciudadMatches = rows;
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) { /* un teclazo nuevo cancelo esta busqueda */ }
     }
 
     private void SelectCiudad(CiudadDto c)
     {
+        _ciudadCts?.Cancel();
         _mCiudad = c.Nombre;      // valor confirmado que se guarda
         _ciudadQuery = c.Nombre;  // texto visible
         _ciudadOpen = false;
@@ -467,6 +482,7 @@ public partial class TerceroModal
 
     private async Task OnCiudadBlur()
     {
+        _ciudadCts?.Cancel();
         _ciudadOpen = false;
         var q = (_ciudadQuery ?? "").Trim();
         if (q.Length == 0)

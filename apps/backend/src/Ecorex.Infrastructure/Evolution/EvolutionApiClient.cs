@@ -224,6 +224,31 @@ public sealed class EvolutionApiClient : IEvolutionApiClient
         }
     }
 
+    public async Task<EvolutionRawResult> CallAsync(string baseUrl, string apiKey, string method, string path, object? body, CancellationToken cancellationToken = default)
+    {
+        var verb = method?.Trim().ToUpperInvariant() switch
+        {
+            "GET" => HttpMethod.Get,
+            "POST" => HttpMethod.Post,
+            "PUT" => HttpMethod.Put,
+            "DELETE" => HttpMethod.Delete,
+            _ => null
+        };
+        if (verb is null) { return new EvolutionRawResult(false, 0, string.Empty, null, $"Metodo HTTP no soportado: {method}"); }
+        try
+        {
+            using var resp = await SendAsync(verb, baseUrl, path, apiKey, body is null ? null : JsonContent.Create(body), cancellationToken);
+            var json = await resp.Content.ReadAsStringAsync(cancellationToken);
+            return resp.IsSuccessStatusCode
+                ? new EvolutionRawResult(true, (int)resp.StatusCode, json, ExtractMessageId(json), null)
+                : new EvolutionRawResult(false, (int)resp.StatusCode, json, null, $"HTTP {(int)resp.StatusCode}: {Trim(json)}");
+        }
+        catch (Exception ex)
+        {
+            return new EvolutionRawResult(false, 0, string.Empty, null, ex.Message);
+        }
+    }
+
     private async Task<EvolutionSendResult> PostSendAsync(string baseUrl, string apiKey, string path, object body, CancellationToken ct)
     {
         try

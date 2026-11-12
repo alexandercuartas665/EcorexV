@@ -80,7 +80,7 @@
     <div class="fl-toolbar">
         <div class="fl-search">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-            <input value="@_query" @oninput="@(e => _query = e.Value?.ToString() ?? "")" placeholder="Buscar flujo..." />
+            <DebouncedInput @bind-Value="_query" placeholder="Buscar flujo..." />
         </div>
         <span class="fl-filter-label">Categorias:</span>
         <div class="fl-tabs">
@@ -200,7 +200,7 @@
             <div class="fl-modal-body">
                 <div>
                     <label class="fl-label">NOMBRE DEL FLUJO</label>
-                    <input class="fl-input" @bind="_newFlowName" @bind:event="oninput" placeholder="Ej. Aprobacion de ordenes de compra" />
+                    <input class="fl-input" @bind="_newFlowName" placeholder="Ej. Aprobacion de ordenes de compra" />
                 </div>
                 <div class="fl-grid-2">
                     <div>
@@ -300,11 +300,11 @@
             <h3 class="fl-modal-title">Publicar al marketplace</h3>
             <p class="fl-muted">Se publica una PLANTILLA de este flujo (con sus formularios, y cargos/agentes por nombre) para que otros tenants la puedan traer.</p>
             <label class="fl-plabel">Titulo</label>
-            <input class="fl-input" value="@_pubTitle" @oninput="@(e => _pubTitle = e.Value?.ToString() ?? "")" />
+            <input class="fl-input" @bind="_pubTitle" />
             <label class="fl-plabel">Descripcion (para que sirve)</label>
-            <textarea class="fl-input" rows="3" @oninput="@(e => _pubDesc = e.Value?.ToString() ?? "")">@_pubDesc</textarea>
+            <textarea class="fl-input" rows="3" @bind="_pubDesc"></textarea>
             <label class="fl-plabel">Categoria</label>
-            <input class="fl-input" value="@_pubCat" @oninput="@(e => _pubCat = e.Value?.ToString() ?? "")" placeholder="Ej. Comercial" />
+            <input class="fl-input" @bind="_pubCat" placeholder="Ej. Comercial" />
             <label class="fl-plabel">Imagen (opcional, max ~480 KB)</label>
             <InputFile OnChange="OnPublishImagePicked" accept="image/*" />
             @if (!string.IsNullOrEmpty(_pubImage))

@@ -1,0 +1,73 @@
+@* DebouncedInput: input de texto con "debounce" para evitar el bug clasico de Blazor Server
+   (perdida de teclas / salto de cursor) en cajas de busqueda y filtros que redibujan listas en
+   cada tecla. Mantiene su propio texto local y solo notifica al padre (ValueChanged) tras DelayMs
+   de inactividad, o de inmediato al perder el foco / Enter. NO transforma el texto que escribes,
+   asi que Blazor nunca pisa el valor del DOM mientras tecleas.
+
+   Uso: <DebouncedInput @bind-Value="_search" placeholder="Buscar..." class="..." />
+   Importante: el padre debe guardar el texto TAL CUAL (sin Trim/Upper en el setter), o el eco del
+   valor transformado volveria a mover el cursor. ASCII-only. *@
+@implements IDisposable
+
+<input @attributes="Extra"
+       value="@_current"
+       @oninput="OnInput"
+       @onchange="OnChange" />
+
+@code {
+    /// <summary>Texto actual (enlace bidireccional con @@bind-Value).</summary>
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>Milisegundos de inactividad antes de avisar al padre. Default 250.</summary>
+    [Parameter] public int DelayMs { get; set; } = 250;
+
+    /// <summary>Atributos sueltos que pasan al input (class, style, placeholder, type, disabled,
+    /// maxlength, autocomplete, inputmode, aria-*, @@onkeydown, etc.).</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Extra { get; set; }
+
+    private string? _current;
+    private CancellationTokenSource? _cts;
+
+    protected override void OnParametersSet()
+    {
+        // Solo sincroniza cuando el cambio viene de afuera (ej. un boton "Limpiar" que pone Value="").
+        // Mientras escribes, el padre termina con Value == _current, asi que esto no pisa lo tecleado.
+        if (!string.Equals(Value, _current, StringComparison.Ordinal))
+        {
+            _current = Value;
+        }
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _current = e.Value?.ToString();   // exactamente lo tecleado: sin transformar
+        _cts?.Cancel();
+        _cts?.Dispose();
+        var cts = _cts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(DelayMs, cts.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;   // llego otra tecla antes del plazo: este disparo se descarta
+        }
+        await ValueChanged.InvokeAsync(_current);
+    }
+
+    private async Task OnChange(ChangeEventArgs e)
+    {
+        // Al perder el foco / Enter: cancela el debounce pendiente y avisa de inmediato.
+        _cts?.Cancel();
+        _current = e.Value?.ToString();
+        await ValueChanged.InvokeAsync(_current);
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}

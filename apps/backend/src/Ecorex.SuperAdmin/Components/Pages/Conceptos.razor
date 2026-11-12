@@ -79,8 +79,7 @@
                         <button class="cn-btn sm" @onclick="OpenNewCategoryModal">+ Nueva</button>
                     </div>
                     <div class="cn-search">
-                        <input placeholder="Buscar categoria..." value="@_catSearch"
-                               @oninput="@(e => _catSearch = e.Value?.ToString() ?? "")" />
+                        <DebouncedInput placeholder="Buscar categoria..." @bind-Value="_catSearch" />
                     </div>
                     <div class="cn-cat-list">
                         @if (FilteredCategories.Count == 0)
@@ -216,8 +215,7 @@
                         <option value="on">Activo</option>
                         <option value="off">Archivado</option>
                     </select>
-                    <input class="cn-filter-input" placeholder="Buscar sub-categoria..." value="@_dSearch"
-                           @oninput="@(e => _dSearch = e.Value?.ToString() ?? "")" />
+                    <DebouncedInput class="cn-filter-input" placeholder="Buscar sub-categoria..." @bind-Value="_dSearch" />
                 </div>
                 <div class="cn-table-wrap">
                     <table class="cn-grid">

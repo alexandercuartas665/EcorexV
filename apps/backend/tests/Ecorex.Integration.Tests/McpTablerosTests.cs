@@ -405,20 +405,260 @@ public abstract class McpTablerosTestsBase
         Assert.Null((await ctx.Terceros.AsNoTracking().SingleAsync(t => t.IdValor == "800100")).Ciudad);
     }
 
+    /// <summary>
+    /// Autoria de FLUJOS por la IA (addendum ADR-0159): crea un flujo nuevo, le agrega un paso, lo conecta,
+    /// le pone encargado por campo de formulario y un formulario obligatorio, lo publica y lo engancha a un
+    /// concepto para que las tareas lo arranquen. Capa delgada sobre IWorkflowDesignService / IWorkflowEngine.
+    /// </summary>
+    [Fact]
+    public async Task FlowAuthoring_BuildsConnectsPublishesAndHooksToConcept()
+    {
+        var seed = await SeedTenantAsync("Mcp Autoria Flujo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx);
+        var me = Actor(seed, owner: true);
+
+        // Un formulario activo (para vincular al paso) y un concepto (para enganchar el flujo al final).
+        var form = new FormDefinition { TenantId = seed.TenantId, Code = "F-APROB", Title = "Aprobacion", Status = FormStatus.Active };
+        var cat = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-9", Nombre = "Compras" };
+        ctx.FormDefinitions.Add(form);
+        ctx.ActividadCategorias.Add(cat);
+        await ctx.SaveChangesAsync();
+        var concepto = new ActividadSubcategoria { TenantId = seed.TenantId, CategoriaId = cat.Id, Codigo = "C-OC", Nombre = "Orden de compra" };
+        ctx.ActividadSubcategorias.Add(concepto);
+        ctx.OrgUnits.Add(new OrgUnit { TenantId = seed.TenantId, Name = "Jefe de compras", Classifier = OrgUnitClassifier.Cargo });
+        await ctx.SaveChangesAsync();
+
+        // Crear el flujo: nace con inicio -> fin YA conectados (1 arista).
+        var creado = Payload(await toolset.ExecuteAsync("crear_flujo", Args(new { nombre = "Aprobacion de compras", categoria = "Compras" }), me));
+        var defId = creado.GetProperty("definicion_id").GetGuid();
+        Guid NodeOf(JsonElement nodes, string tipo) =>
+            nodes.EnumerateArray().First(n => n.GetProperty("tipo").GetString() == tipo).GetProperty("nodo_id").GetGuid();
+        var inicio = NodeOf(creado.GetProperty("nodos"), "inicio");
+        var fin = NodeOf(creado.GetProperty("nodos"), "fin");
+        Assert.Equal(1, creado.GetProperty("aristas").GetArrayLength());
+
+        // INSERTAR el paso entre inicio y fin: reemplaza la conexion directa (si quedara, el motor iria en paralelo al fin).
+        var ins = Payload(await toolset.ExecuteAsync("agregar_nodo",
+            Args(new { flujo = defId, tipo = "tarea", nombre = "Revisar", desde_nodo_id = inicio, hasta_nodo_id = fin }), me));
+        var rev = ins.GetProperty("nodo_id").GetGuid();
+        Assert.True(ins.GetProperty("insertado_entre").GetProperty("conexion_directa_quitada").GetBoolean());
+
+        // Encargado por politica SIN cargo: la revision lo avisa y publicar se niega sin forzar.
+        Assert.False((await toolset.ExecuteAsync("asignar_encargado_nodo", Args(new { nodo_id = rev, origen = "politica" }), me)).IsError);
+        var conAviso = Payload(await toolset.ExecuteAsync("ver_flujo", Args(new { flujo = defId }), me));
+        Assert.Contains(conAviso.GetProperty("avisos").EnumerateArray(), a => a.GetString()!.Contains("politica"));
+        var refused = await toolset.ExecuteAsync("publicar_flujo", Args(new { flujo = defId }), me);
+        Assert.True(refused.IsError);
+        Assert.Contains("forzar", refused.Json);
+        Assert.False(await ctx.WorkflowDefinitions.AsNoTracking().AnyAsync(d => d.Id == defId && d.IsPublished));
+
+        // Cargo inexistente -> responde las opciones validas; el real se asigna.
+        var badCargo = await toolset.ExecuteAsync("asignar_cargo_nodo", Args(new { nodo_id = rev, cargo = "No existe" }), me);
+        Assert.True(badCargo.IsError);
+        Assert.Contains("Jefe de compras", badCargo.Json);
+        Assert.False((await toolset.ExecuteAsync("asignar_cargo_nodo", Args(new { nodo_id = rev, cargo = "jefe de compras" }), me)).IsError);
+        Assert.True((await toolset.ExecuteAsync("asignar_encargado_nodo", Args(new { nodo_id = rev, origen = "campo_formulario" }), me)).IsError); // falta 'campo'
+
+        // Formulario obligatorio para cerrar (ADR-0077).
+        Assert.False((await toolset.ExecuteAsync("poner_formulario_a_nodo", Args(new { nodo_id = rev, formulario = "F-APROB", obligatorio = true }), me)).IsError);
+
+        // Una rama paralela involuntaria se avisa y se corrige con eliminar_conexion.
+        var extra = Payload(await toolset.ExecuteAsync("conectar_nodos", Args(new { desde_nodo_id = inicio, hasta_nodo_id = fin }), me))
+            .GetProperty("arista_id").GetGuid();
+        var paralelo = Payload(await toolset.ExecuteAsync("ver_flujo", Args(new { flujo = defId }), me));
+        Assert.Contains(paralelo.GetProperty("avisos").EnumerateArray(), a => a.GetString()!.Contains("PARALELO"));
+        Assert.False((await toolset.ExecuteAsync("eliminar_conexion", Args(new { arista_id = extra }), me)).IsError);
+
+        // El grafo queda limpio: inicio -> Revisar -> fin, con cargo y formulario, sin avisos.
+        var canvas = Payload(await toolset.ExecuteAsync("ver_flujo", Args(new { flujo = defId }), me));
+        Assert.False(canvas.TryGetProperty("avisos", out _), canvas.ToString());
+        Assert.Equal(2, canvas.GetProperty("aristas").GetArrayLength());
+        var revNode = canvas.GetProperty("nodos").EnumerateArray().First(n => n.GetProperty("nodo_id").GetGuid() == rev);
+        Assert.Equal("politica", revNode.GetProperty("encargado_origen").GetString());
+        Assert.Contains(revNode.GetProperty("cargos").EnumerateArray(), c => c.GetString() == "Jefe de compras");
+        Assert.Contains(revNode.GetProperty("formularios").EnumerateArray(), f => f.GetProperty("obligatorio").GetBoolean());
+
+        // Un paso de inicio es unico: agregar otro inicio se rechaza (regla del servicio, no reimplementada).
+        Assert.True((await toolset.ExecuteAsync("agregar_nodo", Args(new { flujo = defId, tipo = "inicio" }), me)).IsError);
+
+        // Publicar (sin avisos ya no hace falta forzar) y enganchar al concepto: listo para arrancar tareas.
+        var pub = await toolset.ExecuteAsync("publicar_flujo", Args(new { flujo = defId }), me);
+        Assert.False(pub.IsError, pub.Json);
+        var link = Payload(await toolset.ExecuteAsync("enganchar_flujo_a_concepto", Args(new { concepto = "C-OC", flujo = defId }), me));
+        Assert.True(link.GetProperty("publicado").GetBoolean());
+
+        var reloaded = await ctx.ActividadSubcategorias.AsNoTracking().SingleAsync(s => s.Id == concepto.Id);
+        Assert.Equal(defId, reloaded.WorkflowDefinitionId);
+        Assert.True(await ctx.WorkflowDefinitions.AsNoTracking().AnyAsync(d => d.Id == defId && d.IsPublished));
+
+        // Modificar el flujo PUBLICADO: version borrador nueva (ids nuevos, vinculos copiados), se edita y se publica;
+        // el concepto pasa solo a la version nueva (el motor re-apunta los conceptos al publicar).
+        Assert.True((await toolset.ExecuteAsync("agregar_nodo", Args(new { flujo = defId, tipo = "tarea" }), me)).IsError); // publicado = no editable
+        var v2 = Payload(await toolset.ExecuteAsync("nueva_version_flujo", Args(new { flujo = defId }), me));
+        var defV2 = v2.GetProperty("definicion_id").GetGuid();
+        Assert.NotEqual(defId, defV2);
+        var revV2 = NodeOf(v2.GetProperty("nodos"), "tarea");
+        Assert.False((await toolset.ExecuteAsync("renombrar_nodo", Args(new { nodo_id = revV2, nombre = "Revisar y aprobar" }), me)).IsError);
+        var pubV2 = await toolset.ExecuteAsync("publicar_flujo", Args(new { flujo = defV2 }), me);
+        Assert.False(pubV2.IsError, pubV2.Json); // cargo y formulario se copiaron: sin avisos
+        Assert.Equal(defV2, (await ctx.ActividadSubcategorias.AsNoTracking().SingleAsync(s => s.Id == concepto.Id)).WorkflowDefinitionId);
+    }
+
+    /// <summary>La IA respeta los permisos del usuario al CREAR flujos y formularios: un lector solo ve; sin
+    /// permiso de edicion no crea ni cambia. El puente de formularios reenvia al toolset existente COMO el usuario
+    /// y mapea sus errores estructurados (ok:false) a error del MCP.</summary>
+    [Fact]
+    public async Task AuthoringTools_RespectFlowAndFormPermissions_AndBridgeForms()
+    {
+        var seed = await SeedTenantAsync("Mcp Autoria Permisos");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var fakeForms = new FakeFormAuthoring();
+        var (_, _, toolset) = Build(ctx, tenantCtx, fakeForms);
+
+        // Owner (sin rol = sin restriccion) puede todo: crea un flujo y, por el puente, un formulario.
+        var owner = Actor(seed, owner: true);
+        var defId = Payload(await toolset.ExecuteAsync("crear_flujo", Args(new { nombre = "Flujo Owner" }), owner)).GetProperty("definicion_id").GetGuid();
+        Assert.False((await toolset.ExecuteAsync("create_form", Args(new { title = "Form Owner" }), owner)).IsError);
+        Assert.Contains(fakeForms.Calls, c => c.Tool == "create_form" && c.Actor == seed.OwnerPlatformId); // corre COMO el usuario
+        // Error estructurado del toolset de formularios (ok:false) => error del MCP.
+        Assert.True((await toolset.ExecuteAsync("create_form", Args(new { title = "x", fail = true }), owner)).IsError);
+
+        // Rol del miembro: solo Ver en flujos; Ver en formularios (sin Editar).
+        var rol = new Rol { TenantId = seed.TenantId, Name = "Consulta procesos" };
+        ctx.Roles.Add(rol);
+        ctx.RolPermisos.Add(new RolPermiso { TenantId = seed.TenantId, RolId = rol.Id, ModuleKey = "flujos", CanView = true });
+        ctx.RolPermisos.Add(new RolPermiso { TenantId = seed.TenantId, RolId = rol.Id, ModuleKey = "formularios", CanView = true });
+        var member = await ctx.TenantUsers.SingleAsync(u => u.Id == seed.MemberUserId);
+        member.RolId = rol.Id;
+        await ctx.SaveChangesAsync();
+        var reader = Actor(seed, owner: false);
+
+        // Ver si; crear/editar no (flujos).
+        Assert.False((await toolset.ExecuteAsync("listar_flujos", "{}", reader)).IsError);
+        Assert.False((await toolset.ExecuteAsync("ver_flujo", Args(new { flujo = defId }), reader)).IsError);
+        var crearDenied = await toolset.ExecuteAsync("crear_flujo", Args(new { nombre = "No permitido" }), reader);
+        Assert.True(crearDenied.IsError);
+        Assert.Contains("permiso", crearDenied.Json);
+        Assert.True((await toolset.ExecuteAsync("agregar_nodo", Args(new { flujo = defId, tipo = "tarea" }), reader)).IsError);
+
+        // Formularios: list (solo lectura) si; create_form (escritura) no, y NO llega al toolset.
+        var callsBefore = fakeForms.Calls.Count;
+        Assert.False((await toolset.ExecuteAsync("list_forms", "{}", reader)).IsError);
+        Assert.True((await toolset.ExecuteAsync("create_form", Args(new { title = "No" }), reader)).IsError);
+        Assert.DoesNotContain(fakeForms.Calls.Skip(callsBefore), c => c.Tool == "create_form");
+
+        // Las herramientas de autoria aparecen en el catalogo cuando sus servicios estan inyectados.
+        var specNames = toolset.GetSpecs().Select(s => s.Name).ToHashSet();
+        Assert.Contains("crear_flujo", specNames);
+        Assert.Contains("create_form", specNames);
+        Assert.Contains("enganchar_flujo_a_concepto", specNames);
+        Assert.DoesNotContain("create_form", toolset.ReadOnlyTools); // escritura: se audita
+        Assert.Contains("list_forms", toolset.ReadOnlyTools);        // lectura: no se audita
+    }
+
+    /// <summary>
+    /// SEGURIDAD del puente de formularios: el toolset de autoria (ADR-0067) trae herramientas de PLATAFORMA que
+    /// solo deben salir por /api/mgmt. list_tenants lee TODOS los tenants (IgnoreQueryFilters): por el token
+    /// personal seria una fuga cross-tenant (regla #1). Tampoco se exponen las de menu. Lista PERMITIDA.
+    /// </summary>
+    [Fact]
+    public async Task FormBridge_HidesCrossTenantAndMenuTools()
+    {
+        var seed = await SeedTenantAsync("Mcp Puente Seguro");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var fake = new FakeFormAuthoring();
+        var (_, _, toolset) = Build(ctx, tenantCtx, fake);
+        var owner = Actor(seed, owner: true); // Owner = sin restriccion de permisos: ni asi debe ver estas.
+
+        var names = toolset.GetSpecs().Select(s => s.Name).ToHashSet();
+        foreach (var hidden in new[] { "list_tenants", "list_menu_nodes", "set_module" })
+        {
+            Assert.DoesNotContain(hidden, names);
+            Assert.DoesNotContain(hidden, toolset.ReadOnlyTools);
+            var r = await toolset.ExecuteAsync(hidden, "{}", owner);
+            Assert.True(r.IsError);
+            Assert.Contains("desconocida", r.Json);
+        }
+        Assert.DoesNotContain(fake.Calls, c => c.Tool is "list_tenants" or "list_menu_nodes" or "set_module");
+
+        // Las permitidas si pasan, y la destructiva se anuncia como tal.
+        Assert.Contains("create_form", names);
+        Assert.Contains("delete_question", toolset.DestructiveTools);
+    }
+
+    /// <summary>
+    /// Integridad del CATALOGO del MCP personal (guarda contra regresiones de documentacion/contrato): nombres
+    /// unicos, descripcion util, JSON-Schema valido de tipo objeto con 'required' coherente, conjuntos de solo
+    /// lectura/destructivas dentro de lo expuesto, toda herramienta listada se despacha y todo ok:false es error.
+    /// </summary>
+    [Fact]
+    public async Task McpCatalog_IsConsistent_AndEveryToolDispatches()
+    {
+        var seed = await SeedTenantAsync("Mcp Catalogo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx, new FakeFormAuthoring());
+        var owner = Actor(seed, owner: true);
+
+        var specs = toolset.GetSpecs();
+        var names = specs.Select(s => s.Name).ToList();
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(15 + 12 + 16 + 3, specs.Count); // nucleo + directorio + flujos + formularios permitidos del doble
+
+        foreach (var s in specs)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(s.Description), $"{s.Name}: sin descripcion");
+            Assert.True(s.Description!.Length >= 25, $"{s.Name}: descripcion demasiado corta");
+            using var schema = JsonDocument.Parse(s.ParametersJsonSchema);
+            Assert.Equal("object", schema.RootElement.GetProperty("type").GetString());
+            var props = schema.RootElement.TryGetProperty("properties", out var p) ? p : default;
+            if (schema.RootElement.TryGetProperty("required", out var req))
+            {
+                foreach (var r in req.EnumerateArray())
+                {
+                    Assert.True(props.ValueKind == JsonValueKind.Object && props.TryGetProperty(r.GetString()!, out _),
+                        $"{s.Name}: 'required' {r} no esta en properties");
+                }
+            }
+        }
+
+        Assert.All(toolset.ReadOnlyTools, n => Assert.Contains(n, names));
+        Assert.All(toolset.DestructiveTools, n => Assert.Contains(n, names));
+        Assert.Empty(toolset.ReadOnlyTools.Intersect(toolset.DestructiveTools));
+
+        foreach (var name in names)
+        {
+            var r = await toolset.ExecuteAsync(name, "{}", owner);
+            Assert.DoesNotContain("Herramienta desconocida", r.Json);
+            using var doc = JsonDocument.Parse(r.Json);
+            if (doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+            {
+                Assert.True(r.IsError, $"{name}: ok=false sin marcar error");
+            }
+        }
+    }
+
     // ---- Helpers ----
 
-    private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(EcorexDbContext ctx, ITenantContext tenantCtx)
+    private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
+        EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
         var boards = new ActivityBoardService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), tasks, new AuditWriter(ctx), new NodeAssigneeResolver(ctx),
             _fixture.CreateFactory(tenantCtx.TenantId));
-        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine), new NoOpAgentStepRunner());
+        var flowDesign = new WorkflowDesignService(ctx, engine);
+        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, flowDesign, new NoOpAgentStepRunner());
         var tenant = tenantCtx;
         var terceros = new TerceroService(ctx, _fixture.CreateFactory(tenant.TenantId), tenant, new DirectoryVariantService(ctx, tenant),
             new DataLookupService(ctx, new DataContainerService(ctx, tenant)));
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
-            new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)));
+            new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
+            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant));
         return (boards, engine, toolset);
     }
 
@@ -468,6 +708,37 @@ public abstract class McpTablerosTestsBase
     {
         public Guid? TenantId { get; } = tenantId;
         public Guid? UserId { get; } = userId;
+    }
+
+    /// <summary>Doble del toolset de autoria de formularios: el toolset REAL (ADR-0067) ya tiene sus pruebas;
+    /// aqui se verifica SOLO el puente del MCP (permiso, "corre como el usuario" y mapeo de ok:false a error).</summary>
+    private sealed class FakeFormAuthoring : IFormAuthoringToolset
+    {
+        public string GroupKey => "form-authoring";
+        public string GroupLabel => "Autoria de formularios";
+        public List<(string Tool, Guid Actor)> Calls { get; } = new();
+        public IReadOnlySet<string> ReadOnlyTools { get; } = new HashSet<string>(StringComparer.Ordinal) { "list_forms", "list_tenants", "list_menu_nodes" };
+
+        // Incluye herramientas que el toolset REAL tiene pero que el MCP personal NO debe exponer (cross-tenant/menu).
+        public IReadOnlyList<AiToolSpec> GetSpecs() => new AiToolSpec[]
+        {
+            new("list_forms", "Lista los formularios del tenant con su estado.", """{"type":"object","properties":{},"additionalProperties":false}"""),
+            new("create_form", "Crea un formulario nuevo en borrador con su titulo.", """{"type":"object","properties":{"title":{"type":"string"},"fail":{"type":"boolean"}},"additionalProperties":false}"""),
+            new("delete_question", "Borra una pregunta de un formulario en borrador.", """{"type":"object","properties":{"question_id":{"type":"string"}},"additionalProperties":false}"""),
+            new("list_tenants", "Lista TODOS los tenants de la plataforma.", """{"type":"object","properties":{},"additionalProperties":false}"""),
+            new("list_menu_nodes", "Lista los nodos del menu del tenant.", """{"type":"object","properties":{},"additionalProperties":false}"""),
+            new("set_module", "Promueve un formulario a modulo del menu.", """{"type":"object","properties":{"form_id":{"type":"string"}},"additionalProperties":false}"""),
+        };
+
+        public Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
+        {
+            Calls.Add((toolName, actorUserId));
+            var fail = argumentsJson.Contains("\"fail\":true", StringComparison.Ordinal);
+            var json = fail
+                ? "{\"ok\":false,\"error\":\"forzado\"}"
+                : "{\"ok\":true,\"tool\":\"" + toolName + "\"}";
+            return Task.FromResult(new AgentToolResult(json, false));
+        }
     }
 }
 

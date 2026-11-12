@@ -70,8 +70,7 @@ else
     <div class="mw-panel">
         <div class="mw-panel-head">
             <span>Modulos registrados</span>
-            <input class="form-control" style="max-width:260px;font-size:13px;" placeholder="Buscar modulo o codigo..."
-                   value="@_search" @oninput="@(e => _search = e.Value?.ToString() ?? "")" />
+            <DebouncedInput class="form-control" style="max-width:260px;font-size:13px;" placeholder="Buscar modulo o codigo..." @bind-Value="_search" />
         </div>
         @if (_error is not null)
         {

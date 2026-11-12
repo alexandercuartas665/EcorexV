@@ -4,6 +4,7 @@
 @using Ecorex.Application.Catalogos
 @inject ICiudadCatalogService CiudadesSvc
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+@implements IDisposable
 
 <div class="dm-ciudad" style="position:relative" @onfocusout="OnBlur">
     <input class="fm-input" placeholder="Buscar ciudad..." autocomplete="off"
@@ -35,6 +36,7 @@
     private bool _open;
     private IReadOnlyList<CiudadDto> _matches = Array.Empty<CiudadDto>();
     private string? _lastEmitted;
+    private readonly Debouncer _debounce = new();
 
     protected override void OnParametersSet()
     {
@@ -45,8 +47,8 @@
     private async Task OnInput(ChangeEventArgs e)
     {
         _query = e.Value?.ToString() ?? "";
-        if (_query.Trim().Length < 2) { _matches = Array.Empty<CiudadDto>(); _open = false; return; }
-        await BuscarAsync();
+        if (_query.Trim().Length < 2) { _debounce.Cancel(); _matches = Array.Empty<CiudadDto>(); _open = false; return; }
+        await _debounce.RunAsync(250, BuscarAsync);
     }
 
     private async Task OnFocus(FocusEventArgs _)
@@ -65,13 +67,16 @@
         _open = _matches.Count > 0;
     }
 
-    private void OnBlur(FocusEventArgs _) => _open = false;
+    private void OnBlur(FocusEventArgs _) { _debounce.Cancel(); _open = false; }
 
     private async Task Select(CiudadDto c)
     {
+        _debounce.Cancel();
         _open = false;
         _query = c.Nombre;
         _lastEmitted = c.Nombre;
         await ValueChanged.InvokeAsync(c.Nombre);
     }
+
+    public void Dispose() => _debounce.Dispose();
 }

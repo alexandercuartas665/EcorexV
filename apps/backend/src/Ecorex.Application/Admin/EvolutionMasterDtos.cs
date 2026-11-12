@@ -24,6 +24,10 @@ public sealed record EvolutionSendResult(bool Ok, string? Error, string? Message
 /// <summary>Resultado de descargar la media ENTRANTE de un mensaje (base64 + mime).</summary>
 public sealed record EvolutionMediaResult(bool Ok, string? Base64, string? Mime, string? Error);
 
+/// <summary>Resultado CRUDO de una llamada generica a Evolution (MCP de WhatsApp, ADR-0164): estado HTTP, cuerpo
+/// JSON tal cual y, si la respuesta es de un envio, el id de WhatsApp del mensaje (key.id).</summary>
+public sealed record EvolutionRawResult(bool Ok, int StatusCode, string Body, string? MessageId, string? Error);
+
 /// <summary>Cliente HTTP del servidor Evolution API. Implementacion en Infrastructure.</summary>
 public interface IEvolutionApiClient
 {
@@ -65,6 +69,13 @@ public interface IEvolutionApiClient
 
     /// <summary>Descarga la media ENTRANTE de un mensaje a base64 (POST /chat/getBase64FromMediaMessage/{instance}).</summary>
     Task<EvolutionMediaResult> GetBase64FromMediaMessageAsync(string baseUrl, string apiKey, string instanceName, string messageKeyId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Llamada GENERICA a cualquier endpoint de Evolution v2 (MCP de WhatsApp, ADR-0164). method = GET|POST|PUT|DELETE;
+    /// path ya resuelto (incluye la instancia y el query string); body se serializa a JSON (null = sin cuerpo).
+    /// No lanza: los errores de red/HTTP vuelven en el resultado.
+    /// </summary>
+    Task<EvolutionRawResult> CallAsync(string baseUrl, string apiKey, string method, string path, object? body, CancellationToken cancellationToken = default);
 }
 
 public interface IEvolutionMasterConfigService

@@ -18,16 +18,20 @@ public sealed record McpToolResult(string Json, bool IsError)
 
     /// <summary>Estado DESPUES del cambio (para la auditoria antes/despues). Null si no aplica.</summary>
     public object? AuditAfter { get; init; }
+
+    /// <summary>Archivo para la IA ademas del JSON (ADR-0164): una imagen o audio que el cliente MCP puede VER/OIR
+    /// (bloque de contenido image/audio) o, si es otro tipo, un recurso embebido. Null = solo texto.</summary>
+    public McpMedia? Media { get; init; }
 }
 
+/// <summary>Archivo devuelto por una herramienta MCP (base64 + tipo MIME).</summary>
+public sealed record McpMedia(string Base64, string MimeType, string? FileName);
+
 /// <summary>
-/// Herramientas del servidor MCP de TABLEROS (ADR-0159), pensadas para una IA externa (Claude, ChatGPT,
-/// Gemini) que actua COMO un usuario del tenant. A diferencia de los toolsets del agente interno
-/// (IAgentToolset, atados a una conversacion de WhatsApp), aqui no hay conversacion: hay un usuario.
-/// Capa DELGADA sobre los servicios existentes (ITaskItemService, IActivityBoardService,
-/// IWorkflowInboxService): no reimplementa reglas de negocio.
+/// Contrato comun de un servidor MCP de ECOREX (tableros ADR-0159, WhatsApp ADR-0164): catalogo de herramientas,
+/// clasificacion (solo lectura / destructivas) y ejecucion COMO el usuario del token. El host JSON-RPC es el mismo.
 /// </summary>
-public interface ITableroMcpToolset
+public interface IMcpToolset
 {
     /// <summary>Herramientas que NO modifican nada (no se auditan).</summary>
     IReadOnlySet<string> ReadOnlyTools { get; }
@@ -38,6 +42,17 @@ public interface ITableroMcpToolset
     IReadOnlyList<AiToolSpec> GetSpecs();
 
     Task<McpToolResult> ExecuteAsync(string toolName, string argumentsJson, McpActor actor, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Herramientas del servidor MCP de TABLEROS (ADR-0159), pensadas para una IA externa (Claude, ChatGPT,
+/// Gemini) que actua COMO un usuario del tenant. A diferencia de los toolsets del agente interno
+/// (IAgentToolset, atados a una conversacion de WhatsApp), aqui no hay conversacion: hay un usuario.
+/// Capa DELGADA sobre los servicios existentes (ITaskItemService, IActivityBoardService,
+/// IWorkflowInboxService): no reimplementa reglas de negocio.
+/// </summary>
+public interface ITableroMcpToolset : IMcpToolset
+{
 }
 
 public sealed partial class TableroMcpToolset : ITableroMcpToolset
@@ -69,11 +84,18 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private readonly ITerceroVinculoService? _vinculos;
     private readonly ITerceroFieldService? _fields;
     private readonly IRolService? _roles;
+    private readonly IFormAuthoringToolset? _formAuthoring;
+    private readonly IWorkflowDesignService? _flowDesign;
+    private readonly IWorkflowEngine? _engine;
+    private readonly Organization.IWorkflowNodePolicyService? _nodePolicies;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
         ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
-        ITerceroFieldService? fields = null, IRolService? roles = null)
+        ITerceroFieldService? fields = null, IRolService? roles = null,
+        IFormAuthoringToolset? formAuthoring = null, IWorkflowDesignService? flowDesign = null, IWorkflowEngine? engine = null,
+        Organization.IWorkflowNodePolicyService? nodePolicies = null)
     {
+        _nodePolicies = nodePolicies;
         _vinculos = vinculos;
         _fields = fields;
         _roles = roles;
@@ -83,17 +105,49 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         _inbox = inbox;
         _terceros = terceros;
         _directorio = directorio;
+        _formAuthoring = formAuthoring;
+        _flowDesign = flowDesign;
+        _engine = engine;
     }
 
-    public IReadOnlySet<string> ReadOnlyTools => ReadOnly;
+    // Los conjuntos y specs se arman por INSTANCIA: las herramientas de autoria (formularios/flujos) solo
+    // existen si sus servicios fueron inyectados (en pruebas pueden faltar), asi que no pueden ser estaticas.
+    public IReadOnlySet<string> ReadOnlyTools => _readOnlyAll ??= BuildReadOnly();
 
-    public IReadOnlySet<string> DestructiveTools => Destructive;
+    public IReadOnlySet<string> DestructiveTools => _destructiveAll ??= BuildDestructive();
 
-    // Perezoso: los arreglos estaticos viven en dos archivos parciales y el orden de inicializacion
-    // entre archivos no esta garantizado.
-    public IReadOnlyList<AiToolSpec> GetSpecs() => _allSpecs ??= Specs.Concat(DirectorySpecs).ToArray();
+    public IReadOnlyList<AiToolSpec> GetSpecs() => _allSpecs ??= BuildSpecs();
 
-    private static AiToolSpec[]? _allSpecs;
+    private HashSet<string>? _readOnlyAll;
+    private HashSet<string>? _destructiveAll;
+    private AiToolSpec[]? _allSpecs;
+
+    private HashSet<string> BuildReadOnly()
+    {
+        // Siempre subconjunto de lo EXPUESTO (GetSpecs): lo garantiza la prueba de integridad del catalogo.
+        var set = new HashSet<string>(ReadOnly, StringComparer.Ordinal);
+        if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); }
+        if (_formAuthoring is not null) { set.UnionWith(_formAuthoring.ReadOnlyTools.Where(FormToolNames.Contains)); }
+        return set;
+    }
+
+    private HashSet<string> BuildDestructive()
+    {
+        var set = new HashSet<string>(Destructive, StringComparer.Ordinal);
+        if (_flowDesign is not null) { set.UnionWith(FlowDestructive); }
+        set.UnionWith(FormDestructive.Where(FormToolNames.Contains));
+        return set;
+    }
+
+    private AiToolSpec[] BuildSpecs()
+    {
+        var all = new List<AiToolSpec>(Specs);
+        all.AddRange(DirectorySpecs);
+        if (_flowDesign is not null) { all.AddRange(FlowSpecs); }
+        // Solo las herramientas de formularios PERMITIDAS al usuario final (ver FormBridgeAllowed).
+        if (_formAuthoring is not null) { all.AddRange(_formAuthoring.GetSpecs().Where(s => FormBridgeAllowed.Contains(s.Name))); }
+        return all.ToArray();
+    }
 
     private static readonly AiToolSpec[] Specs =
     {
@@ -187,6 +241,8 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 "tomar_paso" => await ClaimAsync(args, actor, cancellationToken),
                 "completar_paso" => await CompleteStepAsync(args, actor, cancellationToken),
                 _ when DirectoryToolNames.Contains(toolName) => await ExecuteDirectoryAsync(toolName, args, argumentsJson, actor, cancellationToken),
+                _ when _flowDesign is not null && FlowToolNames.Contains(toolName) => await ExecuteFlowAsync(toolName, args, actor, cancellationToken),
+                _ when _formAuthoring is not null && FormToolNames.Contains(toolName) => await ExecuteFormAsync(toolName, argumentsJson, actor, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };
         }

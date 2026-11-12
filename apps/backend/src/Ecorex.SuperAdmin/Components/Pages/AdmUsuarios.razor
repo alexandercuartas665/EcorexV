@@ -166,6 +166,11 @@ else
                     <input class="form-control" @bind="_fDisplayName" placeholder="Nombre Apellido" autocomplete="off" />
                 </div>
                 <div class="field">
+                    <label class="form-label">Telefono</label>
+                    <input class="form-control" @bind="_fPhone" placeholder="573001234567" autocomplete="off" inputmode="tel" />
+                    <small class="text-muted">Para las notificaciones de WhatsApp. Incluye el indicativo del pais (ej. 57 para Colombia).</small>
+                </div>
+                <div class="field">
                     <label class="form-label">Rol *</label>
                     <select class="form-control" @bind="_fRole">
                         @foreach (var r in AllRoles)
@@ -224,6 +229,11 @@ else
                 <div class="field">
                     <label class="form-label">Nombre para mostrar</label>
                     <input class="form-control" @bind="_fDisplayName" placeholder="Nombre Apellido" autocomplete="off" />
+                </div>
+                <div class="field">
+                    <label class="form-label">Telefono</label>
+                    <input class="form-control" @bind="_fPhone" placeholder="573001234567" autocomplete="off" inputmode="tel" />
+                    <small class="text-muted">Para las notificaciones de WhatsApp. Incluye el indicativo del pais (ej. 57 para Colombia).</small>
                 </div>
                 <div class="field">
                     <label class="form-label">Rol *</label>
@@ -368,6 +378,7 @@ else
     // Form compartido.
     private string _fEmail = "";
     private string _fDisplayName = "";
+    private string _fPhone = "";
     private TenantRole _fRole = TenantRole.Advisor;
     private PlatformUserStatus _fStatus = PlatformUserStatus.Active;
     private string _fPassword = "";
@@ -453,6 +464,7 @@ else
     {
         _fEmail = "";
         _fDisplayName = "";
+        _fPhone = "";
         _fRole = TenantRole.Advisor;
         _fPassword = "";
         _fViewId = "";
@@ -479,7 +491,8 @@ else
             var created = await UsersSvc.InviteAsync(
                 new InviteTenantUserRequest(email, _fRole,
                     Password: string.IsNullOrWhiteSpace(_fPassword) ? null : _fPassword,
-                    DisplayName: string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim()),
+                    DisplayName: string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(),
+                    Phone: string.IsNullOrWhiteSpace(_fPhone) ? null : _fPhone.Trim()),
                 actor);
             if (created is null)
             {
@@ -505,6 +518,7 @@ else
     {
         _editTarget = u;
         _fDisplayName = u.DisplayName ?? "";
+        _fPhone = u.Phone ?? "";
         _fRole = u.TenantRole;
         _fStatus = u.Status;
         _fViewId = _assignedView.ContainsKey(u.Id)
@@ -526,7 +540,10 @@ else
             var actor = await ResolveSelfIdAsync();
             var id = _editTarget.Id;
 
-            await UsersSvc.UpdateProfileAsync(id, string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(), actor);
+            await UsersSvc.UpdateProfileAsync(id,
+                string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(),
+                string.IsNullOrWhiteSpace(_fPhone) ? null : _fPhone.Trim(),
+                actor);
             if (_fRole != _editTarget.TenantRole)
             {
                 await UsersSvc.ChangeRoleAsync(id, _fRole, actor);

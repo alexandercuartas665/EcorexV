@@ -57,8 +57,9 @@ API de configuracion (alcance admin) a cualquier usuario.
 
 ## Consecuencias
 
-- Clientes compatibles HOY (Bearer en header): Claude Code, Gemini CLI, Claude Desktop (via `mcp-remote`).
-  La pagina `/conectar-ia` entrega los snippets listos.
+- Clientes compatibles HOY (Bearer en header): Claude Code, Gemini CLI, Gemini aplicacion/Code Assist y Codex
+  (estos dos ultimos via `mcp-remote`), Claude Desktop (via `mcp-remote`). La pagina `/conectar-ia` entrega los
+  snippets listos. La variante `mcp-remote` para Gemini es el respaldo cuando la forma `httpUrl` del CLI falla.
 - claude.ai web y ChatGPT (conectores remotos) exigen OAuth 2.1 -> **Fase 2** (no incluido).
 - Migracion aditiva dual (PG + SQL Server): `AddPersonalMcpTokens` (columna nullable + indice).
 - Pruebas: `McpTablerosTests` (matriz dual) cubre resolucion/revocacion/alcance/usuario inactivo,
@@ -95,9 +96,59 @@ API de configuracion (alcance admin) a cualquier usuario.
   ambiguedad se responde con las opciones; `listar_campos_contacto` devuelve `clave_completa`.
 - Fuera de alcance: fusionar duplicados, importar contactos desde Excel por la IA.
 
+## Addendum 2026-11-12 - Autoria de flujos y formularios por la IA (v0.16.304)
+
+- La IA ahora CREA flujos y formularios nuevos desde el MCP (no solo opera tableros/tareas). 13 herramientas de
+  flujo nativas + el toolset de formularios existente puenteado. (Correccion de la revision 2026-11-12: el texto
+  original decia "40 en total"; eran 40 NATIVAS + 46 puenteadas. Tras la revision: ver addendum siguiente.)
+- Flujos (`TableroMcpToolset.Flujos.cs`, capa delgada sobre IWorkflowDesignService + IWorkflowEngine):
+  `listar_flujos`, `ver_flujo`, `crear_flujo`, `agregar_nodo`, `renombrar_nodo`, `conectar_nodos`,
+  `condicion_ruta`, `asignar_encargado_nodo`, `poner_formulario_a_nodo`, `eliminar_nodo` (destructiveHint),
+  `importar_bpmn`, `publicar_flujo`, `enganchar_flujo_a_concepto`. Los ids de nodo/arista se devuelven en cada
+  paso para encadenar. `enganchar_flujo_a_concepto` fija `actividad_subcategorias.workflow_definition_id` (unica
+  escritura directa, guardada: valida la definicion y avisa si no esta publicada).
+- Formularios: se PUENTEA el `IFormAuthoringToolset` (ADR-0067) tal cual (`TableroMcpToolset.Formularios.cs`),
+  que antes solo salia por el MCP de administracion (/api/mgmt, llave de admin, actor "Sistema"). Ahora esas
+  mismas herramientas (`create_form`, `apply_form_spec`, `add_container`, `add_question`, `activate`...) corren
+  COMO el usuario del token. Conservan sus nombres nativos. El error estructurado (`ok:false`) se mapea a error MCP.
+- Permisos: la autoria respeta la matriz de roles del usuario sobre los modulos `flujos` y `formularios`
+  (View para leer; Create para crear flujo/importar; Edit para disenar; Delete para `eliminar_nodo`). Owner/Admin
+  y usuarios sin rol = sin restriccion, igual que la pantalla (Flujos.Ver, Formularios.Disenar = View+Edit).
+- Auditoria: toda escritura (no readonly) se registra en `mcp.tableros.*` con el usuario como actor.
+- Pruebas duales (PG + SQL Server): construir un flujo completo (crear -> nodo -> conectar -> encargado por campo
+  -> formulario obligatorio -> publicar -> enganchar a concepto) y el gate de permisos flujos/formularios + el
+  mapeo del puente (corre como el usuario, ok:false -> error).
+
+## Addendum 2026-11-12 (c) - Revision de seguridad y suficiencia (v0.16.304, misma rama)
+
+Revision completa contra el codigo y en vivo (inventario en `docs/mcp/INVENTARIO-MCP.md`). Correcciones:
+
+- SEGURIDAD: el puente exponia las 46 herramientas de `IFormAuthoringToolset`, incluida `list_tenants`, que lee
+  TODOS los tenants con `IgnoreQueryFilters` -> cualquier usuario (y los sin rol son "sin restriccion") podia
+  enumerar los tenants de la plataforma con su token personal. Ahora el puente usa una LISTA PERMITIDA (40):
+  quedan fuera `list_tenants` (cross-tenant), `list_menu_views`/`list_menu_nodes`/`set_module` (menu del tenant,
+  otro permiso) y `create_data_container`/`add_container_rows` (escritura en Contenedor de datos, otro permiso).
+  Una herramienta nueva del toolset no se expone sola. Nunca se integro ni desplego la version insegura.
+- FLUJOS ROTOS POR IA: `crear_flujo` nace con inicio->fin conectados y no habia como quitar una conexion; como el
+  motor sigue TODAS las salidas de un nodo que no es compuerta, insertar un paso dejaba una rama paralela al fin.
+  Nuevo: `agregar_nodo` con `desde_nodo_id`/`hasta_nodo_id` INSERTA y quita la conexion directa (conserva su
+  condicion) y `eliminar_conexion`.
+- ENCARGADO POR POLITICA SIN SALIDA: `origen=politica` no tenia como asignar cargos. Nuevo `asignar_cargo_nodo`
+  (IWorkflowNodePolicyService; responde las opciones validas si el cargo no existe). `ver_flujo` muestra cargos.
+- EDITAR UN FLUJO PUBLICADO: nuevo `nueva_version_flujo` (EnsureDraftAsync; copia formularios, reglas y cargos); al
+  publicar, el motor re-apunta los conceptos a la version nueva.
+- REVISION DEL GRAFO: `ver_flujo` devuelve `avisos` (rama paralela involuntaria, nodo sin entrada/salida, compuerta
+  con <2 salidas, paso por politica sin cargo, sin pasos de tarea) y `publicar_flujo` se niega con avisos salvo
+  `forzar=true` (visto bueno del usuario). Validado sobre flujos reales: 0 falsos positivos.
+- Conjuntos `ReadOnlyTools`/`DestructiveTools` siempre dentro de lo expuesto. Total: 15 nucleo + 12 directorio +
+  16 flujos + 40 formularios = 83 herramientas.
+- Pruebas: `McpTablerosTests` dual 20/20 (nuevas: puente seguro e integridad del catalogo). En vivo: 83 tools,
+  0 problemas de catalogo, `list_tenants` -> desconocida.
+
 ## Fuera de alcance (siguientes fases)
 
 - OAuth 2.1 (Authorization Server + metadata `/.well-known/oauth-protected-resource`) para ChatGPT/claude.ai.
-- Llenar formularios de paso desde la IA (hoy el motor lo exige y el usuario lo diligencia en la app).
+- Llenar formularios de paso (runtime) desde la IA (hoy el motor lo exige y el usuario lo diligencia en la app;
+  la AUTORIA de formularios ya la cubre este addendum).
 - Rate limiting por token y permisos finos por herramienta (p.ej. token de solo lectura).
 - Que un Owner/Admin vea y revoque los tokens personales de otros usuarios.

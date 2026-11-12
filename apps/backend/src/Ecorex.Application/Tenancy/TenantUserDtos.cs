@@ -11,13 +11,17 @@ public sealed record TenantUserDto(
     // Ola 3 UI (cambio aditivo): nombre legible para los dropdowns de asignado.
     // Sale de PlatformUser.DisplayName; si el usuario no lo tiene configurado queda
     // null y la UI deriva un nombre de la parte local del email (capitalizada).
-    string? DisplayName = null);
+    string? DisplayName = null,
+    // Telefono de contacto del usuario/asesor (TenantUser.Phone). Lo usan las
+    // notificaciones de WhatsApp (aviso de tarea asignada / alerta de cierre).
+    string? Phone = null);
 
 public sealed record InviteTenantUserRequest(
     string Email,
     TenantRole Role,
     string? Password = null,
-    string? DisplayName = null);
+    string? DisplayName = null,
+    string? Phone = null);
 
 public sealed record ChangeTenantUserRoleRequest(TenantRole Role);
 

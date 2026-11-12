@@ -13,7 +13,9 @@ namespace Ecorex.Application.Analisis;
 /// <summary>Quien opera: usuario de plataforma + si es Admin/Owner del tenant (edita cualquier libro).</summary>
 public sealed record AnalisisActor(Guid? UserId, bool EsAdmin);
 
-public sealed record AnalisisLibroResumen(Guid Id, string Nombre, string? Descripcion, AnalisisVisibilidad Visibilidad, bool EsDueno, int Hojas);
+public sealed record AnalisisLibroResumen(
+    Guid Id, string Nombre, string? Descripcion, AnalisisVisibilidad Visibilidad, bool EsDueno, int Hojas,
+    int Widgets = 0, DateTimeOffset? Actualizado = null);
 
 public sealed record AnalisisWidgetDto(
     Guid Id, Guid HojaId, AnalisisTipoWidget Tipo, string Titulo, string? SpecJson, string? IndicadorKey,
@@ -171,13 +173,16 @@ public sealed class AnalisisService : IAnalisisService
                 l.Visibilidad,
                 l.OwnerUserId,
                 l.AllowedUserIdsJson,
-                Hojas = l.Hojas.Count(h => !h.IsDeleted)
+                Hojas = l.Hojas.Count(h => !h.IsDeleted),
+                Widgets = l.Hojas.Where(h => !h.IsDeleted).SelectMany(h => h.Widgets).Count(),
+                Actualizado = l.UpdatedAt ?? l.CreatedAt
             })
             .ToListAsync(ct);
 
         return libros
             .Where(l => PuedeVer(l.OwnerUserId, l.Visibilidad, l.AllowedUserIdsJson, actor))
-            .Select(l => new AnalisisLibroResumen(l.Id, l.Nombre, l.Descripcion, l.Visibilidad, actor.UserId is Guid u && l.OwnerUserId == u, l.Hojas))
+            .Select(l => new AnalisisLibroResumen(l.Id, l.Nombre, l.Descripcion, l.Visibilidad, actor.UserId is Guid u && l.OwnerUserId == u, l.Hojas,
+                l.Widgets, l.Actualizado))
             .ToList();
     }
 
@@ -190,8 +195,14 @@ public sealed class AnalisisService : IAnalisisService
             return null;
         }
 
+        return await CargarDetalleAsync(db, libro, PuedeEditar(libro, actor), ct);
+    }
+
+    /// <summary>Hojas + widgets de un libro ya autorizado (lo usan la pagina y el enlace publico).</summary>
+    internal static async Task<AnalisisLibroDetalle> CargarDetalleAsync(IApplicationDbContext db, AnalisisLibro libro, bool puedeEditar, CancellationToken ct)
+    {
         var hojas = await db.AnalisisHojas.AsNoTracking()
-            .Where(h => h.LibroId == libroId)
+            .Where(h => h.LibroId == libro.Id)
             .OrderBy(h => h.Orden).ThenBy(h => h.CreatedAt)
             .ToListAsync(ct);
         var hojaIds = hojas.Select(h => h.Id).ToList();
@@ -202,7 +213,7 @@ public sealed class AnalisisService : IAnalisisService
 
         var porHoja = widgets.GroupBy(w => w.HojaId).ToDictionary(g => g.Key, g => g.Select(ToDto).ToList());
         return new AnalisisLibroDetalle(
-            libro.Id, libro.Nombre, libro.Descripcion, libro.Visibilidad, libro.Version, PuedeEditar(libro, actor),
+            libro.Id, libro.Nombre, libro.Descripcion, libro.Visibilidad, libro.Version, puedeEditar,
             hojas.Select(h => new AnalisisHojaDto(h.Id, h.Nombre, h.Orden,
                 porHoja.TryGetValue(h.Id, out var ws) ? ws : new List<AnalisisWidgetDto>(), h.FiltrosJson)).ToList());
     }
@@ -445,6 +456,14 @@ public sealed class AnalisisService : IAnalisisService
         if (tieneSpec == tieneCurado)
         {
             return "El widget debe tener una consulta o un indicador curado (uno solo).";
+        }
+
+        if (tieneCurado && widget.IndicadorKey == CombinadoDiseno.IndicadorKey)
+        {
+            // Combinado (Ola 5): la definicion vive en el ConfigJson y debe traer series.
+            return WidgetConfig.Leer(widget.ConfigJson).Combinado is { Series.Count: > 0 and <= CombinadoDiseno.MaxSeries }
+                ? null
+                : "El widget combinado necesita entre 1 y 4 series.";
         }
 
         if (tieneCurado && _curados.Find(widget.IndicadorKey!) is null)
@@ -696,7 +715,7 @@ public sealed class AnalisisService : IAnalisisService
     internal static bool PuedeEditar(AnalisisLibro libro, AnalisisActor actor) =>
         actor.EsAdmin || (actor.UserId is Guid u && libro.OwnerUserId == u);
 
-    private static HashSet<Guid> AllowedUsers(string? json)
+    internal static HashSet<Guid> AllowedUsers(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {

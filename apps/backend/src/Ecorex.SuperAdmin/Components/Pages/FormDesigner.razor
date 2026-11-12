@@ -542,7 +542,7 @@ else
                             </div>
                             <div class="field">
                                 <label class="form-label">Digitos del consecutivo</label>
-                                <input class="form-control" type="number" min="1" max="12" step="1" @bind="_autoCodePad" @bind:event="oninput" />
+                                <input class="form-control" type="number" min="1" max="12" step="1" @bind="_autoCodePad" />
                             </div>
                         </div>
                     }
@@ -576,12 +576,12 @@ else
                         <div class="field-row" style="margin-top:12px;">
                             <div class="field">
                                 <label class="form-label">Prefijo del numero</label>
-                                <input class="form-control" @bind="_txPrefix" @bind:event="oninput" placeholder="@(_def.Code + "-")" />
+                                <input class="form-control" @bind="_txPrefix" placeholder="@(_def.Code + "-")" />
                                 <span style="font-size:11px;color:var(--ink-3);">Vacio = usa el codigo del formulario (@(_def.Code)-).</span>
                             </div>
                             <div class="field">
                                 <label class="form-label">Digitos (relleno con ceros)</label>
-                                <input class="form-control" type="number" min="1" max="12" step="1" @bind="_txPadding" @bind:event="oninput" />
+                                <input class="form-control" type="number" min="1" max="12" step="1" @bind="_txPadding" />
                             </div>
                         </div>
                         <div class="field" style="margin-top:8px;">

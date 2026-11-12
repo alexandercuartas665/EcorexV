@@ -53,7 +53,7 @@ else
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>
                     </button>
                     <span class="fe-flow-id">FLUJO @_canvas.ProcessCode v@(_canvas.Version)</span>
-                    <input class="fe-name" placeholder="Nombre del flujo" @bind="_name" @bind:event="oninput" />
+                    <input class="fe-name" placeholder="Nombre del flujo" @bind="_name" />
                     <div class="fe-cat-wrap">
                         <select class="fe-cat" @bind="_categoryValue">
                             @foreach (var option in CategoryOptions)
@@ -267,7 +267,7 @@ else
             </div>
             <div class="fe-modal-search">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-                <input value="@_formPickerQuery" @oninput="@(e => _formPickerQuery = e.Value?.ToString() ?? "")" placeholder="Buscar formulario..." />
+                <DebouncedInput @bind-Value="_formPickerQuery" placeholder="Buscar formulario..." />
             </div>
             <div class="fe-form-grid">
                 @foreach (var form in FilteredForms)
@@ -337,7 +337,7 @@ else
             </div>
             <div class="fe-modal-search">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-                <input value="@_jumpQuery" @oninput="@(e => _jumpQuery = e.Value?.ToString() ?? "")" placeholder="Buscar flujo..." />
+                <DebouncedInput @bind-Value="_jumpQuery" placeholder="Buscar flujo..." />
             </div>
             <div class="fe-jump-list">
                 @foreach (var option in JumpOptions)
@@ -419,7 +419,7 @@ else
                     @* ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente). *@
                     <div>
                         <label class="fe-label">INSTRUCCIONES PARA ESTE PASO (PROMPT EXTRA)</label>
-                        <textarea class="fe-textarea" @bind="_agentExtraPromptDraft" @bind:event="oninput"
+                        <textarea class="fe-textarea" @bind="_agentExtraPromptDraft"
                                   @onblur="@(() => OnNodeExtraPromptChangedAsync(agentNode))"
                                   placeholder="Que debe hacer el agente en este paso y como usar sus herramientas. Ej: para conseguir el correo del cliente, abre su ficha en LinkedIn con Colmena buscando por nombre + empresa y extrae el cargo y el correo."></textarea>
                     </div>

@@ -4,21 +4,19 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Tenancy;
 
 /// <summary>
-/// Idempotencia del CIERRE de los agentes (ADR-0101 rev.3): evita tareas DUPLICADAS cuando el modelo llama a
-/// crear_tarea / crear_actividad varias veces (mismo turno por el bucle de tool-calling, o en turnos
-/// siguientes al "ya quedo?" o al continuar el chat). Dos capas:
+/// Idempotencia del CIERRE de los agentes (ADR-0101, rev.4 = ADR-0163): evita tareas DUPLICADAS cuando el
+/// modelo llama a crear_tarea / crear_actividad varias veces (mismo turno por el bucle de tool-calling, o en
+/// turnos siguientes al "ya quedo?"). Dos capas:
 ///  - Capa 1 (intra-turno): la primera creacion OK de una herramienta se recuerda en AiToolRunContext; una
 ///    segunda llamada de ESA herramienta en el mismo turno devuelve el mismo ticket sin volver a insertar.
-///  - Capa 2 (por CONVERSACION + TABLERO, entre turnos, SIN ventana de tiempo): antes de crear, si ya existe
-///    una tarea NO archivada para ESA conversacion EN EL MISMO TABLERO, se devuelve ese ticket.
+///  - Capa 2 (entre turnos, ADR-0163): misma conversacion + mismo tablero + MISMO TITULO dentro de 30 min
+///    devuelve la tarea existente (<see cref="FindRecentSameTitleAsync"/>). Titulo distinto SIEMPRE crea.
 ///
-/// REGLA DE ORO: NO se deduplica por contenido ni por telefono (probaron NO ser fiables: el modelo alucina
-/// el telefono y regenera el resumen). La llave estable es CONVERSACION + TABLERO: una conversacion = un lead
-/// abierto POR TABLERO, asi que un re-cierre/confirmacion/continuacion del MISMO lead devuelve el mismo ticket
-/// sin importar cuanto tiempo pase (rev.3: se QUITO la ventana de 5 min de rev.2, que dejaba pasar duplicados
-/// a los minutos u horas). Se conserva el caso multi-tema: si el agente enruta a OTRO tablero, el board_id
-/// difiere y SI se crea una tarea nueva. Si el lead ya se archivo, un nuevo cierre crea tarea nueva. Solo
-/// aplica al camino de los agentes (lo llaman los toolsets con AiToolRunContext).
+/// Por que (ADR-0163): la Capa 2 de rev.3 (conversacion + tablero SIN ventana) se trago casos DISTINTOS: un
+/// RECLAMO recibio el ticket de una COTIZACION abierta. El servidor no puede distinguir por si solo "tema
+/// distinto" de "repeticion" (resumen y telefono no son estables), asi que decidir caso nuevo vs viejo lo hace
+/// el agente con casos_del_cliente / anotar_caso; aqui solo queda una red de seguridad estrecha. Solo aplica al
+/// camino de los agentes (lo llaman los toolsets con AiToolRunContext).
 /// </summary>
 public static class AgentTaskIdempotency
 {
@@ -30,25 +28,40 @@ public static class AgentTaskIdempotency
     /// <summary>Recuerda el resultado de cierre para que una segunda llamada de la misma herramienta en el turno lo reuse.</summary>
     public static void RememberTurnResult(string toolKey, string resultJson) => AiToolRunContext.SetTurnResult(toolKey, resultJson);
 
-    // ---- Capa 2: dedup por CONVERSACION + TABLERO entre turnos (sin ventana) ----
+    // ---- Capa 2 (ADR-0163, crear_tarea y crear_actividad): mismo TITULO en ventana corta ----
+
+    /// <summary>Ventana de la red de seguridad de crear_tarea: un pedido con el MISMO titulo en la misma
+    /// conversacion y tablero dentro de esta ventana se trata como repeticion (no como caso nuevo).</summary>
+    public static readonly TimeSpan SameTitleWindow = TimeSpan.FromMinutes(30);
 
     /// <summary>
-    /// Busca la tarea mas reciente NO archivada de <paramref name="conversationId"/> en el tablero
-    /// <paramref name="boardId"/> (null-safe: null empareja tareas sin tablero). Sin limite de tiempo. Devuelve
-    /// (Id, Number) o null. El filtro global del DbContext ya acota por tenant, y una conversacion pertenece a
-    /// un solo tenant, asi que (conversacion + tablero) es llave suficiente.
+    /// ADR-0163: busca una tarea NO archivada de la conversacion, en el mismo tablero, con el MISMO titulo
+    /// (sin distinguir mayusculas/espacios) creada dentro de <see cref="SameTitleWindow"/>. Temas distintos
+    /// (titulo distinto) NUNCA se fusionan: decidir si es caso nuevo o viejo lo hace el agente con
+    /// casos_del_cliente/anotar_caso. Devuelve (Id, Number) o null.
     /// </summary>
-    public static async Task<(Guid Id, string Number)?> FindByConversationAndBoardAsync(
-        IApplicationDbContext db, Guid conversationId, Guid? boardId,
+    public static async Task<(Guid Id, string Number)?> FindRecentSameTitleAsync(
+        IApplicationDbContext db, Guid conversationId, Guid? boardId, string title, DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
-        var hit = await db.TaskItems.AsNoTracking()
-            .Where(t => t.ConversationId == conversationId && t.BoardId == boardId && !t.IsArchived)
+        var key = NormalizeTitle(title);
+        if (key.Length == 0) { return null; }
+        var since = now - SameTitleWindow;
+        var candidates = await db.TaskItems.AsNoTracking()
+            .Where(t => t.ConversationId == conversationId && t.BoardId == boardId && !t.IsArchived
+                && t.CreatedAt >= since)
             .OrderByDescending(t => t.CreatedAt)
-            .Select(t => new { t.Id, t.Number })
-            .FirstOrDefaultAsync(cancellationToken);
+            .Select(t => new { t.Id, t.Number, t.Title })
+            .Take(20)
+            .ToListAsync(cancellationToken);
+        var hit = candidates.FirstOrDefault(c => NormalizeTitle(c.Title) == key);
         return hit is null ? null : (hit.Id, hit.Number);
     }
+
+    /// <summary>Titulo comparable: minusculas, sin espacios repetidos ni bordes.</summary>
+    internal static string NormalizeTitle(string? title)
+        => string.Join(' ', (title ?? string.Empty).Trim().ToLowerInvariant()
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     // ---- Candado de cierre-por-flujo: SARA no crea tarea/lead si un flujo ya cerro este caso ----
 

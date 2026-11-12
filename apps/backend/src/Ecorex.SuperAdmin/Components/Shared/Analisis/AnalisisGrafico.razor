@@ -1,0 +1,77 @@
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@* Grafico ECharts de un widget de Analisis (ADR-0158 Ola 7a). Recibe la "option" ya armada por
+   AnalisisGraficos (Application). En un circuito interactivo la pinta por interop (canvas, tooltips,
+   leyenda clicable, animacion, se reacomoda al ancho). En render ESTATICO (pagina del PDF) no hay interop:
+   deja la option en data-aw-grafico y analisis-graficos.js la pinta en SVG al cargar la pagina. *@
+
+@if (RendererInfo.IsInteractive)
+{
+    <div id="@_id" class="aw-chart" style="height:@(Alto)px"></div>
+}
+else
+{
+    <div class="aw-chart" style="height:@(Alto)px" data-aw-grafico="@Serializar()"></div>
+}
+
+@code {
+    /// <summary>Option de ECharts (diccionario armado por AnalisisGraficos).</summary>
+    [Parameter, EditorRequired] public IDictionary<string, object?>? Opcion { get; set; }
+
+    /// <summary>Alto en pixeles.</summary>
+    [Parameter] public int Alto { get; set; } = 230;
+
+    private static readonly JsonSerializerOptions JsonOpts = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
+    private readonly string _id = "awg-" + Guid.NewGuid().ToString("N");
+    private string? _ultimo;
+    private bool _iniciado;
+
+    private string? Serializar() => Opcion is null ? null : JsonSerializer.Serialize(Opcion, JsonOpts);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!RendererInfo.IsInteractive || Serializar() is not string json)
+        {
+            return;
+        }
+
+        if (!_iniciado)
+        {
+            _iniciado = true;
+            _ultimo = json;
+            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.init", _id, json);
+            return;
+        }
+
+        if (!string.Equals(json, _ultimo, StringComparison.Ordinal))
+        {
+            _ultimo = json;
+            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.update", _id, json);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_iniciado)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.dispose", _id);
+        }
+        catch (JSDisconnectedException)
+        {
+            // El circuito ya se cerro (recarga/navegacion): nada que limpiar en el cliente.
+        }
+        catch (TaskCanceledException)
+        {
+            // Interop cancelado al desmontar.
+        }
+    }
+}

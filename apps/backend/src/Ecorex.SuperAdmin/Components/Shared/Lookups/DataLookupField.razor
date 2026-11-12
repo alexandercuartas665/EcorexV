@@ -2,6 +2,7 @@
 @using Ecorex.SuperAdmin.Components.Shared.Data
 @inject IDataLookupService LookupSvc
 @inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
+@implements IDisposable
 
 @* Captura de un campo tipo lista alimentado por el Contenedor de datos.
    Guarda el ID DE LA FILA (referencia viva), no su texto: la etiqueta se resuelve al mostrar.
@@ -234,10 +235,14 @@
         await BuscarAsync(_texto);
     }
 
+    private readonly Debouncer _debounce = new();
+
+    public void Dispose() => _debounce.Dispose();
+
     private async Task OnTypeAsync(ChangeEventArgs e)
     {
         _texto = e.Value?.ToString() ?? "";
-        await BuscarAsync(_texto);
+        await _debounce.RunAsync(250, () => BuscarAsync(_texto));
     }
 
     private async Task BuscarAsync(string? texto)
@@ -261,6 +266,7 @@
 
     private async Task ChooseAsync(DataLookupRowDto row)
     {
+        _debounce.Cancel();
         _seleccion = row;
         _abierto = false;
         _texto = "";
@@ -269,6 +275,7 @@
 
     private async Task ClearAsync()
     {
+        _debounce.Cancel();
         _seleccion = null;
         _texto = "";
         await SetAsync(null, null);

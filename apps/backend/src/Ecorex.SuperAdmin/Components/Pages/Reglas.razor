@@ -114,8 +114,7 @@
                 </div>
             }
             <div class="rg-search">
-                <input placeholder="Buscar por nombre, tabla, proceso..." value="@_search"
-                       @oninput="@(e => _search = e.Value?.ToString() ?? "")" />
+                <DebouncedInput placeholder="Buscar por nombre, tabla, proceso..." @bind-Value="_search" />
             </div>
             <div class="rg-panel-body">
                 @if (FilteredRules.Count == 0)

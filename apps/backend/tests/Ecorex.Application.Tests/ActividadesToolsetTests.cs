@@ -638,38 +638,77 @@ public class ActividadesToolsetTests
         Assert.Equal(r1.GetProperty("ticket").GetString(), r2.GetProperty("ticket").GetString());
     }
 
-    [Fact]
-    public async Task CrearActividad_mismo_tablero_devuelve_existente_sin_ventana()
+    private static TaskItem OpenActividad(Guid conv, string title, DateTimeOffset createdAt) => new()
     {
-        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO, SIN ventana. Un re-cierre de la MISMA
-        // conversacion en el MISMO tablero devuelve el ticket existente AUNQUE pasen HORAS (6h aqui).
+        TenantId = Tenant,
+        Number = "T-900",
+        Title = title,
+        SubcategoriaId = SubId,
+        BoardId = BoardId,
+        RequesterName = "Juan Perez",
+        IsArchived = false,
+        ConversationId = conv,
+        CreatedAt = createdAt
+    };
+
+    [Fact]
+    public async Task CrearActividad_tema_distinto_con_caso_abierto_crea_nueva()
+    {
+        // ADR-0163 (regresion T00783): la conversacion tiene una actividad ABIERTA en el tablero del concepto
+        // (una cotizacion) y el agente registra otro tema (un reclamo). Antes (rev.3, sin ventana) devolvia el
+        // ticket de la cotizacion; ahora un titulo distinto crea una actividad nueva.
         var conv = Guid.NewGuid();
         var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
         var (ts, tasks, _, inner) = NewToolsetWithDb(def);
-        inner.TaskItems.Add(new TaskItem
-        {
-            TenantId = Tenant,
-            Number = "T-900",
-            Title = "Juan Perez",
-            Description = null,
-            SubcategoriaId = SubId,
-            BoardId = BoardId,
-            RequesterName = "Juan Perez",
-            IsArchived = false,
-            ConversationId = conv,
-            CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
-        });
+        inner.TaskItems.Add(OpenActividad(conv, "Cotizacion corte laser", DateTimeOffset.UtcNow.AddDays(-1)));
         inner.SaveChanges();
 
         JsonElement r;
         using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
         {
-            // Titulo/resumen DISTINTOS: aun asi es la misma conversacion+tablero -> NO duplica.
-            r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "Otro resumen distinto", datos = new { nombre = "Juan Perez" } });
+            r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "Reclamo por mala atencion", datos = new { nombre = "Juan Perez" } });
+        }
+
+        Assert.Equal(1, tasks.CreateCalls);
+        Assert.False(r.TryGetProperty("idempotente", out _));
+    }
+
+    [Fact]
+    public async Task CrearActividad_mismo_titulo_en_30_min_devuelve_existente()
+    {
+        // Red de seguridad ADR-0163: mismo titulo, misma conversacion y tablero, dentro de 30 min -> repeticion.
+        var conv = Guid.NewGuid();
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _, inner) = NewToolsetWithDb(def);
+        inner.TaskItems.Add(OpenActividad(conv, "Reclamo por mala atencion", DateTimeOffset.UtcNow.AddMinutes(-5)));
+        inner.SaveChanges();
+
+        JsonElement r;
+        using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
+        {
+            r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "RECLAMO por mala atencion", datos = new { nombre = "Juan Perez" } });
         }
 
         Assert.Equal(0, tasks.CreateCalls);
         Assert.Equal("T-900", r.GetProperty("ticket").GetString());
+        Assert.True(r.GetProperty("idempotente").GetBoolean());
+    }
+
+    [Fact]
+    public async Task CrearActividad_mismo_titulo_fuera_de_ventana_crea_nueva()
+    {
+        var conv = Guid.NewGuid();
+        var def = Def(Q("nombre", "Nombre Contacto", FormControlType.Text, required: true));
+        var (ts, tasks, _, inner) = NewToolsetWithDb(def);
+        inner.TaskItems.Add(OpenActividad(conv, "Reclamo por mala atencion", DateTimeOffset.UtcNow.AddHours(-6)));
+        inner.SaveChanges();
+
+        using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
+        {
+            await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", titulo = "Reclamo por mala atencion", datos = new { nombre = "Juan Perez" } });
+        }
+
+        Assert.Equal(1, tasks.CreateCalls);
     }
 
     [Fact]

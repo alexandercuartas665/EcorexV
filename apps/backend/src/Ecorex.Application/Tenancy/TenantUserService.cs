@@ -61,7 +61,7 @@ public sealed class TenantUserService : ITenantUserService
             .OrderBy(u => u.Email)
             .Join(_db.PlatformUsers.AsNoTracking(),
                 tu => tu.PlatformUserId, pu => pu.Id,
-                (tu, pu) => new TenantUserDto(tu.Id, tu.PlatformUserId, tu.Email, tu.TenantRole, tu.Status, pu.DisplayName))
+                (tu, pu) => new TenantUserDto(tu.Id, tu.PlatformUserId, tu.Email, tu.TenantRole, tu.Status, pu.DisplayName, tu.Phone))
             .ToListAsync(cancellationToken);
     }
 
@@ -102,7 +102,8 @@ public sealed class TenantUserService : ITenantUserService
             PlatformUserId = platformUser.Id,
             Email = email,
             TenantRole = request.Role,
-            Status = PlatformUserStatus.Active
+            Status = PlatformUserStatus.Active,
+            Phone = NormalizePhone(request.Phone)
         };
         _db.TenantUsers.Add(tenantUser);
 
@@ -203,7 +204,7 @@ public sealed class TenantUserService : ITenantUserService
         return Map(tenantUser, platformUser.DisplayName);
     }
 
-    public async Task<TenantUserDto?> UpdateProfileAsync(Guid tenantUserId, string? displayName, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<TenantUserDto?> UpdateProfileAsync(Guid tenantUserId, string? displayName, string? phone, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var tenantUser = await _db.TenantUsers.FirstOrDefaultAsync(tu => tu.Id == tenantUserId, cancellationToken);
         if (tenantUser is null)
@@ -218,13 +219,27 @@ public sealed class TenantUserService : ITenantUserService
         }
 
         var normalized = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
-        var previous = platformUser.DisplayName;
-        if (previous != normalized)
+        var normalizedPhone = NormalizePhone(phone);
+        var previousName = platformUser.DisplayName;
+        var previousPhone = tenantUser.Phone;
+        var changed = false;
+
+        if (previousName != normalized)
         {
             platformUser.DisplayName = normalized;
+            changed = true;
+        }
+        if (previousPhone != normalizedPhone)
+        {
+            tenantUser.Phone = normalizedPhone;
+            changed = true;
+        }
+
+        if (changed)
+        {
             _audit.Write(actorUserId, "tenant-user.update-profile", nameof(TenantUser), tenantUser.Id,
-                previousValue: new { DisplayName = previous },
-                newValue: new { DisplayName = normalized },
+                previousValue: new { DisplayName = previousName, Phone = previousPhone },
+                newValue: new { DisplayName = normalized, Phone = normalizedPhone },
                 tenantId: tenantUser.TenantId);
             await _db.SaveChangesAsync(cancellationToken);
         }
@@ -325,5 +340,20 @@ public sealed class TenantUserService : ITenantUserService
     }
 
     private static TenantUserDto Map(TenantUser u, string? displayName = null) =>
-        new(u.Id, u.PlatformUserId, u.Email, u.TenantRole, u.Status, displayName);
+        new(u.Id, u.PlatformUserId, u.Email, u.TenantRole, u.Status, displayName, u.Phone);
+
+    /// <summary>
+    /// Limpia el telefono para WhatsApp: recorta y descarta separadores comunes (espacios, guiones,
+    /// parentesis, puntos), conservando un '+' inicial si lo trae. No antepone indicativo: el envio
+    /// lo canoniza a MSISDN. Vacio -> null (el campo es opcional).
+    /// </summary>
+    private static string? NormalizePhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) { return null; }
+        var trimmed = phone.Trim();
+        var hasPlus = trimmed.StartsWith('+');
+        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
+        if (digits.Length == 0) { return null; }
+        return hasPlus ? "+" + digits : digits;
+    }
 }

@@ -218,7 +218,7 @@ public sealed class ChatService : IChatService
         return new ConversationDto(conv.Id, conv.ContactPhone, conv.ContactName, conv.LeadId, conv.LastMessageAt, conv.WhatsAppLineId);
     }
 
-    public async Task<ChatSendResult> SendViaLineAsync(Guid conversationId, Guid lineId, string body, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<ChatSendResult> SendViaLineAsync(Guid conversationId, Guid lineId, string body, Guid actorUserId, CancellationToken cancellationToken = default, string? senderLabel = null)
     {
         if (string.IsNullOrWhiteSpace(body))
         {
@@ -274,7 +274,7 @@ public sealed class ChatService : IChatService
             ExternalId = send.MessageId,
             DeliveryStatus = "sent",
             SentByTenantUserId = sender.Id,
-            SentByName = sender.Name,
+            SentByName = senderLabel ?? sender.Name,
             SentAt = now
         };
         _db.Messages.Add(msg);
@@ -287,7 +287,7 @@ public sealed class ChatService : IChatService
         return new ChatSendResult(true, dto, null);
     }
 
-    public async Task<ChatSendResult> SendMediaViaLineAsync(Guid conversationId, Guid lineId, MessageMediaType mediaType, string base64, string localUrl, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<ChatSendResult> SendMediaViaLineAsync(Guid conversationId, Guid lineId, MessageMediaType mediaType, string base64, string localUrl, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default, string? senderLabel = null)
     {
         if (mediaType == MessageMediaType.None || string.IsNullOrWhiteSpace(base64))
         {
@@ -320,7 +320,7 @@ public sealed class ChatService : IChatService
             ExternalId = send.MessageId,
             DeliveryStatus = "sent",
             SentByTenantUserId = sender.Id,
-            SentByName = sender.Name,
+            SentByName = senderLabel ?? sender.Name,
             SentAt = now
         };
         _db.Messages.Add(msg);
@@ -333,7 +333,7 @@ public sealed class ChatService : IChatService
         return new ChatSendResult(true, dto, null);
     }
 
-    public async Task<ChatSendResult> SendLocationViaLineAsync(Guid conversationId, Guid lineId, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default)
+    public async Task<ChatSendResult> SendLocationViaLineAsync(Guid conversationId, Guid lineId, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default, string? senderLabel = null)
     {
         var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
         if (conv is null)
@@ -361,7 +361,7 @@ public sealed class ChatService : IChatService
             ExternalId = send.MessageId,
             DeliveryStatus = "sent",
             SentByTenantUserId = sender.Id,
-            SentByName = sender.Name,
+            SentByName = senderLabel ?? sender.Name,
             SentAt = now
         };
         _db.Messages.Add(msg);
@@ -404,6 +404,67 @@ public sealed class ChatService : IChatService
     }
 
     // Resuelve el asesor (TenantUser) a partir del PlatformUser autenticado, con nombre para mostrar.
+    public async Task<ConversationDto?> GetOrCreateForLineAsync(Guid lineId, string phone, string? contactName, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId) { return null; }
+        var canonical = Common.PhoneNumber.ToMsisdn(phone);
+        if (canonical.Length == 0) { return null; }
+        // MISMA llave que la ingesta del webhook (ChatIngestService): formas equivalentes del MSISDN en la linea y el
+        // hilo mas activo, para que un mensaje enviado por el MCP y la respuesta del cliente caigan en el MISMO hilo.
+        var forms = Common.PhoneNumber.LookupForms(phone);
+        var conv = await _db.Conversations
+            .Where(c => c.WhatsAppLineId == lineId && forms.Contains(c.ContactPhone))
+            .OrderByDescending(c => c.LastMessageAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (conv is null)
+        {
+            conv = new Conversation
+            {
+                TenantId = tenantId,
+                ContactPhone = canonical,
+                ContactName = string.IsNullOrWhiteSpace(contactName) ? null : contactName.Trim(),
+                WhatsAppLineId = lineId
+            };
+            _db.Conversations.Add(conv);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        else if (string.IsNullOrWhiteSpace(conv.ContactName) && !string.IsNullOrWhiteSpace(contactName))
+        {
+            conv.ContactName = contactName.Trim();
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        return new ConversationDto(conv.Id, conv.ContactPhone, conv.ContactName, conv.LeadId, conv.LastMessageAt, conv.WhatsAppLineId);
+    }
+
+    public async Task<MessageDto?> RecordOutboundAsync(Guid conversationId, Guid lineId, string body, string messageType, string? externalId,
+        Guid actorUserId, string? senderLabel, CancellationToken cancellationToken = default)
+    {
+        var conv = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId, cancellationToken);
+        if (conv is null) { return null; }
+        var sender = await ResolveSenderAsync(actorUserId, conv.TenantId, cancellationToken);
+        var now = _timeProvider.GetUtcNow();
+        var msg = new Message
+        {
+            TenantId = conv.TenantId,
+            ConversationId = conv.Id,
+            Direction = MessageDirection.Outbound,
+            Body = (body ?? string.Empty).Trim(),
+            MessageType = string.IsNullOrWhiteSpace(messageType) ? "text" : messageType,
+            ExternalId = externalId,
+            DeliveryStatus = "sent",
+            SentByTenantUserId = sender.Id,
+            SentByName = senderLabel ?? sender.Name,
+            SentAt = now
+        };
+        _db.Messages.Add(msg);
+        conv.LastMessageAt = now;
+        conv.WhatsAppLineId = lineId;
+        await _db.SaveChangesAsync(cancellationToken);
+        var dto = new MessageDto(msg.Id, msg.ConversationId, msg.Direction, msg.Body, msg.MessageType, msg.SentAt, msg.MediaType, msg.MediaUrl, msg.MediaMimeType, msg.SentByName);
+        try { await _broadcaster.MessageAddedAsync(conv.TenantId, conv.Id, dto, cancellationToken); } catch { /* best-effort */ }
+        return dto;
+    }
+
     private async Task<(Guid? Id, string? Name)> ResolveSenderAsync(Guid actorPlatformUserId, Guid tenantId, CancellationToken ct)
     {
         if (actorPlatformUserId == Guid.Empty) { return (null, null); }

@@ -65,4 +65,22 @@ public sealed class AgentCierreDedupTests
             Assert.True(AiToolRunContext.WasCloseNotified(externo));
         }
     }
+
+    // ADR-0163: casos que el agente creo o anoto en el turno (la alerta de cierre avisa a SU usuario asignado).
+    [Fact]
+    public void Casos_tocados_se_registran_en_orden_sin_duplicados_y_solo_en_el_turno()
+    {
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        AiToolRunContext.MarkTaskTouched(a); // sin turno: no-op
+        Assert.Empty(AiToolRunContext.TouchedTaskIds);
+        using (AiToolRunContext.Begin(conversationId: Guid.NewGuid(), imageBase64: null, imageMime: null))
+        {
+            AiToolRunContext.MarkTaskTouched(a);
+            AiToolRunContext.MarkTaskTouched(b);
+            AiToolRunContext.MarkTaskTouched(a);
+            Assert.Equal(new[] { a, b }, AiToolRunContext.TouchedTaskIds);
+        }
+        Assert.Empty(AiToolRunContext.TouchedTaskIds);
+    }
 }

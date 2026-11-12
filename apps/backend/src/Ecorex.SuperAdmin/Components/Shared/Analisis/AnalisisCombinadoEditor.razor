@@ -1,0 +1,292 @@
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+
+@* Paso "Combinar fuentes" del modal del widget (ADR-0158 Ola 5): series con su propia fuente, medida y campo
+   de cruce, normalizacion de la llave (texto / NIT / exacta), interseccion o union y formulas entre series
+   (A, B, C, D). Trabaja sobre un CombinadoDiseno inmutable y devuelve cada cambio al editor anfitrion, que
+   valida, arma la vista previa y guarda. *@
+
+<div class="cb">
+    @for (var i = 0; i < Diseno.Series.Count; i++)
+    {
+        var idx = i;
+        var s = Diseno.Series[idx];
+        var fuente = Fuentes.FirstOrDefault(f => f.Key == s.SourceKey);
+        <div class="cb-serie">
+            <div class="cb-serie-head">
+                <span class="cb-letra">@CombinadoDiseno.Letra(idx)</span>
+                <input class="we-input" value="@s.Nombre" maxlength="60" placeholder="Nombre de la serie"
+                       @onchange="e => CambiarSerie(idx, s with { Nombre = e.Value?.ToString() ?? string.Empty })" />
+                @if (Diseno.Series.Count > 1)
+                {
+                    <button class="we-ico" title="Quitar serie" @onclick="() => QuitarSerie(idx)">&#215;</button>
+                }
+            </div>
+            <div class="cb-grid">
+                <div>
+                    <label class="we-lbl">Fuente</label>
+                    <select class="we-input" value="@s.SourceKey" @onchange="e => CambiarSerie(idx, new SerieCombinada { Nombre = s.Nombre, SourceKey = e.Value?.ToString() ?? string.Empty })">
+                        <option value="">Elige una fuente...</option>
+                        @foreach (var f in Fuentes.OrderBy(f => f.Kind).ThenBy(f => f.DisplayName))
+                        {
+                            <option value="@f.Key">@f.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="we-lbl">Cruzar por</label>
+                    <select class="we-input" value="@s.Dimension" disabled="@(fuente is null)"
+                            @onchange="e => CambiarSerie(idx, s with { Dimension = e.Value?.ToString() ?? string.Empty })">
+                        <option value="">Campo de cruce...</option>
+                        @foreach (var f in (fuente?.Fields ?? Array.Empty<ReportField>()).Where(f => f.CanGroup))
+                        {
+                            <option value="@f.Key">@f.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="we-lbl">Medida</label>
+                    <select class="we-input" value="@s.Funcion" disabled="@(fuente is null)"
+                            @onchange="e => CambiarSerie(idx, s with { Funcion = Enum.Parse<ReportAggregateFunction>(e.Value!.ToString()!), CampoMedida = null })">
+                        <option value="@ReportAggregateFunction.Count">Conteo de registros</option>
+                        <option value="@ReportAggregateFunction.Sum">Suma</option>
+                        <option value="@ReportAggregateFunction.Avg">Promedio</option>
+                        <option value="@ReportAggregateFunction.Min">Minimo</option>
+                        <option value="@ReportAggregateFunction.Max">Maximo</option>
+                    </select>
+                </div>
+                @if (s.Funcion != ReportAggregateFunction.Count)
+                {
+                    <div>
+                        <label class="we-lbl">Campo</label>
+                        <select class="we-input" value="@s.CampoMedida" @onchange="e => CambiarSerie(idx, s with { CampoMedida = e.Value?.ToString() })">
+                            <option value="">Campo numerico...</option>
+                            @foreach (var f in (fuente?.Fields ?? Array.Empty<ReportField>()).Where(f => f.CanAggregate))
+                            {
+                                <option value="@f.Key">@f.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+            @if (fuente is not null)
+            {
+                <details class="cb-filtros">
+                    <summary>Filtros de la serie @CombinadoDiseno.Letra(idx)@(s.Filtros.Count > 0 ? $" ({s.Filtros.Count})" : "")</summary>
+                    <p class="we-hint">Acotan SOLO esta serie (p. ej. la serie A cuenta solo aprobadas y la B todas). Se suman a los filtros de la hoja.</p>
+                    @for (var j = 0; j < s.Filtros.Count; j++)
+                    {
+                        var fj = j;
+                        var fl = s.Filtros[fj];
+                        var campo = fuente.FindField(fl.Campo);
+                        <div class="cb-filtro">
+                            <select class="we-input" value="@fl.Campo" @onchange="e => FiltroCampo(idx, fj, e.Value?.ToString(), fuente)">
+                                @foreach (var f in fuente.Fields.Where(f => f.CanFilter))
+                                {
+                                    <option value="@f.Key">@f.DisplayName</option>
+                                }
+                            </select>
+                            <select class="we-input" value="@fl.Operador" @onchange="e => FiltroOperador(idx, fj, e.Value?.ToString())">
+                                @foreach (var op in OperadoresDe(campo))
+                                {
+                                    <option value="@op">@NombreOperador(op)</option>
+                                }
+                            </select>
+                            @if (campo?.Type == ReportFieldType.Boolean)
+                            {
+                                <select class="we-input" value="@fl.Valor" @onchange="e => FiltroValor(idx, fj, e.Value?.ToString(), false)">
+                                    <option value="">...</option>
+                                    <option value="true">Si</option>
+                                    <option value="false">No</option>
+                                </select>
+                            }
+                            else
+                            {
+                                <input class="we-input" type="@TipoInput(campo)" value="@fl.Valor" autocomplete="off"
+                                       placeholder="@(fl.Operador == ReportFilterOperator.In ? "a, b, c" : "valor")"
+                                       @onchange="e => FiltroValor(idx, fj, e.Value?.ToString(), false)" />
+                                @if (fl.Operador == ReportFilterOperator.Between)
+                                {
+                                    <input class="we-input" type="@TipoInput(campo)" value="@fl.Valor2"
+                                           @onchange="e => FiltroValor(idx, fj, e.Value?.ToString(), true)" />
+                                }
+                            }
+                            <button class="we-ico" title="Quitar filtro" @onclick="() => QuitarFiltro(idx, fj)">&#215;</button>
+                        </div>
+                    }
+                    <button class="we-link" @onclick="() => AgregarFiltro(idx, fuente)">+ Agregar filtro</button>
+                </details>
+            }
+        </div>
+    }
+
+    @if (Diseno.Series.Count < CombinadoDiseno.MaxSeries)
+    {
+        <button class="we-link" @onclick="AgregarSerie">+ Agregar serie</button>
+    }
+
+    <div class="cb-grid" style="margin-top:12px">
+        <div>
+            <label class="we-lbl">Comparar llaves como</label>
+            <select class="we-input" value="@Diseno.Llave" @onchange="e => Emitir(Diseno with { Llave = Enum.Parse<LlaveCombinado>(e.Value!.ToString()!) })">
+                <option value="@LlaveCombinado.Texto">Texto (sin tildes ni mayusculas)</option>
+                <option value="@LlaveCombinado.Nit">NIT (solo digitos, sin DV)</option>
+                <option value="@LlaveCombinado.Exacta">Exacta</option>
+            </select>
+        </div>
+        <div>
+            <label class="we-lbl">Filas</label>
+            <select class="we-input" value="@(Diseno.SoloComunes ? "1" : "0")" @onchange="CambiarComunes">
+                <option value="0">Todas las llaves (union)</option>
+                <option value="1">Solo las que estan en todas las series</option>
+            </select>
+        </div>
+    </div>
+
+    <label class="we-lbl">Formulas entre series</label>
+    @for (var i = 0; i < Diseno.Formulas.Count; i++)
+    {
+        var idx = i;
+        var f = Diseno.Formulas[idx];
+        var valida = FormulaSerie.EsValida(f.Expresion, Diseno.Series.Count);
+        <div class="cb-formula">
+            <input class="we-input" value="@f.Nombre" maxlength="60" placeholder="Nombre (ej. Conversion %)"
+                   @onchange="e => CambiarFormula(idx, f with { Nombre = e.Value?.ToString() ?? string.Empty })" />
+            <input class="we-input @(valida ? "" : "bad")" value="@f.Expresion" maxlength="200" placeholder="ej. B / A * 100"
+                   @onchange="e => CambiarFormula(idx, f with { Expresion = e.Value?.ToString() ?? string.Empty })" />
+            <button class="we-ico" title="Quitar formula" @onclick="() => QuitarFormula(idx)">&#215;</button>
+        </div>
+    }
+    @if (Diseno.Formulas.Count < CombinadoDiseno.MaxFormulas)
+    {
+        <button class="we-link" @onclick="AgregarFormula">+ Agregar formula</button>
+    }
+    <p class="we-hint">Las letras A-@(CombinadoDiseno.Letra(Math.Max(0, Diseno.Series.Count - 1))) son las series en orden. En el KPI se muestra la primera formula sobre los totales.</p>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ReportSourceDescriptor> Fuentes { get; set; } = Array.Empty<ReportSourceDescriptor>();
+
+    [Parameter, EditorRequired] public CombinadoDiseno Diseno { get; set; } = new();
+
+    [Parameter] public EventCallback<CombinadoDiseno> DisenoChanged { get; set; }
+
+    private Task Emitir(CombinadoDiseno d) => DisenoChanged.InvokeAsync(d);
+
+    private Task CambiarComunes(ChangeEventArgs e) => Emitir(Diseno with { SoloComunes = e.Value?.ToString() == "1" });
+
+    private Task CambiarSerie(int i, SerieCombinada s)
+    {
+        var lista = Diseno.Series.ToList();
+        lista[i] = s;
+        return Emitir(Diseno with { Series = lista });
+    }
+
+    private Task AgregarSerie() =>
+        Emitir(Diseno with { Series = Diseno.Series.Append(new SerieCombinada { Nombre = $"Serie {CombinadoDiseno.Letra(Diseno.Series.Count)}" }).ToList() });
+
+    private Task QuitarSerie(int i)
+    {
+        var lista = Diseno.Series.ToList();
+        lista.RemoveAt(i);
+        return Emitir(Diseno with { Series = lista });
+    }
+
+    private Task CambiarFormula(int i, FormulaCombinada f)
+    {
+        var lista = Diseno.Formulas.ToList();
+        lista[i] = f;
+        return Emitir(Diseno with { Formulas = lista });
+    }
+
+    private Task AgregarFormula() =>
+        Emitir(Diseno with { Formulas = Diseno.Formulas.Append(new FormulaCombinada(string.Empty, string.Empty)).ToList() });
+
+    private Task QuitarFormula(int i)
+    {
+        var lista = Diseno.Formulas.ToList();
+        lista.RemoveAt(i);
+        return Emitir(Diseno with { Formulas = lista });
+    }
+
+    // ---- Filtros por serie (acotan solo esa serie; se suman a los de la hoja en CombinadoDiseno.SpecDe) ----
+
+    private Task CambiarFiltros(int serie, IReadOnlyList<WidgetFiltroDiseno> filtros) =>
+        CambiarSerie(serie, Diseno.Series[serie] with { Filtros = filtros });
+
+    private Task AgregarFiltro(int serie, ReportSourceDescriptor fuente)
+    {
+        var primero = fuente.Fields.FirstOrDefault(f => f.CanFilter);
+        if (primero is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var nuevo = new WidgetFiltroDiseno(primero.Key, OperadoresDe(primero)[0], null);
+        return CambiarFiltros(serie, Diseno.Series[serie].Filtros.Append(nuevo).ToList());
+    }
+
+    private Task QuitarFiltro(int serie, int i)
+    {
+        var lista = Diseno.Series[serie].Filtros.ToList();
+        lista.RemoveAt(i);
+        return CambiarFiltros(serie, lista);
+    }
+
+    private Task SetFiltro(int serie, int i, WidgetFiltroDiseno f)
+    {
+        var lista = Diseno.Series[serie].Filtros.ToList();
+        lista[i] = f;
+        return CambiarFiltros(serie, lista);
+    }
+
+    private Task FiltroCampo(int serie, int i, string? campo, ReportSourceDescriptor fuente)
+    {
+        var key = campo ?? string.Empty;
+        return SetFiltro(serie, i, new WidgetFiltroDiseno(key, OperadoresDe(fuente.FindField(key))[0], null));
+    }
+
+    private Task FiltroOperador(int serie, int i, string? op) =>
+        Enum.TryParse<ReportFilterOperator>(op, out var o)
+            ? SetFiltro(serie, i, Diseno.Series[serie].Filtros[i] with { Operador = o })
+            : Task.CompletedTask;
+
+    private Task FiltroValor(int serie, int i, string? valor, bool segundo)
+    {
+        var f = Diseno.Series[serie].Filtros[i];
+        return SetFiltro(serie, i, segundo ? f with { Valor2 = valor } : f with { Valor = valor });
+    }
+
+    private static string TipoInput(ReportField? f) => f?.Type switch
+    {
+        ReportFieldType.Date => "date",
+        ReportFieldType.Number or ReportFieldType.Decimal => "number",
+        _ => "text"
+    };
+
+    private static ReportFilterOperator[] OperadoresDe(ReportField? f) => f?.Type switch
+    {
+        ReportFieldType.Boolean => new[] { ReportFilterOperator.Equals },
+        ReportFieldType.Date => new[] { ReportFilterOperator.Between, ReportFilterOperator.GreaterThanOrEqual, ReportFilterOperator.LessThanOrEqual },
+        ReportFieldType.Number or ReportFieldType.Decimal => new[]
+        {
+            ReportFilterOperator.Equals, ReportFilterOperator.GreaterThan, ReportFilterOperator.GreaterThanOrEqual,
+            ReportFilterOperator.LessThan, ReportFilterOperator.LessThanOrEqual, ReportFilterOperator.Between
+        },
+        _ => new[] { ReportFilterOperator.Equals, ReportFilterOperator.NotEquals, ReportFilterOperator.Contains, ReportFilterOperator.In }
+    };
+
+    private static string NombreOperador(ReportFilterOperator op) => op switch
+    {
+        ReportFilterOperator.Equals => "es",
+        ReportFilterOperator.NotEquals => "no es",
+        ReportFilterOperator.Contains => "contiene",
+        ReportFilterOperator.In => "es uno de",
+        ReportFilterOperator.GreaterThan => "mayor que",
+        ReportFilterOperator.GreaterThanOrEqual => "desde",
+        ReportFilterOperator.LessThan => "menor que",
+        ReportFilterOperator.LessThanOrEqual => "hasta",
+        ReportFilterOperator.Between => "entre",
+        _ => op.ToString()
+    };
+}

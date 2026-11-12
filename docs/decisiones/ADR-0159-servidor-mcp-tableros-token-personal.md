@@ -96,9 +96,32 @@ API de configuracion (alcance admin) a cualquier usuario.
   ambiguedad se responde con las opciones; `listar_campos_contacto` devuelve `clave_completa`.
 - Fuera de alcance: fusionar duplicados, importar contactos desde Excel por la IA.
 
+## Addendum 2026-11-12 - Autoria de flujos y formularios por la IA (v0.16.304)
+
+- La IA ahora CREA flujos y formularios nuevos desde el MCP (no solo opera tableros/tareas). 13 herramientas de
+  flujo nativas + el toolset de formularios existente puenteado. Total 40 herramientas.
+- Flujos (`TableroMcpToolset.Flujos.cs`, capa delgada sobre IWorkflowDesignService + IWorkflowEngine):
+  `listar_flujos`, `ver_flujo`, `crear_flujo`, `agregar_nodo`, `renombrar_nodo`, `conectar_nodos`,
+  `condicion_ruta`, `asignar_encargado_nodo`, `poner_formulario_a_nodo`, `eliminar_nodo` (destructiveHint),
+  `importar_bpmn`, `publicar_flujo`, `enganchar_flujo_a_concepto`. Los ids de nodo/arista se devuelven en cada
+  paso para encadenar. `enganchar_flujo_a_concepto` fija `actividad_subcategorias.workflow_definition_id` (unica
+  escritura directa, guardada: valida la definicion y avisa si no esta publicada).
+- Formularios: se PUENTEA el `IFormAuthoringToolset` (ADR-0067) tal cual (`TableroMcpToolset.Formularios.cs`),
+  que antes solo salia por el MCP de administracion (/api/mgmt, llave de admin, actor "Sistema"). Ahora esas
+  mismas herramientas (`create_form`, `apply_form_spec`, `add_container`, `add_question`, `activate`...) corren
+  COMO el usuario del token. Conservan sus nombres nativos. El error estructurado (`ok:false`) se mapea a error MCP.
+- Permisos: la autoria respeta la matriz de roles del usuario sobre los modulos `flujos` y `formularios`
+  (View para leer; Create para crear flujo/importar; Edit para disenar; Delete para `eliminar_nodo`). Owner/Admin
+  y usuarios sin rol = sin restriccion, igual que la pantalla (Flujos.Ver, Formularios.Disenar = View+Edit).
+- Auditoria: toda escritura (no readonly) se registra en `mcp.tableros.*` con el usuario como actor.
+- Pruebas duales (PG + SQL Server): construir un flujo completo (crear -> nodo -> conectar -> encargado por campo
+  -> formulario obligatorio -> publicar -> enganchar a concepto) y el gate de permisos flujos/formularios + el
+  mapeo del puente (corre como el usuario, ok:false -> error).
+
 ## Fuera de alcance (siguientes fases)
 
 - OAuth 2.1 (Authorization Server + metadata `/.well-known/oauth-protected-resource`) para ChatGPT/claude.ai.
-- Llenar formularios de paso desde la IA (hoy el motor lo exige y el usuario lo diligencia en la app).
+- Llenar formularios de paso (runtime) desde la IA (hoy el motor lo exige y el usuario lo diligencia en la app;
+  la AUTORIA de formularios ya la cubre este addendum).
 - Rate limiting por token y permisos finos por herramienta (p.ej. token de solo lectura).
 - Que un Owner/Admin vea y revoque los tokens personales de otros usuarios.

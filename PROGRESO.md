@@ -2,6 +2,33 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-12 - MCP: autoria de FLUJOS y FORMULARIOS por la IA (rama, release v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393). Peticion del usuario: usar el MCP no solo para
+  operar tableros/tareas sino para CREAR flujos nuevos y formularios nuevos desde la IA externa (su token `ecx_`).
+- DIAGNOSTICO (2 subagentes de mapeo): formularios YA tienen toolset de autoria completo (`FormAuthoringToolset`,
+  ADR-0067) y hasta un MCP (/api/mgmt) pero con llave de admin y actor "Sistema"; flujos NO tenian ninguna
+  autoria por MCP, solo los servicios `IWorkflowDesignService`/`IWorkflowEngine` que consume la pantalla /flujos.
+- HECHO (ASCII): (a) `TableroMcpToolset.Flujos.cs` - 13 herramientas nativas de autoria de flujos (crear, nodos,
+  conectar, condicion, encargado por campo/politica, formulario a nodo, publicar, enganchar a concepto, importar
+  BPMN, eliminar nodo), capa delgada sobre los dos servicios, devolviendo ids para encadenar. (b)
+  `TableroMcpToolset.Formularios.cs` - PUENTE del `IFormAuthoringToolset` existente (sus ~45 tools con nombre
+  nativo: create_form, apply_form_spec, add_container, add_question, activate...), mapeando `ok:false` -> error.
+  (c) Nucleo: el toolset recibe 3 servicios opcionales mas (IFormAuthoringToolset, IWorkflowDesignService,
+  IWorkflowEngine); GetSpecs/ReadOnlyTools/DestructiveTools pasan a armarse por instancia. Total 40 herramientas.
+- GOBIERNO: la autoria respeta los permisos del usuario sobre `flujos` y `formularios` (View/Create/Edit/Delete),
+  igual que la pantalla; Owner/Admin y sin-rol = sin restriccion. Toda escritura va a la auditoria `mcp.tableros.*`
+  con el usuario como actor y a la bitacora "(via IA)". `enganchar_flujo_a_concepto` es la unica escritura directa
+  (fija `actividad_subcategorias.workflow_definition_id`, guardada y con aviso si el flujo no esta publicado).
+- DECISION: flujos como partial NATIVO (espanol, reusa helpers, como el partial de Directorio) en vez de un
+  IAgentToolset nuevo (menos codigo, menor riesgo); formularios como PUENTE del toolset existente (no reinventar).
+- VERIFICADO: build Release solucion completa 0 errores; `dotnet test` matriz dual (PG + SQL Server) de
+  `McpTablerosTests` 16/16 incl. 2 nuevos (construir flujo completo crear->nodo->conectar->encargado->formulario
+  obligatorio->publicar->enganchar a concepto; y gate de permisos flujos/formularios + puente que corre como el
+  usuario y mapea ok:false). SIN deploy, SIN tocar tronco/main (solo mi rama).
+- SIGUIENTE: a la senal del usuario, prompt de integracion para dev principal (apila sobre main actual v0.16.303).
+  Fuera de alcance: OAuth (ChatGPT/claude.ai web) y LLENAR formularios de paso en runtime (la AUTORIA ya entro).
+
 ## 2026-11-11 - Fix transversal "se comen las letras / salta el cursor" en inputs Blazor Server (SIN commit/deploy)
 
 - AGENTE: Claude Opus 4.8. Reporte del usuario: campos que al teclear rapido pierden letras o mueven el cursor al inicio (otra sesion ya lo habia diagnosticado). Diagnostico preciso: el bug REAL en Blazor Server ocurre solo cuando (1) el handler TRANSFORMA el valor en cada tecla (mayus/trim/mascara), o (2) recarga pesada que setea el texto DESPUES de un await. Un `@bind:event="oninput"` plano NO come letras (el value renderizado == lo tecleado, Blazor no lo pisa); solo cuesta un round-trip por tecla.

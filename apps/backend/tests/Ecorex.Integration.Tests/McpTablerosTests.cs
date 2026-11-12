@@ -405,20 +405,139 @@ public abstract class McpTablerosTestsBase
         Assert.Null((await ctx.Terceros.AsNoTracking().SingleAsync(t => t.IdValor == "800100")).Ciudad);
     }
 
+    /// <summary>
+    /// Autoria de FLUJOS por la IA (addendum ADR-0159): crea un flujo nuevo, le agrega un paso, lo conecta,
+    /// le pone encargado por campo de formulario y un formulario obligatorio, lo publica y lo engancha a un
+    /// concepto para que las tareas lo arranquen. Capa delgada sobre IWorkflowDesignService / IWorkflowEngine.
+    /// </summary>
+    [Fact]
+    public async Task FlowAuthoring_BuildsConnectsPublishesAndHooksToConcept()
+    {
+        var seed = await SeedTenantAsync("Mcp Autoria Flujo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx);
+        var me = Actor(seed, owner: true);
+
+        // Un formulario activo (para vincular al paso) y un concepto (para enganchar el flujo al final).
+        var form = new FormDefinition { TenantId = seed.TenantId, Code = "F-APROB", Title = "Aprobacion", Status = FormStatus.Active };
+        var cat = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-9", Nombre = "Compras" };
+        ctx.FormDefinitions.Add(form);
+        ctx.ActividadCategorias.Add(cat);
+        await ctx.SaveChangesAsync();
+        var concepto = new ActividadSubcategoria { TenantId = seed.TenantId, CategoriaId = cat.Id, Codigo = "C-OC", Nombre = "Orden de compra" };
+        ctx.ActividadSubcategorias.Add(concepto);
+        await ctx.SaveChangesAsync();
+
+        // Crear el flujo: nace con inicio -> fin ya conectados.
+        var creado = Payload(await toolset.ExecuteAsync("crear_flujo", Args(new { nombre = "Aprobacion de compras", categoria = "Compras" }), me));
+        var defId = creado.GetProperty("definicion_id").GetGuid();
+        Guid NodeOf(JsonElement nodes, string tipo) =>
+            nodes.EnumerateArray().First(n => n.GetProperty("tipo").GetString() == tipo).GetProperty("nodo_id").GetGuid();
+        var inicio = NodeOf(creado.GetProperty("nodos"), "inicio");
+        var fin = NodeOf(creado.GetProperty("nodos"), "fin");
+
+        // Agregar un paso humano y encadenarlo inicio -> revisar -> fin.
+        var rev = Payload(await toolset.ExecuteAsync("agregar_nodo", Args(new { flujo = defId, tipo = "tarea", nombre = "Revisar" }), me))
+            .GetProperty("nodo_id").GetGuid();
+        Assert.False((await toolset.ExecuteAsync("conectar_nodos", Args(new { desde_nodo_id = inicio, hasta_nodo_id = rev }), me)).IsError);
+        Assert.False((await toolset.ExecuteAsync("conectar_nodos", Args(new { desde_nodo_id = rev, hasta_nodo_id = fin }), me)).IsError);
+
+        // Encargado tomado de un campo del formulario + formulario obligatorio para cerrar (ADR-0077).
+        Assert.False((await toolset.ExecuteAsync("asignar_encargado_nodo", Args(new { nodo_id = rev, origen = "campo_formulario", campo = "text_aprobador" }), me)).IsError);
+        Assert.False((await toolset.ExecuteAsync("poner_formulario_a_nodo", Args(new { nodo_id = rev, formulario = "F-APROB", obligatorio = true }), me)).IsError);
+
+        // El grafo refleja lo construido.
+        var canvas = Payload(await toolset.ExecuteAsync("ver_flujo", Args(new { flujo = defId }), me));
+        var revNode = canvas.GetProperty("nodos").EnumerateArray().First(n => n.GetProperty("nodo_id").GetGuid() == rev);
+        Assert.Equal("campo_formulario", revNode.GetProperty("encargado_origen").GetString());
+        Assert.Equal("text_aprobador", revNode.GetProperty("campo_encargado").GetString());
+        Assert.Contains(revNode.GetProperty("formularios").EnumerateArray(), f => f.GetProperty("obligatorio").GetBoolean());
+
+        // Un paso de inicio es unico: agregar otro inicio se rechaza (regla del servicio, no reimplementada).
+        Assert.True((await toolset.ExecuteAsync("agregar_nodo", Args(new { flujo = defId, tipo = "inicio" }), me)).IsError);
+
+        // Publicar y enganchar al concepto: queda listo para arrancar tareas.
+        var pub = await toolset.ExecuteAsync("publicar_flujo", Args(new { flujo = defId }), me);
+        Assert.False(pub.IsError, pub.Json);
+        var link = Payload(await toolset.ExecuteAsync("enganchar_flujo_a_concepto", Args(new { concepto = "C-OC", flujo = defId }), me));
+        Assert.True(link.GetProperty("publicado").GetBoolean());
+
+        var reloaded = await ctx.ActividadSubcategorias.AsNoTracking().SingleAsync(s => s.Id == concepto.Id);
+        Assert.Equal(defId, reloaded.WorkflowDefinitionId);
+        Assert.True(await ctx.WorkflowDefinitions.AsNoTracking().AnyAsync(d => d.Id == defId && d.IsPublished));
+    }
+
+    /// <summary>La IA respeta los permisos del usuario al CREAR flujos y formularios: un lector solo ve; sin
+    /// permiso de edicion no crea ni cambia. El puente de formularios reenvia al toolset existente COMO el usuario
+    /// y mapea sus errores estructurados (ok:false) a error del MCP.</summary>
+    [Fact]
+    public async Task AuthoringTools_RespectFlowAndFormPermissions_AndBridgeForms()
+    {
+        var seed = await SeedTenantAsync("Mcp Autoria Permisos");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var fakeForms = new FakeFormAuthoring();
+        var (_, _, toolset) = Build(ctx, tenantCtx, fakeForms);
+
+        // Owner (sin rol = sin restriccion) puede todo: crea un flujo y, por el puente, un formulario.
+        var owner = Actor(seed, owner: true);
+        var defId = Payload(await toolset.ExecuteAsync("crear_flujo", Args(new { nombre = "Flujo Owner" }), owner)).GetProperty("definicion_id").GetGuid();
+        Assert.False((await toolset.ExecuteAsync("create_form", Args(new { title = "Form Owner" }), owner)).IsError);
+        Assert.Contains(fakeForms.Calls, c => c.Tool == "create_form" && c.Actor == seed.OwnerPlatformId); // corre COMO el usuario
+        // Error estructurado del toolset de formularios (ok:false) => error del MCP.
+        Assert.True((await toolset.ExecuteAsync("create_form", Args(new { title = "x", fail = true }), owner)).IsError);
+
+        // Rol del miembro: solo Ver en flujos; Ver en formularios (sin Editar).
+        var rol = new Rol { TenantId = seed.TenantId, Name = "Consulta procesos" };
+        ctx.Roles.Add(rol);
+        ctx.RolPermisos.Add(new RolPermiso { TenantId = seed.TenantId, RolId = rol.Id, ModuleKey = "flujos", CanView = true });
+        ctx.RolPermisos.Add(new RolPermiso { TenantId = seed.TenantId, RolId = rol.Id, ModuleKey = "formularios", CanView = true });
+        var member = await ctx.TenantUsers.SingleAsync(u => u.Id == seed.MemberUserId);
+        member.RolId = rol.Id;
+        await ctx.SaveChangesAsync();
+        var reader = Actor(seed, owner: false);
+
+        // Ver si; crear/editar no (flujos).
+        Assert.False((await toolset.ExecuteAsync("listar_flujos", "{}", reader)).IsError);
+        Assert.False((await toolset.ExecuteAsync("ver_flujo", Args(new { flujo = defId }), reader)).IsError);
+        var crearDenied = await toolset.ExecuteAsync("crear_flujo", Args(new { nombre = "No permitido" }), reader);
+        Assert.True(crearDenied.IsError);
+        Assert.Contains("permiso", crearDenied.Json);
+        Assert.True((await toolset.ExecuteAsync("agregar_nodo", Args(new { flujo = defId, tipo = "tarea" }), reader)).IsError);
+
+        // Formularios: list (solo lectura) si; create_form (escritura) no, y NO llega al toolset.
+        var callsBefore = fakeForms.Calls.Count;
+        Assert.False((await toolset.ExecuteAsync("list_forms", "{}", reader)).IsError);
+        Assert.True((await toolset.ExecuteAsync("create_form", Args(new { title = "No" }), reader)).IsError);
+        Assert.DoesNotContain(fakeForms.Calls.Skip(callsBefore), c => c.Tool == "create_form");
+
+        // Las herramientas de autoria aparecen en el catalogo cuando sus servicios estan inyectados.
+        var specNames = toolset.GetSpecs().Select(s => s.Name).ToHashSet();
+        Assert.Contains("crear_flujo", specNames);
+        Assert.Contains("create_form", specNames);
+        Assert.Contains("enganchar_flujo_a_concepto", specNames);
+        Assert.DoesNotContain("create_form", toolset.ReadOnlyTools); // escritura: se audita
+        Assert.Contains("list_forms", toolset.ReadOnlyTools);        // lectura: no se audita
+    }
+
     // ---- Helpers ----
 
-    private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(EcorexDbContext ctx, ITenantContext tenantCtx)
+    private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
+        EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
         var boards = new ActivityBoardService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), tasks, new AuditWriter(ctx), new NodeAssigneeResolver(ctx),
             _fixture.CreateFactory(tenantCtx.TenantId));
-        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, new WorkflowDesignService(ctx, engine), new NoOpAgentStepRunner());
+        var flowDesign = new WorkflowDesignService(ctx, engine);
+        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, flowDesign, new NoOpAgentStepRunner());
         var tenant = tenantCtx;
         var terceros = new TerceroService(ctx, _fixture.CreateFactory(tenant.TenantId), tenant, new DirectoryVariantService(ctx, tenant),
             new DataLookupService(ctx, new DataContainerService(ctx, tenant)));
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
-            new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)));
+            new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
+            forms, flowDesign, engine);
         return (boards, engine, toolset);
     }
 
@@ -468,6 +587,32 @@ public abstract class McpTablerosTestsBase
     {
         public Guid? TenantId { get; } = tenantId;
         public Guid? UserId { get; } = userId;
+    }
+
+    /// <summary>Doble del toolset de autoria de formularios: el toolset REAL (ADR-0067) ya tiene sus pruebas;
+    /// aqui se verifica SOLO el puente del MCP (permiso, "corre como el usuario" y mapeo de ok:false a error).</summary>
+    private sealed class FakeFormAuthoring : IFormAuthoringToolset
+    {
+        public string GroupKey => "form-authoring";
+        public string GroupLabel => "Autoria de formularios";
+        public List<(string Tool, Guid Actor)> Calls { get; } = new();
+        public IReadOnlySet<string> ReadOnlyTools { get; } = new HashSet<string>(StringComparer.Ordinal) { "list_forms" };
+
+        public IReadOnlyList<AiToolSpec> GetSpecs() => new AiToolSpec[]
+        {
+            new("list_forms", "lista formularios", """{"type":"object","properties":{},"additionalProperties":false}"""),
+            new("create_form", "crea un formulario", """{"type":"object","properties":{"title":{"type":"string"},"fail":{"type":"boolean"}},"additionalProperties":false}"""),
+        };
+
+        public Task<AgentToolResult> ExecuteAsync(string toolName, string argumentsJson, Guid actorUserId, bool autonomous, CancellationToken cancellationToken = default)
+        {
+            Calls.Add((toolName, actorUserId));
+            var fail = argumentsJson.Contains("\"fail\":true", StringComparison.Ordinal);
+            var json = fail
+                ? "{\"ok\":false,\"error\":\"forzado\"}"
+                : "{\"ok\":true,\"tool\":\"" + toolName + "\"}";
+            return Task.FromResult(new AgentToolResult(json, false));
+        }
     }
 }
 

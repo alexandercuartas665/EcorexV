@@ -127,6 +127,13 @@ builder.Services.AddAuthorizationBuilder()
         .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("proyectos", Ecorex.Application.Roles.PermissionAction.View)))
     .AddPolicy("Flujos.Ver", p => p.RequireClaim("tenant_id")
         .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("flujos", Ecorex.Application.Roles.PermissionAction.View)))
+    // Lineas WhatsApp y Conversaciones: antes solo [Authorize] (la URL directa entraba aunque el menu las ocultara).
+    // Route-keys sembradas en DatabaseSeeder (seccion Infraestructura IA). Las acciones finas (crear/editar/eliminar)
+    // se resuelven dentro de cada pagina con ICurrentPermissions.
+    .AddPolicy("Lineas.Ver", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("lineas", Ecorex.Application.Roles.PermissionAction.View)))
+    .AddPolicy("Conversaciones.Ver", p => p.RequireClaim("tenant_id")
+        .AddRequirements(new Ecorex.SuperAdmin.Auth.PermissionRequirement("conversaciones", Ecorex.Application.Roles.PermissionAction.View)))
     // ADR-0038: la policy "MisPasos.Ver" y la pagina /mis-pasos fueron RETIRADAS. El runtime de
     // flujos vive en el detalle de la tarea; los pasos pendientes se descubren en el tablero.
     // COMPUESTA (AND): disenar formularios exige ver Y editar el modulo formularios.

@@ -1,5 +1,12 @@
 @page "/conversaciones"
-@attribute [Authorize]
+@* Permiso del modulo "conversaciones" (antes solo [Authorize]: la URL directa entraba aunque el menu la ocultara).
+   Ver = entrar y leer; Crear = enviar (texto, adjuntos, ubicacion, pregrabados); Editar = archivar, soportes,
+   llevar a pipeline, reiniciar memoria del agente, gestionar pregrabados; Eliminar = borrar mensaje para todos y
+   vaciar historial. Owner/Admin y sin rol = sin restriccion. *@
+@attribute [Authorize(Policy = "Conversaciones.Ver")]
+@using Ecorex.Application.Roles
+@using Ecorex.SuperAdmin.Auth
+@inject ICurrentPermissions Perms
 @* prerender:false: el chat usa SignalR y DbContext scoped; evitamos doble ejecucion SSR + circuito. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Security.Claims
@@ -31,10 +38,13 @@
         <h1 class="page-title" style="margin-top:12px;">Bandeja <span>unificada</span></h1>
         <p class="page-sub" style="margin-bottom:0;">WhatsApp multi-linea con asignacion de asesores, contexto del lead y sugerencias del copiloto.</p>
     </div>
+    @if (_canDelete)
+    {
     <button class="btn btn-outline-danger" style="align-self:flex-start;white-space:nowrap;" @onclick="OpenClearModal" title="Borra todas las conversaciones y mensajes de la empresa">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
         Vaciar historial
     </button>
+    }
 </div>
 
 @if (_clearDone is not null)
@@ -71,7 +81,11 @@
                             }
                         </div>
                         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
-                            @if (_supportRouteId == item.MessageId)
+                            @if (!_canEdit)
+                            {
+                                <span class="text-muted" style="font-size:12px;">Solo lectura: sin permiso para archivar soportes.</span>
+                            }
+                            else if (_supportRouteId == item.MessageId)
                             {
                                 <input class="form-control form-control-sm" style="max-width:260px;" @bind="_supportTarget" placeholder="Numero de tarea (ej. T00451)" />
                                 <button class="btn btn-sm btn-primary" @onclick="@(() => RouteSupportAsync(item.MessageId))" disabled="@_supportBusy">Archivar</button>
@@ -145,6 +159,8 @@ else
                                     }
                                 </span>
                             </span>
+                            @if (_canEdit)
+                            {
                             <span class="cv-item-arch" role="button" title="@(_showArchived ? "Restaurar" : "Archivar")"
                                   @onclick="() => ArchiveAsync(c, !_showArchived)" @onclick:stopPropagation="true">
                                 @if (_showArchived)
@@ -156,6 +172,7 @@ else
                                     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
                                 }
                             </span>
+                            }
                         </button>
                     }
                 }
@@ -182,17 +199,20 @@ else
                         <div class="cv-th-name">@(_active.ContactName ?? _active.ContactPhone)</div>
                         <div class="cv-th-sub">@MaskPhone(_active.ContactPhone) &middot; @LineLabel(_active.WhatsAppLineId)</div>
                     </div>
-                    @if (_activeLead is null)
+                    @if (_activeLead is null && _canEdit)
                     {
                         <button class="btn btn-primary btn-sm" @onclick="OpenConvert" title="Crear un lead en el embudo a partir de esta conversacion">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
                             Llevar a Pipeline
                         </button>
                     }
+                    @if (_canEdit)
+                    {
                     <button class="btn btn-outline-secondary btn-sm" @onclick="ResetAgentContextAsync"
                             title="Reinicia la memoria del agente para este contacto SIN borrar los mensajes: arranca de cero en el siguiente mensaje, pero el historial del chat se conserva. No toca el lead.">
                         Reiniciar memoria
                     </button>
+                    }
                     @if (_lines.Count > 1)
                     {
                         <select class="cv-line-select" @bind="_lineId" title="Linea para responder">
@@ -259,7 +279,7 @@ else
                                             @DeliveryGlyph(m.DeliveryStatus)
                                         </span>
                                     }
-                                    @if (m.Direction == MessageDirection.Outbound)
+                                    @if (m.Direction == MessageDirection.Outbound && _canDelete)
                                     {
                                         <button class="cv-msg-del" title="Eliminar para todos" @onclick="() => OpenDeleteMsg(m)">
                                             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -275,6 +295,14 @@ else
                     }
                 </div>
 
+                @if (!_canCreate)
+                {
+                    <div class="cv-composer">
+                        <div class="text-muted small">Solo lectura: tu usuario no tiene permiso para enviar mensajes en Conversaciones.</div>
+                    </div>
+                }
+                else
+                {
                 <div class="pl-chat-quick">
                     <div class="pl-qr-head">
                         <span>Mensajes pregrabados</span>
@@ -283,7 +311,10 @@ else
                             {
                                 <button class="pl-qr-tab @(cat.Key == _qrCategory ? "active" : "")" @onclick="() => _qrCategory = cat.Key">@cat.Label</button>
                             }
-                            <button class="pl-qr-tab" style="border:1px solid var(--border);" @onclick="OpenTemplateManager" title="Crear/editar pregrabados">+ Gestionar</button>
+                            @if (_canEdit)
+                            {
+                                <button class="pl-qr-tab" style="border:1px solid var(--border);" @onclick="OpenTemplateManager" title="Crear/editar pregrabados">+ Gestionar</button>
+                            }
                         </div>
                     </div>
                     <div class="pl-qr-list">
@@ -369,6 +400,7 @@ else
                         </button>
                     </div>
                 </div>
+                }
             }
         </div>
 
@@ -778,8 +810,18 @@ else
     private string? _locLng;
     private string? _locError;
 
+    // Permisos del modulo "conversaciones" (por defecto NADA hasta resolverlos).
+    private const string ModuleKey = "conversaciones";
+    private bool _canCreate;
+    private bool _canEdit;
+    private bool _canDelete;
+
     protected override async Task OnInitializedAsync()
     {
+        var eff = await Perms.GetAsync();
+        _canCreate = eff.Can(ModuleKey, PermissionAction.Create);
+        _canEdit = eff.Can(ModuleKey, PermissionAction.Edit);
+        _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
         if (AuthState is not null)
         {
             var state = await AuthState;

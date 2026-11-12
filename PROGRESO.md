@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-13 - Seguridad: /lineas y /conversaciones exigen el permiso del modulo (rama, v0.16.309, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Hallazgo al mapear WhatsApp/Evolution para el MCP:
+  las paginas `Lineas.razor` y `Conversaciones.razor` solo tenian `[Authorize]`; el menu las ocultaba por perfil pero
+  la URL directa entraba (cualquier usuario del tenant veia TODAS las conversaciones y podia enviar o vaciar historial).
+- HECHO: policies `Lineas.Ver` y `Conversaciones.Ver` en `Program.cs` (PermissionRequirement modulo `lineas` /
+  `conversaciones`, View) aplicadas a las paginas. Acciones finas con ICurrentPermissions: Lineas -> Crear = conectar
+  linea; Editar = conectar/desconectar/renombrar/probar envio + acordeon Avanzado (servidor y webhook); Eliminar =
+  borrar linea. Conversaciones -> Crear = enviar (texto, adjuntos, ubicacion, pregrabados; sin permiso queda aviso de
+  solo lectura); Editar = archivar, soportes, llevar a pipeline, reiniciar memoria, gestionar pregrabados; Eliminar =
+  borrar mensaje para todos y vaciar historial. Flags en false hasta resolver. Regla B2 intacta (Owner/Admin y sin rol
+  = sin restriccion). En Blazor Server un boton no renderizado no tiene manejador invocable: ocultar = control real.
+- VERIFICADO E2E (rama en local, BD 5442): usuario con rol SIN `conversaciones`/`lineas` (OPERATIVO1) -> ambas rutas lo
+  devuelven al login, y una ruta permitida (/actividades) si abre; usuario con SOLO Ver (simple@sky-system.local) ->
+  entra a ambas en solo lectura (sin Conectar linea, Avanzado, Editar, Eliminar ni Vaciar historial); Owner -> ve
+  todo (sin regresion). Build Debug SuperAdmin 0 errores.
+- SIGUIENTE: integracion a main por dev principal. NO desplegar sin senal del usuario.
+
 ## 2026-11-12 - Integracion a main de la rama MCP autoria de flujos y formularios (release v0.16.308, SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-autoria-flujos-formularios` (06ed1742 + 676c74de, base 81b25104) sobre el tronco v0.16.307. Conflictos solo en AppVersion.cs (rama 0.16.304 -> renumerado a 0.16.308) y en esta bitacora (se conservan las entradas de ambos lados).

@@ -35,13 +35,28 @@ public interface IChatService
     Task<IReadOnlyDictionary<string, LeadChatStateDto>> GetUnansweredByPhoneAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Envia un mensaje por una linea WhatsApp (Evolution real) y lo persiste como saliente.</summary>
-    Task<ChatSendResult> SendViaLineAsync(Guid conversationId, Guid lineId, string body, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<ChatSendResult> SendViaLineAsync(Guid conversationId, Guid lineId, string body, Guid actorUserId, CancellationToken cancellationToken = default, string? senderLabel = null);
 
     /// <summary>Envia un adjunto (imagen/video/audio/documento) por una linea y lo persiste. base64 va a Evolution; localUrl se guarda para mostrar.</summary>
-    Task<ChatSendResult> SendMediaViaLineAsync(Guid conversationId, Guid lineId, Domain.Enums.MessageMediaType mediaType, string base64, string localUrl, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<ChatSendResult> SendMediaViaLineAsync(Guid conversationId, Guid lineId, Domain.Enums.MessageMediaType mediaType, string base64, string localUrl, string? mimeType, string? fileName, string? caption, Guid actorUserId, CancellationToken cancellationToken = default, string? senderLabel = null);
 
     /// <summary>Envia una ubicacion por una linea y la persiste.</summary>
-    Task<ChatSendResult> SendLocationViaLineAsync(Guid conversationId, Guid lineId, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default);
+    Task<ChatSendResult> SendLocationViaLineAsync(Guid conversationId, Guid lineId, double latitude, double longitude, string? name, Guid actorUserId, CancellationToken cancellationToken = default, string? senderLabel = null);
+
+    /// <summary>
+    /// MCP de WhatsApp (ADR-0164): conversacion de (linea, telefono) con la MISMA busqueda que la ingesta del webhook
+    /// (formas equivalentes del MSISDN, la mas activa); si no existe la crea ligada a la linea. Null si el telefono
+    /// no es valido o no hay tenant.
+    /// </summary>
+    Task<ConversationDto?> GetOrCreateForLineAsync(Guid lineId, string phone, string? contactName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// MCP de WhatsApp (ADR-0164): registra en la conversacion un saliente que YA se envio por Evolution fuera de
+    /// SendViaLine (encuesta, lista, contacto, sticker, respuesta citada...). Queda con autor humano (el agente cede
+    /// el turno), se difunde por SignalR y aparece en Conversaciones. Null si la conversacion no existe.
+    /// </summary>
+    Task<MessageDto?> RecordOutboundAsync(Guid conversationId, Guid lineId, string body, string messageType, string? externalId,
+        Guid actorUserId, string? senderLabel, CancellationToken cancellationToken = default);
 
     // ADR-0125 v2: BANDEJA de soportes sin tarea (adjuntos del cliente que el ruteo no pudo asignar).
     /// <summary>Soportes pendientes (adjuntos del cliente sin tarea destino), mas recientes primero.</summary>

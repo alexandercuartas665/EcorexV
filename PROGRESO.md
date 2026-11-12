@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-13 (b) - MCP de WhatsApp POR LINEA Evolution API (ADR-0164, rama, v0.16.310, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Peticion: un MCP que de "todo el poder" de Evolution
+  API (enviar, leer, contactos, grupos...) para cada linea Evolution, configurado desde el modulo de Lineas, con varias
+  lineas conectadas. Alcance elegido por el usuario: las 3 fases; acceso por permiso.
+- DIAGNOSTICO: catalogo real de Evolution v2.3.7 (~95 endpoints, de los archivos de rutas del repo de Evolution) vs ~13
+  usados por el sistema; lineas comparten servidor+llave del tenant e instancia derivada `ecorex_{tenant}_{linea}`; el
+  webhook descarta fromMe y grupos; SARA cede el turno si el ultimo saliente tiene autor humano.
+- HECHO: `POST /api/mcp/whatsapp/{lineId}` (un servidor por linea, token personal nuevo `mcp:whatsapp`, sin migracion),
+  `WhatsAppMcpToolset` (36 herramientas: lectura, envio de todo tipo, gestion de chats/etiquetas/agente/Directorio,
+  grupos completos, perfil/privacidad/reinicio de la linea), puerta generica `EvolutionCallAsync` (resuelve servidor +
+  llave + instancia, filtro global), envios 1:1 por IChatService ("Usuario (via IA)", SARA cede) y registro de los
+  envios directos (`RecordOutboundAsync`), conversacion por linea (`GetOrCreateForLineAsync`, misma llave que la
+  ingesta). Salvaguardas: primer contacto confirmado, limite 20/min y 300/h por linea, 1 destinatario. Media anti-SSRF
+  (IP validada al conectar, sin redirecciones). Host JSON-RPC comun (`McpJsonRpcHost`) y bloques comunes
+  (`McpClientSnippets`); /conectar-ia muestra el servidor de cada token. /lineas -> "Configurar MCP" por linea.
+- EXCLUIDO a proposito: logout/borrar/crear instancia, webhook, proxy, settings (romperian Conversaciones y SARA).
+- VERIFICADO: build Debug solucion 0 errores; `McpWhatsAppTests` dual PG+SQL Server 18/18 contra el conector REAL y
+  `McpTablerosTests` 20/20 (sin regresion tras mover el host). En vivo (local, linea temporal propia en BITCODE, luego
+  borrada): modal, token, initialize, tools/list 36 sin problemas, 404/401 correctos, tableros sigue en 83. No se llamo
+  a Evolution real (la unica linea Evolution local es de AGRO).
+- SIGUIENTE: integracion a main por dev principal (la rama incluye el commit de permisos v0.16.309). Fuera de alcance:
+  ingerir grupos/fromMe/acuses en el webhook, interruptor de MCP por linea, limite en Redis si hay varias instancias.
+
 ## 2026-11-13 - Seguridad: /lineas y /conversaciones exigen el permiso del modulo (rama, v0.16.309, SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Hallazgo al mapear WhatsApp/Evolution para el MCP:

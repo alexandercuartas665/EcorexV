@@ -13,6 +13,8 @@
 @inject IWhatsAppConnectorService ConnectorSvc
 @inject IWebhookAdminService WebhookSvc
 @inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>Lineas WhatsApp - ECOREX.tareas</PageTitle>
 
@@ -266,6 +268,11 @@ else
                                     }
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => RefreshAsync(l.Id)" disabled="@_busy">Actualizar</button>
                                 }
+                                @if (l.Provider == WhatsAppProvider.Evolution)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenMcpAsync(l)" disabled="@_busy"
+                                            title="Conectar una IA (Claude, Codex, Gemini) a esta linea por MCP">Configurar MCP</button>
+                                }
                                 @if (_canEdit)
                                 {
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenRename(l)" disabled="@_busy" title="Editar nombre">Editar</button>
@@ -448,6 +455,109 @@ else
 }
 
 @* ===== Modal: renombrar linea ===== *@
+@* ===== MCP de WhatsApp de la linea (ADR-0164): URL propia + token personal + configuraciones por cliente ===== *@
+@if (_mcpLine is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:760px;">
+            <div class="modal-head">
+                <h3>Conectar IA a la linea @_mcpLine.InstanceName</h3>
+                <button class="modal-close" @onclick="CloseMcp">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height:70vh;overflow:auto;">
+                <p style="font-size:12.5px;color:var(--muted-foreground);margin-top:0;">
+                    Con este MCP una IA (Claude, Codex, Gemini) lee y envia mensajes, gestiona chats, etiquetas y grupos de
+                    ESTA linea actuando con TU usuario: solo puede lo que tus permisos de Conversaciones y Lineas permiten,
+                    lo que envie queda en Conversaciones a tu nombre "(via IA)" y el agente SARA deja de responder ese chat.
+                </p>
+                @if (_mcpLine.Status != WhatsAppLineStatus.Connected)
+                {
+                    <div class="text-warning" style="font-size:12px;margin-bottom:10px;">La linea no esta conectada: conectala para que la IA pueda operar.</div>
+                }
+
+                <label class="form-label" style="font-size:12px;font-weight:700;">Direccion del servidor MCP de esta linea</label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+                    <code style="background:var(--muted);padding:4px 10px;border-radius:7px;font-size:12px;word-break:break-all;">@McpUrl</code>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => CopyAsync(McpUrl)">Copiar</button>
+                </div>
+
+                @if (_mcpTenantUserId is null)
+                {
+                    <div class="text-muted" style="font-size:12.5px;">Tu sesion no tiene un usuario de empresa asociado.</div>
+                }
+                else
+                {
+                    <label class="form-label" style="font-size:12px;font-weight:700;">Nuevo token de WhatsApp</label>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <input class="form-control" style="max-width:340px;" maxlength="150" @bind="_mcpTokenName" />
+                        <button class="btn btn-primary" disabled="@_mcpBusy" @onclick="IssueMcpTokenAsync">@(_mcpBusy ? "Generando..." : "Generar token")</button>
+                    </div>
+                    @if (_mcpError is not null)
+                    {
+                        <div class="text-danger" style="font-size:12px;margin-top:8px;">@_mcpError</div>
+                    }
+
+                    @if (_mcpPlain is not null)
+                    {
+                        <div style="margin-top:14px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--muted);">
+                            <div style="font-weight:700;font-size:13px;margin-bottom:6px;">Tu token (se muestra SOLO esta vez)</div>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                                <code style="padding:4px 10px;border-radius:7px;font-size:12px;word-break:break-all;background:var(--card, #fff);">@_mcpPlain</code>
+                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => CopyAsync(_mcpPlain!)">Copiar</button>
+                            </div>
+                            @foreach (var (title, snippet) in Ecorex.SuperAdmin.Endpoints.McpClientSnippets.Build(McpServerName, McpUrl, _mcpPlain))
+                            {
+                                <label class="form-label" style="font-size:12px;font-weight:700;">@title</label>
+                                <div style="position:relative;margin-bottom:10px;">
+                                    <pre style="background:var(--card, #fff);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;white-space:pre-wrap;overflow:auto;margin:0;">@snippet</pre>
+                                    <button class="btn btn-outline-secondary btn-sm" style="position:absolute;top:6px;right:6px;" @onclick="() => CopyAsync(snippet)">Copiar</button>
+                                </div>
+                            }
+                            <p class="text-muted" style="font-size:11px;margin:0;">
+                                Guardalo como una clave. El token sirve para el MCP de WhatsApp de las lineas que tu usuario puede usar;
+                                la URL elige la linea. Si lo pierdes, revocalo y genera otro.
+                            </p>
+                        </div>
+                    }
+
+                    <div style="font-weight:700;font-size:13px;margin:18px 0 6px;">Mis tokens de WhatsApp</div>
+                    @if (_mcpTokens.Count == 0)
+                    {
+                        <div class="text-muted" style="font-size:12.5px;">Aun no has creado tokens de WhatsApp.</div>
+                    }
+                    else
+                    {
+                        <table class="table" style="margin:0;font-size:12.5px;">
+                            <thead><tr><th>Nombre</th><th>Creado</th><th>Ultimo uso</th><th>Estado</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var tk in _mcpTokens)
+                                {
+                                    var tok = tk;
+                                    <tr>
+                                        <td>@tok.Name</td>
+                                        <td>@tok.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")</td>
+                                        <td>@(tok.LastUsedAt is { } lu ? lu.LocalDateTime.ToString("dd MMM yyyy HH:mm") : "Nunca")</td>
+                                        <td><span class="badge bg-@(tok.IsActive ? "success" : "secondary")">@(tok.IsActive ? "Activo" : "Revocado")</span></td>
+                                        <td style="text-align:right;">
+                                            @if (tok.IsActive)
+                                            {
+                                                <button class="btn btn-outline-danger btn-sm" disabled="@_mcpBusy" @onclick="() => RevokeMcpTokenAsync(tok.Id)">Revocar</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                }
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" @onclick="CloseMcp">Listo</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_renameLineId is not null)
 {
     <div class="modal-overlay">
@@ -552,6 +662,96 @@ else
         _canDelete = eff.Can(ModuleKey, PermissionAction.Delete);
         await ReloadAsync();
         _loading = false;
+    }
+
+    // ===== MCP de WhatsApp por linea (ADR-0164) =====
+    private WhatsAppLineDto? _mcpLine;
+    private string? _mcpPlain;
+    private string _mcpTokenName = string.Empty;
+    private string? _mcpError;
+    private bool _mcpBusy;
+    private Guid? _mcpTenantUserId;
+    private Guid _mcpTenantId;
+    private Guid _mcpActorId;
+    private List<Ecorex.Application.Mcp.PersonalTokenDto> _mcpTokens = new();
+
+    private string McpUrl => _mcpLine is null ? string.Empty : Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.UrlFor(Nav.BaseUri, _mcpLine.Id);
+
+    private string McpServerName => Ecorex.SuperAdmin.Endpoints.McpClientSnippets.Slug("whatsapp", _mcpLine?.InstanceName);
+
+    private async Task OpenMcpAsync(WhatsAppLineDto line)
+    {
+        _mcpLine = line;
+        _mcpPlain = null;
+        _mcpError = null;
+        _mcpTokenName = $"WhatsApp {line.InstanceName} - IA";
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _mcpTenantId);
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _mcpActorId);
+        }
+        _mcpTenantUserId = null;
+        if (_mcpTenantId != Guid.Empty && _mcpActorId != Guid.Empty)
+        {
+            using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_mcpTenantId, _mcpActorId);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Common.IApplicationDbContext>();
+            _mcpTenantUserId = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+                db.TenantUsers.Where(u => u.PlatformUserId == _mcpActorId).Select(u => (Guid?)u.Id));
+            await LoadMcpTokensAsync(scope.ServiceProvider);
+        }
+    }
+
+    private void CloseMcp()
+    {
+        _mcpLine = null;
+        _mcpPlain = null; // el token en claro no se conserva al cerrar
+    }
+
+    private async Task LoadMcpTokensAsync(IServiceProvider sp)
+    {
+        if (_mcpTenantUserId is not Guid me) { return; }
+        var svc = sp.GetRequiredService<Ecorex.Application.Mcp.IPersonalAccessTokenService>();
+        _mcpTokens = (await svc.ListMineAsync(me))
+            .Where(t => t.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMcpWhatsApp).ToList();
+    }
+
+    private async Task IssueMcpTokenAsync()
+    {
+        if (_mcpTenantUserId is not Guid me) { return; }
+        _mcpBusy = true; _mcpError = null; _mcpPlain = null;
+        try
+        {
+            using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_mcpTenantId, _mcpActorId);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var svc = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Mcp.IPersonalAccessTokenService>();
+            var issued = await svc.IssueAsync(me, _mcpActorId, _mcpTokenName, Ecorex.Domain.Entities.TenantApiToken.ScopeMcpWhatsApp);
+            _mcpPlain = issued.PlainToken;
+            await LoadMcpTokensAsync(scope.ServiceProvider);
+        }
+        catch (InvalidOperationException ex) { _mcpError = ex.Message; }
+        finally { _mcpBusy = false; }
+    }
+
+    private async Task RevokeMcpTokenAsync(Guid tokenId)
+    {
+        if (_mcpTenantUserId is not Guid me) { return; }
+        _mcpBusy = true;
+        try
+        {
+            using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_mcpTenantId, _mcpActorId);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var svc = scope.ServiceProvider.GetRequiredService<Ecorex.Application.Mcp.IPersonalAccessTokenService>();
+            await svc.RevokeAsync(me, _mcpActorId, tokenId);
+            await LoadMcpTokensAsync(scope.ServiceProvider);
+        }
+        finally { _mcpBusy = false; }
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch (JSException) { }
     }
 
     private async Task ReloadAsync()

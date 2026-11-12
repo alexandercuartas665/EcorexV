@@ -334,6 +334,8 @@ public static class DependencyInjection
         // NO se registra como IAgentToolset: no entra al catalogo de los agentes internos ni al MCP de /api/mgmt.
         services.AddScoped<Mcp.IPersonalAccessTokenService, Mcp.PersonalAccessTokenService>();
         services.AddScoped<Mcp.ITableroMcpToolset, Mcp.TableroMcpToolset>();
+        // ADR-0164: MCP de WhatsApp por linea Evolution (token personal mcp:whatsapp).
+        services.AddScoped<Mcp.IWhatsAppMcpToolset, Mcp.WhatsAppMcpToolset>();
         services.AddScoped<Tenancy.TasksToolset>();
         services.AddScoped<Tenancy.ITasksToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());

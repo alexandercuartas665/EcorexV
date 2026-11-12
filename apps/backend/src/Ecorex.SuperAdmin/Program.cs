@@ -2380,6 +2380,7 @@ Ecorex.SuperAdmin.Endpoints.ConfigApiEndpoints.MapConfigApiEndpoints(app);
 
 // Servidor MCP de TABLEROS para IAs externas (ADR-0159): token PERSONAL por usuario (emitido en /conectar-ia).
 Ecorex.SuperAdmin.Endpoints.McpTablerosEndpoints.MapMcpTablerosEndpoints(app);
+Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.MapMcpWhatsAppEndpoints(app);
 app.MapOpenApi();
 
 app.Run();

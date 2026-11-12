@@ -14,6 +14,10 @@
 |---|---|---|---|---|---|
 | MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **83** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
+| MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
+
+Actualizacion 2026-11-13 (v0.16.310, rama `claude/mcp-whatsapp-evolution`): tercer servidor, el de WhatsApp por linea
+(seccion 2b). Los dos servidores personales comparten host JSON-RPC (`McpJsonRpcHost`) y bloques de configuracion.
 
 Ademas, los 8 toolsets del MCP de administracion son los MISMOS que usan los agentes internos (SARA/WhatsApp,
 `AiInferenceService`), filtrados por agente (`AiAgent.DisabledToolsJson`).
@@ -126,6 +130,26 @@ no se expone sola):
 
 ---
 
+## 2b. MCP de WHATSAPP por linea Evolution - `/api/mcp/whatsapp/{lineId}` (ADR-0164)
+
+- Un servidor por linea (en el cliente: `whatsapp-ventas`, `whatsapp-soporte`...). URL, token y bloques por cliente en
+  /lineas -> "Configurar MCP". La linea se resuelve con el filtro global (otra empresa -> 404). Nunca expone llaves.
+- Envios 1:1 por la capa de chat: quedan en Conversaciones a nombre "Usuario (via IA)" y SARA cede el turno.
+- Salvaguardas: 1 destinatario por llamada; primer contacto solo con `primer_contacto_confirmado=true`; 20 envios/min y
+  300/hora por linea; estados exigen `para_todos` o lista. Media por https publica (anti-SSRF, 16 MB) o base64 (2 MB).
+- Permisos: modulo `conversaciones` (Ver/Crear/Editar/Eliminar) y `lineas` (perfil, privacidad, reinicio).
+
+| Grupo | Herramientas | Permiso |
+|---|---|---|
+| Lectura (R) | estado_linea, listar_chats, leer_mensajes, buscar_contactos, verificar_numeros, ver_perfil_contacto, descargar_media (la IA ve/oye el archivo), listar_grupos, ver_grupo, listar_etiquetas, catalogo_business | conversaciones Ver |
+| Envio (W) | enviar_texto (con cita), enviar_media (imagen, video, documento, nota de voz, sticker, video_nota), enviar_ubicacion, enviar_contacto, enviar_encuesta, enviar_lista, publicar_estado, reaccionar, escribiendo | conversaciones Crear |
+| Gestion (W) | editar_mensaje, marcar_leido, gestionar_chat (archivar, no leido, bloquear), etiquetar_chat, pausar_agente / reanudar_agente (lista negra), guardar_contacto (Directorio) | conversaciones Editar (guardar_contacto: crear persona en Directorio) |
+| Grupos (W) | crear_grupo, editar_grupo, participantes_grupo, invitacion_grupo | conversaciones Editar |
+| Destructivas (D) | borrar_mensaje, salir_grupo | conversaciones Eliminar |
+| Linea (W) | perfil_linea, privacidad_linea (ver = Ver), reiniciar_linea | lineas Editar |
+
+Excluido a proposito: logout, borrar/crear instancia, webhook, proxy, settings, llamadas, plantillas Cloud API.
+
 ## 3. MCP de ADMINISTRACION - `/api/mgmt/agent/mcp` (ADR-0067)
 
 - Expone TODOS los `IAgentToolset` registrados. Gate: env `ECOREX_MGMT_API_KEY` (vacia -> endpoint 404), header
@@ -187,7 +211,8 @@ Estado: CUBIERTO / PARCIAL / NO / EXCLUIDO (a proposito: admin o seguridad).
 | Proyectos | NO | Modulo con permiso propio (`proyectos`) sin herramientas |
 | Reportes / analisis / datasets | NO | Existe `datos` (listar/ver/ejecutar dataset) solo en el MCP admin: candidato a puente |
 | Inventario / Contenedor de datos (consulta) | NO | Existen toolsets de agente: candidatos a puente de lectura |
-| Conversaciones WhatsApp / notificaciones | NO | Lectura util; ENVIAR mensajes es saliente y sensible |
+| Conversaciones WhatsApp (lineas Evolution) | CUBIERTO (MCP de WhatsApp, 2b) | Leer, enviar todo tipo de mensaje, gestionar chats, etiquetas, grupos, pausar SARA, perfil de la linea. Lineas YCloud/Cloud: no (otro proveedor) |
+| Notificaciones | NO | Lectura util |
 | Pipeline / CRM | NO | Solo `crear_lead` en agentes |
 | Compras / DIAN / conciliacion / gestor documental | NO | Especializados |
 | Usuarios, roles, menu, tenants, servidores, IA, facturacion | EXCLUIDO | Administracion y seguridad: no deben ir por token personal |

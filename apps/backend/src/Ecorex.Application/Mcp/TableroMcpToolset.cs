@@ -18,16 +18,20 @@ public sealed record McpToolResult(string Json, bool IsError)
 
     /// <summary>Estado DESPUES del cambio (para la auditoria antes/despues). Null si no aplica.</summary>
     public object? AuditAfter { get; init; }
+
+    /// <summary>Archivo para la IA ademas del JSON (ADR-0164): una imagen o audio que el cliente MCP puede VER/OIR
+    /// (bloque de contenido image/audio) o, si es otro tipo, un recurso embebido. Null = solo texto.</summary>
+    public McpMedia? Media { get; init; }
 }
 
+/// <summary>Archivo devuelto por una herramienta MCP (base64 + tipo MIME).</summary>
+public sealed record McpMedia(string Base64, string MimeType, string? FileName);
+
 /// <summary>
-/// Herramientas del servidor MCP de TABLEROS (ADR-0159), pensadas para una IA externa (Claude, ChatGPT,
-/// Gemini) que actua COMO un usuario del tenant. A diferencia de los toolsets del agente interno
-/// (IAgentToolset, atados a una conversacion de WhatsApp), aqui no hay conversacion: hay un usuario.
-/// Capa DELGADA sobre los servicios existentes (ITaskItemService, IActivityBoardService,
-/// IWorkflowInboxService): no reimplementa reglas de negocio.
+/// Contrato comun de un servidor MCP de ECOREX (tableros ADR-0159, WhatsApp ADR-0164): catalogo de herramientas,
+/// clasificacion (solo lectura / destructivas) y ejecucion COMO el usuario del token. El host JSON-RPC es el mismo.
 /// </summary>
-public interface ITableroMcpToolset
+public interface IMcpToolset
 {
     /// <summary>Herramientas que NO modifican nada (no se auditan).</summary>
     IReadOnlySet<string> ReadOnlyTools { get; }
@@ -38,6 +42,17 @@ public interface ITableroMcpToolset
     IReadOnlyList<AiToolSpec> GetSpecs();
 
     Task<McpToolResult> ExecuteAsync(string toolName, string argumentsJson, McpActor actor, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Herramientas del servidor MCP de TABLEROS (ADR-0159), pensadas para una IA externa (Claude, ChatGPT,
+/// Gemini) que actua COMO un usuario del tenant. A diferencia de los toolsets del agente interno
+/// (IAgentToolset, atados a una conversacion de WhatsApp), aqui no hay conversacion: hay un usuario.
+/// Capa DELGADA sobre los servicios existentes (ITaskItemService, IActivityBoardService,
+/// IWorkflowInboxService): no reimplementa reglas de negocio.
+/// </summary>
+public interface ITableroMcpToolset : IMcpToolset
+{
 }
 
 public sealed partial class TableroMcpToolset : ITableroMcpToolset

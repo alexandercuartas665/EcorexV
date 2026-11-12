@@ -12,6 +12,7 @@ public sealed class AiCloseSafetyNetTests
     [InlineData("crear_lead")]
     [InlineData("crear_actividad")]
     [InlineData("crear_tarea")]
+    [InlineData("anotar_caso")]
     public void CloseToolNames_incluye_las_tres_herramientas_de_registro(string tool)
     {
         Assert.Contains(tool, AiInferenceService.CloseToolNames);

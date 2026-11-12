@@ -31,9 +31,18 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<Message> Messages => Set<Message>();
         public DbSet<TaskItem> TaskItems => Set<TaskItem>();
         public DbSet<Conversation> Conversations => Set<Conversation>();
+        // ADR-0163: casos_del_cliente / anotar_caso leen el Directorio y la ultima anotacion.
+        public DbSet<Tercero> Terceros => Set<Tercero>();
+        public DbSet<TaskItemActivity> TaskItemActivities => Set<TaskItemActivity>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
+            b.Entity<Tercero>(e =>
+            {
+                e.Ignore(x => x.Empresa); e.Ignore(x => x.Contactos); e.Ignore(x => x.Categorias);
+                e.Ignore(x => x.VendedorAsesor); e.Ignore(x => x.BolsaColumna);
+            });
+            b.Entity<TaskItemActivity>().Ignore(x => x.TaskItem);
             b.Entity<ActivityType>().Ignore(x => x.WorkflowDefinition);
             b.Entity<Asesor>().Ignore(x => x.TenantUser);
             b.Entity<TaskItemAttachment>().Ignore(x => x.TaskItem);
@@ -134,7 +143,14 @@ public class TasksToolsetBoardWhitelistTests
         public Task<TaskCoreResult<bool>> ReorderChecklistAsync(Guid taskId, IReadOnlyList<Guid> orderedItemIds, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<bool>> AddAssigneeAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<bool>> RemoveAssigneeAsync(Guid taskId, Guid tenantUserId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<TaskCoreResult<TaskItemActivityDto>> AddCommentAsync(Guid taskId, string text, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        // anotar_caso (ADR-0163): registra la anotacion pedida.
+        public List<(Guid TaskId, string Text)> Comments { get; } = new();
+        public Task<TaskCoreResult<TaskItemActivityDto>> AddCommentAsync(Guid taskId, string text, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+        {
+            Comments.Add((taskId, text));
+            return Task.FromResult(TaskCoreResult<TaskItemActivityDto>.Ok(
+                new TaskItemActivityDto(Guid.NewGuid(), TaskActivityType.Comment, actorName, text, DateTimeOffset.UtcNow)));
+        }
         public Task<TaskCoreResult<TaskItemAttachmentDto>> AddAttachmentAsync(AddTaskAttachmentRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<bool>> DeleteAttachmentAsync(Guid attachmentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<bool>> MoveAttachmentAsync(Guid attachmentId, string targetTaskNumber, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -257,7 +273,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<TaskItemTagAssignment> TaskItemTagAssignments => throw new NotSupportedException();
         public DbSet<TaskBoardColumnTag> TaskBoardColumnTags => throw new NotSupportedException();
         public DbSet<TaskWorkLog> TaskWorkLogs => throw new NotSupportedException();
-        public DbSet<TaskItemActivity> TaskItemActivities => throw new NotSupportedException();
+        public DbSet<TaskItemActivity> TaskItemActivities => inner.TaskItemActivities;
         public DbSet<Notification> Notifications => throw new NotSupportedException();
         public DbSet<TaskItemAttachment> TaskItemAttachments => inner.TaskItemAttachments;
         public DbSet<TaskItemChecklistItem> TaskItemChecklistItems => throw new NotSupportedException();
@@ -364,7 +380,7 @@ public class TasksToolsetBoardWhitelistTests
         public DbSet<Ciudad> Ciudades => throw new NotSupportedException();
         public DbSet<TenantApiToken> TenantApiTokens => throw new NotSupportedException();
         public DbSet<RolPermiso> RolPermisos => throw new NotSupportedException();
-        public DbSet<Tercero> Terceros => throw new NotSupportedException();
+        public DbSet<Tercero> Terceros => inner.Terceros;
         public DbSet<TerceroContacto> TerceroContactos => throw new NotSupportedException();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => throw new NotSupportedException();
         public DbSet<ContactSearchDefinition> ContactSearchDefinitions => throw new NotSupportedException();
@@ -603,33 +619,208 @@ public class TasksToolsetBoardWhitelistTests
         }
     }
 
-    [Fact]
-    public async Task CrearTarea_mismo_tablero_devuelve_existente_sin_ventana()
-    {
-        // Capa 2 (ADR-0101 rev.3): dedup por CONVERSACION + TABLERO, SIN ventana. Un re-cierre de la MISMA
-        // conversacion en el MISMO tablero devuelve el ticket existente AUNQUE pasen HORAS (6h aqui).
-        var conv = Guid.NewGuid();
-        var (ts, tasks, inner) = NewToolset();
-        inner.TaskItems.Add(new TaskItem
+    private static TaskItem OpenTask(Guid conv, string number, string title, Guid board, DateTimeOffset createdAt)
+        => new()
         {
             TenantId = Tenant,
-            Number = "T-777",
-            Title = "Necesito ayuda",
-            Description = null,
-            BoardId = BoardA,
+            Number = number,
+            Title = title,
+            BoardId = board,
             RequesterPhone = "573001112233",
             IsArchived = false,
             ConversationId = conv,
-            CreatedAt = DateTimeOffset.UtcNow.AddHours(-6)   // muy fuera de la vieja ventana
-        });
+            CreatedAt = createdAt
+        };
+
+    [Fact]
+    public async Task CrearTarea_tema_distinto_con_caso_abierto_crea_caso_nuevo()
+    {
+        // ADR-0163 (regresion T00783): la conversacion tiene una COTIZACION abierta en el mismo tablero y el cliente
+        // pide un RECLAMO. Antes (rev.3, sin ventana) se devolvia el ticket de la cotizacion y el reclamo se perdia.
+        // Ahora un titulo distinto SIEMPRE crea caso nuevo.
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        inner.TaskItems.Add(OpenTask(conv, "T-777", "Cotizacion Corte Laser", BoardA, DateTimeOffset.UtcNow.AddDays(-1)));
         inner.SaveChanges();
         using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
         {
             var r = JsonDocument.Parse((await ts.ExecuteAsync("crear_tarea",
-                CreateArgs("Tablero A", "Otra cosa distinta", telefono: "otro-numero"), Guid.NewGuid(), true)).Json).RootElement;
+                CreateArgs("Tablero A", "Reclamo por mala atencion"), Guid.NewGuid(), true)).Json).RootElement;
+            Assert.Equal(1, tasks.CreateCalls);
+            Assert.NotEqual("T-777", r.GetProperty("ticket").GetString());
+            Assert.False(r.TryGetProperty("idempotente", out _));
+        }
+    }
+
+    [Fact]
+    public async Task CrearTarea_mismo_titulo_en_30_min_devuelve_existente()
+    {
+        // Red de seguridad (ADR-0163): mismo titulo (sin importar mayusculas/espacios), misma conversacion y tablero,
+        // dentro de 30 min -> es una repeticion del modelo: devuelve el ticket existente sin crear.
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        inner.TaskItems.Add(OpenTask(conv, "T-777", "Reclamo por mala atencion", BoardA, DateTimeOffset.UtcNow.AddMinutes(-10)));
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            var r = JsonDocument.Parse((await ts.ExecuteAsync("crear_tarea",
+                CreateArgs("Tablero A", "  reclamo  por mala ATENCION "), Guid.NewGuid(), true)).Json).RootElement;
             Assert.Equal(0, tasks.CreateCalls);
             Assert.Equal("T-777", r.GetProperty("ticket").GetString());
+            Assert.True(r.GetProperty("idempotente").GetBoolean());
         }
+    }
+
+    [Fact]
+    public async Task CrearTarea_mismo_titulo_fuera_de_ventana_crea_nuevo()
+    {
+        // Pasados los 30 min, el mismo titulo ya no se trata como repeticion: crea (decidir si es el mismo caso lo
+        // hace el agente con casos_del_cliente / anotar_caso).
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        inner.TaskItems.Add(OpenTask(conv, "T-777", "Reclamo por mala atencion", BoardA, DateTimeOffset.UtcNow.AddHours(-2)));
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            await ts.ExecuteAsync("crear_tarea", CreateArgs("Tablero A", "Reclamo por mala atencion"), Guid.NewGuid(), true);
+            Assert.Equal(1, tasks.CreateCalls);
+        }
+    }
+
+    [Fact]
+    public async Task CrearTarea_real_marca_el_caso_como_tocado_en_el_turno()
+    {
+        // ADR-0163: la alerta de cierre notifica al asignado de cada caso tocado; crear_tarea lo registra.
+        var (ts, _, _) = NewToolset();
+        using (AiToolRunContext.Begin(Guid.NewGuid(), null, null, null, allowedBoardIds: null))
+        {
+            var r = JsonDocument.Parse((await ts.ExecuteAsync("crear_tarea",
+                CreateArgs("Tablero A", "Necesito ayuda"), Guid.NewGuid(), true)).Json).RootElement;
+            var id = r.GetProperty("tarea_id").GetGuid();
+            Assert.Equal(new[] { id }, AiToolRunContext.TouchedTaskIds);
+        }
+    }
+
+    // ---- casos_del_cliente / anotar_caso (ADR-0163) ----
+
+    private static async Task<(JsonElement Json, bool SessionCompleted)> RunAsync(TasksToolset ts, string tool, object args)
+    {
+        var res = await ts.ExecuteAsync(tool, JsonSerializer.Serialize(args), Guid.NewGuid(), autonomous: true);
+        return (JsonDocument.Parse(res.Json).RootElement, res.SessionCompleted);
+    }
+
+    [Fact]
+    public async Task CasosDelCliente_incluye_conversacion_y_contacto_del_directorio_y_excluye_otros()
+    {
+        var conv = Guid.NewGuid();
+        var tercero = Guid.NewGuid();
+        var (ts, _, inner) = NewToolset();
+        inner.Conversations.Add(new Conversation { Id = conv, TenantId = Tenant, ContactPhone = "573001112233" });
+        // Contacto del Directorio con el mismo telefono (sin prefijo de pais).
+        inner.Terceros.Add(new Tercero { Id = tercero, TenantId = Tenant, Nombre = "Juan Perez", Telefono = "3001112233" });
+        // (1) caso de esta conversacion (abierto)
+        inner.TaskItems.Add(OpenTask(conv, "T-1", "Cotizacion laser", BoardA, DateTimeOffset.UtcNow.AddDays(-2)));
+        // (2) caso del mismo contacto creado por otra via (sin conversacion), CERRADO
+        var cerrado = OpenTask(Guid.NewGuid(), "T-2", "Pedido anterior", BoardB, DateTimeOffset.UtcNow.AddDays(-5));
+        cerrado.ConversationId = null; cerrado.TerceroId = tercero; cerrado.RequesterPhone = null; cerrado.Status = TaskItemStatus.Closed;
+        inner.TaskItems.Add(cerrado);
+        // (3) caso de OTRO cliente: no debe aparecer
+        var otro = OpenTask(Guid.NewGuid(), "T-3", "Otro cliente", BoardA, DateTimeOffset.UtcNow);
+        otro.RequesterPhone = "573009998877";
+        inner.TaskItems.Add(otro);
+        inner.SaveChanges();
+
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            var (r, closes) = await RunAsync(ts, "casos_del_cliente", new { });
+            Assert.False(closes); // solo lectura: no cierra la atencion
+            var casos = r.GetProperty("casos").EnumerateArray().ToList();
+            Assert.Equal(new[] { "T-1", "T-2" }, casos.Select(c => c.GetProperty("numero").GetString()).ToArray());
+            Assert.True(casos[0].GetProperty("abierto").GetBoolean());
+            Assert.False(casos[1].GetProperty("abierto").GetBoolean());
+            Assert.Equal("cerrado", casos[1].GetProperty("estado").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task CasosDelCliente_devuelve_maximo_5_mas_recientes()
+    {
+        var conv = Guid.NewGuid();
+        var (ts, _, inner) = NewToolset();
+        for (var i = 1; i <= 7; i++)
+        {
+            inner.TaskItems.Add(OpenTask(conv, $"T-{i}", $"Caso {i}", BoardA, DateTimeOffset.UtcNow.AddDays(-i)));
+        }
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            var (r, _) = await RunAsync(ts, "casos_del_cliente", new { });
+            var numeros = r.GetProperty("casos").EnumerateArray().Select(c => c.GetProperty("numero").GetString()).ToArray();
+            Assert.Equal(new[] { "T-1", "T-2", "T-3", "T-4", "T-5" }, numeros);
+        }
+    }
+
+    [Fact]
+    public async Task AnotarCaso_abierto_agrega_anotacion_cierra_turno_y_marca_tocado()
+    {
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        var caso = OpenTask(conv, "T-1", "Cotizacion laser", BoardA, DateTimeOffset.UtcNow.AddDays(-1));
+        inner.TaskItems.Add(caso);
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            var (r, closes) = await RunAsync(ts, "anotar_caso", new { numero = "T-1", texto = "El cliente pregunta por la entrega" });
+            Assert.True(r.GetProperty("ok").GetBoolean());
+            Assert.Equal("T-1", r.GetProperty("ticket").GetString());
+            Assert.True(closes); // dispara la notificacion de cierre
+            Assert.Equal(new[] { caso.Id }, AiToolRunContext.TouchedTaskIds);
+
+            // Repetir en el mismo turno no duplica la anotacion.
+            await RunAsync(ts, "anotar_caso", new { numero = "T-1", texto = "El cliente pregunta por la entrega" });
+        }
+        Assert.Single(tasks.Comments);
+        Assert.Equal((caso.Id, "El cliente pregunta por la entrega"), tasks.Comments[0]);
+        Assert.Equal(0, tasks.CreateCalls);
+    }
+
+    [Fact]
+    public async Task AnotarCaso_cerrado_se_rechaza()
+    {
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        var caso = OpenTask(conv, "T-1", "Cotizacion laser", BoardA, DateTimeOffset.UtcNow.AddDays(-1));
+        caso.Status = TaskItemStatus.Done;
+        inner.TaskItems.Add(caso);
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            var (r, closes) = await RunAsync(ts, "anotar_caso", new { numero = "T-1", texto = "hola" });
+            Assert.False(r.GetProperty("ok").GetBoolean());
+            Assert.Contains("crear_tarea", r.GetProperty("error").GetString());
+            Assert.False(closes);
+            Assert.Empty(AiToolRunContext.TouchedTaskIds);
+        }
+        Assert.Empty(tasks.Comments);
+    }
+
+    [Fact]
+    public async Task AnotarCaso_de_otro_cliente_se_rechaza()
+    {
+        var conv = Guid.NewGuid();
+        var (ts, tasks, inner) = NewToolset();
+        inner.Conversations.Add(new Conversation { Id = conv, TenantId = Tenant, ContactPhone = "573001112233" });
+        var ajeno = OpenTask(Guid.NewGuid(), "T-9", "Caso ajeno", BoardA, DateTimeOffset.UtcNow);
+        ajeno.RequesterPhone = "573009998877";
+        inner.TaskItems.Add(ajeno);
+        inner.SaveChanges();
+        using (AiToolRunContext.Begin(conv, null, null, null, allowedBoardIds: null))
+        {
+            var (r, _) = await RunAsync(ts, "anotar_caso", new { numero = "T-9", texto = "hola" });
+            Assert.False(r.GetProperty("ok").GetBoolean());
+            Assert.Contains("no es de este cliente", r.GetProperty("error").GetString());
+        }
+        Assert.Empty(tasks.Comments);
     }
 
     [Fact]

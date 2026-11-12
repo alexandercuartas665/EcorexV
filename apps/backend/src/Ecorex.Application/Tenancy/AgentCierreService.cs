@@ -131,23 +131,69 @@ public sealed class AgentCierreService : IAgentCierreService
             return;
         }
 
-        // Correo / WhatsApp: destinatario = usuario elegido o el asignado de la linea de la conversacion.
-        var userId = alerta.Destino == CierreDestino.Usuario
-            ? alerta.UsuarioId
-            : await ResolveAssignedUserIdAsync(conv, ct);
-        if (userId is not Guid uid)
+        // Correo / WhatsApp (ADR-0163): destinatarios = el usuario elegido (Destino=Usuario) o el USUARIO ASIGNADO
+        // de cada caso que el agente CREO o ANOTO en este turno. Sin casos tocados en el turno se cae al usuario
+        // asignado de la LINEA (concepto heredado del backbone); si tampoco hay, no se notifica y queda como
+        // informacion (no como error): no habia a quien avisar.
+        var channel = ChannelLabel(alerta.Canal);
+        if (alerta.Destino == CierreDestino.Usuario)
         {
-            RecordClose(conv, agentId, false, ChannelLabel(alerta.Canal), "(sin usuario)",
-                alerta.Destino == CierreDestino.Usuario ? "no se configuro el usuario destino." : "la linea de la conversacion no tiene usuario asignado.", null);
+            if (alerta.UsuarioId is not Guid fixedUser)
+            {
+                RecordClose(conv, agentId, false, channel, "(sin usuario)", "no se configuro el usuario destino.", null);
+                return;
+            }
+            var firstTouched = await LoadTouchedTasksAsync(ct);
+            await NotifyUserAsync(alerta, conv, agentId, fixedUser, firstTouched.FirstOrDefault(), tokenMap, summary, actor, ct);
             return;
         }
 
-        // De-dup (ADR-0161): si el AVISO de tarea asignada ya notifico a este usuario en el mismo turno
-        // (crear la tarea == cerrar), la alerta de cierre NO lo repite. Un solo mensaje al comercial.
+        var touched = await LoadTouchedTasksAsync(ct);
+        if (touched.Count > 0)
+        {
+            foreach (var task in touched)
+            {
+                if (task.AssigneeTenantUserId is not Guid assignee)
+                {
+                    RecordClose(conv, agentId, false, channel, "(sin usuario)", "el caso no tiene usuario asignado.", null, task.Number);
+                    continue;
+                }
+                await NotifyUserAsync(alerta, conv, agentId, assignee, task, tokenMap, summary, actor, ct);
+            }
+            return;
+        }
+
+        if (await ResolveAssignedUserIdAsync(conv, ct) is Guid lineOwner)
+        {
+            await NotifyUserAsync(alerta, conv, agentId, lineOwner, null, tokenMap, summary, actor, ct);
+            return;
+        }
+        RecordClose(conv, agentId, true, channel, "(nadie)",
+            "no se notifico: en este turno el agente no creo ni anoto un caso con usuario asignado.", null);
+    }
+
+    /// <summary>Casos creados o anotados por el agente en el turno (ADR-0163), en el orden en que se tocaron.</summary>
+    private async Task<List<Domain.Entities.TaskItem>> LoadTouchedTasksAsync(CancellationToken ct)
+    {
+        var ids = AiToolRunContext.TouchedTaskIds;
+        if (ids.Count == 0) { return new(); }
+        var rows = await _db.TaskItems.AsNoTracking().Where(t => ids.Contains(t.Id)).ToListAsync(ct);
+        return ids.Select(id => rows.FirstOrDefault(r => r.Id == id)).Where(r => r is not null).Select(r => r!).ToList();
+    }
+
+    /// <summary>Envia la alerta de cierre a UN usuario del tenant, con los tokens del caso (si lo hay). Un solo
+    /// mensaje por usuario en el turno: si el aviso de tarea asignada u otra alerta ya le escribio, se omite.</summary>
+    private async Task NotifyUserAsync(AgentCierreAlerta alerta, Domain.Entities.Conversation conv, Guid agentId, Guid uid,
+        Domain.Entities.TaskItem? task, IReadOnlyDictionary<string, string> convTokens, string? summary, Guid actor, CancellationToken ct)
+    {
+        var caso = task?.Number;
+
+        // De-dup (ADR-0161/0163): si el AVISO de tarea asignada (u otra alerta) ya notifico a este usuario en el
+        // mismo turno, la alerta de cierre NO lo repite. Un solo mensaje al comercial.
         if (AiToolRunContext.WasCloseNotified(uid))
         {
             RecordClose(conv, agentId, true, ChannelLabel(alerta.Canal), "(asignado)",
-                "omitido: ya se notifico por el aviso de tarea asignada (de-dup de cierre).", null);
+                "omitido: ya se le notifico en este turno (de-dup de cierre).", null, caso);
             return;
         }
 
@@ -157,40 +203,45 @@ public sealed class AgentCierreService : IAgentCierreService
             .FirstOrDefaultAsync(ct);
         if (user is null)
         {
-            RecordClose(conv, agentId, false, ChannelLabel(alerta.Canal), "(usuario)", "el usuario destino no existe.", null);
+            RecordClose(conv, agentId, false, ChannelLabel(alerta.Canal), "(usuario)", "el usuario destino no existe.", null, caso);
             return;
         }
+
+        // Tokens: los del cierre (conversacion) + los del caso tocado ({tarea.*}, {usuario.*}, {tercero.*}...). Un
+        // valor del caso solo pisa al de la conversacion si no viene vacio (p.ej. {cliente} sin solicitante).
+        var tokenMap = task is null ? convTokens : await MergeTaskTokensAsync(convTokens, task, ct);
 
         switch (alerta.Canal)
         {
             case CierreCanal.Correo:
                 if (string.IsNullOrWhiteSpace(user.Email))
                 {
-                    RecordClose(conv, agentId, false, "Correo", user.Phone ?? "(usuario)", "el usuario no tiene correo.", null);
+                    RecordClose(conv, agentId, false, "Correo", user.Phone ?? "(usuario)", "el usuario no tiene correo.", null, caso);
                     return;
                 }
                 var subject = string.IsNullOrWhiteSpace(alerta.Asunto)
                     ? $"Cierre de atencion - {tokenMap.GetValueOrDefault("cliente", conv.ContactPhone)}"
                     : alerta.Asunto!;
                 var oke = await _sender.SendEmailAsync(user.Email!, subject, BuildEmailHtml(tokenMap, summary), ct);
-                RecordClose(conv, agentId, oke, "Correo", user.Email!, oke ? null : "el correo no se pudo enviar.", null);
+                if (oke) { AiToolRunContext.MarkCloseNotified(uid); }
+                RecordClose(conv, agentId, oke, "Correo", user.Email!, oke ? null : "el correo no se pudo enviar.", null, caso);
                 break;
 
             case CierreCanal.WhatsApp:
                 if (string.IsNullOrWhiteSpace(user.Phone))
                 {
-                    RecordClose(conv, agentId, false, "WhatsApp", user.Email ?? "(usuario)", "el usuario no tiene telefono.", null);
+                    RecordClose(conv, agentId, false, "WhatsApp", user.Email ?? "(usuario)", "el usuario no tiene telefono.", null, caso);
                     return;
                 }
                 if (string.IsNullOrWhiteSpace(alerta.Plantilla))
                 {
-                    RecordClose(conv, agentId, false, "WhatsApp", user.Phone!, "no se configuro la plantilla del aviso.", null);
+                    RecordClose(conv, agentId, false, "WhatsApp", user.Phone!, "no se configuro la plantilla del aviso.", null, caso);
                     return;
                 }
                 var fromLine = alerta.LineaId ?? conv.WhatsAppLineId;
                 if (fromLine is not Guid lineId)
                 {
-                    RecordClose(conv, agentId, false, "WhatsApp", user.Phone!, "no hay linea de WhatsApp (ni en la alerta ni en la conversacion).", null);
+                    RecordClose(conv, agentId, false, "WhatsApp", user.Phone!, "no hay linea de WhatsApp (ni en la alerta ni en la conversacion).", null, caso);
                     return;
                 }
                 // Binding de variables: cada variable de la plantilla se resuelve con los tokens del cierre
@@ -198,9 +249,22 @@ public sealed class AgentCierreService : IAgentCierreService
                 // posicionales ({{1}},{{2}}...) salian vacias y el proveedor cortaba el envio en silencio.
                 var waTokens = ApplyVariableBindings(alerta.Variables, tokenMap);
                 var outcome = await _sender.SendWhatsAppTemplateAsync(lineId, user.Phone!, alerta.Plantilla!, alerta.Idioma, waTokens, actor, cancellationToken: ct);
-                RecordClose(conv, agentId, outcome.Ok, "WhatsApp", user.Phone!, outcome.Ok ? null : outcome.Error, outcome.MessageId);
+                if (outcome.Ok) { AiToolRunContext.MarkCloseNotified(uid); }
+                RecordClose(conv, agentId, outcome.Ok, "WhatsApp", user.Phone!, outcome.Ok ? null : outcome.Error, outcome.MessageId, caso);
                 break;
         }
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>> MergeTaskTokensAsync(
+        IReadOnlyDictionary<string, string> convTokens, Domain.Entities.TaskItem task, CancellationToken ct)
+    {
+        var merged = new Dictionary<string, string>(convTokens, StringComparer.OrdinalIgnoreCase);
+        var taskTokens = await _tokens.BuildAsync(task, ct);
+        foreach (var (k, v) in taskTokens)
+        {
+            if (!string.IsNullOrWhiteSpace(v) || !merged.ContainsKey(k)) { merged[k] = v; }
+        }
+        return merged;
     }
 
     // Aplica el binding VARIABLE -> expresion (igual que AgentAvisoTareaService / NodeNotifyService): copia los
@@ -221,13 +285,15 @@ public sealed class AgentCierreService : IAgentCierreService
     // Registra el resultado de la alerta de cierre en la bitacora del agente (/bitacora-agente). Nada
     // silencioso: tanto el envio como el fallo (con su motivo) quedan visibles. ADR-0161.
     private void RecordClose(Domain.Entities.Conversation conv, Guid agentId, bool ok,
-        string channel, string recipient, string? reason, string? messageId)
+        string channel, string recipient, string? reason, string? messageId, string? caso = null)
     {
+        // ADR-0163: el caso tocado va en el texto para que la bitacora diga DE QUE caso habla la alerta.
+        var c = string.IsNullOrWhiteSpace(caso) ? "" : $" del caso {caso}";
         var text = ok
             ? (string.IsNullOrWhiteSpace(reason)
-                ? $"Cierre: se notifico por {channel} a {recipient}."
-                : $"Cierre por {channel} a {recipient}: {reason!.Trim()}")
-            : $"Cierre: NO se pudo notificar por {channel} a {recipient}. Motivo: {(string.IsNullOrWhiteSpace(reason) ? "sin detalle del proveedor." : reason!.Trim())}";
+                ? $"Cierre{c}: se notifico por {channel} a {recipient}."
+                : $"Cierre{c} por {channel} a {recipient}: {reason!.Trim()}")
+            : $"Cierre{c}: NO se pudo notificar por {channel} a {recipient}. Motivo: {(string.IsNullOrWhiteSpace(reason) ? "sin detalle del proveedor." : reason!.Trim())}";
 
         _db.AiAgentRunLogs.Add(new Domain.Entities.AiAgentRunLog
         {
@@ -236,7 +302,10 @@ public sealed class AgentCierreService : IAgentCierreService
             AgentId = agentId,
             OccurredAt = _clock.GetUtcNow(),
             Kind = ok ? Domain.Enums.AiAgentRunLogKind.Info : Domain.Enums.AiAgentRunLogKind.Error,
-            Title = ok ? $"Alerta de cierre enviada - {channel}" : $"Alerta de cierre NO enviada - {channel}",
+            // ok + motivo = se omitio a proposito (de-dup o nadie a quien avisar): no es un envio ni un error.
+            Title = !ok ? $"Alerta de cierre NO enviada - {channel}"
+                : string.IsNullOrWhiteSpace(reason) ? $"Alerta de cierre enviada - {channel}"
+                : $"Alerta de cierre omitida - {channel}",
             Content = SurrogateText.SafeTruncate(text, 4000)!,
             Response = string.IsNullOrWhiteSpace(messageId) ? null : messageId
         });

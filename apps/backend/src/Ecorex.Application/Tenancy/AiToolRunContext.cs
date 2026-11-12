@@ -24,6 +24,11 @@ public static class AiToolRunContext
         /// turno (WhatsApp/correo al asignado). La alerta de CIERRE (ADR-0161) lo consulta para NO volver a
         /// enviar al mismo destinatario: crear la tarea == cerrar, asi que un solo mensaje al comercial.</summary>
         public HashSet<Guid> CloseNotifiedUsers { get; } = new();
+
+        /// <summary>Casos (TaskItem ids) que el agente CREO o ANOTO en ESTE turno, en orden (ADR-0163). La alerta
+        /// de cierre los usa para notificar al USUARIO ASIGNADO de cada caso tocado (en vez del "dueno de la
+        /// linea" heredado del backbone). Sin duplicados.</summary>
+        public List<Guid> TouchedTasks { get; } = new();
     }
     private static readonly AsyncLocal<Scope?> _current = new();
 
@@ -64,6 +69,16 @@ public static class AiToolRunContext
     /// no duplique el mensaje al mismo destinatario). ADR-0161.</summary>
     public static bool WasCloseNotified(Guid userId)
         => _current.Value is { } s && s.CloseNotifiedUsers.Contains(userId);
+
+    /// <summary>Registra que el agente creo o anoto este caso en el turno (ADR-0163). No-op sin turno activo.</summary>
+    public static void MarkTaskTouched(Guid taskId)
+    {
+        if (_current.Value is { } s && !s.TouchedTasks.Contains(taskId)) { s.TouchedTasks.Add(taskId); }
+    }
+
+    /// <summary>Casos creados o anotados en el turno, en orden (ADR-0163). Vacio sin turno activo.</summary>
+    public static IReadOnlyList<Guid> TouchedTaskIds
+        => _current.Value is { } s ? s.TouchedTasks.ToArray() : Array.Empty<Guid>();
 
     public static IDisposable Begin(Guid? conversationId, string? imageBase64, string? imageMime,
         IReadOnlyList<PendingAttachment>? attachments = null, IReadOnlyList<Guid>? allowedBoardIds = null,

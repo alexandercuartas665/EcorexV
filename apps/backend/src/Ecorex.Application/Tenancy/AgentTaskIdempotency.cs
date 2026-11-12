@@ -19,6 +19,11 @@ namespace Ecorex.Application.Tenancy;
 /// a los minutos u horas). Se conserva el caso multi-tema: si el agente enruta a OTRO tablero, el board_id
 /// difiere y SI se crea una tarea nueva. Si el lead ya se archivo, un nuevo cierre crea tarea nueva. Solo
 /// aplica al camino de los agentes (lo llaman los toolsets con AiToolRunContext).
+///
+/// ADR-0163 (rev.4, SOLO crear_tarea): la Capa 2 por conversacion+tablero SIN ventana se trago casos
+/// distintos (un RECLAMO devolvio el ticket de una COTIZACION abierta). En crear_tarea se reemplaza por
+/// <see cref="FindRecentSameTitleAsync"/> (mismo titulo, 30 min); decidir caso nuevo vs viejo lo hace el
+/// agente con casos_del_cliente/anotar_caso. crear_actividad conserva la Capa 2 de rev.3.
 /// </summary>
 public static class AgentTaskIdempotency
 {
@@ -49,6 +54,41 @@ public static class AgentTaskIdempotency
             .FirstOrDefaultAsync(cancellationToken);
         return hit is null ? null : (hit.Id, hit.Number);
     }
+
+    // ---- Capa 2 de crear_tarea (ADR-0163, reemplaza rev.3 en TasksToolset): mismo TITULO en ventana corta ----
+
+    /// <summary>Ventana de la red de seguridad de crear_tarea: un pedido con el MISMO titulo en la misma
+    /// conversacion y tablero dentro de esta ventana se trata como repeticion (no como caso nuevo).</summary>
+    public static readonly TimeSpan SameTitleWindow = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// ADR-0163: busca una tarea NO archivada de la conversacion, en el mismo tablero, con el MISMO titulo
+    /// (sin distinguir mayusculas/espacios) creada dentro de <see cref="SameTitleWindow"/>. Temas distintos
+    /// (titulo distinto) NUNCA se fusionan: decidir si es caso nuevo o viejo lo hace el agente con
+    /// casos_del_cliente/anotar_caso. Devuelve (Id, Number) o null.
+    /// </summary>
+    public static async Task<(Guid Id, string Number)?> FindRecentSameTitleAsync(
+        IApplicationDbContext db, Guid conversationId, Guid? boardId, string title, DateTimeOffset now,
+        CancellationToken cancellationToken = default)
+    {
+        var key = NormalizeTitle(title);
+        if (key.Length == 0) { return null; }
+        var since = now - SameTitleWindow;
+        var candidates = await db.TaskItems.AsNoTracking()
+            .Where(t => t.ConversationId == conversationId && t.BoardId == boardId && !t.IsArchived
+                && t.CreatedAt >= since)
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(t => new { t.Id, t.Number, t.Title })
+            .Take(20)
+            .ToListAsync(cancellationToken);
+        var hit = candidates.FirstOrDefault(c => NormalizeTitle(c.Title) == key);
+        return hit is null ? null : (hit.Id, hit.Number);
+    }
+
+    /// <summary>Titulo comparable: minusculas, sin espacios repetidos ni bordes.</summary>
+    internal static string NormalizeTitle(string? title)
+        => string.Join(' ', (title ?? string.Empty).Trim().ToLowerInvariant()
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     // ---- Candado de cierre-por-flujo: SARA no crea tarea/lead si un flujo ya cerro este caso ----
 

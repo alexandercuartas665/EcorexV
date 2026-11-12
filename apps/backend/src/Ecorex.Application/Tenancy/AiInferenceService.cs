@@ -32,7 +32,7 @@ public sealed class AiInferenceService : IAiInferenceService
     // operativo (crear_actividad / crear_tarea). Si el modelo invoca cualquiera de estas, la red de
     // seguridad de cierre NO lo re-pincha. ADR-0154.
     internal static readonly IReadOnlySet<string> CloseToolNames =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "crear_actividad", "crear_tarea" };
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "crear_actividad", "crear_tarea", "anotar_caso" };
 
     // Zona horaria del tenant demo (America/Bogota = UTC-5, sin horario de verano). Mientras el Tenant no
     // guarde su propia zona, anclamos aqui para que el agente calcule fechas relativas con el anio correcto.
@@ -529,7 +529,7 @@ CIUDAD:";
                         "[SISTEMA] Afirmaste que registraste/inscribiste al cliente o que un asesor lo contactara, " +
                         "pero NO invocaste ninguna herramienta de cierre. " +
                         "Es OBLIGATORIO: invoca AHORA la herramienta de cierre que te corresponda (por ejemplo " +
-                        "crear_actividad, crear_tarea o crear_lead, segun tus instrucciones) con los datos que ya " +
+                        "crear_actividad, crear_tarea, anotar_caso o crear_lead, segun tus instrucciones) con los datos que ya " +
                         "tienes. Si te falta el nombre, pidelo en vez de afirmar el registro. " +
                         "Responde invocando la herramienta; NO respondas solo con texto ni expliques tu razonamiento."));
                     debugPrompts.Add(new AiDebugPrompt(

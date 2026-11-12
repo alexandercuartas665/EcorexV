@@ -316,6 +316,9 @@ public sealed class ActividadesToolset : IActividadesToolset
         // 4) Adjuntar automaticamente la media entrante de la conversacion.
         var adjuntados = await AttachConversationMediaAsync(taskId, ct);
 
+        // ADR-0163: caso tocado en el turno -> la alerta de cierre notifica a SU usuario asignado.
+        AiToolRunContext.MarkTaskTouched(taskId);
+
         // 5) Aviso de "tarea asignada" al usuario ASIGNADO (ADR-0140): best-effort. Solo en la creacion REAL
         // (no en los caminos idempotentes de arriba, que ya devolvieron). Deja rastro en la bitacora del agente
         // y en la historia de la tarea; un fallo de envio no rompe la respuesta al cliente.

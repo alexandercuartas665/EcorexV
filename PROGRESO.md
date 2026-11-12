@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-11 - crear_actividad con la misma dedup que crear_tarea + prompt de SARA (ADR-0163, release v0.16.307)
+## 2026-11-11 - crear_actividad con la misma dedup que crear_tarea + prompt de SARA (ADR-0163, release v0.16.307, DESPLEGADO 2026-11-11)
 
 - AGENTE: Claude Opus 5.5. Al revisar el prompt de SARA en prod (solo lectura) se vio que registra PRIMERO con crear_actividad (concepto "Seguimiento comercial agente IA") y crear_tarea es respaldo; en prod SARA tiene crear_actividad ENCENDIDA. v0.16.306 solo habia cambiado la dedup de crear_tarea, asi que un reclamo registrado con crear_actividad se lo seguia tragando la dedup ciega de rev.3.
 - HECHO (codigo): ActividadesToolset usa FindRecentSameTitleAsync (mismo titulo en 30 min, titulo calculado antes de la dedup) + la descripcion de crear_actividad pide revisar casos_del_cliente. Retirado FindByConversationAndBoardAsync (sin uso). Tests de ActividadesToolset actualizados (tema distinto crea, mismo titulo en 30 min devuelve, fuera de ventana crea). Application.Tests 1325/1325.

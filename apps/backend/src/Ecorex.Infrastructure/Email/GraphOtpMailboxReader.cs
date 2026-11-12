@@ -72,7 +72,9 @@ public sealed class GraphOtpMailboxReader : IOtpMailboxReader
 
         var exitos = 0;
         var fallos = 0;
+        var fallos5xx = 0;
         string? ultimoFallo = null;
+        string? ultimoHttp = null;   // la ultima respuesta de error REAL de Graph (mas informativa que un timeout)
         try
         {
             while (true)
@@ -94,7 +96,8 @@ public sealed class GraphOtpMailboxReader : IOtpMailboxReader
                     else if (EsTransitorio(resp.StatusCode))
                     {
                         fallos++;
-                        ultimoFallo = $"Graph {(int)resp.StatusCode}: {ExtractGraphError(body)}";
+                        if ((int)resp.StatusCode >= 500) { fallos5xx++; }
+                        ultimoFallo = ultimoHttp = $"Graph {(int)resp.StatusCode}: {ExtractGraphError(body)}";
                     }
                     else
                     {
@@ -126,6 +129,16 @@ public sealed class GraphOtpMailboxReader : IOtpMailboxReader
                 try { await Task.Delay(pollMs, ct); } catch (OperationCanceledException) { break; }
             }
 
+            if (exitos == 0 && fallos5xx > 0)
+            {
+                // Graph RESPONDE pero con 5xx en cada intento: Exchange Online no esta sirviendo ese buzon
+                // (visto 2026-11-12: 502 UnknownError a los ~21 s hasta en la consulta minima).
+                return new(false, null,
+                    $"Microsoft 365 no esta entregando el buzon {req.Username}: {ultimoHttp} "
+                    + $"({fallos5xx} de {fallos} intentos en {plazoSeg} s). Revisar en el admin de Microsoft 365 que el buzon "
+                    + "tenga licencia de Exchange Online y este activo (abrirlo en Outlook Web), y el estado del servicio. "
+                    + "No es el agente ni ECOREX.");
+            }
             if (exitos == 0 && fallos > 0)
             {
                 return new(false, null,
@@ -140,7 +153,9 @@ public sealed class GraphOtpMailboxReader : IOtpMailboxReader
     }
 
     private static readonly TimeSpan PerRequestTimeout = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan MinRequestTimeout = TimeSpan.FromSeconds(20);
+    // Minimo 30 s: Exchange devuelve sus 502 hacia los ~21 s; con menos, el ultimo intento se cortaba antes
+    // de ver el error real y el mensaje decia "no respondio" en vez del 502.
+    private static readonly TimeSpan MinRequestTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>429 (throttling), 408 y 5xx son transitorios: se reintentan dentro del plazo del paso.</summary>
     private static bool EsTransitorio(HttpStatusCode code) =>

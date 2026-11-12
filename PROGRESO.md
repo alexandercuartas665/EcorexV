@@ -2,13 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-12 - Conciliador DIAN: scroll superior, copiar en clic derecho y descarga por No. de factura (release v0.16.312)
+## 2026-11-12 - Conciliador DIAN: scroll superior, copiar en clic derecho y descarga por No. de factura (release v0.16.312, DESPLEGADO 2026-11-12)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Cherry-pick de 191c1f8a (worktree ECOREX.dian, rama feat/agente-tls-instalador-adr0152) sobre el tronco v0.16.311. 4 archivos de Ecorex.SuperAdmin, sin conflictos, sin migracion EF. El commit no tocaba AppVersion: 0.16.311 -> 0.16.312.
 - Trae: (1) barra de scroll horizontal SUPERIOR en la grilla, sincronizada con la de abajo y oculta si no hay desbordamiento; (2) menu de clic derecho de la fila con "Copiar" del texto seleccionado; (3) /archivo/{id} honra ?dl=<nombre> (saneado, max 120) para descargar con nombre legible; boton "Descargar" del visor arma el nombre con el No. de factura del proveedor + tipo (DIAN/NEWTON PDF/XML). Sin el parametro sigue sirviendo inline (visor/iframe/firmas).
 - Ademas en este lote: commit aparte `style: dotnet format` (espacios en ConciliacionDianService/ConciliacionRuleService, deuda previa del tronco).
 
-## 2026-11-12 - Integracion a main de la rama Analisis Ola 7a/7b (release v0.16.311, SIN deploy)
+## 2026-11-12 - Integracion a main de la rama Analisis Ola 7a/7b (release v0.16.311, DESPLEGADO 2026-11-12 en v0.16.312)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/system-indicators-data-sources-e53a43` (cec8d203: Ola 7a graficos ECharts + 7b tipos nuevos y KPI con periodo, ADR-0158 addendum) sobre el tronco 964db59e (v0.16.310). Sin conflictos. La rama no traia version propia: AppVersion 0.16.310 -> 0.16.311. El commit estaba solo en la rama LOCAL (worktree); el remoto de la rama no lo tenia.
 - Sin migraciones (los 7 tipos nuevos van al final del enum, se guardan como int). Sin secretos; adiciones en ASCII. appout5269 no se versiona.
@@ -16,7 +16,7 @@
 - Despues del deploy: recarga dura del navegador (analisis-graficos.js va con ?v=2).
 - SIGUIENTE: deploy SOLO a la senal del usuario.
 
-## 2026-11-12 - Integracion a main de la rama MCP de WhatsApp por linea Evolution (release v0.16.310, SIN deploy)
+## 2026-11-12 - Integracion a main de la rama MCP de WhatsApp por linea Evolution (release v0.16.310, DESPLEGADO 2026-11-12 en v0.16.312)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-whatsapp-evolution` (a17d9982 permisos de /lineas y /conversaciones v0.16.309 + d0807016 MCP de WhatsApp ADR-0164 v0.16.310) sobre el tronco 22c79c96 (v0.16.308). Sin conflictos; AppVersion queda en 0.16.310 (no choca).
 - Sin migraciones (TenantApiToken solo gana la constante de alcance `mcp:whatsapp`), sin secretos, adiciones en ASCII.
@@ -64,7 +64,7 @@
   todo (sin regresion). Build Debug SuperAdmin 0 errores.
 - SIGUIENTE: integracion a main por dev principal. NO desplegar sin senal del usuario.
 
-## 2026-11-12 - Integracion a main de la rama MCP autoria de flujos y formularios (release v0.16.308, SIN deploy)
+## 2026-11-12 - Integracion a main de la rama MCP autoria de flujos y formularios (release v0.16.308, DESPLEGADO 2026-11-12 en v0.16.312)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-autoria-flujos-formularios` (06ed1742 + 676c74de, base 81b25104) sobre el tronco v0.16.307. Conflictos solo en AppVersion.cs (rama 0.16.304 -> renumerado a 0.16.308) y en esta bitacora (se conservan las entradas de ambos lados).
 - Incluye: MCP personal /api/mcp/tableros con 83 herramientas (16 de flujos + 40 de formularios por lista permitida; list_tenants FUERA). Sin migraciones.

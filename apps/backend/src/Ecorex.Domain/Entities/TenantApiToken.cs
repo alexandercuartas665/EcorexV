@@ -38,6 +38,10 @@ public class TenantApiToken : TenantEntity
     /// <summary>Alcance del servidor MCP de tableros (token personal de usuario).</summary>
     public const string ScopeMcpTableros = "mcp:tableros";
 
+    /// <summary>Alcance del servidor MCP de WhatsApp por linea Evolution (ADR-0164, token personal de usuario):
+    /// solo sirve en /api/mcp/whatsapp/{lineId}. Un token de tableros no abre WhatsApp ni al reves.</summary>
+    public const string ScopeMcpWhatsApp = "mcp:whatsapp";
+
     /// <summary>Cuando se revoco (UTC). null = activo. Un token revocado no resuelve tenant (401).</summary>
     public DateTimeOffset? RevokedAt { get; set; }
 

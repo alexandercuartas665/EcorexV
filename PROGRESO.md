@@ -2,6 +2,54 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-12 - Integracion a main de la rama MCP de WhatsApp por linea Evolution (release v0.16.310, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-whatsapp-evolution` (a17d9982 permisos de /lineas y /conversaciones v0.16.309 + d0807016 MCP de WhatsApp ADR-0164 v0.16.310) sobre el tronco 22c79c96 (v0.16.308). Sin conflictos; AppVersion queda en 0.16.310 (no choca).
+- Sin migraciones (TenantApiToken solo gana la constante de alcance `mcp:whatsapp`), sin secretos, adiciones en ASCII.
+- SIGUIENTE: deploy SOLO a la senal del usuario. Reflejar ADR-0164 en el vault.
+
+## 2026-11-13 (b) - MCP de WhatsApp POR LINEA Evolution API (ADR-0164, rama, v0.16.310, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Peticion: un MCP que de "todo el poder" de Evolution
+  API (enviar, leer, contactos, grupos...) para cada linea Evolution, configurado desde el modulo de Lineas, con varias
+  lineas conectadas. Alcance elegido por el usuario: las 3 fases; acceso por permiso.
+- DIAGNOSTICO: catalogo real de Evolution v2.3.7 (~95 endpoints, de los archivos de rutas del repo de Evolution) vs ~13
+  usados por el sistema; lineas comparten servidor+llave del tenant e instancia derivada `ecorex_{tenant}_{linea}`; el
+  webhook descarta fromMe y grupos; SARA cede el turno si el ultimo saliente tiene autor humano.
+- HECHO: `POST /api/mcp/whatsapp/{lineId}` (un servidor por linea, token personal nuevo `mcp:whatsapp`, sin migracion),
+  `WhatsAppMcpToolset` (36 herramientas: lectura, envio de todo tipo, gestion de chats/etiquetas/agente/Directorio,
+  grupos completos, perfil/privacidad/reinicio de la linea), puerta generica `EvolutionCallAsync` (resuelve servidor +
+  llave + instancia, filtro global), envios 1:1 por IChatService ("Usuario (via IA)", SARA cede) y registro de los
+  envios directos (`RecordOutboundAsync`), conversacion por linea (`GetOrCreateForLineAsync`, misma llave que la
+  ingesta). Salvaguardas: primer contacto confirmado, limite 20/min y 300/h por linea, 1 destinatario. Media anti-SSRF
+  (IP validada al conectar, sin redirecciones). Host JSON-RPC comun (`McpJsonRpcHost`) y bloques comunes
+  (`McpClientSnippets`); /conectar-ia muestra el servidor de cada token. /lineas -> "Configurar MCP" por linea.
+- EXCLUIDO a proposito: logout/borrar/crear instancia, webhook, proxy, settings (romperian Conversaciones y SARA).
+- VERIFICADO: build Debug solucion 0 errores; `McpWhatsAppTests` dual PG+SQL Server 18/18 contra el conector REAL y
+  `McpTablerosTests` 20/20 (sin regresion tras mover el host). En vivo (local, linea temporal propia en BITCODE, luego
+  borrada): modal, token, initialize, tools/list 36 sin problemas, 404/401 correctos, tableros sigue en 83. No se llamo
+  a Evolution real (la unica linea Evolution local es de AGRO).
+- SIGUIENTE: integracion a main por dev principal (la rama incluye el commit de permisos v0.16.309). Fuera de alcance:
+  ingerir grupos/fromMe/acuses en el webhook, interruptor de MCP por linea, limite en Redis si hay varias instancias.
+
+## 2026-11-13 - Seguridad: /lineas y /conversaciones exigen el permiso del modulo (rama, v0.16.309, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (worktree mcp-tablero-tareas-7cc393). Hallazgo al mapear WhatsApp/Evolution para el MCP:
+  las paginas `Lineas.razor` y `Conversaciones.razor` solo tenian `[Authorize]`; el menu las ocultaba por perfil pero
+  la URL directa entraba (cualquier usuario del tenant veia TODAS las conversaciones y podia enviar o vaciar historial).
+- HECHO: policies `Lineas.Ver` y `Conversaciones.Ver` en `Program.cs` (PermissionRequirement modulo `lineas` /
+  `conversaciones`, View) aplicadas a las paginas. Acciones finas con ICurrentPermissions: Lineas -> Crear = conectar
+  linea; Editar = conectar/desconectar/renombrar/probar envio + acordeon Avanzado (servidor y webhook); Eliminar =
+  borrar linea. Conversaciones -> Crear = enviar (texto, adjuntos, ubicacion, pregrabados; sin permiso queda aviso de
+  solo lectura); Editar = archivar, soportes, llevar a pipeline, reiniciar memoria, gestionar pregrabados; Eliminar =
+  borrar mensaje para todos y vaciar historial. Flags en false hasta resolver. Regla B2 intacta (Owner/Admin y sin rol
+  = sin restriccion). En Blazor Server un boton no renderizado no tiene manejador invocable: ocultar = control real.
+- VERIFICADO E2E (rama en local, BD 5442): usuario con rol SIN `conversaciones`/`lineas` (OPERATIVO1) -> ambas rutas lo
+  devuelven al login, y una ruta permitida (/actividades) si abre; usuario con SOLO Ver (simple@sky-system.local) ->
+  entra a ambas en solo lectura (sin Conectar linea, Avanzado, Editar, Eliminar ni Vaciar historial); Owner -> ve
+  todo (sin regresion). Build Debug SuperAdmin 0 errores.
+- SIGUIENTE: integracion a main por dev principal. NO desplegar sin senal del usuario.
+
 ## 2026-11-12 - Integracion a main de la rama MCP autoria de flujos y formularios (release v0.16.308, SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-autoria-flujos-formularios` (06ed1742 + 676c74de, base 81b25104) sobre el tronco v0.16.307. Conflictos solo en AppVersion.cs (rama 0.16.304 -> renumerado a 0.16.308) y en esta bitacora (se conservan las entradas de ambos lados).

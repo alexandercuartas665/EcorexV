@@ -37,8 +37,10 @@ public interface IPersonalAccessTokenService
     /// <summary>Tokens personales del usuario (activos y revocados), mas recientes primero.</summary>
     Task<IReadOnlyList<PersonalTokenDto>> ListMineAsync(Guid tenantUserId, CancellationToken cancellationToken = default);
 
-    /// <summary>Emite un token personal para el usuario. Devuelve el valor en claro UNA sola vez.</summary>
-    Task<IssuedPersonalToken> IssueAsync(Guid tenantUserId, Guid actorPlatformUserId, string name, CancellationToken cancellationToken = default);
+    /// <summary>Emite un token personal para el usuario. Devuelve el valor en claro UNA sola vez. scope:
+    /// mcp:tableros (por defecto) o mcp:whatsapp (ADR-0164); cualquier otro se rechaza.</summary>
+    Task<IssuedPersonalToken> IssueAsync(Guid tenantUserId, Guid actorPlatformUserId, string name,
+        string scope = TenantApiToken.ScopeMcpTableros, CancellationToken cancellationToken = default);
 
     /// <summary>Revoca un token del usuario (idempotente). false si no existe o no es suyo.</summary>
     Task<bool> RevokeAsync(Guid tenantUserId, Guid actorPlatformUserId, Guid tokenId, CancellationToken cancellationToken = default);
@@ -76,8 +78,14 @@ public sealed class PersonalAccessTokenService : IPersonalAccessTokenService
         return rows.Select(ToDto).ToList();
     }
 
-    public async Task<IssuedPersonalToken> IssueAsync(Guid tenantUserId, Guid actorPlatformUserId, string name, CancellationToken cancellationToken = default)
+    public async Task<IssuedPersonalToken> IssueAsync(Guid tenantUserId, Guid actorPlatformUserId, string name,
+        string scope = TenantApiToken.ScopeMcpTableros, CancellationToken cancellationToken = default)
     {
+        // Solo alcances PERSONALES de MCP: nunca "admin" (ese token es de tenant y lo emite Owner/Admin aparte).
+        if (scope is not (TenantApiToken.ScopeMcpTableros or TenantApiToken.ScopeMcpWhatsApp))
+        {
+            throw new InvalidOperationException("Alcance de token no permitido.");
+        }
         var clean = (name ?? string.Empty).Trim();
         if (clean.Length == 0) { clean = "Conector IA"; }
         if (clean.Length > 150) { clean = clean[..150]; }
@@ -103,7 +111,7 @@ public sealed class PersonalAccessTokenService : IPersonalAccessTokenService
             TenantUserId = tenantUserId,
             Name = clean,
             TokenHash = ApiTokenHasher.Hash(plain),
-            Scope = TenantApiToken.ScopeMcpTableros
+            Scope = scope
         };
         _db.TenantApiTokens.Add(entity);
         _audit.Write(actorPlatformUserId, "mcp.token.issue", nameof(TenantApiToken), entity.Id,

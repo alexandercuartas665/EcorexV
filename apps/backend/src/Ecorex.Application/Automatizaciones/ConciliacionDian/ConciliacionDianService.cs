@@ -579,8 +579,12 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             if (nombresRegla.Contains(name)) { continue; }
             _db.ConciliacionRules.Add(new ConciliacionRule
             {
-                TenantId = tenantId, Name = name, Kind = kind, Enabled = true,
-                SortOrder = ordenRegla++, DefinitionJson = json,
+                TenantId = tenantId,
+                Name = name,
+                Kind = kind,
+                Enabled = true,
+                SortOrder = ordenRegla++,
+                DefinitionJson = json,
             });
         }
 

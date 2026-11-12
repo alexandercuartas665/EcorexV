@@ -463,8 +463,12 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
             if (yaHay.Contains(name)) { continue; }
             _db.ConciliacionRules.Add(new ConciliacionRule
             {
-                TenantId = tid, Name = name, Kind = kind, Enabled = true,
-                SortOrder = nextOrder++, DefinitionJson = json,
+                TenantId = tid,
+                Name = name,
+                Kind = kind,
+                Enabled = true,
+                SortOrder = nextOrder++,
+                DefinitionJson = json,
             });
             agregadas++;
         }
@@ -514,7 +518,8 @@ public static class ConciliacionRuleSeed
         {
             When = new RuleCond
             {
-                Kind = "group", Op = "and",
+                Kind = "group",
+                Op = "and",
                 Children =
                 {
                     new RuleCond { Kind = "cond", Field = "numsol", Operator = "nempty" },

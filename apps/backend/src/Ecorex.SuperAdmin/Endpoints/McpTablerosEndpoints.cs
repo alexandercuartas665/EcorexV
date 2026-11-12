@@ -38,7 +38,16 @@ public static class McpTablerosEndpoints
         "Confirma con el usuario antes de cerrar pasos o mover tareas a columnas de cierre. " +
         "Directorio de contactos: busca antes de crear (buscar_contacto) para no duplicar; ver_contacto muestra la " +
         "ficha completa; editar_contacto cambia solo lo que envies (consulta listar_campos_contacto antes de usar " +
-        "'campos'). Confirma con el usuario antes de inactivar un contacto.";
+        "'campos'). Confirma con el usuario antes de inactivar un contacto. " +
+        "Autoria de flujos: crear_flujo nace con inicio->fin conectados; mete pasos con agregar_nodo indicando " +
+        "desde_nodo_id y hasta_nodo_id (inserta y reemplaza la conexion directa). Un nodo que no es compuerta sigue " +
+        "TODAS sus salidas en paralelo: para decidir usa una compuerta con condicion_ruta. Con origen 'politica' asigna " +
+        "cargos (asignar_cargo_nodo). Revisa ver_flujo: si trae 'avisos', muestraselos al usuario antes de publicar. " +
+        "Para cambiar un flujo publicado usa nueva_version_flujo. Publica (publicar_flujo) y engancha a un concepto " +
+        "(enganchar_flujo_a_concepto) para que las tareas lo arranquen. Autoria de formularios: apply_form_spec arma " +
+        "uno completo (o create_form + add_container + add_question) y activate lo deja activo; consulta list_forms/" +
+        "get_form antes de cambiar uno y confirma con el usuario antes de create_share_link (enlace publico). La IA " +
+        "solo puede lo que el usuario puede (permisos de flujos/formularios).";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {

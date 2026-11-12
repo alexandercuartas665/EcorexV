@@ -2,6 +2,65 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-12 - Integracion a main de la rama MCP autoria de flujos y formularios (release v0.16.308, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/mcp-autoria-flujos-formularios` (06ed1742 + 676c74de, base 81b25104) sobre el tronco v0.16.307. Conflictos solo en AppVersion.cs (rama 0.16.304 -> renumerado a 0.16.308) y en esta bitacora (se conservan las entradas de ambos lados).
+- Incluye: MCP personal /api/mcp/tableros con 83 herramientas (16 de flujos + 40 de formularios por lista permitida; list_tenants FUERA). Sin migraciones.
+- Ignorada la rama remota vieja `claude/mcp-tablero-tareas-7cc393` (f9fddd1b ya esta en main).
+- SIGUIENTE: deploy SOLO a la senal del usuario. Reflejar ADR-0159 addendum en el vault.
+
+## 2026-11-12 (b) - MCP: inventario + revision de suficiencia/seguridad (rama, v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. Peticion: validar si los MCP dan todas las herramientas para usar el sistema, inventariar
+  todos los MCP y revisar documentacion.
+- INVENTARIO (nuevo `docs/mcp/INVENTARIO-MCP.md`): 2 servidores. MCP PERSONAL `/api/mcp/tableros` = 83 tools
+  (15 nucleo + 12 directorio + 16 flujos + 40 formularios); MCP ADMIN `/api/mgmt/agent/mcp` = 64 tools de 8
+  IAgentToolsets (los mismos de los agentes internos).
+- HALLAZGOS Y CORRECCIONES (en mi propio trabajo de la sesion anterior, nunca integrado): (1) SEGURIDAD: el puente
+  de formularios exponia `list_tenants` (IgnoreQueryFilters -> lista TODOS los tenants) a cualquier usuario con
+  token personal -> LISTA PERMITIDA de 40 (fuera list_tenants, menu y escritura de contenedores). (2) Flujos rotos:
+  no habia como quitar la conexion inicio->fin y el motor sigue TODAS las salidas de un nodo no-compuerta -> el
+  recorrido de prueba entregado armaba un flujo que salta al fin. Nuevo `agregar_nodo` con desde/hasta (inserta) y
+  `eliminar_conexion`. (3) `origen=politica` sin forma de asignar cargo -> `asignar_cargo_nodo`. (4) Editar flujo
+  publicado -> `nueva_version_flujo`. (5) Avisos de revision del grafo en ver_flujo y publicar_flujo se niega con
+  avisos salvo forzar=true. (6) El ADR decia "40 herramientas" (eran 86) -> corregido.
+- VERIFICADO: dual PG+SQL Server `McpTablerosTests` 20/20 (nuevas: puente seguro, integridad del catalogo; el de
+  flujo cubre insercion, avisos, cargo, eliminar_conexion, nueva version y re-apunte del concepto). EN VIVO (5270,
+  BD local, DI real): 83 tools, 0 problemas de catalogo con el toolset de formularios real, list_tenants ->
+  desconocida; avisos sin falsos positivos en flujos reales. Token de prueba emitido y revocado (401).
+- HALLAZGO EN DATOS (copia local de prod): FLW-003 "COMPRAS BITCODE" en marcha tiene un nodo suelto "Hola" (rama
+  paralela desde el inicio, sin salida ni cargo) -> pasos huerfanos por instancia. Verificar en prod.
+- SIGUIENTE: brechas priorizadas en el inventario (editar_tarea + diligenciar formulario de paso; conceptos/tableros
+  de autoria; operaciones de paso; puentes de lectura datasets/inventario; proyectos). Integracion a main por dev
+  principal (renumerar version: main ya va en v0.16.307). Reflejar en el vault (pendiente).
+
+## 2026-11-12 - MCP: autoria de FLUJOS y FORMULARIOS por la IA (rama, release v0.16.304, SIN deploy)
+
+- AGENTE: Claude Opus 4.8 (worktree mcp-tablero-tareas-7cc393). Peticion del usuario: usar el MCP no solo para
+  operar tableros/tareas sino para CREAR flujos nuevos y formularios nuevos desde la IA externa (su token `ecx_`).
+- DIAGNOSTICO (2 subagentes de mapeo): formularios YA tienen toolset de autoria completo (`FormAuthoringToolset`,
+  ADR-0067) y hasta un MCP (/api/mgmt) pero con llave de admin y actor "Sistema"; flujos NO tenian ninguna
+  autoria por MCP, solo los servicios `IWorkflowDesignService`/`IWorkflowEngine` que consume la pantalla /flujos.
+- HECHO (ASCII): (a) `TableroMcpToolset.Flujos.cs` - 13 herramientas nativas de autoria de flujos (crear, nodos,
+  conectar, condicion, encargado por campo/politica, formulario a nodo, publicar, enganchar a concepto, importar
+  BPMN, eliminar nodo), capa delgada sobre los dos servicios, devolviendo ids para encadenar. (b)
+  `TableroMcpToolset.Formularios.cs` - PUENTE del `IFormAuthoringToolset` existente (sus ~45 tools con nombre
+  nativo: create_form, apply_form_spec, add_container, add_question, activate...), mapeando `ok:false` -> error.
+  (c) Nucleo: el toolset recibe 3 servicios opcionales mas (IFormAuthoringToolset, IWorkflowDesignService,
+  IWorkflowEngine); GetSpecs/ReadOnlyTools/DestructiveTools pasan a armarse por instancia. Total 40 herramientas.
+- GOBIERNO: la autoria respeta los permisos del usuario sobre `flujos` y `formularios` (View/Create/Edit/Delete),
+  igual que la pantalla; Owner/Admin y sin-rol = sin restriccion. Toda escritura va a la auditoria `mcp.tableros.*`
+  con el usuario como actor y a la bitacora "(via IA)". `enganchar_flujo_a_concepto` es la unica escritura directa
+  (fija `actividad_subcategorias.workflow_definition_id`, guardada y con aviso si el flujo no esta publicado).
+- DECISION: flujos como partial NATIVO (espanol, reusa helpers, como el partial de Directorio) en vez de un
+  IAgentToolset nuevo (menos codigo, menor riesgo); formularios como PUENTE del toolset existente (no reinventar).
+- VERIFICADO: build Release solucion completa 0 errores; `dotnet test` matriz dual (PG + SQL Server) de
+  `McpTablerosTests` 16/16 incl. 2 nuevos (construir flujo completo crear->nodo->conectar->encargado->formulario
+  obligatorio->publicar->enganchar a concepto; y gate de permisos flujos/formularios + puente que corre como el
+  usuario y mapea ok:false). SIN deploy, SIN tocar tronco/main (solo mi rama).
+- SIGUIENTE: a la senal del usuario, prompt de integracion para dev principal (apila sobre main actual v0.16.303).
+  Fuera de alcance: OAuth (ChatGPT/claude.ai web) y LLENAR formularios de paso en runtime (la AUTORIA ya entro).
+
 ## 2026-11-11 - crear_actividad con la misma dedup que crear_tarea + prompt de SARA (ADR-0163, release v0.16.307, DESPLEGADO 2026-11-11)
 
 - AGENTE: Claude Opus 5.5. Al revisar el prompt de SARA en prod (solo lectura) se vio que registra PRIMERO con crear_actividad (concepto "Seguimiento comercial agente IA") y crear_tarea es respaldo; en prod SARA tiene crear_actividad ENCENDIDA. v0.16.306 solo habia cambiado la dedup de crear_tarea, asi que un reclamo registrado con crear_actividad se lo seguia tragando la dedup ciega de rev.3.

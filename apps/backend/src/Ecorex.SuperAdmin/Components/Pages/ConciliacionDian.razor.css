@@ -66,6 +66,14 @@
 }
 .cd-tab.on .cd-badge { background: var(--brand, #4f46e5); color: #fff; }
 
+/* Barra de scroll horizontal superior (sobre los titulos), sincronizada por JS con .cd-grid-wrap.
+   El espaciador interno copia el ancho real de la tabla; la barra se oculta sola si no hay desbordamiento. */
+.cd-hscroll-top { display: none; overflow-x: auto; overflow-y: hidden; border-left: 1px solid var(--line-2, #e5e7eb); border-right: 1px solid var(--line-2, #e5e7eb); background: var(--surface-2, #f1f5f9); scrollbar-width: thin; }
+.cd-hscroll-top .cd-hscroll-spacer { height: 1px; }
+.cd-hscroll-top::-webkit-scrollbar { height: 12px; }
+.cd-hscroll-top::-webkit-scrollbar-thumb { background: var(--line-2, #cbd1d9); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+.cd-hscroll-top::-webkit-scrollbar-track { background: transparent; }
+
 /* Scroll propio (vertical + horizontal) para que el header quede FIJO (sticky) dentro del contenedor. */
 .cd-grid-wrap { overflow: auto; max-height: calc(100vh - 300px); min-height: 220px; border: 1px solid var(--line-2, #e5e7eb); border-top: 0; border-radius: 0 0 12px 12px; }
 .cd-grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; white-space: nowrap; }
@@ -208,6 +216,7 @@
 /* Menu contextual de columna (caret): reusa el look del menu de color */
 .cd-ctx-item { display: block; width: 100%; text-align: left; font-size: 12.5px; color: var(--ink, #1f2937); padding: 7px 10px; cursor: pointer; background: transparent; border: 0; border-radius: 7px; }
 .cd-ctx-item:hover { background: var(--brand-soft, #f5f7ff); }
+.cd-ctx-copy { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .cd-ctx-sep { height: 1px; background: var(--line, #f1f5f9); margin: 4px 2px; }
 
 /* Filas de grupo + subtotales */

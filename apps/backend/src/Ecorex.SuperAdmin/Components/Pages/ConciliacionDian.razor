@@ -300,6 +300,7 @@ else
         }
     </div>
 
+    <div class="cd-hscroll-top" aria-hidden="true"><div class="cd-hscroll-spacer"></div></div>
     <div class="cd-grid-wrap">
         <table class="cd-grid">
             <thead>
@@ -660,6 +661,13 @@ else
     {
         <div class="cd-ctx-overlay" @onclick="CloseColorMenu" @oncontextmenu:preventDefault="true"></div>
         <div class="cd-ctx-menu" style="left:@(Px(_menuX)); top:@(Px(_menuY));">
+            @if (!string.IsNullOrEmpty(_menuSelText))
+            {
+                <button type="button" class="cd-ctx-item cd-ctx-copy" @onclick="CopySelAsync" title="@_menuSelText">
+                    &#128203; Copiar "@(_menuSelText.Length > 28 ? _menuSelText.Substring(0, 28) + "..." : _menuSelText)"
+                </button>
+                <div class="cd-ctx-sep"></div>
+            }
             <div class="cd-ctx-title">Marcar fila</div>
             <div class="cd-ctx-swatches">
                 @foreach (var p in _palette)
@@ -838,6 +846,7 @@ else
                                 <span class="cd-doc-viewer-name" title="@sel.FileName">@sel.FileName</span>
                                 <span class="cd-file-size">@FmtSize(sel.SizeBytes)</span>
                                 <a class="cd-doc-viewer-open" href="@sel.Url" target="_blank" rel="noopener" title="Abrir en pestana nueva">Abrir &#8599;</a>
+                                <a class="cd-doc-viewer-open" href="@(sel.Url + "?dl=" + Uri.EscapeDataString(NombreDescarga(sel)))" title="Descargar con el numero de factura">Descargar &#8615;</a>
                             </div>
                             <iframe class="cd-doc-frame" src="@sel.Url" @key="sel.Id"></iframe>
                         }
@@ -4192,6 +4201,22 @@ else
         _ => ref2 ?? "archivo",
     };
     private static string TagClass(string? ref2) => (ref2 ?? "").StartsWith("NEWTON") ? "nw" : "dn";
+
+    // Nombre legible para la DESCARGA: usa el No. de factura del proveedor (del renglon abierto) + el tipo de
+    // archivo (DIAN/NEWTON PDF/XML), en vez del CUFE/GUID de la URL. El endpoint /archivo/{id}?dl= lo sanea.
+    private string NombreDescarga(StoredFileDto f)
+    {
+        var num = _filesRenglon?.NumFacturaProveedor?.Trim();
+        var fn = f.FileName ?? "";
+        var ext = System.IO.Path.GetExtension(fn);
+        if (string.IsNullOrEmpty(ext)) { ext = (f.ContentType ?? "").Contains("xml", StringComparison.OrdinalIgnoreCase) ? ".xml" : ".pdf"; }
+        var tag = (f.Ref2 ?? "").Replace("_", " ").Trim();   // "DIAN PDF" / "NEWTON XML"
+        var baseName = string.IsNullOrWhiteSpace(num)
+            ? (string.IsNullOrWhiteSpace(fn) ? "documento" : System.IO.Path.GetFileNameWithoutExtension(fn))
+            : num;
+        var name = tag.Length > 0 ? $"{baseName} - {tag}" : baseName;
+        return name + ext;
+    }
     private static string FmtSize(long b) => b < 1024 ? $"{b} B" : (b < 1048576 ? $"{b / 1024.0:0.#} KB" : $"{b / 1048576.0:0.#} MB");
 
     private async Task OnOcChanged(ConciliacionDianRenglonDto r, ChangeEventArgs e)
@@ -4367,6 +4392,7 @@ else
         {
             await JS.InvokeVoidAsync("ecorexCdCols.apply", _frozen);
             if (_selfRef is not null) { await JS.InvokeVoidAsync("ecorexCdCols.wireResize", _selfRef); }
+            await JS.InvokeVoidAsync("ecorexCdCols.wireTopScroll");
         }
         catch { }
     }
@@ -4383,6 +4409,7 @@ else
     private ConciliacionDianRenglonDto? _menuRenglon;
     private string _menuNote = "";          // texto editable de la observacion en el menu
     private string? _menuNoteOriginal;      // la observacion guardada (para decidir si mostrar "Quitar")
+    private string _menuSelText = "";       // texto seleccionado al abrir el menu (para la opcion "Copiar")
 
     private static readonly (string Token, string Label, string Hex)[] _palette = new[]
     {
@@ -4404,6 +4431,9 @@ else
         _menuRenglon = r;
         _menuNote = r.MarkerNote ?? "";
         _menuNoteOriginal = r.MarkerNote;
+        // Captura el texto seleccionado ANTES de pintar el menu (el clic derecho bloquea el copiar nativo;
+        // asi lo reponemos como opcion "Copiar"). Si no hay seleccion, el boton no se muestra.
+        try { _menuSelText = await JS.InvokeAsync<string>("ecorexCdCols.selectionText"); } catch { _menuSelText = ""; }
         var x = e.ClientX;
         var y = e.ClientY;
         // Clamp contra el viewport: si el menu se saldria por abajo/derecha, lo recolocamos para que quepa entero
@@ -4420,7 +4450,13 @@ else
         _menuOpen = true;
     }
     private sealed record Viewport(double W, double H);
-    private void CloseColorMenu() { _menuOpen = false; _menuRenglon = null; _menuNote = ""; _menuNoteOriginal = null; }
+    private void CloseColorMenu() { _menuOpen = false; _menuRenglon = null; _menuNote = ""; _menuNoteOriginal = null; _menuSelText = ""; }
+    private async Task CopySelAsync()
+    {
+        var txt = _menuSelText;
+        CloseColorMenu();
+        if (!string.IsNullOrEmpty(txt)) { try { await JS.InvokeAsync<bool>("ecorexCdCols.copyText", txt); } catch { } }
+    }
     private async Task SetColorAsync(string? token)
     {
         if (_menuRenglon is null) { return; }

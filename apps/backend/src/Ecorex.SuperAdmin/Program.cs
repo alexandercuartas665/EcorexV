@@ -957,10 +957,23 @@ app.MapControllers();
 
 // Descarga/visor UNIFICADO de archivos: /archivo/{id}. Sirve el binario (inline) por su llave StoredFile.
 // Requiere sesion; ReadAsync esta tenant-scoped por el filtro global, asi que un tenant no ve archivos de otro.
-app.MapGet("/archivo/{id:guid}", async (Guid id, Ecorex.Application.Storage.IFileStorageService files, CancellationToken ct) =>
+app.MapGet("/archivo/{id:guid}", async (Guid id, HttpContext http, Ecorex.Application.Storage.IFileStorageService files, CancellationToken ct) =>
 {
     var content = await files.ReadAsync(id, ct);
-    return content is null ? Results.NotFound() : Results.File(content.Content, content.ContentType);
+    if (content is null) { return Results.NotFound(); }
+    // ?dl=<nombre>: fuerza la descarga con un nombre legible (p.ej. el No. de factura) en lugar del GUID/CUFE
+    // que el navegador toma de la URL. Sin el parametro se sirve INLINE (visor/iframe/firmas) como siempre.
+    // El nombre se sanea (se quitan separadores de ruta y caracteres invalidos) y ASP.NET lo codifica en el header.
+    var dl = http.Request.Query["dl"].ToString();
+    if (!string.IsNullOrWhiteSpace(dl))
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        var cleaned = new string(dl.Select(ch => System.Array.IndexOf(invalid, ch) >= 0 ? '_' : ch).ToArray()).Trim();
+        if (cleaned.Length == 0) { cleaned = content.FileName; }
+        if (cleaned.Length > 120) { cleaned = cleaned[..120]; }
+        return Results.File(content.Content, content.ContentType, fileDownloadName: cleaned);
+    }
+    return Results.File(content.Content, content.ContentType);
 }).RequireAuthorization();
 
 app.MapPost("/auth/login", async (

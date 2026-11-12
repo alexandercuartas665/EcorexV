@@ -94,8 +94,80 @@ window.ecorexCdCols = (function () {
         }
     }
 
+    // Barra de scroll horizontal SUPERIOR (sobre los titulos) sincronizada con la grilla.
+    //  - El espaciador replica el ancho real de la tabla para que la barra de arriba recorra lo mismo.
+    //  - Mueve una barra y la otra la sigue (ida y vuelta) comparando scrollLeft para no entrar en bucle.
+    //  - Se oculta sola cuando no hay desbordamiento. Idempotente: se puede invocar en cada render.
+    function wireTopScroll() {
+        var wrap = document.querySelector('.cd-grid-wrap');
+        var top = document.querySelector('.cd-hscroll-top');
+        if (!wrap || !top) return;
+        var spacer = top.querySelector('.cd-hscroll-spacer');
+        if (!spacer) return;
+
+        function sync() {
+            var table = wrap.querySelector('table.cd-grid');
+            var w = table ? table.scrollWidth : wrap.scrollWidth;
+            spacer.style.width = w + 'px';
+            top.style.display = (w > wrap.clientWidth + 1) ? 'block' : 'none';
+            if (top.scrollLeft !== wrap.scrollLeft) top.scrollLeft = wrap.scrollLeft;
+        }
+
+        if (!top._wired) {
+            top._wired = true;
+            top.addEventListener('scroll', function () {
+                if (wrap.scrollLeft !== top.scrollLeft) wrap.scrollLeft = top.scrollLeft;
+            });
+            wrap.addEventListener('scroll', function () {
+                if (top.scrollLeft !== wrap.scrollLeft) top.scrollLeft = wrap.scrollLeft;
+            });
+            if (window.ResizeObserver) {
+                var ro = new ResizeObserver(function () { sync(); });
+                ro.observe(wrap);
+                top._ro = ro;
+                top._roTable = null;
+            }
+            window.addEventListener('resize', sync);
+        }
+        // La tabla se regenera en cada render: re-observa la instancia vigente.
+        if (top._ro) {
+            var tbl = wrap.querySelector('table.cd-grid');
+            if (tbl && tbl !== top._roTable) {
+                try { if (top._roTable) top._ro.unobserve(top._roTable); top._ro.observe(tbl); top._roTable = tbl; } catch (_) { }
+            }
+        }
+        sync();
+    }
+
     // Tamano del viewport, para que el menu contextual (marcar fila) no se salga por el borde inferior/derecho.
     function viewport() { return { w: window.innerWidth || 0, h: window.innerHeight || 0 }; }
 
-    return { apply: apply, wireResize: wireResize, viewport: viewport };
+    // Texto actualmente seleccionado (para ofrecer "Copiar" en el menu de clic derecho sin perder el nativo).
+    function selectionText() {
+        try { var s = window.getSelection(); return s ? ('' + s).trim() : ''; } catch (_) { return ''; }
+    }
+
+    // Copia texto al portapapeles. Usa la API moderna y cae a execCommand si el navegador la bloquea.
+    function copyText(text) {
+        text = text || '';
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (_) { }
+        try {
+            var ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.focus(); ta.select();
+            var ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok;
+        } catch (_) { return false; }
+    }
+
+    return {
+        apply: apply, wireResize: wireResize, wireTopScroll: wireTopScroll, viewport: viewport,
+        selectionText: selectionText, copyText: copyText
+    };
 })();

@@ -2,6 +2,12 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-12 - Conciliador DIAN: scroll superior, copiar en clic derecho y descarga por No. de factura (release v0.16.312)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Cherry-pick de 191c1f8a (worktree ECOREX.dian, rama feat/agente-tls-instalador-adr0152) sobre el tronco v0.16.311. 4 archivos de Ecorex.SuperAdmin, sin conflictos, sin migracion EF. El commit no tocaba AppVersion: 0.16.311 -> 0.16.312.
+- Trae: (1) barra de scroll horizontal SUPERIOR en la grilla, sincronizada con la de abajo y oculta si no hay desbordamiento; (2) menu de clic derecho de la fila con "Copiar" del texto seleccionado; (3) /archivo/{id} honra ?dl=<nombre> (saneado, max 120) para descargar con nombre legible; boton "Descargar" del visor arma el nombre con el No. de factura del proveedor + tipo (DIAN/NEWTON PDF/XML). Sin el parametro sigue sirviendo inline (visor/iframe/firmas).
+- Ademas en este lote: commit aparte `style: dotnet format` (espacios en ConciliacionDianService/ConciliacionRuleService, deuda previa del tronco).
+
 ## 2026-11-12 - Integracion a main de la rama Analisis Ola 7a/7b (release v0.16.311, SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge --no-ff de `claude/system-indicators-data-sources-e53a43` (cec8d203: Ola 7a graficos ECharts + 7b tipos nuevos y KPI con periodo, ADR-0158 addendum) sobre el tronco 964db59e (v0.16.310). Sin conflictos. La rama no traia version propia: AppVersion 0.16.310 -> 0.16.311. El commit estaba solo en la rama LOCAL (worktree); el remoto de la rama no lo tenia.

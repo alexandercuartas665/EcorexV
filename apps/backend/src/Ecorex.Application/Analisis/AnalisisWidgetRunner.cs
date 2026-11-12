@@ -34,17 +34,24 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
     /// <summary>Barras/dona: categorias visibles antes de agrupar el resto en "Otros".</summary>
     public const int TopCategoriasPorDefecto = 8;
 
+    /// <summary>Tope de filas de una consulta tabular (igual al de las fuentes): si se alcanza, se avisa.</summary>
+    public const int TopeFilasTabular = 50_000;
+
     private readonly IReportDataSource _data;
     private readonly IIndicadorCuradoRegistry _curados;
     private readonly IReportCatalog? _catalog;
     private readonly IAnalisisZonaHoraria? _zona;
+    private readonly TimeProvider _reloj;
 
-    public AnalisisWidgetRunner(IReportDataSource data, IIndicadorCuradoRegistry curados, IReportCatalog? catalog = null, IAnalisisZonaHoraria? zona = null)
+    public AnalisisWidgetRunner(
+        IReportDataSource data, IIndicadorCuradoRegistry curados, IReportCatalog? catalog = null, IAnalisisZonaHoraria? zona = null,
+        TimeProvider? reloj = null)
     {
         _data = data;
         _curados = curados;
         _catalog = catalog;
         _zona = zona;
+        _reloj = reloj ?? TimeProvider.System;
     }
 
     public async Task<AnalisisWidgetResultado> RunAsync(
@@ -82,6 +89,13 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
             if (spec is null)
             {
                 return new(null, "La consulta del widget no es valida.");
+            }
+
+            // Ola 7b: calendario y KPI con periodo agregan sobre el campo de fecha en memoria (una consulta).
+            var periodo = WidgetConfig.Leer(widget.ConfigJson).Periodo;
+            if (WidgetDisenoMapper.UsaCampoFecha(widget.Tipo) || (WidgetDisenoMapper.EsEscalar(widget.Tipo) && KpiPeriodos.EsValido(periodo)))
+            {
+                return await RunPorFechaAsync(spec, widget, periodo, ctx, hoja, contexto, ct);
             }
 
             var (filtrosHoja, fueraDeContexto) = await FiltrosExtraAsync(spec.SourceKey, hoja, contexto, widget.ContextBindingsJson, ct);
@@ -142,12 +156,77 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
         return new(Adaptar(forma, widget), null, fuera) { Avisos = tabla.Avisos };
     }
 
+    /// <summary>
+    /// Calendario / KPI con periodo (Ola 7b): trae en UNA consulta tabular el campo de fecha (y el medido)
+    /// del rango necesario, con los filtros del widget, de la hoja (sin su rango: este widget maneja sus
+    /// fechas) y del contexto; luego agrupa por dia/ventana en la zona del tenant.
+    /// </summary>
+    private async Task<AnalisisWidgetResultado> RunPorFechaAsync(
+        ReportQuerySpec spec, AnalisisWidgetDto widget, string? periodo, ReportContext ctx, HojaFiltros? hoja,
+        IReadOnlyDictionary<string, string>? contexto, CancellationToken ct)
+    {
+        var fuente = _catalog is null ? null : await _catalog.GetSourceAsync(spec.SourceKey, ct);
+        var campoFecha = fuente is null ? null : HojaFiltroBinder.Resolver(HojaFiltroBinder.Fecha, fuente, widget.ContextBindingsJson);
+        if (fuente is null || campoFecha is null)
+        {
+            return new(null, "Esta fuente no tiene un campo de fecha para este widget.");
+        }
+
+        var zona = ctx.TenantZone;
+        var hoy = AnalisisFechas.Hoy(_reloj.GetUtcNow(), zona);
+        var calendario = WidgetDisenoMapper.UsaCampoFecha(widget.Tipo);
+        var plan = calendario ? null : KpiPeriodos.Planear(periodo, hoja, hoy);
+        var rango = AnalisisFechas.RangoCalendario(hoja, hoy);
+        var desde = plan?.Desde ?? rango.Desde;
+        var hastaEx = plan?.HastaExclusivo ?? rango.Hasta.AddDays(1);
+
+        var hojaSinRango = hoja is null ? null : hoja with { Desde = null, Hasta = null };
+        var (extra, fuera) = await FiltrosExtraAsync(spec.SourceKey, hojaSinRango, contexto, widget.ContextBindingsJson, ct);
+        var agg = spec.Aggregates.FirstOrDefault() ?? new ReportAggregate(string.Empty, ReportAggregateFunction.Count);
+        var campoValor = agg.Function == ReportAggregateFunction.Count || string.IsNullOrWhiteSpace(agg.FieldKey) ? null : agg.FieldKey;
+
+        var filtros = spec.Filters.Concat(extra).ToList();
+        filtros.Add(new ReportFilter(campoFecha, ReportFilterOperator.GreaterThanOrEqual, new[] { HojaFiltroBinder.Limite(desde, fuente, zona) }));
+        filtros.Add(new ReportFilter(campoFecha, ReportFilterOperator.LessThan, new[] { HojaFiltroBinder.Limite(hastaEx, fuente, zona) }));
+
+        var ds = await _data.QueryAsync(spec with
+        {
+            Fields = campoValor is null ? new[] { campoFecha } : new[] { campoFecha, campoValor },
+            GroupBy = Array.Empty<string>(),
+            Aggregates = Array.Empty<ReportAggregate>(),
+            Sort = Array.Empty<ReportSort>(),
+            Filters = filtros
+        }, ctx, ct);
+
+        var filas = new List<(DateOnly Dia, object? Valor)>(ds.RowCount);
+        foreach (var r in ds.Rows)
+        {
+            if (AnalisisFechas.Dia(r.Count > 0 ? r[0] : null, zona) is DateOnly dia)
+            {
+                // Conteo: cada fila vale 1; medida: el valor del campo (los nulos no suman).
+                filas.Add((dia, campoValor is null ? 1 : r.Count > 1 ? r[1] : null));
+            }
+        }
+
+        WidgetShape forma = plan is null
+            ? AnalisisFechas.PorDia(rango.Desde, rango.Hasta, filas, agg.Function)
+            : AnalisisFechas.Kpi(widget.Titulo, plan, filas, agg.Function);
+        var avisos = ds.RowCount >= TopeFilasTabular
+            ? new[] { $"Se leyeron {TopeFilasTabular:N0} registros (el tope): el resultado puede estar incompleto. Acota con filtros." }
+            : Array.Empty<string>();
+        return new(Adaptar(forma, widget), null, fuera) { Avisos = avisos };
+    }
+
     /// <summary>Dataset -> forma segun el tipo visual del widget. Puro, testeable.</summary>
     public static WidgetShape AFormar(ReportDataSet ds, AnalisisWidgetDto widget) => widget.Tipo switch
     {
-        AnalisisTipoWidget.Kpi => WidgetShapes.ToEscalar(ds, widget.Titulo),
-        AnalisisTipoWidget.Barras or AnalisisTipoWidget.Dona or AnalisisTipoWidget.Semaforo =>
+        AnalisisTipoWidget.Kpi or AnalisisTipoWidget.Velocimetro => WidgetShapes.ToEscalar(ds, widget.Titulo),
+        AnalisisTipoWidget.Barras or AnalisisTipoWidget.Dona or AnalisisTipoWidget.Semaforo or AnalisisTipoWidget.Embudo
+            or AnalisisTipoWidget.BarrasHorizontales or AnalisisTipoWidget.BarrasLinea =>
             WidgetShapes.ToCategorias(ds, Top(widget.ConfigJson)),
+        // Apiladas y mapa de arbol: con dos agrupaciones son series (pila / segundo nivel); con una, categorias.
+        AnalisisTipoWidget.BarrasApiladas or AnalisisTipoWidget.Treemap =>
+            WidgetShapes.TieneDosGrupos(ds) ? WidgetShapes.ToSerie(ds) : WidgetShapes.ToCategorias(ds, Top(widget.ConfigJson)),
         AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area => WidgetShapes.ToSerie(ds),
         AnalisisTipoWidget.Heatmap => WidgetShapes.ToHeatmap(ds),
         _ => WidgetShapes.ToTabla(ds)
@@ -159,11 +238,9 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
     /// </summary>
     public static WidgetShape Adaptar(WidgetShape forma, AnalisisWidgetDto widget)
     {
-        var adaptada = (widget.Tipo, forma) switch
-        {
-            (AnalisisTipoWidget.Kpi, CategoriasShape c) => new EscalarShape(c.Total, widget.Titulo),
-            _ => forma
-        };
+        var adaptada = forma is CategoriasShape c && WidgetDisenoMapper.EsEscalar(widget.Tipo)
+            ? new EscalarShape(c.Total, widget.Titulo)
+            : forma;
 
         if (adaptada is EscalarShape kpi && WidgetConfig.Leer(widget.ConfigJson).TonoPorUmbral(kpi.Valor) is string tono)
         {

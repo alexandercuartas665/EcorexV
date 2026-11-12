@@ -165,6 +165,13 @@ public sealed class AnalisisPortabilidad : IAnalisisPortabilidad
                     continue;
                 }
 
+                // Tipo fuera del catalogo (numero desconocido o el reservado): no se puede pintar.
+                if (!WidgetDisenoMapper.EsTipoValido(w.Tipo))
+                {
+                    avisos.Add($"Se omitio el widget \"{titulo}\": su tipo no existe en este sistema.");
+                    continue;
+                }
+
                 db.AnalisisWidgets.Add(new AnalisisWidget
                 {
                     HojaId = hoja.Id,

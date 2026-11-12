@@ -115,7 +115,9 @@ public class AnalisisOla4UnitTests
         Assert.IsType<HeatmapShape>(AnalisisWidgetRunner.AFormar(ds, W(AnalisisTipoWidget.Heatmap)));
         Assert.IsType<CategoriasShape>(AnalisisWidgetRunner.AFormar(ds, W(AnalisisTipoWidget.Semaforo)));
         Assert.IsType<TablaShape>(AnalisisWidgetRunner.AFormar(ds, W(AnalisisTipoWidget.Tabla)));
-        Assert.Equal(8, WidgetDisenoMapper.Tipos.Count);
+        // 8 tipos de la Ola 4 + 7 de la Ola 7b (el reservado Echarts no se ofrece).
+        Assert.Equal(15, WidgetDisenoMapper.Tipos.Count);
+        Assert.DoesNotContain(WidgetDisenoMapper.Tipos, t => t.Tipo == AnalisisTipoWidget.Echarts);
     }
 
     [Fact]

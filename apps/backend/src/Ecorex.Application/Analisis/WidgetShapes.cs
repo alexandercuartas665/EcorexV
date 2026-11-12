@@ -9,8 +9,32 @@ namespace Ecorex.Application.Analisis;
 /// <summary>Base comun de las formas de widget.</summary>
 public abstract record WidgetShape;
 
-/// <summary>Un numero (KPI). <see cref="Delta"/> opcional = variacion vs periodo anterior.</summary>
-public sealed record EscalarShape(decimal? Valor, string Etiqueta, decimal? Delta = null, string? Tono = null) : WidgetShape;
+/// <summary>
+/// Un numero (KPI). <see cref="Delta"/> opcional = variacion RELATIVA vs el periodo anterior (0.12 = +12%).
+/// Con un periodo configurado (Ola 7b) trae tambien el valor anterior, la leyenda de la comparacion y la
+/// tendencia (un punto por periodo, el ultimo es el actual).
+/// </summary>
+public sealed record EscalarShape(decimal? Valor, string Etiqueta, decimal? Delta = null, string? Tono = null) : WidgetShape
+{
+    public decimal? ValorAnterior { get; init; }
+
+    /// <summary>Ej. "vs mes anterior" (null = sin comparacion).</summary>
+    public string? Comparacion { get; init; }
+
+    public IReadOnlyList<PuntoSerie> Tendencia { get; init; } = Array.Empty<PuntoSerie>();
+}
+
+/// <summary>Un punto de una tendencia (etiqueta del periodo + valor).</summary>
+public sealed record PuntoSerie(string Etiqueta, decimal? Valor);
+
+/// <summary>Valor de un dia del calendario de actividad.</summary>
+public sealed record DiaValor(DateOnly Dia, decimal Valor);
+
+/// <summary>Calendario de actividad (Ola 7b): rango de dias + valor por dia (los dias sin dato no vienen).</summary>
+public sealed record CalendarioShape(DateOnly Desde, DateOnly Hasta, IReadOnlyList<DiaValor> Dias) : WidgetShape
+{
+    public decimal Total => Dias.Sum(d => d.Valor);
+}
 
 /// <summary>Un par etiqueta-valor de <see cref="CategoriasShape"/>. <see cref="Tono"/> opcional para semaforos.</summary>
 public sealed record CategoriaItem(string Etiqueta, decimal Valor, string? Tono = null);
@@ -155,6 +179,9 @@ public static class WidgetShapes
     }
 
     public static TablaShape ToTabla(ReportDataSet ds) => new(ds.Columns, ds.Rows);
+
+    /// <summary>true si el dataset trae DOS columnas de agrupacion antes de la medida (eje + series).</summary>
+    public static bool TieneDosGrupos(ReportDataSet ds) => MeasureIndex(ds) >= 2;
 
     private static int MeasureIndex(ReportDataSet ds)
     {

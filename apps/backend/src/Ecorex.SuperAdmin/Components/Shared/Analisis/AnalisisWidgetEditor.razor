@@ -29,7 +29,7 @@
 
             <label class="we-lbl">Tipo</label>
             <div class="we-chips">
-                @foreach (var t in WidgetDisenoMapper.Tipos)
+                @foreach (var t in TiposDelModo)
                 {
                     <button class="we-chip @(_tipo == t.Tipo ? "on" : "")" @onclick="() => CambiarTipo(t.Tipo)">@t.Nombre</button>
                 }
@@ -95,6 +95,12 @@
                         }
                     </div>
 
+                    @if (WidgetDisenoMapper.UsaCampoFecha(_tipo))
+                    {
+                        <p class="we-hint">El calendario cuenta (o suma) por dia sobre el campo de fecha de la fuente; eligelo en Presentacion.</p>
+                    }
+                    else
+                    {
                     <label class="we-lbl">Agrupar por @(WidgetDisenoMapper.PideDimension(_tipo) ? "" : "(opcional)")</label>
                     <div class="we-row">
                         <select class="we-input" value="@_dimension" @onchange="e => Cambiar(() => _dimension = e.Value?.ToString())">
@@ -123,6 +129,7 @@
                                 <option value="@f.Key">@f.DisplayName</option>
                             }
                         </select>
+                    }
                     }
 
                     <label class="we-lbl">Filtros</label>
@@ -210,7 +217,7 @@
                             }
                         </div>
                     </div>
-                    @if (_tipo != AnalisisTipoWidget.Kpi)
+                    @if (!WidgetDisenoMapper.EsEscalar(_tipo) && !WidgetDisenoMapper.UsaCampoFecha(_tipo))
                     {
                         <div>
                             <label class="we-lbl">Categorias visibles</label>
@@ -218,8 +225,33 @@
                                    @onchange="e => SetConfig(nameof(WidgetConfig.Top), e.Value)" />
                         </div>
                     }
+                    @if (_tipo == AnalisisTipoWidget.Velocimetro)
+                    {
+                        <div>
+                            <label class="we-lbl">Meta (tope del velocimetro)</label>
+                            <input class="we-input" type="number" step="any" min="0" placeholder="Automatica" value="@_config.Meta"
+                                   @onchange="e => SetConfig(nameof(WidgetConfig.Meta), e.Value)" />
+                        </div>
+                    }
+                    @if (WidgetDisenoMapper.EsEscalar(_tipo) && !_modoCurado && !_modoCombinado)
+                    {
+                        <div>
+                            <label class="we-lbl">Comparar con el periodo anterior</label>
+                            <select class="we-input" value="@(_config.Periodo ?? "")" @onchange="e => SetConfig(nameof(WidgetConfig.Periodo), e.Value)">
+                                <option value="">No comparar (total)</option>
+                                @foreach (var p in KpiPeriodos.Opciones)
+                                {
+                                    <option value="@p.Clave">@p.Nombre</option>
+                                }
+                            </select>
+                        </div>
+                    }
                 </div>
-                @if (_tipo == AnalisisTipoWidget.Kpi)
+                @if (WidgetDisenoMapper.EsEscalar(_tipo) && KpiPeriodos.EsValido(_config.Periodo) && !_modoCurado && !_modoCombinado)
+                {
+                    <p class="we-hint">El KPI mide solo ese periodo y muestra la variacion (al mismo corte) y su tendencia. Si la hoja tiene un rango de fechas completo, se compara ese rango con el anterior de igual largo.</p>
+                }
+                @if (WidgetDisenoMapper.EsEscalar(_tipo))
                 {
                     <label class="we-lbl">Umbrales (semaforo del KPI, opcional)</label>
                     <div class="we-row">
@@ -232,7 +264,7 @@
                 }
                 @if (!_modoCurado && !_modoCombinado && Fuente is { } fte)
                 {
-                    <label class="we-lbl">Campo de fecha para los filtros de la hoja</label>
+                    <label class="we-lbl">Campo de fecha (filtros de la hoja, periodos y calendario)</label>
                     <select class="we-input" value="@_campoFecha" @onchange="e => Cambiar(() => _campoFecha = e.Value?.ToString() ?? AutoFecha)">
                         <option value="@AutoFecha">Automatico (@(HojaFiltroBinder.Resolver(HojaFiltroBinder.Fecha, fte, null) is string auto ? fte.FindField(auto)?.DisplayName : "ninguno"))</option>
                         @foreach (var f in fte.Fields.Where(f => f.Type == ReportFieldType.Date && f.CanFilter))
@@ -332,6 +364,15 @@
     private IIndicadorCurado? CuradoActual => Curados.FirstOrDefault(c => c.Key == _curadoKey);
 
     private string TonoActual => _config.Tono ?? "blue";
+
+    /// <summary>
+    /// Tipos que ofrece el modo actual: el calendario solo en Consulta (necesita el campo de fecha de una
+    /// fuente) y el combinado no pinta mapa de calor.
+    /// </summary>
+    private IEnumerable<(AnalisisTipoWidget Tipo, string Nombre, bool PideDimension)> TiposDelModo =>
+        WidgetDisenoMapper.Tipos.Where(t =>
+            !((_modoCurado || _modoCombinado) && WidgetDisenoMapper.UsaCampoFecha(t.Tipo))
+            && !(_modoCombinado && t.Tipo == AnalisisTipoWidget.Heatmap));
 
     private AnalisisWidgetDto PreviewDto { get; set; } = default!;
 
@@ -490,6 +531,10 @@
     {
         _modoCurado = curado;
         _modoCombinado = false;
+        if (curado && WidgetDisenoMapper.UsaCampoFecha(_tipo))
+        {
+            _tipo = AnalisisTipoWidget.Barras; // un indicador listo no tiene campo de fecha propio
+        }
     });
 
     private Task CambiarACombinado() => Cambiar(() =>
@@ -501,9 +546,9 @@
             _combinado = NuevoCombinado();
         }
 
-        if (_tipo is AnalisisTipoWidget.Heatmap)
+        if (_tipo is AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Calendario)
         {
-            _tipo = AnalisisTipoWidget.Barras; // el combinado no pinta mapa de calor
+            _tipo = AnalisisTipoWidget.Barras; // el combinado no pinta mapa de calor ni calendario
         }
     });
 
@@ -522,14 +567,17 @@
     {
         _tipo = tipo;
         _ordenarPorMedida = !WidgetDisenoMapper.OrdenPorEjePorDefecto(tipo);
-        // Series, mapa de calor y tabla necesitan espacio: arrancan en 2 columnas (el usuario puede cambiarlo).
-        if (tipo is AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area or AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Tabla)
-        {
-            _colSpan = Math.Max(_colSpan, 2);
-        }
+        // Series, mapas, pilas y tabla necesitan espacio (2 columnas); el calendario, el ancho completo.
+        _colSpan = Math.Max(_colSpan, WidgetDisenoMapper.AnchoSugerido(tipo));
     });
 
-    private string EtiquetaDimension2 => _tipo == AnalisisTipoWidget.Heatmap ? "Columnas" : "Series (opcional)";
+    private string EtiquetaDimension2 => _tipo switch
+    {
+        AnalisisTipoWidget.Heatmap => "Columnas",
+        AnalisisTipoWidget.BarrasApiladas => "Apilar por (opcional)",
+        AnalisisTipoWidget.Treemap => "Segundo nivel (opcional)",
+        _ => "Series (opcional)"
+    };
 
     private void CambiarFuente(string? key)
     {
@@ -572,6 +620,8 @@
             nameof(WidgetConfig.UmbralBajo) => _config with { UmbralBajo = Dec(texto) },
             nameof(WidgetConfig.UmbralAlto) => _config with { UmbralAlto = Dec(texto) },
             nameof(WidgetConfig.MayorEsMejor) => _config with { MayorEsMejor = valor is not true },
+            nameof(WidgetConfig.Meta) => _config with { Meta = Dec(texto) },
+            nameof(WidgetConfig.Periodo) => _config with { Periodo = string.IsNullOrWhiteSpace(texto) ? null : texto },
             _ => _config
         };
     });
@@ -606,8 +656,9 @@
         SourceKey = _sourceKey ?? string.Empty,
         Funcion = _funcion,
         CampoMedida = _campoMedida,
-        Dimension = _dimension,
-        Dimension2 = _dimension2,
+        // El calendario agrega sobre la fecha: no lleva dimension aunque quedara una de otro tipo.
+        Dimension = WidgetDisenoMapper.UsaCampoFecha(_tipo) ? null : _dimension,
+        Dimension2 = WidgetDisenoMapper.UsaCampoFecha(_tipo) ? null : _dimension2,
         Filtros = _filtros.ToList(),
         OrdenarPorMedida = _ordenarPorMedida,
         ColSpan = _colSpan,
@@ -625,15 +676,16 @@
                 lista.Insert(0, "Ponle un titulo al widget.");
             }
 
-            if (_tipo == AnalisisTipoWidget.Heatmap)
+            if (_tipo is AnalisisTipoWidget.Heatmap or AnalisisTipoWidget.Calendario)
             {
-                lista.Add("El widget combinado no admite mapa de calor.");
+                lista.Add("El widget combinado no admite mapa de calor ni calendario.");
             }
 
             errores = lista;
+            var cfgCombinado = WidgetDisenoMapper.LimpiarConfig(_tipo, _config) with { Combinado = _combinado, Periodo = null };
             return lista.Count > 0
                 ? null
-                : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, CombinadoDiseno.IndicadorKey, _colSpan, (_config with { Combinado = _combinado }).ToJson());
+                : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, CombinadoDiseno.IndicadorKey, _colSpan, cfgCombinado.ToJson());
         }
 
         if (_modoCurado)
@@ -649,12 +701,18 @@
                 lista.Add("Elige un indicador.");
             }
 
+            if (WidgetDisenoMapper.UsaCampoFecha(_tipo))
+            {
+                lista.Add("Los indicadores listos no admiten calendario.");
+            }
+
             errores = lista;
-            return lista.Count > 0 ? null : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, _curadoKey, _colSpan, (_config with { Combinado = null }).ToJson());
+            var cfgCurado = WidgetDisenoMapper.LimpiarConfig(_tipo, _config) with { Combinado = null, Periodo = null };
+            return lista.Count > 0 ? null : new AnalisisNuevoWidget(_tipo, _titulo.Trim(), null, _curadoKey, _colSpan, cfgCurado.ToJson());
         }
 
         var d = Diseno();
-        errores = WidgetDisenoMapper.Validar(d, Fuente);
+        errores = WidgetDisenoMapper.Validar(d, Fuente, Bindings());
         return errores.Count > 0 ? null : WidgetDisenoMapper.ToNuevoWidget(d, Bindings());
     }
 

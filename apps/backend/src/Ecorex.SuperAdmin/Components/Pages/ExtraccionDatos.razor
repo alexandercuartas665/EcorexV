@@ -624,10 +624,10 @@
                                         <button class="xd-icon-btn" title="Cerrar" @onclick="() => _showVarEditor = false">&times;</button>
                                     </div>
                                     <div class="xd-modal-body">
-                                        <div class="xd-prop"><label>Nombre</label><input class="xd-input" placeholder="USER" @bind="_vName" /></div>
+                                        <div class="xd-prop"><label>Nombre</label><input class="xd-input" placeholder="USER" autocomplete="off" @bind="_vName" /></div>
                                         <div class="xd-prop">
                                             <label>Valor</label>
-                                            <input class="xd-input" type="@(_vSecret ? "password" : "text")" placeholder="@(_vEditId is null ? "" : "Dejar vacio para conservar el valor actual")" @bind="_vValue" />
+                                            <input class="xd-input" type="@(_vSecret ? "password" : "text")" placeholder="@(_vEditId is null ? "" : "Dejar vacio para conservar el valor actual")" autocomplete="new-password" @bind="_vValue" />
                                         </div>
                                         <label class="xd-check"><input type="checkbox" @bind="_vSecret" /> Secreta (se cifra; el valor se consulta con el boton Ver)</label>
                                         @if (_vEditId is not null)

@@ -102,7 +102,7 @@ public enum ScrapeStepKind
     /// <summary>Notificar (server-side): avisa a uno o varios usuarios que la tarea del contexto ({{TAREA}}, la deja
     /// "Crear actividad") ya existe, por el canal elegido (campana, correo, plantilla de WhatsApp, grupo de
     /// WhatsApp o Telegram) con un mensaje-plantilla con los tokens de la tarea. Por defecto solo si la tarea es
-    /// nueva en esta corrida. La config va en MappingJson (ADR-0167).</summary>
+    /// nueva en esta corrida. La config va en MappingJson (ADR-0168).</summary>
     Notificar = 23
 }
 

@@ -14,7 +14,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.SuperAdmin.Agents;
 
 /// <summary>
-/// Paso "Notificar" del dron (server-side, ADR-0167). Avisa a uno o varios usuarios que la tarea que dejo
+/// Paso "Notificar" del dron (server-side, ADR-0168). Avisa a uno o varios usuarios que la tarea que dejo
 /// "Crear actividad" en el contexto ({{TAREA}} / {{TAREA_NUEVA}}) ya existe, por el CANAL que elija el operador:
 /// campana (in-app), correo, plantilla de WhatsApp, grupo de WhatsApp o Telegram. El mensaje es una PLANTILLA con
 /// los tokens de la tarea ({tarea.numero}, {tarea.titulo}, {form.petof}, {tarea.enlace}...) del mismo resolvedor que usan

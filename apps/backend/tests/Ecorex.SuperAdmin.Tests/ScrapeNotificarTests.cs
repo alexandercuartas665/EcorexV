@@ -7,7 +7,7 @@ using Xunit;
 namespace Ecorex.SuperAdmin.Tests;
 
 /// <summary>
-/// Paso "Notificar" del dron (ADR-0167): partes puras (plantilla con rutas del dron + tokens de la tarea,
+/// Paso "Notificar" del dron (ADR-0168): partes puras (plantilla con rutas del dron + tokens de la tarea,
 /// variable TAREA_NUEVA, config JSON con enums como texto, cuerpo HTML del correo, variables de la plantilla de
 /// WhatsApp), mas las variables que deja "Crear actividad" y el tope de filas del bucle.
 /// </summary>

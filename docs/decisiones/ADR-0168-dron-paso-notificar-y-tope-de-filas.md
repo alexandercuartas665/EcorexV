@@ -1,4 +1,4 @@
-# ADR-0167 - Dron: paso "Notificar" por canal con plantilla y tope de filas para simular
+# ADR-0168 - Dron: paso "Notificar" por canal con plantilla y tope de filas para simular
 
 - Estado: Aceptado (implementado en rama `feat/agentes-sistema`, SIN deploy)
 - Fecha: 2026-11-13

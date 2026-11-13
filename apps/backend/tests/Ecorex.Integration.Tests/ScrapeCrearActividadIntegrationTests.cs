@@ -210,7 +210,7 @@ public abstract class ScrapeCrearActividadTestsBase
     private sealed record SeedData(Guid TenantId, Guid PlatformUserId, Guid SubcategoriaId, Guid FormId,
         Guid ContainerId, Guid RowId, Guid TareaColId, Guid TenantUserId, string TenantUserEmail);
 
-    // ---- Paso Notificar (ADR-0167): corre "Crear actividad" y luego "Notificar" sobre el MISMO contexto ----
+    // ---- Paso Notificar (ADR-0168): corre "Crear actividad" y luego "Notificar" sobre el MISMO contexto ----
 
     [Fact]
     public async Task Notificar_Campana_AlResponsable_YNoRepiteAlRecorrer()

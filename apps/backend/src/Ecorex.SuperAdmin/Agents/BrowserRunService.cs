@@ -2010,7 +2010,7 @@ public sealed class BrowserRunService(
             }
 
             const int MaxPages = 500; // tope de seguridad por si el total viene mal
-            // Tope de filas (variable del flujo TopeFilasBucle, ADR-0167): para simular o probar con pocos
+            // Tope de filas (variable del flujo TopeFilasBucle, ADR-0168): para simular o probar con pocos
             // registros sin consumir todo el listado. Vacio/0 = sin tope.
             var topeFilas = LoopRowCap(vars);
             var topeAlcanzado = false;

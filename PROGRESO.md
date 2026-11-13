@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-13 - Integracion a main de feat/agentes-sistema: paso Notificar del DRON y tope de filas (ADR-0168, release v0.16.318, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal), a pedido de ECOREX.plataformas (autorizado por el usuario).
+- HECHO: merge de origin/feat/agentes-sistema (tip ca1a6b89) al tronco, sin conflictos y SIN migraciones: 1249e8af (traza del motor en "Esperar fin de descargas"), 939eb6f0 (resumen del flujo recortado a 400 + traza del DRON al log), b82d7acb (paso "Notificar", ScrapeStepKind.Notificar = 23: aviso de la tarea creada por Campana / Correo / WhatsApp con plantilla / Grupo WhatsApp / Telegram; CrearActividad marca su form como principal; variable TopeFilasBucle) y ca1a6b89 (ADR renumerado a ADR-0168).
+- VERIFICADO en el tronco tras el merge: build verde; SuperAdmin.Tests 224/224; integracion dual PG + SQL Server ScrapeCrearActividad* 12/12.
+- CONFIG: nada obligatorio en prod; el flujo "DRON PLATAFORMAS INGENIOS - SIMULACION" y las tareas T00054..T00059 son solo de la BD local (no migrar).
+- SIGUIENTE: deploy SOLO con OK del usuario.
+
 ## 2026-11-13 - Agendas: recordatorios de turnos configurables por WhatsApp (ADR-0167, release v0.16.317, SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Peticion del usuario: modulo para configurar los recordatorios (cuando: 15 min, 1 hora, 1 dia...; metodo: WhatsApp con linea y plantilla, o llamada con agente de voz). Decisiones con el usuario: responde el agente de la linea (nueva herramienta confirmar_turno), la llamada debe actualizar el turno, y WhatsApp primero (la llamada es la etapa 2).

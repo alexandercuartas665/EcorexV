@@ -345,6 +345,16 @@ public interface IApplicationDbContext
     DbSet<AnalisisWidget> AnalisisWidgets { get; }
     DbSet<AnalisisLibroToken> AnalisisLibroTokens { get; }
 
+    /// <summary>Modulo de Agendas (ADR-0165): tipos de recurso, recursos agendables, agendas base (plantillas)
+    /// con sus franjas, agendas propias del recurso por vigencia y novedades que las cierran.</summary>
+    DbSet<AgendaTipoRecurso> AgendaTiposRecurso { get; }
+    DbSet<AgendaRecurso> AgendaRecursos { get; }
+    DbSet<AgendaPlantilla> AgendaPlantillas { get; }
+    DbSet<AgendaPlantillaFranja> AgendaPlantillaFranjas { get; }
+    DbSet<AgendaRecursoVigencia> AgendaRecursoVigencias { get; }
+    DbSet<AgendaRecursoFranja> AgendaRecursoFranjas { get; }
+    DbSet<AgendaNovedad> AgendaNovedades { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

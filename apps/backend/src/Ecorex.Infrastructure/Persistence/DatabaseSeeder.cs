@@ -3935,6 +3935,126 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         _logger.LogInformation("Gestor Documental: definicion de modulo {Code} registrada en el catalogo global.", GesDocLegacyCode);
     }
 
+    // ---- Agendas (ADR-0165): grupo de menu + registro de modulos ----
+    // Modulo NUEVO de ECOREX (sin origen legacy): codigos consecutivos al ultimo en uso (001682 era el maximo
+    // entre module_definitions y menu_nodes al crearlo). El Route de cada item es su ModuleKey en la matriz de
+    // roles, asi Ver/Crear/Editar/Eliminar salen solos y el menu se poda por permiso de Ver.
+    private const string AgendasSectionSlug = "agendas-grp";
+    private static readonly (string Name, string Route, string Code, string Description)[] AgendasMenuItems =
+    {
+        ("Recursos agendables", "agendas/recursos", "001683", "Recursos con agenda (personas, espacios, equipos...), su agenda propia y novedades (ADR-0165)."),
+        ("Agendas base", "agendas/base", "001684", "Plantillas semanales reutilizables que se importan a cada recurso (ADR-0165).")
+    };
+
+    /// <summary>Registra (insert-if-missing) las definiciones de modulo de Agendas en el catalogo global
+    /// (module_definitions). Necesario en produccion, donde EnsureModuleRegistryAsync (solo Development) no corre.</summary>
+    public async Task EnsureAgendasModulesAsync(CancellationToken cancellationToken = default)
+    {
+        var codes = AgendasMenuItems.Select(m => m.Code).ToList();
+        var existing = (await _db.ModuleDefinitions
+            .Where(d => codes.Contains(d.LegacyCode))
+            .Select(d => d.LegacyCode)
+            .ToListAsync(cancellationToken)).ToHashSet();
+        var added = 0;
+        foreach (var m in AgendasMenuItems)
+        {
+            if (existing.Contains(m.Code)) { continue; }
+            _db.ModuleDefinitions.Add(new ModuleDefinition
+            {
+                LegacyCode = m.Code,
+                Name = m.Name,
+                Description = m.Description,
+                Route = "/" + m.Route,
+                Area = ModuleArea.Operaciones,
+                IsCore = false
+            });
+            added++;
+        }
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Agendas: {Count} definiciones de modulo registradas en el catalogo.", added);
+        }
+    }
+
+    /// <summary>Crea (idempotente) la seccion "Agendas" con sus items en TODAS las vistas de menu del tenant,
+    /// al final del menu para no reordenar lo ya validado. No pisa un item que el tenant ya movio o renombro
+    /// (solo reconcilia el codigo).</summary>
+    public async Task EnsureAgendasMenuAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        var views = await _db.MenuViews.IgnoreQueryFilters()
+            .Where(v => v.TenantId == tenantId)
+            .Select(v => v.Id)
+            .ToListAsync(cancellationToken);
+
+        var added = 0;
+        foreach (var viewId in views)
+        {
+            var section = await _db.MenuNodes.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(n => n.MenuViewId == viewId
+                    && n.Kind == MenuNodeKind.Section && n.Route == AgendasSectionSlug, cancellationToken);
+            if (section is null)
+            {
+                var ultimoOrden = await _db.MenuNodes.IgnoreQueryFilters()
+                    .Where(n => n.MenuViewId == viewId && n.ParentId == null)
+                    .Select(n => (int?)n.SortOrder)
+                    .MaxAsync(cancellationToken);
+                section = new MenuNode
+                {
+                    TenantId = tenantId,
+                    MenuViewId = viewId,
+                    ParentId = null,
+                    Kind = MenuNodeKind.Section,
+                    Name = "Agendas",
+                    Route = AgendasSectionSlug,
+                    IconKey = "calendar",
+                    State = MenuNodeState.Ready,
+                    IsVisible = true,
+                    SortOrder = (ultimoOrden ?? -1) + 1
+                };
+                _db.MenuNodes.Add(section);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+
+            var orden = 0;
+            foreach (var it in AgendasMenuItems)
+            {
+                var actual = await _db.MenuNodes.IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(n => n.MenuViewId == viewId && n.Route == it.Route, cancellationToken);
+                if (actual is not null)
+                {
+                    if (actual.LegacyCode != it.Code)
+                    {
+                        actual.LegacyCode = it.Code;
+                        added++;
+                    }
+                    orden++;
+                    continue;
+                }
+                _db.MenuNodes.Add(new MenuNode
+                {
+                    TenantId = tenantId,
+                    MenuViewId = viewId,
+                    ParentId = section.Id,
+                    Kind = MenuNodeKind.Item,
+                    Name = it.Name,
+                    Route = it.Route,
+                    LegacyCode = it.Code,
+                    State = MenuNodeState.Ready,
+                    IsVisible = true,
+                    SortOrder = orden++
+                });
+                added++;
+            }
+        }
+
+        if (added > 0)
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Agendas: menu sembrado ({Count} items) para el tenant {Tenant}.", added, tenantId);
+        }
+    }
+
     // ---- Reportes: grupo de menu + registro de modulos (gobernanza por rol, ADR-0051) ----
     // Los 4 modulos de la matriz de roles derivan de los ITEMS de menu (GetModuleCatalogAsync usa el
     // Route del Item como ModuleKey). Ademas se registran en el catalogo global para el modulo 000109.

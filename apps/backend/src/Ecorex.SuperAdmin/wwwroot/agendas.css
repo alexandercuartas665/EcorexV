@@ -1,0 +1,140 @@
+/* Modulo de Agendas (ADR-0165): estilos comunes de /agendas/recursos, /agendas/base y /agendas/recursos/{id}.
+   Tokens del prototipo ECOREX (var(--surface), --line, --ink-*, var(--t-*)). Prefijo agx- para no chocar. */
+
+.agx-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.agx-fchip {
+    border: 1px solid var(--line-2);
+    background: var(--surface);
+    color: var(--ink-2);
+    border-radius: 99px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.agx-fchip.on { background: var(--brand); color: var(--on-brand); border-color: var(--brand); }
+
+.agx-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--sh-sm);
+    min-width: 0;
+}
+.agx-pad { padding: 18px; }
+.agx-sec {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+}
+.agx-sec h2 { font-size: 16px; margin: 0; font-weight: 700; }
+.agx-sub { color: var(--ink-3); font-size: 12.5px; margin: 3px 0 0; }
+.agx-scroll { overflow-x: auto; }
+.agx-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.agx-table th {
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 700;
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+}
+.agx-table td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; color: var(--ink); }
+.agx-table tr:last-child td { border-bottom: 0; }
+.agx-table tbody tr:hover td { background: var(--surface-2); }
+.agx-who { display: flex; align-items: center; gap: 10px; }
+.agx-who b { display: block; font-size: 13.5px; }
+.agx-who small { color: var(--ink-3); font-size: 12px; }
+.agx-link { color: var(--t-blue); font-weight: 600; text-decoration: none; }
+.agx-link:hover { text-decoration: underline; }
+.agx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 99px;
+    white-space: nowrap;
+}
+.agx-chip.blue { background: var(--t-blue-bg); color: var(--t-blue); }
+.agx-chip.green { background: var(--t-green-bg); color: var(--t-green); }
+.agx-chip.amber { background: var(--t-amber-bg); color: var(--t-amber); }
+.agx-chip.rose { background: var(--t-rose-bg); color: var(--t-rose); }
+.agx-chip.violet { background: var(--t-violet-bg); color: var(--t-violet); }
+.agx-chip.slate { background: var(--t-slate-bg); color: var(--t-slate); }
+.agx-muted { color: var(--ink-3); }
+.agx-num { font-variant-numeric: tabular-nums; }
+.agx-empty { text-align: center; padding: 34px 18px; color: var(--ink-2); }
+.agx-empty h3 { font-size: 16px; margin: 0 0 6px; color: var(--ink); }
+
+.agx-split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+.agx-list { display: flex; flex-direction: column; }
+.agx-list button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    cursor: pointer;
+}
+.agx-list button:last-child { border-bottom: 0; }
+.agx-list button.on { background: var(--t-blue-bg); }
+.agx-list button.on b { color: var(--t-blue); }
+.agx-list small { color: var(--ink-3); font-size: 12px; }
+
+.agx-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.agx-error { margin: 12px 18px 0; }
+.agx-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.agx-row3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; align-items: start; }
+.agx-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 14px; font-size: 13px; margin: 0; }
+.agx-kv dt { color: var(--ink-3); font-weight: 400; }
+.agx-kv dd { margin: 0; font-weight: 600; }
+.agx-tl { display: flex; flex-direction: column; }
+.agx-tl-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    background: transparent;
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+    text-align: left;
+    width: 100%;
+    color: var(--ink);
+}
+.agx-tl-item:last-child { border-bottom: 0; }
+.agx-tl-item.on { background: var(--t-blue-bg); }
+.agx-tl-item small { display: block; color: var(--ink-3); font-size: 12px; }
+
+.agx-week { display: grid; grid-template-columns: repeat(7, minmax(96px, 1fr)); min-width: 700px; }
+.agx-week > div { border-right: 1px solid var(--line); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.agx-week > div:last-child { border-right: 0; }
+.agx-week .h { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.agx-week .h.today { color: var(--t-blue); }
+.agx-week .big { font-size: 20px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.agx-bar { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.agx-bar i { display: block; height: 100%; background: var(--ink); border-radius: 99px; }
+.ag-lbl { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-3); margin: 0; }
+.agx-closed { color: var(--ink-3); font-style: italic; font-size: 12px; }
+
+/* La consola tiene rail + menu lateral: el area util es ~560px menos que la ventana. Por debajo de 1400px la
+   lista (o la columna de datos del recurso) pasa arriba y el editor semanal usa todo el ancho. */
+@media (max-width: 1400px) {
+    .agx-split { grid-template-columns: minmax(0, 1fr) !important; }
+}

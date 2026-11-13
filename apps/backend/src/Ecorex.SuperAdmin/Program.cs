@@ -834,6 +834,32 @@ if (string.Equals(Environment.GetEnvironmentVariable("ECOREX_MENU_REPORTES"), "t
     }
 }
 
+// Agendas (ADR-0165): grupo de menu "Agendas" (Recursos agendables + Agendas base) + registro de modulos en el
+// catalogo global, en los tenants CLIENTE (Standard) y el Demo. El Route de cada item es su ModuleKey en la matriz
+// de roles. Idempotente; se activa con ECOREX_MENU_AGENDAS=true (todos) o ECOREX_MENU_AGENDAS_TENANT=<nombre
+// exacto del tenant> (solo ese).
+var agendasFlag = Environment.GetEnvironmentVariable("ECOREX_MENU_AGENDAS");
+var agendasTenant = Environment.GetEnvironmentVariable("ECOREX_MENU_AGENDAS_TENANT");
+if (string.Equals(agendasFlag, "true", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(agendasTenant))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<EcorexDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await seeder.EnsureAgendasModulesAsync();
+    var query = db.Tenants.IgnoreQueryFilters()
+        .Where(t => t.Kind == TenantKind.Standard || t.Kind == TenantKind.Demo);
+    if (!string.IsNullOrWhiteSpace(agendasTenant))
+    {
+        query = query.Where(t => t.Name == agendasTenant);
+    }
+    var tenantIds = await query.Select(t => new { t.Id, t.Name }).ToListAsync();
+    foreach (var t in tenantIds)
+    {
+        await seeder.EnsureAgendasMenuAsync(t.Id);
+        app.Logger.LogWarning("[menu-agendas] Agendas habilitado para {Name}", t.Name);
+    }
+}
+
 // Deja el menu de los tenants CLIENTE (Kind = Standard) como el de SOLDARCO, que es el depurado:
 // quita los 6 stubs muertos de "Sistema - Desarrollo", muda el CRM de sistema de "syscrm" a "crm"
 // y reubica Contenedor de datos / Plantillas / Extraccion de datos (ECOREX_MENU_DEPURAR=true).

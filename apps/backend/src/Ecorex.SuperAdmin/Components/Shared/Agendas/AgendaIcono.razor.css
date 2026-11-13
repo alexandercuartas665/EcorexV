@@ -1,0 +1,7 @@
+.ag-ico {
+    display: inline-grid;
+    place-items: center;
+    border-radius: 10px;
+    flex: none;
+}
+.ag-ico ::deep svg { width: 52%; height: 52%; }

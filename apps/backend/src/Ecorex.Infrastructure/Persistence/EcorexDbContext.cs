@@ -300,6 +300,14 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<AnalisisHoja> AnalisisHojas => Set<AnalisisHoja>();
     public DbSet<AnalisisWidget> AnalisisWidgets => Set<AnalisisWidget>();
     public DbSet<AnalisisLibroToken> AnalisisLibroTokens => Set<AnalisisLibroToken>();
+    // Modulo de Agendas (ADR-0165).
+    public DbSet<AgendaTipoRecurso> AgendaTiposRecurso => Set<AgendaTipoRecurso>();
+    public DbSet<AgendaRecurso> AgendaRecursos => Set<AgendaRecurso>();
+    public DbSet<AgendaPlantilla> AgendaPlantillas => Set<AgendaPlantilla>();
+    public DbSet<AgendaPlantillaFranja> AgendaPlantillaFranjas => Set<AgendaPlantillaFranja>();
+    public DbSet<AgendaRecursoVigencia> AgendaRecursoVigencias => Set<AgendaRecursoVigencia>();
+    public DbSet<AgendaRecursoFranja> AgendaRecursoFranjas => Set<AgendaRecursoFranja>();
+    public DbSet<AgendaNovedad> AgendaNovedades => Set<AgendaNovedad>();
     // Paquetes resultantes de separar un documento unido (un PDF nuevo por soporte de pago).
     public DbSet<DocumentoAnalisisPaquete> DocumentosAnalisisPaquetes => Set<DocumentoAnalisisPaquete>();
     // Config del Analizador: campos de metadata que extrae el agente y columnas del modal (self-serve).
@@ -411,6 +419,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         configurationBuilder.Properties<ContactWorkflowStepType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ContactWorkflowRunStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<AgendaVinculo>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<AgendaNovedadTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ProjectStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -3011,6 +3021,67 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasIndex(x => x.TokenHash).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.LibroId });
             b.HasOne<AnalisisLibro>().WithMany().HasForeignKey(x => x.LibroId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ---- Modulo de Agendas (ADR-0165): tipo de recurso -> recurso -> vigencias (copias de una agenda base)
+        // -> franjas; novedades por recurso. Tenant-scoped + soft-delete por el filtro global (reflexion). FKs
+        // Restrict en los agregados (regla 5); las franjas son hijas sin identidad propia y se reemplazan en
+        // bloque dentro de una transaccion (Cascade solo hacia ellas).
+        modelBuilder.Entity<AgendaTipoRecurso>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Icono).HasMaxLength(30).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(20).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Nombre });
+        });
+
+        modelBuilder.Entity<AgendaRecurso>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(500);
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasOne(x => x.TipoRecurso).WithMany().HasForeignKey(x => x.TipoRecursoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Entidad>().WithMany().HasForeignKey(x => x.SedeId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<TenantUser>().WithMany().HasForeignKey(x => x.TenantUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.Nombre });
+            b.HasIndex(x => new { x.TenantId, x.TipoRecursoId });
+        });
+
+        modelBuilder.Entity<AgendaPlantilla>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(300);
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasIndex(x => new { x.TenantId, x.Nombre });
+        });
+
+        modelBuilder.Entity<AgendaPlantillaFranja>(b =>
+        {
+            b.Property(x => x.DiaSemana).HasConversion<int>();
+            b.HasOne(x => x.Plantilla).WithMany(p => p.Franjas).HasForeignKey(x => x.PlantillaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.PlantillaId, x.DiaSemana });
+        });
+
+        modelBuilder.Entity<AgendaRecursoVigencia>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(120).IsRequired();
+            b.HasOne(x => x.Recurso).WithMany(r => r.Vigencias).HasForeignKey(x => x.RecursoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<AgendaPlantilla>().WithMany().HasForeignKey(x => x.PlantillaOrigenId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.RecursoId, x.VigenteDesde });
+        });
+
+        modelBuilder.Entity<AgendaRecursoFranja>(b =>
+        {
+            b.Property(x => x.DiaSemana).HasConversion<int>();
+            b.HasOne(x => x.Vigencia).WithMany(v => v.Franjas).HasForeignKey(x => x.VigenciaId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.TenantId, x.VigenciaId, x.DiaSemana });
+        });
+
+        modelBuilder.Entity<AgendaNovedad>(b =>
+        {
+            b.Property(x => x.Nota).HasMaxLength(300);
+            b.HasOne(x => x.Recurso).WithMany().HasForeignKey(x => x.RecursoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.RecursoId, x.FechaDesde });
         });
 
         // Paquetes de un documento separado. Tenant-scoped + soft-delete por el filtro global (reflexion).

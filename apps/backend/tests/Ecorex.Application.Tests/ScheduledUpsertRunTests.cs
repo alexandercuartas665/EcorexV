@@ -107,6 +107,13 @@ public class ScheduledUpsertRunTests
         public DbSet<AnalisisHoja> AnalisisHojas => NotUsed<AnalisisHoja>();
         public DbSet<AnalisisWidget> AnalisisWidgets => NotUsed<AnalisisWidget>();
         public DbSet<AnalisisLibroToken> AnalisisLibroTokens => NotUsed<AnalisisLibroToken>();
+        public DbSet<AgendaTipoRecurso> AgendaTiposRecurso => NotUsed<AgendaTipoRecurso>();
+        public DbSet<AgendaRecurso> AgendaRecursos => NotUsed<AgendaRecurso>();
+        public DbSet<AgendaPlantilla> AgendaPlantillas => NotUsed<AgendaPlantilla>();
+        public DbSet<AgendaPlantillaFranja> AgendaPlantillaFranjas => NotUsed<AgendaPlantillaFranja>();
+        public DbSet<AgendaRecursoVigencia> AgendaRecursoVigencias => NotUsed<AgendaRecursoVigencia>();
+        public DbSet<AgendaRecursoFranja> AgendaRecursoFranjas => NotUsed<AgendaRecursoFranja>();
+        public DbSet<AgendaNovedad> AgendaNovedades => NotUsed<AgendaNovedad>();
         public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => NotUsed<ActividadSubcategoriaPlantillaGrupo>();
         public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => NotUsed<DocumentTemplateGroup>();
         public DbSet<DocumentTemplate> DocumentTemplates => NotUsed<DocumentTemplate>();

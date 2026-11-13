@@ -726,6 +726,534 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("activity_types", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaNovedad", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<DateOnly>("FechaDesde")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha_desde");
+
+                    b.Property<DateOnly>("FechaHasta")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha_hasta");
+
+                    b.Property<TimeOnly?>("HoraDesde")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_desde");
+
+                    b.Property<TimeOnly?>("HoraHasta")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_hasta");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nota")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("nota");
+
+                    b.Property<Guid>("RecursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recurso_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("tipo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_novedades");
+
+                    b.HasIndex("RecursoId")
+                        .HasDatabaseName("ix_agenda_novedades_recurso_id");
+
+                    b.HasIndex("TenantId", "RecursoId", "FechaDesde")
+                        .HasDatabaseName("ix_agenda_novedades_tenant_id_recurso_id_fecha_desde");
+
+                    b.ToTable("agenda_novedades", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaPlantilla", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activa")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activa");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("nombre");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_plantillas");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("ix_agenda_plantillas_tenant_id_nombre");
+
+                    b.ToTable("agenda_plantillas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaPlantillaFranja", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Cupo")
+                        .HasColumnType("integer")
+                        .HasColumnName("cupo");
+
+                    b.Property<int>("DiaSemana")
+                        .HasColumnType("integer")
+                        .HasColumnName("dia_semana");
+
+                    b.Property<TimeOnly>("HoraFin")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_fin");
+
+                    b.Property<TimeOnly>("HoraInicio")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_inicio");
+
+                    b.Property<int>("IntervaloMinutos")
+                        .HasColumnType("integer")
+                        .HasColumnName("intervalo_minutos");
+
+                    b.Property<Guid>("PlantillaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plantilla_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_plantilla_franjas");
+
+                    b.HasIndex("PlantillaId")
+                        .HasDatabaseName("ix_agenda_plantilla_franjas_plantilla_id");
+
+                    b.HasIndex("TenantId", "PlantillaId", "DiaSemana")
+                        .HasDatabaseName("ix_agenda_plantilla_franjas_tenant_id_plantilla_id_dia_semana");
+
+                    b.ToTable("agenda_plantilla_franjas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecurso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<bool>("AgenteHabilitado")
+                        .HasColumnType("boolean")
+                        .HasColumnName("agente_habilitado");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("nombre");
+
+                    b.Property<Guid?>("SedeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sede_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("TenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<Guid>("TipoRecursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tipo_recurso_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_recursos");
+
+                    b.HasIndex("SedeId")
+                        .HasDatabaseName("ix_agenda_recursos_sede_id");
+
+                    b.HasIndex("TenantUserId")
+                        .HasDatabaseName("ix_agenda_recursos_tenant_user_id");
+
+                    b.HasIndex("TipoRecursoId")
+                        .HasDatabaseName("ix_agenda_recursos_tipo_recurso_id");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("ix_agenda_recursos_tenant_id_nombre");
+
+                    b.HasIndex("TenantId", "TipoRecursoId")
+                        .HasDatabaseName("ix_agenda_recursos_tenant_id_tipo_recurso_id");
+
+                    b.ToTable("agenda_recursos", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecursoFranja", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Cupo")
+                        .HasColumnType("integer")
+                        .HasColumnName("cupo");
+
+                    b.Property<int>("DiaSemana")
+                        .HasColumnType("integer")
+                        .HasColumnName("dia_semana");
+
+                    b.Property<TimeOnly>("HoraFin")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_fin");
+
+                    b.Property<TimeOnly>("HoraInicio")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_inicio");
+
+                    b.Property<int>("IntervaloMinutos")
+                        .HasColumnType("integer")
+                        .HasColumnName("intervalo_minutos");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("VigenciaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("vigencia_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_recurso_franjas");
+
+                    b.HasIndex("VigenciaId")
+                        .HasDatabaseName("ix_agenda_recurso_franjas_vigencia_id");
+
+                    b.HasIndex("TenantId", "VigenciaId", "DiaSemana")
+                        .HasDatabaseName("ix_agenda_recurso_franjas_tenant_id_vigencia_id_dia_semana");
+
+                    b.ToTable("agenda_recurso_franjas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecursoVigencia", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("nombre");
+
+                    b.Property<Guid?>("PlantillaOrigenId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plantilla_origen_id");
+
+                    b.Property<Guid>("RecursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recurso_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateOnly>("VigenteDesde")
+                        .HasColumnType("date")
+                        .HasColumnName("vigente_desde");
+
+                    b.Property<DateOnly?>("VigenteHasta")
+                        .HasColumnType("date")
+                        .HasColumnName("vigente_hasta");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_recurso_vigencias");
+
+                    b.HasIndex("PlantillaOrigenId")
+                        .HasDatabaseName("ix_agenda_recurso_vigencias_plantilla_origen_id");
+
+                    b.HasIndex("RecursoId")
+                        .HasDatabaseName("ix_agenda_recurso_vigencias_recurso_id");
+
+                    b.HasIndex("TenantId", "RecursoId", "VigenteDesde")
+                        .HasDatabaseName("ix_agenda_recurso_vigencias_tenant_id_recurso_id_vigente_desde");
+
+                    b.ToTable("agenda_recurso_vigencias", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaTipoRecurso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activo");
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Icono")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("icono");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("nombre");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Vinculo")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("vinculo");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_tipos_recurso");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("ix_agenda_tipos_recurso_tenant_id_nombre");
+
+                    b.ToTable("agenda_tipos_recurso", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AgentActivityLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -19752,6 +20280,84 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("WorkflowDefinition");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaNovedad", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaRecurso", "Recurso")
+                        .WithMany()
+                        .HasForeignKey("RecursoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_novedades_agenda_recursos_recurso_id");
+
+                    b.Navigation("Recurso");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaPlantillaFranja", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaPlantilla", "Plantilla")
+                        .WithMany("Franjas")
+                        .HasForeignKey("PlantillaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_plantilla_franjas_agenda_plantillas_plantilla_id");
+
+                    b.Navigation("Plantilla");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecurso", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Entidad", null)
+                        .WithMany()
+                        .HasForeignKey("SedeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_recursos_entidades_sede_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.TenantUser", null)
+                        .WithMany()
+                        .HasForeignKey("TenantUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_recursos_tenant_users_tenant_user_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.AgendaTipoRecurso", "TipoRecurso")
+                        .WithMany()
+                        .HasForeignKey("TipoRecursoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_recursos_agenda_tipos_recurso_tipo_recurso_id");
+
+                    b.Navigation("TipoRecurso");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecursoFranja", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaRecursoVigencia", "Vigencia")
+                        .WithMany("Franjas")
+                        .HasForeignKey("VigenciaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_recurso_franjas_agenda_recurso_vigencias_vigencia_id");
+
+                    b.Navigation("Vigencia");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecursoVigencia", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaPlantilla", null)
+                        .WithMany()
+                        .HasForeignKey("PlantillaOrigenId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_recurso_vigencias_agenda_plantillas_plantilla_origen");
+
+                    b.HasOne("Ecorex.Domain.Entities.AgendaRecurso", "Recurso")
+                        .WithMany("Vigencias")
+                        .HasForeignKey("RecursoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_recurso_vigencias_agenda_recursos_recurso_id");
+
+                    b.Navigation("Recurso");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AiAgent", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", null)
@@ -22061,6 +22667,21 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Sedes");
 
                     b.Navigation("Terceros");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaPlantilla", b =>
+                {
+                    b.Navigation("Franjas");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecurso", b =>
+                {
+                    b.Navigation("Vigencias");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecursoVigencia", b =>
+                {
+                    b.Navigation("Franjas");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisHoja", b =>

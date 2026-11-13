@@ -1,0 +1,542 @@
+@page "/agendas/recursos/{Id:guid}"
+@* Modulo de Agendas (ADR-0165, ola 2): ficha de un recurso agendable. Su agenda propia por vigencias (importadas
+   de una agenda base y editables sin tocar la plantilla), sus novedades y la disponibilidad de la semana
+   (agenda - calendario del tenant - novedades). Permiso del modulo "agendas/recursos". *@
+@attribute [Authorize(Policy = "Perm:agendas/recursos:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Agendas
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Agendas
+@inject IAgendaService Svc
+@inject ICurrentPermissions Perms
+
+<PageTitle>@(_recurso?.Nombre ?? "Recurso") - Agendas - ECOREX.tareas</PageTitle>
+
+@if (_cargando)
+{
+    <p class="agx-muted">Cargando...</p>
+}
+else if (_recurso is null)
+{
+    <div class="agx-card agx-empty">
+        <h3>Este recurso no existe</h3>
+        <p><a class="agx-link" href="agendas/recursos">Volver a los recursos agendables</a></p>
+    </div>
+}
+else
+{
+    <div class="module-head">
+        <div>
+            <div class="module-eyebrow">
+                <div class="module-icon">@MenuIcons.Render("calendar")</div>
+                <span><a class="agx-link" href="agendas/recursos">Recursos agendables</a> / Agenda del recurso</span>
+            </div>
+            <div class="agx-who" style="margin-top:12px;">
+                <AgendaIcono Icono="@_recurso.TipoIcono" Color="@_recurso.TipoColor" Size="44" />
+                <div>
+                    <h1 class="page-title" style="margin:0;">@_recurso.Nombre</h1>
+                    <p class="page-sub" style="margin:2px 0 0;"><span class="agx-chip @_recurso.TipoColor">@_recurso.TipoNombre</span> @(_recurso.UsuarioNombre is null ? "" : $" Atiende: {_recurso.UsuarioNombre}")</p>
+                </div>
+            </div>
+        </div>
+        @if (_canEdit)
+        {
+            <button class="btn btn-primary" @onclick="AbrirImportar">Importar agenda base</button>
+        }
+    </div>
+
+    @if (_msg is not null)
+    {
+        <div class="alert alert-success" style="margin-bottom:14px;">@_msg</div>
+    }
+
+    <div class="agx-stack">
+        <div class="agx-row3">
+            <div class="agx-card agx-pad">
+                <dl class="agx-kv">
+                    <dt>Sede</dt><dd>@(_recurso.SedeNombre ?? "-")</dd>
+                    <dt>Descripcion</dt><dd>@(_recurso.Descripcion ?? "-")</dd>
+                    <dt>Agenda hoy</dt><dd>@(_recurso.AgendaVigente ?? "Sin agenda")</dd>
+                    <dt>Cupos/semana</dt><dd class="agx-num">@_recurso.CuposSemana</dd>
+                    <dt>Agente IA</dt>
+                    <dd>
+                        @if (_recurso.AgenteHabilitado)
+                        {
+                            <span class="agx-chip green">Puede agendar</span>
+                        }
+                        else
+                        {
+                            <span class="agx-muted">No agenda aqui</span>
+                        }
+                    </dd>
+                </dl>
+            </div>
+
+            <div class="agx-card">
+                <div class="agx-sec"><h2>Vigencias</h2><span class="agx-muted" style="font-size:12px;">La mas reciente que cubre la fecha manda</span></div>
+                @if (_vigencias.Count == 0)
+                {
+                    <div class="agx-empty" style="padding:18px;">
+                        <p style="margin:0 0 10px;">Este recurso aun no tiene agenda.</p>
+                        @if (_canEdit)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="AbrirImportar">Importar agenda base</button>
+                        }
+                    </div>
+                }
+                <div class="agx-tl">
+                    @foreach (var v in _vigencias)
+                    {
+                        <button class="agx-tl-item @(_vig?.Id == v.Id ? "on" : "")" @onclick="() => SeleccionarVigencia(v)">
+                            <span>
+                                <b>@v.Nombre</b>
+                                <small>@Rango(v.Desde, v.Hasta)</small>
+                                @if (v.PlantillaOrigenNombre is not null)
+                                {
+                                    <small>De "@v.PlantillaOrigenNombre"@(v.DifiereDeOrigen ? " \u00B7 editada" : "")</small>
+                                }
+                            </span>
+                            @{ var est = EstadoVigencia(v); }
+                            <span class="agx-chip @est.Color">@est.Texto</span>
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div class="agx-card">
+                <div class="agx-sec"><h2>Novedades</h2><span class="agx-muted" style="font-size:12px;">Cierran la agenda</span></div>
+                <div class="agx-tl">
+                    @if (_novedades.Count == 0)
+                    {
+                        <p class="agx-muted" style="padding:12px 18px;margin:0;">Sin novedades registradas.</p>
+                    }
+                    @foreach (var n in _novedades)
+                    {
+                        <div class="agx-tl-item" style="cursor:default;">
+                            <span>
+                                <b>@AgendaCalculo.NombreNovedad(n.Tipo)</b>
+                                <small>@Rango(n.Desde, n.Hasta)@(n.HoraDesde is TimeOnly hd && n.HoraHasta is TimeOnly hh ? $" \u00B7 {hd:HH\\:mm}-{hh:HH\\:mm}" : " \u00B7 dia completo")</small>
+                                @if (!string.IsNullOrWhiteSpace(n.Nota))
+                                {
+                                    <small>@n.Nota</small>
+                                }
+                            </span>
+                            @if (_canEdit)
+                            {
+                                <button class="btn btn-xs btn-outline-danger" disabled="@_busy" title="Quitar novedad" @onclick="() => BorrarNovedad(n.Id)">&times;</button>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (_canEdit)
+                {
+                    <div style="padding:12px 18px;border-top:1px solid var(--line);display:grid;gap:8px;">
+                        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;">
+                            <select class="form-control" @bind="_nov.Tipo" aria-label="Tipo de novedad">
+                                @foreach (var t in Enum.GetValues<AgendaNovedadTipo>())
+                                {
+                                    <option value="@t">@AgendaCalculo.NombreNovedad(t)</option>
+                                }
+                            </select>
+                            <input class="form-control" placeholder="Nota (opcional)" @bind="_nov.Nota" aria-label="Nota" />
+                            <label class="ag-lbl">Desde <input type="date" class="form-control" value="@_nov.Desde.ToString("yyyy-MM-dd")" @onchange="e => _nov.Desde = Fecha(e.Value, _nov.Desde)" /></label>
+                            <label class="ag-lbl">Hasta <input type="date" class="form-control" value="@_nov.Hasta.ToString("yyyy-MM-dd")" @onchange="e => _nov.Hasta = Fecha(e.Value, _nov.Hasta)" /></label>
+                            <label class="ag-lbl">Hora desde <input type="time" class="form-control" value="@(_nov.HoraDesde?.ToString("HH:mm"))" @onchange="e => _nov.HoraDesde = Hora(e.Value)" /></label>
+                            <label class="ag-lbl">Hora hasta <input type="time" class="form-control" value="@(_nov.HoraHasta?.ToString("HH:mm"))" @onchange="e => _nov.HoraHasta = Hora(e.Value)" /></label>
+                        </div>
+                        <span class="agx-muted" style="font-size:12px;">Deja las horas vacias para cerrar los dias completos.</span>
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="GuardarNovedad">+ Agregar novedad</button>
+                        @if (_errNov is not null)
+                        {
+                            <div class="alert alert-danger" style="margin:0;">@_errNov</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="agx-stack">
+            @if (_vig is not null)
+            {
+                <div class="agx-card">
+                    <div class="agx-sec">
+                        <div>
+                            <h2>Semana tipo</h2>
+                            <p class="agx-sub">@(_vigOrigen is null ? "Agenda propia del recurso" : $"Importada de \"{_vigOrigen}\" \u00B7 los cambios no afectan la agenda base")</p>
+                        </div>
+                        @if (_canEdit)
+                        {
+                            <div class="agx-toolbar" style="margin:0;">
+                                @if (_confirmBorrarVig)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="BorrarVigencia">Confirmar: quitar vigencia</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmBorrarVig = true">Quitar</button>
+                                }
+                                <button class="btn btn-sm btn-primary" disabled="@(_busy || !_sucio)" @onclick="GuardarVigencia">Guardar</button>
+                            </div>
+                        }
+                    </div>
+                    <div class="agx-form">
+                        <div class="field" style="margin:0;">
+                            <label class="form-label" for="ag-v-nombre">Nombre</label>
+                            <input id="ag-v-nombre" class="form-control" value="@_vig.Nombre" disabled="@(!_canEdit)" @onchange="e => { _vig.Nombre = e.Value?.ToString() ?? string.Empty; _sucio = true; }" />
+                        </div>
+                        <div class="field" style="margin:0;">
+                            <label class="form-label" for="ag-v-desde">Vigente desde</label>
+                            <input id="ag-v-desde" type="date" class="form-control" value="@_vig.Desde.ToString("yyyy-MM-dd")" disabled="@(!_canEdit)" @onchange="e => { _vig.Desde = Fecha(e.Value, _vig.Desde); _sucio = true; }" />
+                        </div>
+                        <div class="field" style="margin:0;">
+                            <label class="form-label" for="ag-v-hasta">Hasta (opcional)</label>
+                            <input id="ag-v-hasta" type="date" class="form-control" value="@(_vig.Hasta?.ToString("yyyy-MM-dd"))" disabled="@(!_canEdit)" @onchange="e => { _vig.Hasta = FechaOpcional(e.Value); _sucio = true; }" />
+                        </div>
+                    </div>
+                    @if (_errVig is not null)
+                    {
+                        <div class="alert alert-danger agx-error">@_errVig</div>
+                    }
+                    <AgendaSemanaEditor Franjas="_vig.Franjas" ReadOnly="@(!_canEdit)" OnChange="() => _sucio = true" />
+                </div>
+            }
+
+            <div class="agx-card">
+                <div class="agx-sec">
+                    <div>
+                        <h2>Disponibilidad</h2>
+                        <p class="agx-sub">Semana del @_lunes.ToString("dd MMM yyyy") &middot; agenda menos festivos, dias no operativos y novedades</p>
+                    </div>
+                    <div class="agx-toolbar" style="margin:0;">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(-7)">&larr;</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(0)">Esta semana</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(7)">&rarr;</button>
+                    </div>
+                </div>
+                <div class="agx-scroll">
+                    <div class="agx-week">
+                        @foreach (var d in _semana)
+                        {
+                            <div>
+                                <span class="h @(d.Fecha == _hoy ? "today" : "")">@(AgendaCalculo.NombreDia(d.Fecha.DayOfWeek)[..3]) @d.Fecha.Day</span>
+                                @if (d.Cierre is not null)
+                                {
+                                    <span class="agx-closed">@d.Cierre</span>
+                                }
+                                else if (d.CuposTotales == 0)
+                                {
+                                    <span class="agx-closed">No operativo</span>
+                                }
+                                else
+                                {
+                                    <span class="big">@d.CuposDisponibles</span>
+                                    <span class="agx-muted agx-num" style="font-size:12px;">de @d.CuposTotales cupos</span>
+                                    <div class="agx-bar"><i style="width:@(d.CuposTotales == 0 ? 0 : 100 * d.CuposDisponibles / d.CuposTotales)%"></i></div>
+                                }
+                                @foreach (var n in d.Novedades)
+                                {
+                                    <span class="agx-chip rose" style="white-space:normal;">@n</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------------- Modal: importar agenda base ---------------- *@
+@if (_importar is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>Importar agenda base</h3>
+                <button class="modal-close" @onclick="() => _importar = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="agx-muted" style="margin-top:0;">Se copian las franjas de la plantilla a una vigencia nueva de este recurso. Despues puedes editarla sin tocar la plantilla.</p>
+                @if (_plantillas.Count == 0)
+                {
+                    <div class="alert alert-warning">No hay agendas base activas. <a class="agx-link" href="agendas/base">Crea una aqui</a>.</div>
+                }
+                else
+                {
+                    <div class="field">
+                        <label class="form-label" for="ag-i-pl">Agenda base *</label>
+                        <select id="ag-i-pl" class="form-control" @bind="_importar.PlantillaId">
+                            @foreach (var p in _plantillas)
+                            {
+                                <option value="@p.Id">@p.Nombre (@p.CuposSemana cupos/semana)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field-row" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+                        <div class="field">
+                            <label class="form-label" for="ag-i-desde">Vigente desde *</label>
+                            <input id="ag-i-desde" type="date" class="form-control" value="@_importar.Desde.ToString("yyyy-MM-dd")" @onchange="e => _importar.Desde = Fecha(e.Value, _importar.Desde)" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label" for="ag-i-hasta">Hasta (opcional)</label>
+                            <input id="ag-i-hasta" type="date" class="form-control" value="@(_importar.Hasta?.ToString("yyyy-MM-dd"))" @onchange="e => _importar.Hasta = FechaOpcional(e.Value)" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="ag-i-nombre">Nombre (opcional)</label>
+                        <input id="ag-i-nombre" class="form-control" @bind="_importar.Nombre" placeholder="Por defecto, el de la agenda base" />
+                    </div>
+                }
+                @if (_errImp is not null)
+                {
+                    <div class="alert alert-danger">@_errImp</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <span style="flex:1"></span>
+                <button class="btn btn-outline-secondary" @onclick="() => _importar = null">Cancelar</button>
+                <button class="btn btn-primary" disabled="@(_busy || _plantillas.Count == 0)" @onclick="Importar">Importar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private const string ModuleKey = "agendas/recursos";
+
+    private sealed class VigenciaEdit
+    {
+        public Guid Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public DateOnly Desde { get; set; }
+        public DateOnly? Hasta { get; set; }
+        public List<AgendaSemanaEditor.FranjaEdit> Franjas { get; set; } = new();
+    }
+
+    private sealed class ImportarEdit
+    {
+        public Guid PlantillaId { get; set; }
+        public DateOnly Desde { get; set; }
+        public DateOnly? Hasta { get; set; }
+        public string? Nombre { get; set; }
+    }
+
+    private sealed class NovedadEdit
+    {
+        public AgendaNovedadTipo Tipo { get; set; } = AgendaNovedadTipo.Vacaciones;
+        public DateOnly Desde { get; set; }
+        public DateOnly Hasta { get; set; }
+        public TimeOnly? HoraDesde { get; set; }
+        public TimeOnly? HoraHasta { get; set; }
+        public string? Nota { get; set; }
+    }
+
+    private bool _cargando = true;
+    private bool _busy;
+    private bool _sucio;
+    private bool _confirmBorrarVig;
+    private bool _canEdit;
+    private string? _msg, _errVig, _errNov, _errImp;
+    private DateOnly _hoy;
+    private DateOnly _lunes;
+    private AgendaRecursoDto? _recurso;
+    private IReadOnlyList<AgendaVigenciaDto> _vigencias = Array.Empty<AgendaVigenciaDto>();
+    private IReadOnlyList<AgendaNovedadDto> _novedades = Array.Empty<AgendaNovedadDto>();
+    private IReadOnlyList<AgendaDiaDto> _semana = Array.Empty<AgendaDiaDto>();
+    private IReadOnlyList<AgendaPlantillaDto> _plantillas = Array.Empty<AgendaPlantillaDto>();
+    private VigenciaEdit? _vig;
+    private string? _vigOrigen;
+    private ImportarEdit? _importar;
+    private NovedadEdit _nov = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canEdit = await Perms.CanEditAsync(ModuleKey);
+        _hoy = await Svc.HoyAsync();
+        _lunes = AgendaCalculo.LunesDe(_hoy);
+        _nov = new NovedadEdit { Desde = _hoy, Hasta = _hoy };
+        await CargarAsync(null);
+        _cargando = false;
+    }
+
+    private async Task CargarAsync(Guid? seleccionarVigencia)
+    {
+        _recurso = await Svc.GetRecursoAsync(Id);
+        if (_recurso is null)
+        {
+            return;
+        }
+        _vigencias = await Svc.ListVigenciasAsync(Id);
+        _novedades = await Svc.ListNovedadesAsync(Id);
+        _semana = await Svc.SemanaAsync(Id, _lunes);
+        var sel = (seleccionarVigencia is Guid vid ? _vigencias.FirstOrDefault(v => v.Id == vid) : null)
+            ?? (_vig is not null ? _vigencias.FirstOrDefault(v => v.Id == _vig.Id) : null)
+            ?? _vigencias.FirstOrDefault(v => v.Desde <= _hoy && (v.Hasta is null || v.Hasta >= _hoy))
+            ?? _vigencias.FirstOrDefault();
+        if (sel is not null)
+        {
+            SeleccionarVigencia(sel);
+        }
+        else
+        {
+            _vig = null;
+        }
+    }
+
+    private void SeleccionarVigencia(AgendaVigenciaDto v)
+    {
+        _errVig = null;
+        _sucio = false;
+        _confirmBorrarVig = false;
+        _vigOrigen = v.PlantillaOrigenNombre;
+        _vig = new VigenciaEdit
+        {
+            Id = v.Id,
+            Nombre = v.Nombre,
+            Desde = v.Desde,
+            Hasta = v.Hasta,
+            Franjas = v.Franjas.Select(AgendaSemanaEditor.FranjaEdit.From).ToList()
+        };
+    }
+
+    private (string Texto, string Color) EstadoVigencia(AgendaVigenciaDto v)
+    {
+        if (v.Hasta is DateOnly h && h < _hoy) { return ("vencida", "slate"); }
+        if (v.Desde > _hoy) { return ("programada", "amber"); }
+        var manda = _vigencias
+            .Where(x => x.Desde <= _hoy && (x.Hasta is null || x.Hasta >= _hoy))
+            .OrderByDescending(x => x.Desde)
+            .FirstOrDefault();
+        return manda?.Id == v.Id ? ("vigente", "blue") : ("cubierta", "slate");
+    }
+
+    private static string Rango(DateOnly desde, DateOnly? hasta) =>
+        hasta is DateOnly h ? $"{desde:dd MMM yyyy} a {h:dd MMM yyyy}" : $"Desde {desde:dd MMM yyyy}";
+
+    private static DateOnly Fecha(object? valor, DateOnly actual) => DateOnly.TryParse(valor?.ToString(), out var d) ? d : actual;
+
+    private static DateOnly? FechaOpcional(object? valor) => DateOnly.TryParse(valor?.ToString(), out var d) ? d : null;
+
+    private static TimeOnly? Hora(object? valor) => TimeOnly.TryParse(valor?.ToString(), out var h) ? h : null;
+
+    private async Task MoverSemana(int dias)
+    {
+        _lunes = dias == 0 ? AgendaCalculo.LunesDe(_hoy) : _lunes.AddDays(dias);
+        _semana = await Svc.SemanaAsync(Id, _lunes);
+    }
+
+    private async Task AbrirImportar()
+    {
+        _errImp = null;
+        _msg = null;
+        _plantillas = (await Svc.ListPlantillasAsync()).Where(p => p.Activa).ToList();
+        _importar = new ImportarEdit { PlantillaId = _plantillas.FirstOrDefault()?.Id ?? Guid.Empty, Desde = _hoy };
+    }
+
+    private async Task Importar()
+    {
+        if (_importar is null || _busy) { return; }
+        _busy = true;
+        _errImp = null;
+        try
+        {
+            var res = await Svc.ImportarPlantillaAsync(new ImportarPlantillaRequest(Id, _importar.PlantillaId, _importar.Desde, _importar.Hasta, _importar.Nombre));
+            if (!res.Ok)
+            {
+                _errImp = res.Error;
+                return;
+            }
+            _importar = null;
+            await CargarAsync(res.Id);
+            _msg = "Agenda importada. Ajusta sus franjas si este recurso tiene un horario distinto.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task GuardarVigencia()
+    {
+        if (_vig is null || _busy) { return; }
+        _busy = true;
+        _errVig = null;
+        _msg = null;
+        try
+        {
+            var res = await Svc.SaveVigenciaAsync(new SaveVigenciaRequest(_vig.Id, _vig.Nombre, _vig.Desde, _vig.Hasta, _vig.Franjas.Select(f => f.ToDto()).ToList()));
+            if (!res.Ok)
+            {
+                _errVig = res.Error;
+                return;
+            }
+            await CargarAsync(_vig.Id);
+            _msg = "Agenda del recurso guardada.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task BorrarVigencia()
+    {
+        if (_vig is null || _busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await Svc.DeleteVigenciaAsync(_vig.Id);
+            if (!res.Ok)
+            {
+                _errVig = res.Error;
+                return;
+            }
+            _vig = null;
+            await CargarAsync(null);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task GuardarNovedad()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _errNov = null;
+        try
+        {
+            var res = await Svc.SaveNovedadAsync(new SaveAgendaNovedadRequest(null, Id, _nov.Tipo, _nov.Desde, _nov.Hasta, _nov.HoraDesde, _nov.HoraHasta, _nov.Nota));
+            if (!res.Ok)
+            {
+                _errNov = res.Error;
+                return;
+            }
+            _nov = new NovedadEdit { Desde = _hoy, Hasta = _hoy };
+            await CargarAsync(_vig?.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task BorrarNovedad(Guid novedadId)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            await Svc.DeleteNovedadAsync(novedadId);
+            await CargarAsync(_vig?.Id);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

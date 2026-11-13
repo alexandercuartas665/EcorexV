@@ -1,0 +1,510 @@
+@page "/agendas/recursos"
+@* Modulo de Agendas (ADR-0165, ola 1): recursos agendables y sus tipos. Permiso del modulo "agendas/recursos":
+   Ver = entrar; Crear = nuevo recurso/tipo; Editar = cambiar; Eliminar = quitar (borrado logico). *@
+@attribute [Authorize(Policy = "Perm:agendas/recursos:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Agendas
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Agendas
+@inject IAgendaService Svc
+@inject ICurrentPermissions Perms
+@inject NavigationManager Nav
+
+<PageTitle>Recursos agendables - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">@MenuIcons.Render("calendar")</div>
+            <span>Agendas</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Recursos <span>agendables</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Todo lo que tiene agenda: una persona, un grupo, un espacio, una maquina, un vehiculo o un punto de atencion.</p>
+    </div>
+    <div class="agx-toolbar" style="margin:0;">
+        <button class="btn btn-outline-secondary" @onclick="AbrirTipos">Tipos de recurso</button>
+        @if (_canCreate && _tipos.Any(t => t.Activo))
+        {
+            <button class="btn btn-primary" @onclick="() => AbrirRecurso(null)">+ Nuevo recurso</button>
+        }
+    </div>
+</div>
+
+@if (_cargando)
+{
+    <p class="agx-muted">Cargando...</p>
+}
+else if (_tipos.Count == 0)
+{
+    <div class="agx-card agx-empty">
+        <h3>Primero define que tipos de recurso maneja tu empresa</h3>
+        <p>Por ejemplo personas que atienden, salas, maquinas o vehiculos. Puedes partir de los sugeridos y ajustarlos.</p>
+        @if (_canCreate)
+        {
+            <button class="btn btn-primary" @onclick="CrearSugeridos">Crear tipos sugeridos</button>
+        }
+    </div>
+}
+else
+{
+    <div class="agx-toolbar">
+        <button class="agx-fchip @(_filtroTipo is null ? "on" : "")" @onclick="() => _filtroTipo = null">Todos @_recursos.Count</button>
+        @foreach (var t in _tipos.Where(t => t.Recursos > 0 || t.Activo))
+        {
+            <button class="agx-fchip @(_filtroTipo == t.Id ? "on" : "")" @onclick="() => _filtroTipo = t.Id">@t.Nombre @t.Recursos</button>
+        }
+    </div>
+
+    @if (_recursos.Count == 0)
+    {
+        <div class="agx-card agx-empty">
+            <h3>Aun no hay recursos agendables</h3>
+            <p>Crea el primero y luego importale una agenda base desde su ficha.</p>
+        </div>
+    }
+    else
+    {
+        <div class="agx-card agx-scroll">
+            <table class="agx-table">
+                <thead>
+                    <tr><th>Recurso</th><th>Tipo</th><th>Sede</th><th>Agenda vigente</th><th>Cupos por semana</th><th>Agente</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Filtrados)
+                    {
+                        <tr>
+                            <td>
+                                <a class="agx-who agx-link" style="color:inherit" href="@($"agendas/recursos/{r.Id}")">
+                                    <AgendaIcono Icono="@r.TipoIcono" Color="@r.TipoColor" />
+                                    <span><b>@r.Nombre</b><small>@Detalle(r)</small></span>
+                                </a>
+                            </td>
+                            <td><span class="agx-chip @r.TipoColor">@r.TipoNombre</span></td>
+                            <td>@(r.SedeNombre ?? "-")</td>
+                            <td>
+                                @if (r.AgendaVigente is null)
+                                {
+                                    <span class="agx-muted">Sin agenda</span>
+                                }
+                                else
+                                {
+                                    <a class="agx-link" href="@($"agendas/recursos/{r.Id}")">@r.AgendaVigente</a>
+                                }
+                            </td>
+                            <td class="agx-num">@r.CuposSemana</td>
+                            <td>
+                                @if (r.AgenteHabilitado)
+                                {
+                                    <span class="agx-chip green">Puede agendar</span>
+                                }
+                                else
+                                {
+                                    <span class="agx-muted">-</span>
+                                }
+                            </td>
+                            <td style="text-align:right;white-space:nowrap;">
+                                @if (!r.Activo)
+                                {
+                                    <span class="agx-chip slate" style="margin-right:6px;">Inactivo</span>
+                                }
+                                @if (_canEdit)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => AbrirRecurso(r)">Editar</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@* ---------------- Modal: recurso ---------------- *@
+@if (_editRecurso is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-head">
+                <h3>@(_editRecurso.Id is null ? "Nuevo recurso" : "Editar recurso")</h3>
+                <button class="modal-close" @onclick="() => _editRecurso = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field">
+                    <label class="form-label" for="ag-r-tipo">Tipo de recurso *</label>
+                    <select id="ag-r-tipo" class="form-control" @bind="_editRecurso.TipoRecursoId">
+                        @foreach (var t in _tipos.Where(t => t.Activo || t.Id == _editRecurso.TipoRecursoId))
+                        {
+                            <option value="@t.Id">@t.Nombre</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label" for="ag-r-nombre">Nombre *</label>
+                    <input id="ag-r-nombre" class="form-control" @bind="_editRecurso.Nombre" autocomplete="off" placeholder="Juan Perez, Sala de juntas, Cortadora laser..." />
+                </div>
+                @if (TipoDe(_editRecurso.TipoRecursoId)?.Vinculo == AgendaVinculo.Usuario)
+                {
+                    <div class="field">
+                        <label class="form-label" for="ag-r-user">Usuario que atiende *</label>
+                        <select id="ag-r-user" class="form-control" @bind="_editRecurso.TenantUserId">
+                            <option value="">Elige un usuario</option>
+                            @foreach (var u in _usuarios)
+                            {
+                                <option value="@u.Id">@u.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                }
+                <div class="field">
+                    <label class="form-label" for="ag-r-sede">Sede</label>
+                    <select id="ag-r-sede" class="form-control" @bind="_editRecurso.SedeId">
+                        <option value="">Sin sede</option>
+                        @foreach (var s in _sedes)
+                        {
+                            <option value="@s.Id">@s.Nombre</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="form-label" for="ag-r-desc">Descripcion</label>
+                    <input id="ag-r-desc" class="form-control" @bind="_editRecurso.Descripcion" autocomplete="off" placeholder="Para que sirve, capacidad, observaciones" />
+                </div>
+                <div class="field">
+                    <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox" @bind="_editRecurso.AgenteHabilitado" /> El agente de IA podra agendar en este recurso</label>
+                    <label style="display:flex;gap:8px;align-items:center;"><input type="checkbox" @bind="_editRecurso.Activo" /> Activo</label>
+                </div>
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger">@_error</div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_editRecurso.Id is Guid rid && _canDelete)
+                {
+                    @if (_confirmBorrar)
+                    {
+                        <button class="btn btn-outline-danger" disabled="@_busy" @onclick="() => BorrarRecurso(rid)">Confirmar: quitar recurso</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-danger" @onclick="() => _confirmBorrar = true">Quitar</button>
+                    }
+                }
+                <span style="flex:1"></span>
+                <button class="btn btn-outline-secondary" @onclick="() => _editRecurso = null">Cancelar</button>
+                <button class="btn btn-primary" disabled="@_busy" @onclick="GuardarRecurso">Guardar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------------- Modal: tipos de recurso ---------------- *@
+@if (_tiposAbierto)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:720px;">
+            <div class="modal-head">
+                <h3>Tipos de recurso</h3>
+                <button class="modal-close" @onclick="() => _tiposAbierto = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="agx-muted" style="margin-top:0;">Cada empresa define sus tipos. "Se vincula a usuario" pide elegir la persona del sistema que atiende.</p>
+                <div class="agx-card" style="margin-bottom:14px;">
+                    @foreach (var t in _tipos)
+                    {
+                        <div class="agx-sec" style="padding:10px 14px;">
+                            <div class="agx-who">
+                                <AgendaIcono Icono="@t.Icono" Color="@t.Color" Size="30" />
+                                <span><b>@t.Nombre</b><small>@(t.Vinculo == AgendaVinculo.Usuario ? "Se vincula a un usuario" : "Recurso libre") &middot; @t.Recursos recurso(s)@(t.Activo ? "" : " \u00B7 inactivo")</small></span>
+                            </div>
+                            <div style="display:flex;gap:6px;">
+                                @if (_canEdit)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditarTipo(t)">Editar</button>
+                                }
+                                @if (_canDelete && t.Recursos == 0)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => BorrarTipo(t.Id)">Quitar</button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+                @if (_canCreate || (_editTipo.Id is not null && _canEdit))
+                {
+                    <h4 style="font-size:14px;margin:0 0 8px;">@(_editTipo.Id is null ? "Nuevo tipo" : $"Editar: {_editTipo.Nombre}")</h4>
+                    <div class="field-row" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+                        <div class="field">
+                            <label class="form-label" for="ag-t-nombre">Nombre *</label>
+                            <input id="ag-t-nombre" class="form-control" @bind="_editTipo.Nombre" autocomplete="off" placeholder="Consultorio, Cancha, Tecnico..." />
+                        </div>
+                        <div class="field">
+                            <label class="form-label" for="ag-t-vinc">Se vincula a</label>
+                            <select id="ag-t-vinc" class="form-control" @bind="_editTipo.Vinculo">
+                                <option value="@AgendaVinculo.Libre">Nada (recurso libre)</option>
+                                <option value="@AgendaVinculo.Usuario">Un usuario del sistema</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="form-label" for="ag-t-ico">Icono</label>
+                            <select id="ag-t-ico" class="form-control" @bind="_editTipo.Icono">
+                                @foreach (var i in AgendaIcono.Iconos)
+                                {
+                                    <option value="@i.Key">@i.Nombre</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label class="form-label" for="ag-t-color">Color</label>
+                            <select id="ag-t-color" class="form-control" @bind="_editTipo.Color">
+                                <option value="blue">Azul</option>
+                                <option value="green">Verde</option>
+                                <option value="amber">Ambar</option>
+                                <option value="rose">Rosa</option>
+                                <option value="violet">Violeta</option>
+                                <option value="slate">Gris</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label style="display:flex;gap:8px;align-items:center;margin-top:4px;"><input type="checkbox" @bind="_editTipo.Activo" /> Activo</label>
+                }
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger" style="margin-top:10px;">@_error</div>
+                }
+            </div>
+            <div class="modal-foot">
+                @if (_canCreate)
+                {
+                    <button class="btn btn-outline-secondary" disabled="@_busy" @onclick="CrearSugeridos">Agregar sugeridos que falten</button>
+                }
+                <span style="flex:1"></span>
+                @if (_editTipo.Id is not null)
+                {
+                    <button class="btn btn-outline-secondary" @onclick="NuevoTipo">Cancelar edicion</button>
+                }
+                @if (_canCreate || (_editTipo.Id is not null && _canEdit))
+                {
+                    <button class="btn btn-primary" disabled="@_busy" @onclick="GuardarTipo">@(_editTipo.Id is null ? "Agregar tipo" : "Guardar tipo")</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string ModuleKey = "agendas/recursos";
+
+    private sealed class RecursoEdit
+    {
+        public Guid? Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Descripcion { get; set; }
+        public Guid TipoRecursoId { get; set; }
+        public Guid? SedeId { get; set; }
+        public Guid? TenantUserId { get; set; }
+        public bool AgenteHabilitado { get; set; }
+        public bool Activo { get; set; } = true;
+        public long? Version { get; set; }
+    }
+
+    private sealed class TipoEdit
+    {
+        public Guid? Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string Icono { get; set; } = "persona";
+        public string Color { get; set; } = "blue";
+        public AgendaVinculo Vinculo { get; set; } = AgendaVinculo.Libre;
+        public bool Activo { get; set; } = true;
+    }
+
+    private bool _cargando = true;
+    private bool _busy;
+    private string? _error;
+    private bool _canCreate, _canEdit, _canDelete;
+    private IReadOnlyList<AgendaTipoDto> _tipos = Array.Empty<AgendaTipoDto>();
+    private IReadOnlyList<AgendaRecursoDto> _recursos = Array.Empty<AgendaRecursoDto>();
+    private IReadOnlyList<AgendaOpcionDto> _sedes = Array.Empty<AgendaOpcionDto>();
+    private IReadOnlyList<AgendaOpcionDto> _usuarios = Array.Empty<AgendaOpcionDto>();
+    private Guid? _filtroTipo;
+    private RecursoEdit? _editRecurso;
+    private bool _confirmBorrar;
+    private bool _tiposAbierto;
+    private TipoEdit _editTipo = new();
+
+    private IEnumerable<AgendaRecursoDto> Filtrados => _filtroTipo is Guid f ? _recursos.Where(r => r.TipoRecursoId == f) : _recursos;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canCreate = await Perms.CanCreateAsync(ModuleKey);
+        _canEdit = await Perms.CanEditAsync(ModuleKey);
+        _canDelete = await Perms.CanDeleteAsync(ModuleKey);
+        await CargarAsync();
+        _sedes = await Svc.ListSedesAsync();
+        _usuarios = await Svc.ListUsuariosAsync();
+        _cargando = false;
+    }
+
+    private async Task CargarAsync()
+    {
+        _tipos = await Svc.ListTiposAsync();
+        _recursos = await Svc.ListRecursosAsync();
+    }
+
+    private AgendaTipoDto? TipoDe(Guid id) => _tipos.FirstOrDefault(t => t.Id == id);
+
+    private static string Detalle(AgendaRecursoDto r)
+    {
+        if (r.UsuarioNombre is not null)
+        {
+            return string.IsNullOrWhiteSpace(r.Descripcion) ? r.UsuarioNombre : $"{r.UsuarioNombre} \u00B7 {r.Descripcion}";
+        }
+        return r.Descripcion ?? r.TipoNombre;
+    }
+
+    private void AbrirRecurso(AgendaRecursoDto? r)
+    {
+        _error = null;
+        _confirmBorrar = false;
+        _editRecurso = r is null
+            ? new RecursoEdit { TipoRecursoId = (_filtroTipo is Guid f && _tipos.Any(t => t.Id == f && t.Activo)) ? f : _tipos.First(t => t.Activo).Id }
+            : new RecursoEdit
+            {
+                Id = r.Id,
+                Nombre = r.Nombre,
+                Descripcion = r.Descripcion,
+                TipoRecursoId = r.TipoRecursoId,
+                SedeId = r.SedeId,
+                TenantUserId = r.TenantUserId,
+                AgenteHabilitado = r.AgenteHabilitado,
+                Activo = r.Activo,
+                Version = r.Version
+            };
+    }
+
+    private async Task GuardarRecurso()
+    {
+        if (_editRecurso is null || _busy) { return; }
+        _busy = true;
+        _error = null;
+        try
+        {
+            var e = _editRecurso;
+            var res = await Svc.SaveRecursoAsync(new SaveAgendaRecursoRequest(
+                e.Id, e.Nombre, e.Descripcion, e.TipoRecursoId, e.SedeId, e.TenantUserId, e.AgenteHabilitado, e.Activo, e.Version));
+            if (!res.Ok)
+            {
+                _error = res.Error;
+                return;
+            }
+            var nuevo = e.Id is null;
+            _editRecurso = null;
+            await CargarAsync();
+            if (nuevo && res.Id is Guid id)
+            {
+                Nav.NavigateTo($"agendas/recursos/{id}");
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task BorrarRecurso(Guid id)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await Svc.DeleteRecursoAsync(id);
+            if (!res.Ok)
+            {
+                _error = res.Error;
+                return;
+            }
+            _editRecurso = null;
+            await CargarAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void AbrirTipos()
+    {
+        _error = null;
+        _editTipo = new TipoEdit();
+        _tiposAbierto = true;
+    }
+
+    private void NuevoTipo() => _editTipo = new TipoEdit();
+
+    private void EditarTipo(AgendaTipoDto t)
+    {
+        _error = null;
+        _editTipo = new TipoEdit { Id = t.Id, Nombre = t.Nombre, Icono = t.Icono, Color = t.Color, Vinculo = t.Vinculo, Activo = t.Activo };
+    }
+
+    private async Task GuardarTipo()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _error = null;
+        try
+        {
+            var e = _editTipo;
+            var res = await Svc.SaveTipoAsync(new SaveAgendaTipoRequest(e.Id, e.Nombre, e.Icono, e.Color, e.Vinculo, e.Activo));
+            if (!res.Ok)
+            {
+                _error = res.Error;
+                return;
+            }
+            _editTipo = new TipoEdit();
+            await CargarAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task BorrarTipo(Guid id)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _error = null;
+        try
+        {
+            var res = await Svc.DeleteTipoAsync(id);
+            if (!res.Ok)
+            {
+                _error = res.Error;
+                return;
+            }
+            await CargarAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CrearSugeridos()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            await Svc.CrearTiposSugeridosAsync();
+            await CargarAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

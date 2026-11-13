@@ -1,0 +1,134 @@
+@using Ecorex.Application.Agendas
+@*
+    Editor semanal de franjas (ADR-0165). Lo usan la agenda base (plantilla) y la agenda del recurso: los dos
+    guardan la misma forma (dia + inicio/fin + bloque + cupo). No toca la BD: trabaja sobre la lista que le pasa
+    el padre y avisa con OnChange; el padre valida y guarda. Lunes primero, como el prototipo.
+*@
+
+<div class="ag-week">
+    @foreach (var dia in AgendaCalculo.SemanaLunesPrimero)
+    {
+        var del = Franjas.Where(f => f.Dia == dia).OrderBy(f => f.Inicio).ToList();
+        <div class="ag-day">
+            <div class="ag-day-name">@AgendaCalculo.NombreDia(dia)</div>
+            <div class="ag-day-slots">
+                @if (del.Count == 0)
+                {
+                    <span class="ag-off">Dia no operativo</span>
+                }
+                @foreach (var f in del)
+                {
+                    @if (ReadOnly)
+                    {
+                        <span class="ag-franja">
+                            <b>@f.Inicio.ToString("HH:mm")&ndash;@f.Fin.ToString("HH:mm")</b>
+                            <span class="ag-muted">bloque @f.IntervaloMinutos min</span>
+                            @if (f.Cupo > 1)
+                            {
+                                <span class="ag-chip ag-chip-violet">cupo @f.Cupo</span>
+                            }
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="ag-franja ag-franja-edit">
+                            <input type="time" class="form-control ag-time" value="@f.Inicio.ToString("HH:mm")"
+                                   @onchange="e => SetHora(f, e.Value, true)" aria-label="Hora de inicio" />
+                            <span class="ag-muted">a</span>
+                            <input type="time" class="form-control ag-time" value="@f.Fin.ToString("HH:mm")"
+                                   @onchange="e => SetHora(f, e.Value, false)" aria-label="Hora de fin" />
+                            <label class="ag-mini">bloque
+                                <input type="number" min="5" max="720" step="5" class="form-control ag-num" value="@f.IntervaloMinutos"
+                                       @onchange="e => SetEntero(f, e.Value, true)" />
+                                min</label>
+                            <label class="ag-mini">cupo
+                                <input type="number" min="1" max="999" class="form-control ag-num" value="@f.Cupo"
+                                       @onchange="e => SetEntero(f, e.Value, false)" />
+                            </label>
+                            <button type="button" class="btn btn-xs btn-outline-danger" title="Quitar franja" @onclick="() => Quitar(f)">&times;</button>
+                        </span>
+                    }
+                }
+            </div>
+            <div class="ag-day-side">
+                @{ var cupos = del.Sum(f => AgendaCalculo.CuposFranja(f.ToDto())); }
+                @if (cupos > 0)
+                {
+                    <span class="ag-muted ag-num-cell">@cupos cupos</span>
+                }
+                @if (!ReadOnly)
+                {
+                    <button type="button" class="btn btn-xs btn-outline-secondary" @onclick="() => Agregar(dia)">+ Franja</button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Franja editable (mutable) que el padre convierte a <see cref="AgendaFranjaDto"/> al guardar.</summary>
+    public sealed class FranjaEdit
+    {
+        public DayOfWeek Dia { get; set; }
+        public TimeOnly Inicio { get; set; }
+        public TimeOnly Fin { get; set; }
+        public int IntervaloMinutos { get; set; } = 30;
+        public int Cupo { get; set; } = 1;
+
+        public AgendaFranjaDto ToDto() => new(Dia, Inicio, Fin, IntervaloMinutos, Cupo);
+
+        public static FranjaEdit From(AgendaFranjaDto d) => new()
+        {
+            Dia = d.Dia,
+            Inicio = d.Inicio,
+            Fin = d.Fin,
+            IntervaloMinutos = d.IntervaloMinutos,
+            Cupo = d.Cupo
+        };
+    }
+
+    [Parameter, EditorRequired] public List<FranjaEdit> Franjas { get; set; } = new();
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public EventCallback OnChange { get; set; }
+
+    private async Task Agregar(DayOfWeek dia)
+    {
+        // Propone la franja siguiente a la ultima del dia (o 08:00-12:00 si el dia esta vacio).
+        var ultima = Franjas.Where(f => f.Dia == dia).OrderBy(f => f.Fin).LastOrDefault();
+        var inicio = ultima is null ? new TimeOnly(8, 0) : (ultima.Fin.Hour < 22 ? ultima.Fin.AddHours(1) : ultima.Fin);
+        var fin = inicio.Hour < 20 ? inicio.AddHours(4) : new TimeOnly(23, 59);
+        Franjas.Add(new FranjaEdit
+        {
+            Dia = dia,
+            Inicio = inicio,
+            Fin = fin,
+            IntervaloMinutos = ultima?.IntervaloMinutos ?? 30,
+            Cupo = ultima?.Cupo ?? 1
+        });
+        await OnChange.InvokeAsync();
+    }
+
+    private async Task Quitar(FranjaEdit f)
+    {
+        Franjas.Remove(f);
+        await OnChange.InvokeAsync();
+    }
+
+    private async Task SetHora(FranjaEdit f, object? valor, bool esInicio)
+    {
+        if (TimeOnly.TryParse(valor?.ToString(), out var h))
+        {
+            if (esInicio) { f.Inicio = h; } else { f.Fin = h; }
+            await OnChange.InvokeAsync();
+        }
+    }
+
+    private async Task SetEntero(FranjaEdit f, object? valor, bool esIntervalo)
+    {
+        if (int.TryParse(valor?.ToString(), out var n))
+        {
+            if (esIntervalo) { f.IntervaloMinutos = n; } else { f.Cupo = n; }
+            await OnChange.InvokeAsync();
+        }
+    }
+}

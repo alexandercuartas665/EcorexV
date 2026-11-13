@@ -1,0 +1,275 @@
+@page "/agendas/base"
+@* Modulo de Agendas (ADR-0165, ola 1): agendas BASE = plantillas semanales reutilizables que se importan (copian)
+   a cada recurso. Permiso del modulo "agendas/base": Ver = entrar; Crear = nueva/duplicar; Editar = cambiar
+   franjas; Eliminar = quitar (borrado logico; las agendas ya importadas a recursos no se tocan). *@
+@attribute [Authorize(Policy = "Perm:agendas/base:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Agendas
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Agendas
+@inject IAgendaService Svc
+@inject ICurrentPermissions Perms
+
+<PageTitle>Agendas base - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">@MenuIcons.Render("calendar")</div>
+            <span>Agendas</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Agendas <span>base</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Plantillas semanales reutilizables. No dependen de un recurso: se importan a cada uno y alli se ajustan.</p>
+    </div>
+    @if (_canCreate)
+    {
+        <button class="btn btn-primary" @onclick="Nueva">+ Nueva agenda base</button>
+    }
+</div>
+
+@if (_cargando)
+{
+    <p class="agx-muted">Cargando...</p>
+}
+else if (_plantillas.Count == 0 && _edit is null)
+{
+    <div class="agx-card agx-empty">
+        <h3>Aun no hay agendas base</h3>
+        <p>Crea una plantilla, por ejemplo "Jornada oficina L-V" de 8:00 a 12:00 y de 14:00 a 18:00 con bloques de 30 minutos.</p>
+        @if (_canCreate)
+        {
+            <button class="btn btn-primary" @onclick="Nueva">Crear la primera</button>
+        }
+    </div>
+}
+else
+{
+    <div class="agx-split">
+        <div class="agx-card agx-list">
+            @foreach (var p in _plantillas)
+            {
+                <button class="@(_edit?.Id == p.Id ? "on" : "")" @onclick="() => Seleccionar(p)">
+                    <b>@p.Nombre</b>
+                    <small>@(p.Descripcion ?? "Sin descripcion")</small>
+                    <small class="agx-num">@p.CuposSemana cupos/semana &middot; usada por @p.Recursos recurso(s)@(p.Activa ? "" : " \u00B7 inactiva")</small>
+                </button>
+            }
+            @if (_edit is not null && _edit.Id is null)
+            {
+                <button class="on"><b>@(string.IsNullOrWhiteSpace(_edit.Nombre) ? "Nueva agenda base" : _edit.Nombre)</b><small>Sin guardar</small></button>
+            }
+        </div>
+
+        @if (_edit is not null)
+        {
+            <div class="agx-card">
+                <div class="agx-sec">
+                    <div>
+                        <h2>@(string.IsNullOrWhiteSpace(_edit.Nombre) ? "Nueva agenda base" : _edit.Nombre)</h2>
+                        <p class="agx-sub agx-num">@AgendaCalculo.CuposSemana(_edit.Franjas.Select(f => f.ToDto())) cupos por semana &middot; zona horaria del tenant</p>
+                    </div>
+                    <div class="agx-toolbar" style="margin:0;">
+                        @if (_edit.Id is Guid id)
+                        {
+                            @if (_canCreate)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => Duplicar(id)">Duplicar</button>
+                            }
+                            @if (_canDelete)
+                            {
+                                @if (_confirmBorrar)
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => Borrar(id)">Confirmar: quitar</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmBorrar = true">Quitar</button>
+                                }
+                            }
+                        }
+                        @if (PuedeGuardar)
+                        {
+                            <button class="btn btn-sm btn-primary" disabled="@(_busy || !_sucio)" @onclick="Guardar">Guardar</button>
+                        }
+                    </div>
+                </div>
+                <div class="agx-form">
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="ag-p-nombre">Nombre *</label>
+                        <input id="ag-p-nombre" class="form-control" value="@_edit.Nombre" disabled="@(!PuedeGuardar)"
+                               @onchange="e => { _edit.Nombre = e.Value?.ToString() ?? string.Empty; _sucio = true; }" />
+                    </div>
+                    <div class="field wide" style="margin:0;">
+                        <label class="form-label" for="ag-p-desc">Descripcion</label>
+                        <input id="ag-p-desc" class="form-control" value="@_edit.Descripcion" disabled="@(!PuedeGuardar)" placeholder="Para que recursos sirve"
+                               @onchange="e => { _edit.Descripcion = e.Value?.ToString(); _sucio = true; }" />
+                    </div>
+                    <label style="display:flex;gap:8px;align-items:center;">
+                        <input type="checkbox" checked="@_edit.Activa" disabled="@(!PuedeGuardar)"
+                               @onchange="e => { _edit.Activa = e.Value is true; _sucio = true; }" /> Activa (se ofrece para importar)
+                    </label>
+                </div>
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger agx-error">@_error</div>
+                }
+                @if (_ok is not null)
+                {
+                    <div class="alert alert-success agx-error">@_ok</div>
+                }
+                <AgendaSemanaEditor Franjas="_edit.Franjas" ReadOnly="@(!PuedeGuardar)" OnChange="() => { _sucio = true; _ok = null; }" />
+            </div>
+        }
+        else
+        {
+            <div class="agx-card agx-empty"><p>Elige una agenda base para ver o editar sus franjas.</p></div>
+        }
+    </div>
+}
+
+@code {
+    private const string ModuleKey = "agendas/base";
+
+    private sealed class PlantillaEdit
+    {
+        public Guid? Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Descripcion { get; set; }
+        public bool Activa { get; set; } = true;
+        public long? Version { get; set; }
+        public List<AgendaSemanaEditor.FranjaEdit> Franjas { get; set; } = new();
+    }
+
+    private bool _cargando = true;
+    private bool _busy;
+    private bool _sucio;
+    private bool _confirmBorrar;
+    private string? _error;
+    private string? _ok;
+    private bool _canCreate, _canEdit, _canDelete;
+    private IReadOnlyList<AgendaPlantillaDto> _plantillas = Array.Empty<AgendaPlantillaDto>();
+    private PlantillaEdit? _edit;
+
+    private bool PuedeGuardar => _edit is not null && (_edit.Id is null ? _canCreate : _canEdit);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canCreate = await Perms.CanCreateAsync(ModuleKey);
+        _canEdit = await Perms.CanEditAsync(ModuleKey);
+        _canDelete = await Perms.CanDeleteAsync(ModuleKey);
+        await CargarAsync(null);
+        _cargando = false;
+    }
+
+    private async Task CargarAsync(Guid? seleccionar)
+    {
+        _plantillas = await Svc.ListPlantillasAsync();
+        var sel = (seleccionar is Guid id ? _plantillas.FirstOrDefault(p => p.Id == id) : null) ?? _plantillas.FirstOrDefault();
+        if (sel is not null)
+        {
+            Seleccionar(sel);
+        }
+        else
+        {
+            _edit = null;
+        }
+    }
+
+    private void Seleccionar(AgendaPlantillaDto p)
+    {
+        _error = null;
+        _ok = null;
+        _sucio = false;
+        _confirmBorrar = false;
+        _edit = new PlantillaEdit
+        {
+            Id = p.Id,
+            Nombre = p.Nombre,
+            Descripcion = p.Descripcion,
+            Activa = p.Activa,
+            Version = p.Version,
+            Franjas = p.Franjas.Select(AgendaSemanaEditor.FranjaEdit.From).ToList()
+        };
+    }
+
+    private void Nueva()
+    {
+        _error = null;
+        _ok = null;
+        _confirmBorrar = false;
+        _sucio = true;
+        // Propuesta inicial: lunes a viernes 08:00-12:00 y 14:00-18:00, bloques de 30 minutos.
+        var franjas = new List<AgendaSemanaEditor.FranjaEdit>();
+        foreach (var d in new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday })
+        {
+            franjas.Add(new() { Dia = d, Inicio = new TimeOnly(8, 0), Fin = new TimeOnly(12, 0), IntervaloMinutos = 30, Cupo = 1 });
+            franjas.Add(new() { Dia = d, Inicio = new TimeOnly(14, 0), Fin = new TimeOnly(18, 0), IntervaloMinutos = 30, Cupo = 1 });
+        }
+        _edit = new PlantillaEdit { Franjas = franjas };
+    }
+
+    private async Task Guardar()
+    {
+        if (_edit is null || _busy) { return; }
+        _busy = true;
+        _error = null;
+        _ok = null;
+        try
+        {
+            var res = await Svc.SavePlantillaAsync(new SaveAgendaPlantillaRequest(
+                _edit.Id, _edit.Nombre, _edit.Descripcion, _edit.Activa, _edit.Franjas.Select(f => f.ToDto()).ToList(), _edit.Version));
+            if (!res.Ok)
+            {
+                _error = res.Error;
+                return;
+            }
+            await CargarAsync(res.Id);
+            _ok = "Agenda base guardada.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Duplicar(Guid id)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await Svc.DuplicarPlantillaAsync(id);
+            if (!res.Ok)
+            {
+                _error = res.Error;
+                return;
+            }
+            await CargarAsync(res.Id);
+            _ok = "Copia creada. Cambiale el nombre y ajusta sus franjas.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Borrar(Guid id)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await Svc.DeletePlantillaAsync(id);
+            if (!res.Ok)
+            {
+                _error = res.Error;
+                return;
+            }
+            await CargarAsync(null);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-12 - Modulo de Agendas generico: recursos agendables, agendas base y agenda del recurso (ADR-0165, release v0.16.313, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Peticion del usuario: modulo de agendas para que los clientes gestionen turnos (servicio de atencion o cualquier entidad), inspirado en el proceso de Visal (Agendas base + Agendas de profesionales) pero abierto. Maqueta navegable publicada como artifact privado antes de construir. Se verifico que del backbone NO queda la agenda del dominio belleza; la entidad Cita es del Gestor de Clientes (000740) y no se toca.
+- HECHO (olas 1 y 2): entidades AgendaTipoRecurso, AgendaRecurso, AgendaPlantilla(+Franja), AgendaRecursoVigencia(+Franja), AgendaNovedad; migracion aditiva dual AddAgendas (PG + SQL Server). Servicio IAgendaService + calculo puro AgendaCalculo (cupos = bloques x cupo en paralelo; la vigencia de inicio mas reciente manda; disponibilidad = agenda - calendario operativo del tenant - novedades). Pantallas /agendas/recursos (tipos sugeridos, alta/edicion), /agendas/base (editor semanal) y /agendas/recursos/{id} (importar plantilla como copia, vigencias, novedades, disponibilidad semanal). Menu "Agendas" (001683 Recursos agendables, 001684 Agendas base) con ECOREX_MENU_AGENDAS=true o ECOREX_MENU_AGENDAS_TENANT=<nombre>. Icono "calendar" nuevo en MenuIcons. Hoja agendas.css (tokens del prototipo).
+- BUG encontrado por la matriz dual: al editar franjas de una plantilla/vigencia ya guardada, las franjas nuevas (Id Guid v7) colgadas de la coleccion se tomaban por existentes -> UPDATE sin filas (DbUpdateConcurrencyException). Corregido con altas explicitas.
+- VERIFICADO: build verde; AgendaCalculoTests 5/5; Application.Tests 1347/1347; AgendasTests dual PG + SQL Server 8/8 (incluye aislamiento cross-tenant); TenantIsolationTests verde. E2E en 5234 (AGROMETALICAS): tipos sugeridos -> agenda base "Jornada oficina L-V" -> recurso Persona -> importar -> capacitacion viernes 14-18 -> viernes 8 de 16 cupos.
+- SIGUIENTE: ola 3 (servicios agendables) y ola 4 (turnos como tareas). Deploy SOLO con OK del usuario; en prod activar el menu con ECOREX_MENU_AGENDAS(_TENANT) y la migracion AddAgendas.
+
 ## 2026-11-12 - Conciliador DIAN: scroll superior, copiar en clic derecho y descarga por No. de factura (release v0.16.312, DESPLEGADO 2026-11-12)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Cherry-pick de 191c1f8a (worktree ECOREX.dian, rama feat/agente-tls-instalador-adr0152) sobre el tronco v0.16.311. 4 archivos de Ecorex.SuperAdmin, sin conflictos, sin migracion EF. El commit no tocaba AppVersion: 0.16.311 -> 0.16.312.

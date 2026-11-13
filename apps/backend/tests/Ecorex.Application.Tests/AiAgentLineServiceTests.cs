@@ -99,6 +99,13 @@ public class AiAgentLineServiceTests
         public DbSet<AnalisisHoja> AnalisisHojas => throw new NotSupportedException();
         public DbSet<AnalisisWidget> AnalisisWidgets => throw new NotSupportedException();
         public DbSet<AnalisisLibroToken> AnalisisLibroTokens => throw new NotSupportedException();
+        public DbSet<AgendaTipoRecurso> AgendaTiposRecurso => throw new NotSupportedException();
+        public DbSet<AgendaRecurso> AgendaRecursos => throw new NotSupportedException();
+        public DbSet<AgendaPlantilla> AgendaPlantillas => throw new NotSupportedException();
+        public DbSet<AgendaPlantillaFranja> AgendaPlantillaFranjas => throw new NotSupportedException();
+        public DbSet<AgendaRecursoVigencia> AgendaRecursoVigencias => throw new NotSupportedException();
+        public DbSet<AgendaRecursoFranja> AgendaRecursoFranjas => throw new NotSupportedException();
+        public DbSet<AgendaNovedad> AgendaNovedades => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => throw new NotSupportedException();
         public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => throw new NotSupportedException();
         public DbSet<DocumentTemplate> DocumentTemplates => throw new NotSupportedException();

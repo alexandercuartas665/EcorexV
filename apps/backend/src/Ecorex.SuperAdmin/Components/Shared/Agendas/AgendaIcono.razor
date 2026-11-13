@@ -1,0 +1,33 @@
+@*
+    Icono de un tipo de recurso agendable (ADR-0165) dentro de su cuadro de color. Color = clave de etiqueta del
+    prototipo (blue, green, amber, rose, violet, slate) que mapea a var(--t-*) / var(--t-*-bg).
+*@
+<span class="ag-ico" style="background:var(--t-@ColorKey-bg);color:var(--t-@ColorKey);width:@(Size)px;height:@(Size)px;">
+    @Svg(Icono)
+</span>
+
+@code {
+    [Parameter] public string Icono { get; set; } = "persona";
+    [Parameter] public string Color { get; set; } = "blue";
+    [Parameter] public int Size { get; set; } = 34;
+
+    private string ColorKey => Colores.Contains(Color) ? Color : "slate";
+
+    public static readonly string[] Colores = { "blue", "green", "amber", "rose", "violet", "slate" };
+
+    public static readonly (string Key, string Nombre)[] Iconos =
+    {
+        ("persona", "Persona"), ("grupo", "Grupo"), ("espacio", "Espacio"),
+        ("equipo", "Equipo"), ("vehiculo", "Vehiculo"), ("punto", "Punto de atencion")
+    };
+
+    public static RenderFragment Svg(string key) => key switch
+    {
+        "grupo" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M17 11a3 3 0 1 0 0-6M21.5 20a5 5 0 0 0-4-4.9" /></svg>,
+        "espacio" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 21V8l9-5 9 5v13" /><path d="M9 21v-7h6v7" /></svg>,
+        "equipo" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="7" width="18" height="11" rx="2" /><path d="M7 7V4h10v3M7 12h4" /></svg>,
+        "vehiculo" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 16V7h11v9M14 10h4l3 3v3h-7" /><circle cx="7" cy="17.5" r="2" /><circle cx="17" cy="17.5" r="2" /></svg>,
+        "punto" => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12a8 8 0 0 1 16 0v5a2 2 0 0 1-2 2h-1v-6h3M4 13h3v6H6a2 2 0 0 1-2-2z" /></svg>,
+        _ => @<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+    };
+}

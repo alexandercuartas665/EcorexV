@@ -38,13 +38,60 @@ public sealed class ScrapeRunContext
 
     /// <summary>Sustituye en <paramref name="input"/> los <c>{{ruta}}</c> y <c>@@ruta@@</c> que se puedan
     /// resolver contra el contexto; deja intactos los que no.</summary>
-    public string? Substitute(string? input)
+    public string? Substitute(string? input) => SubstituteCore(input, escapeJs: false);
+
+    /// <summary>
+    /// Igual que <see cref="Substitute"/> pero para el JS de un paso: cada valor resuelto se ESCAPA para ir
+    /// dentro de un literal de cadena JS (<c>'...'</c>, <c>"..."</c> o <c>`...`</c>). Todos los scripts usan
+    /// los placeholders entre comillas (<c>var x='@@ROW.id@@'</c>, <c>txtClave: '{{Clave}}'</c>); sin escape,
+    /// un valor con comilla o barra invertida (p.ej. una clave) rompia el script. Lo no resuelto queda igual.
+    /// </summary>
+    public string? SubstituteScript(string? input) => SubstituteCore(input, escapeJs: true);
+
+    private string? SubstituteCore(string? input, bool escapeJs)
     {
         if (string.IsNullOrEmpty(input)) { return input; }
         var s = input;
-        if (s.Contains("{{")) { s = Curly.Replace(s, m => TryResolve(m.Groups[1].Value, out var v) ? v : m.Value); }
-        if (s.Contains("@@")) { s = AtAt.Replace(s, m => TryResolve(m.Groups[1].Value, out var v) ? v : m.Value); }
+        if (s.Contains("{{")) { s = Curly.Replace(s, m => TryResolve(m.Groups[1].Value, out var v) ? Out(v) : m.Value); }
+        if (s.Contains("@@")) { s = AtAt.Replace(s, m => TryResolve(m.Groups[1].Value, out var v) ? Out(v) : m.Value); }
         return s;
+
+        string Out(string v) => escapeJs ? JsEscape(v) : v;
+    }
+
+    /// <summary>
+    /// Escapa un valor para insertarlo DENTRO de un literal de cadena JS de cualquier tipo de comilla:
+    /// barra invertida, comillas simple/doble/backtick, saltos de linea, separadores U+2028/U+2029 y
+    /// "&lt;/" (para no cerrar un &lt;script&gt; si el JS termina embebido en HTML). "${" queda inerte
+    /// porque el "$" se escapa tambien.
+    /// </summary>
+    public static string JsEscape(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) { return string.Empty; }
+        var sb = new StringBuilder(value.Length + 8);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            switch (ch)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '\'': sb.Append("\\'"); break;
+                case '"': sb.Append("\\\""); break;
+                case '`': sb.Append("\\`"); break;
+                case '$': sb.Append("\\$"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                case (char)0x2028: sb.Append("\\u2028"); break;
+                case (char)0x2029: sb.Append("\\u2029"); break;
+                case '<' when i + 1 < value.Length && value[i + 1] == '/': sb.Append("<\\/"); i++; break;
+                default:
+                    if (ch < ' ') { sb.Append("\\u").Append(((int)ch).ToString("x4")); }
+                    else { sb.Append(ch); }
+                    break;
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>Resuelve una ruta con punto/indice (p.ej. "LISTADO.compras[0].btnDiligenciarId" o "a.b.0.c")

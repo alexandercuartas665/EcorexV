@@ -17,6 +17,9 @@
 @inject ITenantContext Tenant
 @inject AuthenticationStateProvider AuthProvider
 @inject IJSRuntime JS
+@inject Ecorex.Application.Actividades.IActividadCatalogoService Catalogo
+@inject Ecorex.Application.Tenancy.ITenantUserService UsersSvc
+@inject Ecorex.Application.Forms.IFormDefinitionService FormDefs
 
 <PageTitle>Extraccion de datos - ECOREX.tareas</PageTitle>
 
@@ -307,7 +310,7 @@
                                 <div class="xd-modal-body">
                                 <div class="xd-prop">
                                     <label>Tipo de paso</label>
-                                    <select class="xd-input" @bind="_sKind">
+                                    <select class="xd-input" @bind="_sKind" @bind:after="OnStepKindChangedAsync">
                                         @foreach (var k in Enum.GetValues<ScrapeStepKind>())
                                         { <option value="@k">@KindLabel(k)</option> }
                                     </select>
@@ -439,8 +442,54 @@
                                 {
                                     <div class="xd-help">Cierra el navegador: el agente cierra la ventana viva (WebView2) que el flujo mantiene abierta para conservar el login y la saca de su cache. No navega ni inyecta y no lleva configuracion. Util como ULTIMO paso del flujo para no dejar la ventana abierta.</div>
                                 }
+                                else if (_sKind == ScrapeStepKind.CrearActividad)
+                                {
+                                    <div class="xd-help">Crea <b>una tarea</b> del concepto elegido por el registro que el flujo tiene en ese momento (p.ej. el pedido que acaba de leer el bucle) y deja el <b>formulario del concepto</b> diligenciado. Ponlo DENTRO del bucle, despues del paso que ingiere el registro. <b>No duplica</b>: anota el numero de la tarea en la columna indicada de la fila del contenedor y, si ya lo tiene, la omite. Valores: una ruta (<code>DETALLE.cabecera.petof</code>) o una plantilla (<code>Pedido &#123;&#123;DETALLE.cabecera.petof&#125;&#125;</code>).</div>
+                                    <div class="xd-prop"><label>Concepto de la actividad (define tablero y formulario)</label>
+                                        <select class="xd-input" @bind="_caSub" @bind:after="LoadCaFormFieldsAsync">
+                                            <option value="">(elige un concepto)</option>
+                                            @foreach (var c in _caConceptos) { <option value="@c.Id">@c.Codigo - @c.Nombre@(c.FormDefinitionId is null ? " (sin formulario)" : "")</option> }
+                                        </select>
+                                        @if (!string.IsNullOrEmpty(_caFormFields)) { <div class="xd-help">Campos del formulario: <code>@_caFormFields</code></div> }
+                                    </div>
+                                    <div class="xd-prop"><label>Titulo de la tarea (plantilla)</label><input class="xd-input mono" placeholder="Pedido INCAUCA {{DETALLE.cabecera.petof}}" @bind="_caTitulo" /></div>
+                                    <div class="xd-prop"><label>Descripcion (plantilla, opcional)</label><textarea class="xd-input mono" rows="2" @bind="_caDesc"></textarea></div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Clave del registro (ruta)</label><input class="xd-input mono" placeholder="DETALLE.cabecera.petof" @bind="_caClave" /></div>
+                                        <div class="xd-prop"><label>Responsable (opcional)</label>
+                                            <select class="xd-input" @bind="_caResp">
+                                                <option value="">(sin asignar)</option>
+                                                @foreach (var u in _caUsuarios) { <option value="@u.Id">@(u.DisplayName ?? u.Email)</option> }
+                                            </select></div>
+                                    </div>
+                                    <div class="xd-prop"><label>Contenedor del registro (anti-duplicado)</label>
+                                        <select class="xd-input" @bind="_caCont">
+                                            <option value="">(ninguno: anti-duplicado por titulo)</option>
+                                            @foreach (var c in _containers) { <option value="@c.Id">@c.Label</option> }
+                                        </select></div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Columna con la clave</label><input class="xd-input mono" placeholder="PETOF" @bind="_caColClave" /></div>
+                                        <div class="xd-prop"><label>Columna donde anotar la tarea</label><input class="xd-input mono" placeholder="TAREA" @bind="_caColTarea" /></div>
+                                    </div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Solicitante (plantilla, opcional)</label><input class="xd-input mono" placeholder="{{DETALLE.cabecera.contactoIngenio}}" @bind="_caSolic" /></div>
+                                        <div class="xd-prop"><label>Documento solicitante (opcional)</label><input class="xd-input mono" @bind="_caDoc" /></div>
+                                    </div>
+                                    <div class="xd-prop"><label>Campos del formulario: codigo -&gt; ruta (JSON)</label>
+                                        <textarea class="xd-input xd-code-input" rows="4" placeholder='{"petof":"DETALLE.cabecera.petof","solicitud":"DETALLE.cabecera.solicitud"}' @bind="_caCampos"></textarea></div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Campo grilla (GridDetail)</label><input class="xd-input mono" placeholder="items" @bind="_caGrilla" /></div>
+                                        <div class="xd-prop"><label>Ruta de los items (arreglo)</label><input class="xd-input mono" placeholder="DETALLE.items" @bind="_caItems" /></div>
+                                    </div>
+                                    <div class="xd-prop"><label>Columnas de la grilla: id de columna -&gt; propiedad del item (JSON)</label>
+                                        <textarea class="xd-input xd-code-input" rows="3" placeholder='{"codigo":"codigo","material":"material","cnt_sol":"cntSol"}' @bind="_caCols"></textarea></div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>No crear si la ruta... (opcional)</label><input class="xd-input mono" placeholder="DETALLE.cabecera.estado" @bind="_caSaltarRuta" /></div>
+                                        <div class="xd-prop"><label>...vale</label><input class="xd-input" placeholder="Concluida" @bind="_caSaltarValor" /></div>
+                                    </div>
+                                }
 
-                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador)
+                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador && _sKind != ScrapeStepKind.CrearActividad)
                                 {
                                     <div class="xd-prop">
                                         <label>Guardar salida como (motor: variable del flujo)</label>
@@ -525,7 +574,7 @@
                                         <div class="xd-help">Normalmente automatico: si el servidor NO ve la carpeta (prod Linux + agente Windows) lee los ZIP a traves del agente. Marca esto para PROBAR en dev con una sola maquina (app y agente en la misma PC). Requiere capacidad <code>Archivos</code> habilitada en la colmena y la carpeta en la allow-list (con prefijo <code>rw:</code> para poder limpiar).</div></div>
                                 }
 
-                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador)
+                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador && _sKind != ScrapeStepKind.CrearActividad)
                                 {
                                     <div class="xd-two">
                                         <div class="xd-prop"><label>Advertencia: etiqueta a vigilar (opcional)</label>
@@ -830,6 +879,13 @@
     // _paCfg guarda la config COMPLETA cargada (para no perder las claves que la UI no muestra, p.ej. patron
     // o tiempos de espera); la UI solo edita algunos campos y al guardar se hace `_paCfg with { ... }`.
     private ProcArchStepConfig _paCfg = new();
+
+    // Paso "Crear actividad" (config en MappingJson, ver ScrapeCrearActividad.Config).
+    private string _caSub = "", _caTitulo = "", _caDesc = "", _caClave = "", _caCont = "", _caColClave = "", _caColTarea = "";
+    private string _caResp = "", _caSolic = "", _caDoc = "", _caCampos = "", _caGrilla = "", _caItems = "", _caCols = "";
+    private string _caSaltarRuta = "", _caSaltarValor = "", _caFormFields = "";
+    private IReadOnlyList<Ecorex.Application.Actividades.ActividadSubcategoriaDto> _caConceptos = [];
+    private IReadOnlyList<Ecorex.Application.Tenancy.TenantUserDto> _caUsuarios = [];
     private string _paCarpeta = "";
     private bool _paMoverProcesados = true;
     private bool _paSubirBlob = true;
@@ -1200,7 +1256,109 @@
 
     // ---- Pasos ----
 
-    private void OpenStepEditor(ScrapeStepDto? s)
+    private async Task OpenStepEditor(ScrapeStepDto? s)
+    {
+        LoadStepIntoEditor(s);
+        LoadCaConfig(s);
+        if (_sKind == ScrapeStepKind.CrearActividad) { await LoadCaListsAsync(); }
+    }
+
+    private async Task OnStepKindChangedAsync()
+    {
+        if (_sKind == ScrapeStepKind.CrearActividad) { await LoadCaListsAsync(); }
+    }
+
+    // Listas del editor "Crear actividad" (conceptos y usuarios), perezosas: solo si se usa ese tipo.
+    private async Task LoadCaListsAsync()
+    {
+        try
+        {
+            if (_caConceptos.Count == 0)
+            {
+                _caConceptos = (await Catalogo.ListSubcategoriasAsync(null, includeArchived: false))
+                    .OrderBy(c => c.Nombre).ToList();
+            }
+            if (_caUsuarios.Count == 0)
+            {
+                _caUsuarios = (await UsersSvc.ListAsync()).OrderBy(u => u.DisplayName ?? u.Email).ToList();
+            }
+        }
+        catch (Exception ex) { _stepError = "No se pudieron cargar conceptos/usuarios: " + ex.Message; }
+        await LoadCaFormFieldsAsync();
+    }
+
+    // Muestra los codigos de campo del formulario del concepto elegido (ayuda para el mapeo).
+    private async Task LoadCaFormFieldsAsync()
+    {
+        _caFormFields = "";
+        if (!Guid.TryParse(_caSub, out var sid)) { return; }
+        var fid = _caConceptos.FirstOrDefault(c => c.Id == sid)?.FormDefinitionId;
+        if (fid is not Guid f) { _caFormFields = "(el concepto no tiene formulario)"; return; }
+        try
+        {
+            var def = await FormDefs.GetAsync(f);
+            if (def is null) { return; }
+            _caFormFields = string.Join(", ", def.Questions.OrderBy(q => q.SortOrder)
+                .Select(q => q.ControlType == FormControlType.GridDetail ? $"{q.FieldCode} [grilla: {GridColumnIds(q.OptionsJson)}]" : q.FieldCode));
+        }
+        catch { /* solo ayuda */ }
+    }
+
+    private static string GridColumnIds(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) { return ""; }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(optionsJson);
+            return string.Join(", ", doc.RootElement.EnumerateArray()
+                .Select(e => e.TryGetProperty("id", out var id) ? id.GetString() : null).Where(x => !string.IsNullOrEmpty(x)));
+        }
+        catch { return ""; }
+    }
+
+    private void LoadCaConfig(ScrapeStepDto? s)
+    {
+        _caSub = _caTitulo = _caDesc = _caClave = _caCont = _caColClave = _caColTarea = "";
+        _caResp = _caSolic = _caDoc = _caCampos = _caGrilla = _caItems = _caCols = "";
+        _caSaltarRuta = _caSaltarValor = _caFormFields = "";
+        if (s?.Kind != ScrapeStepKind.CrearActividad) { return; }
+        var cfg = ScrapeCrearActividad.Parse(s.MappingJson);
+        if (cfg is null) { return; }
+        var pretty = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+        _caSub = cfg.SubcategoriaId?.ToString() ?? "";
+        _caTitulo = cfg.Titulo ?? ""; _caDesc = cfg.Descripcion ?? ""; _caClave = cfg.Clave ?? "";
+        _caCont = cfg.ContenedorId?.ToString() ?? ""; _caColClave = cfg.ColumnaClave ?? ""; _caColTarea = cfg.ColumnaTarea ?? "";
+        _caResp = cfg.ResponsableId?.ToString() ?? ""; _caSolic = cfg.Solicitante ?? ""; _caDoc = cfg.DocumentoSolicitante ?? "";
+        _caCampos = cfg.Campos is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(cfg.Campos, pretty) : "";
+        _caGrilla = cfg.GrillaCampo ?? ""; _caItems = cfg.ItemsRuta ?? "";
+        _caCols = cfg.GrillaColumnas is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(cfg.GrillaColumnas, pretty) : "";
+        _caSaltarRuta = cfg.SaltarSiRuta ?? ""; _caSaltarValor = cfg.SaltarSiValor ?? "";
+    }
+
+    // Arma la config del paso "Crear actividad" desde el editor. Devuelve null y fija _stepError si algo no cuadra.
+    private string? BuildCaMappingJson()
+    {
+        if (!Guid.TryParse(_caSub, out var sub)) { _stepError = "Elige el concepto de la actividad."; return null; }
+        if (string.IsNullOrWhiteSpace(_caClave)) { _stepError = "Indica la clave del registro (ej. DETALLE.cabecera.petof)."; return null; }
+        Dictionary<string, string>? campos = null, cols = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_caCampos)) { campos = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(_caCampos); }
+            if (!string.IsNullOrWhiteSpace(_caCols)) { cols = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(_caCols); }
+        }
+        catch (System.Text.Json.JsonException ex) { _stepError = "JSON invalido en el mapeo: " + ex.Message; return null; }
+        return ScrapeCrearActividad.Serialize(new ScrapeCrearActividad.Config
+        {
+            SubcategoriaId = sub,
+            Titulo = NullIfBlank(_caTitulo), Descripcion = NullIfBlank(_caDesc), Clave = NullIfBlank(_caClave),
+            ContenedorId = ParseGuid(_caCont), ColumnaClave = NullIfBlank(_caColClave), ColumnaTarea = NullIfBlank(_caColTarea),
+            ResponsableId = ParseGuid(_caResp), Solicitante = NullIfBlank(_caSolic), DocumentoSolicitante = NullIfBlank(_caDoc),
+            Campos = campos, GrillaCampo = NullIfBlank(_caGrilla), ItemsRuta = NullIfBlank(_caItems), GrillaColumnas = cols,
+            SaltarSiRuta = NullIfBlank(_caSaltarRuta), SaltarSiValor = NullIfBlank(_caSaltarValor),
+        });
+    }
+
+    private void LoadStepIntoEditor(ScrapeStepDto? s)
     {
         _stepError = null;
         _showStepEditor = true;
@@ -1353,7 +1511,10 @@
                     AutoImportar = _paAutoImportar,
                     ForzarViaAgente = _paForzarViaAgente,
                 })
+                : _sKind == ScrapeStepKind.CrearActividad
+                ? BuildCaMappingJson()
                 : NullIfBlank(_sMappingJson);
+            if (_sKind == ScrapeStepKind.CrearActividad && mappingJson is null) { return; } // _stepError ya explica
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,
                 WaitMs: ParseInt(_sWaitMs), Url: NullIfBlank(_sUrl), Script: NullIfBlank(_sScript),
@@ -1533,6 +1694,7 @@
         ScrapeStepKind.ProcesarArchivos => "Procesar archivos descargados",
         ScrapeStepKind.IngestaNewton => "Ingesta NEWTON (API)",
         ScrapeStepKind.CerrarNavegador => "Cerrar navegador",
+        ScrapeStepKind.CrearActividad => "Crear actividad (tarea + formulario)",
         _ => k.ToString()
     };
 
@@ -1554,6 +1716,7 @@
         ScrapeStepKind.Navigate => "nav",
         ScrapeStepKind.Wait => "wait",
         ScrapeStepKind.CerrarNavegador => "wait",
+        ScrapeStepKind.CrearActividad => "extract",
         ScrapeStepKind.Ai => "ai",
         _ when IsExtractKind(k) => "extract",
         _ => "script"
@@ -1571,6 +1734,7 @@
         ScrapeStepKind.ProcesarArchivos => "Parsea (server-side) los archivos ya descargados y los vuelca al modulo destino, sin duplicar.",
         ScrapeStepKind.IngestaNewton => "Baja por la API de NEWTON los documentos recibidos como {CUFE}.xml y {CUFE}_newton.pdf a una carpeta propia.",
         ScrapeStepKind.CerrarNavegador => "Cierra la ventana viva del navegador (WebView2) y la saca de la cache del agente.",
+        ScrapeStepKind.CrearActividad => "Crea UNA tarea por registro con su formulario diligenciado (cabecera + items), sin duplicar.",
         _ when IsExtractKind(s.Kind) => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
         _ => "Inyecta/ejecuta JavaScript (firmado por el servidor)."
     };

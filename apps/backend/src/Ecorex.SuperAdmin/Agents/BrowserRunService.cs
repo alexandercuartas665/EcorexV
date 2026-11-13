@@ -234,6 +234,32 @@ public sealed class BrowserRunService(
                 return new BrowserRunResult(false, null, null, false, "El flujo no existe o no es de este tenant.");
             }
 
+            // Flujos con bucles / pasos de servidor (p.ej. DRON PLATAFORMAS INGENIOS): la corrida compilada no
+            // los recorre, asi que van por la corrida POR PASOS, en segundo plano (misma semantica de
+            // "despachado" para la UI y la programacion). Si el agente no esta en linea, sigue el camino de
+            // abajo, que parquea la corrida como offline.
+            if (NeedsStepwise(flow) && flow.ClientId is Guid cpk)
+            {
+                var cli = await db.DataClients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cpk && c.IsActive, ct);
+                if (cli is not null && registry.IsOnline(cli.ClientId))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await RunStepwiseCoreAsync(flowId, tenantId, 0, 1, null, trigger, runCorr,
+                                freshSession: true, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            log.LogError(ex, "[NAV-RUN] fallo la corrida por pasos corr={Corr} flow={Flow}", runCorr, flowId);
+                        }
+                    }, CancellationToken.None);
+                    log.LogInformation("[NAV-RUN] corrida por pasos lanzada corr={Corr} flow={Flow}", runCorr, flowId);
+                    return new BrowserRunResult(true, null, runCorr, false, null);
+                }
+            }
+
             var runId = await runLog.OpenAsync(flowId, trigger, firedAt, runCorr, flow.Steps.Count, ct);
 
             if (flow.ClientId is not Guid clientPk)
@@ -276,11 +302,53 @@ public sealed class BrowserRunService(
         }
     }
 
-    public async Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
+    public Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
         IProgress<FlowStepProgress>? progress, CancellationToken ct = default)
+        => RunStepwiseCoreAsync(flowId, tenantId, flowIndex, flowCount, progress, ImportRunTrigger.Manual, NewCorr(),
+            freshSession: false, ct);
+
+    /// <summary>
+    /// true si el flujo necesita la corrida POR PASOS (no la compilada lineal): tiene bucles (LoopOverVar) o
+    /// pasos que corren en el servidor dentro del flujo (Crear actividad). La compilada no recorre bucles ni
+    /// ingiere por IngestPath, asi que "Ejecutar ahora" y la programacion de esos flujos no procesaban nada.
+    /// </summary>
+    internal static bool NeedsStepwise(ScrapeFlow flow)
+        => flow.Steps.Any(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) || s.Kind == ScrapeStepKind.CrearActividad);
+
+    /// <summary>
+    /// Pasos que consume el BUCLE que empieza en <paramref name="startIdx"/>: el cuerpo (hasta el primer
+    /// IsLoopEnd, inclusive) y sus pasos de avance de pagina (IsPageNext despues del inicio y antes del
+    /// siguiente inicio de bucle). Misma regla que <see cref="RunLoopNowAsync"/>; la corrida por pasos no
+    /// los vuelve a correr sueltos.
+    /// </summary>
+    internal static HashSet<Guid> LoopMemberIds(IReadOnlyList<ScrapeStep> ordered, int startIdx)
     {
-        var runCorr = NewCorr();
+        var ids = new HashSet<Guid>();
+        var start = ordered[startIdx];
+        for (var i = startIdx; i < ordered.Count; i++)
+        {
+            ids.Add(ordered[i].Id);
+            if (ordered[i].IsLoopEnd) { break; }
+        }
+        var nextLoopStartOrder = ordered
+            .Where(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) && s.Order > start.Order)
+            .Select(s => (int?)s.Order).Min();
+        foreach (var s in ordered.Where(s => s.IsPageNext && s.Order > start.Order
+            && (nextLoopStartOrder is null || s.Order < nextLoopStartOrder)))
+        {
+            ids.Add(s.Id);
+        }
+        return ids;
+    }
+
+    private async Task<BrowserRunResult> RunStepwiseCoreAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
+        IProgress<FlowStepProgress>? progress, ImportRunTrigger trigger, string runCorr, bool freshSession,
+        CancellationToken ct)
+    {
         var firedAt = _clock.GetUtcNow();
+        // Corrida completa nueva (Ejecutar ahora / programacion): sin salidas capturadas de corridas anteriores,
+        // para que un bucle nunca consuma un LISTADO viejo si el paso que lo lee falla.
+        if (freshSession) { _stepSessionVars.TryRemove(flowId, out _); }
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -291,7 +359,7 @@ public sealed class BrowserRunService(
             if (flow is null) { return new BrowserRunResult(false, null, runCorr, false, "El flujo no existe o no es de este tenant."); }
             var flowName = flow.Name;
             var steps = flow.Steps.OrderBy(s => s.Order).ToList();
-            var runId = await runLog.OpenAsync(flowId, ImportRunTrigger.Manual, firedAt, runCorr, steps.Count, ct);
+            var runId = await runLog.OpenAsync(flowId, trigger, firedAt, runCorr, steps.Count, ct);
 
             if (flow.ClientId is not Guid clientPk)
             {
@@ -317,9 +385,11 @@ public sealed class BrowserRunService(
 
             int ins = 0, upd = 0, del = 0;
             var notas = new List<string>();
+            var consumidos = new HashSet<Guid>(); // pasos que ya corrio un bucle (cuerpo + avance de pagina)
             for (var i = 0; i < steps.Count; i++)
             {
                 var paso = steps[i];
+                if (consumidos.Contains(paso.Id)) { continue; }
                 progress?.Report(new FlowStepProgress(flowIndex, flowCount, flowName, i, steps.Count, paso.Name, false, false, null, null));
 
                 // Progreso EN VIVO dentro del paso (p.ej. "procesando 3/15"): los pasos largos (Procesar
@@ -330,7 +400,17 @@ public sealed class BrowserRunService(
                     flowIndex, flowCount, flowName, stepIdx, steps.Count, paso.Name, false, false, null, txt));
 
                 StepRunResult r;
-                try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct, stepLive); }
+                try
+                {
+                    // Inicio de bucle: recorre TODAS las filas (y paginas) con su cuerpo; luego esos pasos no se
+                    // corren sueltos. Sin bucles (p.ej. los drones DIAN) el camino es el de siempre.
+                    if (!string.IsNullOrWhiteSpace(paso.LoopOverVar))
+                    {
+                        consumidos.UnionWith(LoopMemberIds(steps, i));
+                        r = await RunLoopNowAsync(flowId, paso.Id, tenantId, ct);
+                    }
+                    else { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct, stepLive); }
+                }
                 catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
                 ins += r.Inserted; upd += r.Updated; del += r.Deleted;
 
@@ -354,6 +434,11 @@ public sealed class BrowserRunService(
 
             var det = $"Flujo ejecutado paso a paso ({steps.Count} pasos)"
                 + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
+            // Corrida completa nueva (Ejecutar ahora / programacion): no dejar la ventana del agente abierta.
+            if (freshSession)
+            {
+                try { await CloseStepSessionAsync(flowId, tenantId, ct); } catch { /* best-effort */ }
+            }
             await runLog.CloseAsync(runCorr, true, ins, upd, del, det, ct);
             log.LogInformation("[NAV-RUN] stepwise OK corr={Corr} flow={Flow} pasos={N}", runCorr, flowId, steps.Count);
             return new BrowserRunResult(true, runId, runCorr, false, det);
@@ -458,6 +543,15 @@ public sealed class BrowserRunService(
                 var (rok, rdetail, recs) = await InvokeRuleAsync(rules, step, ctx, ct);
                 await RecordStepRunAsync(db, flowId, step.Name, rok, recs, 0, 0, rdetail, ct);
                 return new StepRunResult(rok, false, rok ? null : rdetail, null, rdetail, recs, 0, 0, rdetail);
+            }
+
+            // Crear actividad: no va al navegador; crea la tarea del registro en contexto (sin duplicar).
+            if (step.Kind == ScrapeStepKind.CrearActividad)
+            {
+                var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
+                    $"Dron {flow.Name}", ct);
+                await RecordStepRunAsync(db, flowId, step.Name, ca.Ok, ca.Created ? 1 : 0, 0, 0, ca.Detail, ct);
+                return new StepRunResult(ca.Ok, false, ca.Ok ? null : ca.Detail, null, ca.Detail, ca.Created ? 1 : 0, 0, 0, ca.Detail);
             }
 
             var sessionKey = StepSessionKeyFor(flowId);
@@ -1737,7 +1831,8 @@ public sealed class BrowserRunService(
                 .Select(s => (int?)s.Order).Min();
             var pageSteps = ordered.Where(s => s.IsPageNext && s.Order > start.Order
                 && (nextLoopStartOrder is null || s.Order < nextLoopStartOrder)).ToList(); // avance+recarga entre paginas
-            int ins = 0, upd = 0, del = 0, rowsOk = 0, pagesDone = 0;
+            int ins = 0, upd = 0, del = 0, rowsOk = 0, pagesDone = 0, tareasCreadas = 0;
+            var actividadNotas = new List<string>();
             string? lastErr = null, lastShot = null;
             var started = DateTimeOffset.UtcNow;
 
@@ -1753,6 +1848,18 @@ public sealed class BrowserRunService(
                     var rules = scope.ServiceProvider.GetRequiredService<IRulesEngine>();
                     var (rok, rdetail, _) = await InvokeRuleAsync(rules, step, ctx, ct);
                     if (!rok) { lastErr = rdetail; return false; }
+                    return true;
+                }
+
+                // Crear actividad (server-side): una tarea por fila del bucle, sin duplicar. Un fallo de UNA fila
+                // (p.ej. concepto mal configurado) corta el bucle como cualquier otro paso, para que se vea.
+                if (step.Kind == ScrapeStepKind.CrearActividad)
+                {
+                    var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
+                        $"Dron {flow.Name}", ct);
+                    if (!ca.Ok) { lastErr = ca.Detail; return false; }
+                    if (ca.Created) { tareasCreadas++; }
+                    actividadNotas.Add(ca.Detail);
                     return true;
                 }
 
@@ -1845,7 +1952,12 @@ public sealed class BrowserRunService(
 
             var okAll = lastErr is null;
             var detail = $"{rowsOk} filas consumidas en {pagesDone} pagina(s), {ins} ingeridas"
+                + (actividadNotas.Count > 0 ? $", {tareasCreadas} actividad(es) creada(s)" : "")
                 + (lastErr is null ? "" : $"; ultimo error: {lastErr}");
+            if (actividadNotas.Count > 0)
+            {
+                log.LogInformation("[NAV-LOOP] {Flow} crear actividad: {Notas}", flow.Name, string.Join(" | ", actividadNotas));
+            }
             await activity.RecordAsync(new AgentActivityEntry(
                 tenantId, client.ClientId, null, AgentActivityKind.Browser, NewCorr(),
                 $"Bucle: {flow.Name} / {start.Name}", okAll, started, DateTimeOffset.UtcNow, detail));
@@ -1930,7 +2042,8 @@ public sealed class BrowserRunService(
         Name = s.Name,
         WaitMs = s.WaitMs,
         Url = ctx.Substitute(s.Url),
-        Script = ctx.Substitute(s.Script),
+        // El JS va escapado: cada valor resuelto cae dentro de un literal de cadena del script.
+        Script = ctx.SubstituteScript(s.Script),
         Selector = ctx.Substitute(s.Selector),
         MappingJson = s.MappingJson,
         TargetContainerId = s.TargetContainerId,

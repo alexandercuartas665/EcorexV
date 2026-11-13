@@ -185,8 +185,8 @@ public sealed class AgendaService : IAgendaService
         return recursos.Select(r =>
         {
             var calc = vigencias.Where(v => v.RecursoId == r.Id).Select(ACalc).ToList();
-            var vigente = AgendaCalculo.VigenciaPara(calc, hoy)
-                ?? calc.Where(v => v.Desde > hoy).OrderBy(v => v.Desde).FirstOrDefault();
+            var actual = AgendaCalculo.VigenciaPara(calc, hoy);
+            var vigente = actual ?? calc.Where(v => v.Desde > hoy).OrderBy(v => v.Desde).FirstOrDefault();
             return new AgendaRecursoDto(
                 r.Id, r.Nombre, r.Descripcion,
                 r.TipoRecursoId, r.TipoRecurso?.Nombre ?? "-", r.TipoRecurso?.Icono ?? "persona", r.TipoRecurso?.Color ?? "slate",
@@ -194,7 +194,8 @@ public sealed class AgendaService : IAgendaService
                 r.SedeId, r.SedeId is Guid s ? sedes.GetValueOrDefault(s) : null,
                 r.TenantUserId, r.TenantUserId is Guid u ? usuarios.GetValueOrDefault(u) : null,
                 r.AgenteHabilitado, r.Activo, r.Version,
-                vigente?.Nombre, vigente is null ? 0 : AgendaCalculo.CuposSemana(vigente.Franjas));
+                vigente?.Nombre, vigente is null ? 0 : AgendaCalculo.CuposSemana(vigente.Franjas),
+                vigente?.Desde, actual is null && vigente is not null);
         }).ToList();
     }
 

@@ -30,7 +30,7 @@ public sealed record AgendaRecursoDto(
     Guid TipoRecursoId, string TipoNombre, string TipoIcono, string TipoColor, AgendaVinculo Vinculo,
     Guid? SedeId, string? SedeNombre, Guid? TenantUserId, string? UsuarioNombre,
     bool AgenteHabilitado, bool Activo, long Version,
-    string? AgendaVigente, int CuposSemana);
+    string? AgendaVigente, int CuposSemana, DateOnly? AgendaDesde = null, bool AgendaEsProxima = false);
 
 public sealed record SaveAgendaRecursoRequest(
     Guid? Id, string Nombre, string? Descripcion, Guid TipoRecursoId, Guid? SedeId, Guid? TenantUserId,

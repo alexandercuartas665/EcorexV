@@ -46,6 +46,11 @@
                                        @onchange="e => SetEntero(f, e.Value, false)" />
                             </label>
                             <button type="button" class="btn btn-xs btn-outline-danger" title="Quitar franja" @onclick="() => Quitar(f)">&times;</button>
+                            @{ var sobra = Sobrante(f); }
+                            @if (sobra > 0)
+                            {
+                                <span class="ag-warn" title="Esos minutos no alcanzan para un bloque completo y no se ofrecen">sobran @sobra min</span>
+                            }
                         </span>
                     }
                 }
@@ -90,6 +95,13 @@
     [Parameter, EditorRequired] public List<FranjaEdit> Franjas { get; set; } = new();
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public EventCallback OnChange { get; set; }
+
+    /// <summary>Minutos del tramo que no completan un bloque (no se ofrecen como cupo).</summary>
+    private static int Sobrante(FranjaEdit f)
+    {
+        var minutos = (int)(f.Fin - f.Inicio).TotalMinutes;
+        return f.Fin > f.Inicio && f.IntervaloMinutos > 0 ? minutos % f.IntervaloMinutos : 0;
+    }
 
     private async Task Agregar(DayOfWeek dia)
     {

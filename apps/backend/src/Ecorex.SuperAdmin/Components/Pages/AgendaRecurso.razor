@@ -4,6 +4,7 @@
    (agenda - calendario del tenant - novedades). Permiso del modulo "agendas/recursos". *@
 @attribute [Authorize(Policy = "Perm:agendas/recursos:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
 @using Ecorex.Application.Agendas
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
@@ -57,7 +58,7 @@ else
                 <dl class="agx-kv">
                     <dt>Sede</dt><dd>@(_recurso.SedeNombre ?? "-")</dd>
                     <dt>Descripcion</dt><dd>@(_recurso.Descripcion ?? "-")</dd>
-                    <dt>Agenda hoy</dt><dd>@(_recurso.AgendaVigente ?? "Sin agenda")</dd>
+                    <dt>@(_recurso.AgendaEsProxima ? "Proxima agenda" : "Agenda hoy")</dt><dd>@(_recurso.AgendaVigente ?? "Sin agenda")@(_recurso.AgendaEsProxima && _recurso.AgendaDesde is DateOnly ad ? $" (desde {ad.ToString("dd MMM", Es)})" : "")</dd>
                     <dt>Cupos/semana</dt><dd class="agx-num">@_recurso.CuposSemana</dd>
                     <dt>Agente IA</dt>
                     <dd>
@@ -94,7 +95,7 @@ else
                                 <small>@Rango(v.Desde, v.Hasta)</small>
                                 @if (v.PlantillaOrigenNombre is not null)
                                 {
-                                    <small>De "@v.PlantillaOrigenNombre"@(v.DifiereDeOrigen ? " \u00B7 editada" : "")</small>
+                                    <small>De "@v.PlantillaOrigenNombre"@(v.DifiereDeOrigen ? " \u00B7 difiere de la agenda base" : "")</small>
                                 }
                             </span>
                             @{ var est = EstadoVigencia(v); }
@@ -206,7 +207,7 @@ else
                 <div class="agx-sec">
                     <div>
                         <h2>Disponibilidad</h2>
-                        <p class="agx-sub">Semana del @_lunes.ToString("dd MMM yyyy") &middot; agenda menos festivos, dias no operativos y novedades</p>
+                        <p class="agx-sub">Semana del @_lunes.ToString("dd MMM yyyy", Es) &middot; agenda menos festivos, dias no operativos y novedades</p>
                     </div>
                     <div class="agx-toolbar" style="margin:0;">
                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(-7)">&larr;</button>
@@ -413,8 +414,13 @@ else
         return manda?.Id == v.Id ? ("vigente", "blue") : ("cubierta", "slate");
     }
 
+    /// <summary>Fechas en espanol (es-CO): "15 dic 2026", no "15 Dec 2026".</summary>
+    private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CO");
+
     private static string Rango(DateOnly desde, DateOnly? hasta) =>
-        hasta is DateOnly h ? $"{desde:dd MMM yyyy} a {h:dd MMM yyyy}" : $"Desde {desde:dd MMM yyyy}";
+        hasta is DateOnly h
+            ? (h == desde ? desde.ToString("dd MMM yyyy", Es) : $"{desde.ToString("dd MMM yyyy", Es)} a {h.ToString("dd MMM yyyy", Es)}")
+            : $"Desde {desde.ToString("dd MMM yyyy", Es)}";
 
     private static DateOnly Fecha(object? valor, DateOnly actual) => DateOnly.TryParse(valor?.ToString(), out var d) ? d : actual;
 
@@ -464,6 +470,7 @@ else
         if (_vig is null || _busy) { return; }
         _busy = true;
         _errVig = null;
+        _errNov = null;
         _msg = null;
         try
         {
@@ -508,6 +515,7 @@ else
         if (_busy) { return; }
         _busy = true;
         _errNov = null;
+        _msg = null;
         try
         {
             var res = await Svc.SaveNovedadAsync(new SaveAgendaNovedadRequest(null, Id, _nov.Tipo, _nov.Desde, _nov.Hasta, _nov.HoraDesde, _nov.HoraHasta, _nov.Nota));

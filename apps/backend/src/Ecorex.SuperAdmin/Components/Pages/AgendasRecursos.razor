@@ -90,6 +90,10 @@ else
                                 else
                                 {
                                     <a class="agx-link" href="@($"agendas/recursos/{r.Id}")">@r.AgendaVigente</a>
+                                    @if (r.AgendaEsProxima && r.AgendaDesde is DateOnly ad)
+                                    {
+                                        <small class="agx-muted" style="display:block;">Empieza el @ad.ToString("dd MMM", System.Globalization.CultureInfo.GetCultureInfo("es-CO"))</small>
+                                    }
                                 }
                             </td>
                             <td class="agx-num">@r.CuposSemana</td>

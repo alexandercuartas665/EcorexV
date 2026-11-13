@@ -129,13 +129,20 @@ public sealed class BrowserRunService(
         var folder = DownloadFolderFrom(vars);
         var selLiteral = JsonSerializer.Serialize(step.Selector);
         // Cuerpo de funcion (como los pasos nativos): devuelve un JSON {fin, prog}. Se envuelve y firma igual.
-        var body = "return JSON.stringify({fin: !!document.querySelector(" + selLiteral
-            + "), prog:(function(){var e=document.getElementById('dron-prog');return e?(''+e.textContent):'';})()});";
+        // Ademas de {fin, prog} se leen el banner vivo del motor (#diag-bot) y su resumen por ventana
+        // (#diag-sum): son la UNICA traza de por que se corto una ventana (sesion caida, rechazos, re-login) y
+        // se perdian al cerrar el navegador. Se guardan en el resultado del paso.
+        var body = "function t(i){var e=document.getElementById(i);return e?(''+e.textContent):'';}"
+            + "return JSON.stringify({fin: !!document.querySelector(" + selLiteral
+            + "), prog:t('dron-prog'), ban:t('diag-bot'), sum:t('diag-sum')});";
         var wrapped = "(function(){\n" + body + "\n})()";
 
         var waitMs = step.WaitMs is > 0 ? step.WaitMs.Value : 600000;
         var deadline = _clock.GetUtcNow().AddMilliseconds(waitMs);
         string? lastProg = null;
+        string? lastSum = null;
+        string? lastBan = null;
+        var eventos = new List<string>(); // eventos criticos del motor, en orden, sin repetir consecutivos
 
         while (_clock.GetUtcNow() < deadline)
         {
@@ -181,6 +188,17 @@ public sealed class BrowserRunService(
                     }
                     var p = root.TryGetProperty("prog", out var pe) ? pe.GetString() : null;
                     if (!string.IsNullOrWhiteSpace(p) && p != lastProg) { live(p!); lastProg = p; }
+                    var s = root.TryGetProperty("sum", out var se) ? se.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(s)) { lastSum = s; }
+                    var b = root.TryGetProperty("ban", out var be) ? be.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(b) && b != lastBan)
+                    {
+                        lastBan = b;
+                        if (EsEventoCriticoDron(b!) && (eventos.Count == 0 || eventos[^1] != b) && eventos.Count < 40)
+                        {
+                            eventos.Add(b!.Length > 160 ? b[..160] : b);
+                        }
+                    }
                 }
                 catch { /* value no-JSON: se ignora este sondeo */ }
             }
@@ -198,7 +216,8 @@ public sealed class BrowserRunService(
                     shot = res2.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64;
                 }
                 catch { /* la captura final es opcional */ }
-                var okDet = lastProg is null ? "Descargas finalizadas." : $"Descargas finalizadas ({lastProg}).";
+                var okDet = (lastProg is null ? "Descargas finalizadas." : $"Descargas finalizadas ({lastProg}).")
+                    + TrazaDron(lastSum, eventos);
                 await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, okDet, ct);
                 return new StepRunResult(true, false, null, shot, null, 0, 0, 0, okDet);
             }
@@ -208,8 +227,26 @@ public sealed class BrowserRunService(
         }
 
         // Timeout: nunca aparecio el selector de fin. Benigno: el flujo sigue a Procesar con lo que haya en disco.
-        await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, "Espera agotada (timeout).", ct);
-        return new StepRunResult(false, false, "Espera agotada (timeout).", null, null, 0, 0, 0, "Espera agotada (timeout).");
+        var toDet = "Espera agotada (timeout)." + TrazaDron(lastSum, eventos);
+        await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, toDet, ct);
+        return new StepRunResult(false, false, toDet, null, null, 0, 0, 0, toDet);
+    }
+
+    /// <summary>Eventos del banner del motor de descarga que explican un corte (los "OK"/"intento" no).</summary>
+    private static bool EsEventoCriticoDron(string ban) =>
+        System.Text.RegularExpressions.Regex.IsMatch(ban,
+            "SIN SESION|RE-LOGIN|re-login|RECHAZO|RE-BUSCAR|re-Buscar agotado|agotada|vacia|TIMEOUT|token NO regenera|fetch-err|tope MAX|FIN ",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>Resumen por ventana + eventos criticos, para el detalle del paso (la traza del navegador se
+    /// pierde al cerrarlo). Recortado para no inflar la bitacora.</summary>
+    private static string TrazaDron(string? sum, List<string> eventos)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(sum)) { sb.Append(' ').Append(sum!.Length > 900 ? sum[..900] : sum); }
+        if (eventos.Count > 0) { sb.Append(" [EVENTOS] ").Append(string.Join(" | ", eventos)); }
+        var r = sb.ToString();
+        return r.Length > 2500 ? r[..2500] : r;
     }
 
     private static string StepSessionKeyFor(Guid flowId) => $"stepflow-{flowId:N}";

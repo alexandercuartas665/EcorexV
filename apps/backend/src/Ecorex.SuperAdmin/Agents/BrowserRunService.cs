@@ -129,13 +129,20 @@ public sealed class BrowserRunService(
         var folder = DownloadFolderFrom(vars);
         var selLiteral = JsonSerializer.Serialize(step.Selector);
         // Cuerpo de funcion (como los pasos nativos): devuelve un JSON {fin, prog}. Se envuelve y firma igual.
-        var body = "return JSON.stringify({fin: !!document.querySelector(" + selLiteral
-            + "), prog:(function(){var e=document.getElementById('dron-prog');return e?(''+e.textContent):'';})()});";
+        // Ademas de {fin, prog} se leen el banner vivo del motor (#diag-bot) y su resumen por ventana
+        // (#diag-sum): son la UNICA traza de por que se corto una ventana (sesion caida, rechazos, re-login) y
+        // se perdian al cerrar el navegador. Se guardan en el resultado del paso.
+        var body = "function t(i){var e=document.getElementById(i);return e?(''+e.textContent):'';}"
+            + "return JSON.stringify({fin: !!document.querySelector(" + selLiteral
+            + "), prog:t('dron-prog'), ban:t('diag-bot'), sum:t('diag-sum')});";
         var wrapped = "(function(){\n" + body + "\n})()";
 
         var waitMs = step.WaitMs is > 0 ? step.WaitMs.Value : 600000;
         var deadline = _clock.GetUtcNow().AddMilliseconds(waitMs);
         string? lastProg = null;
+        string? lastSum = null;
+        string? lastBan = null;
+        var eventos = new List<string>(); // eventos criticos del motor, en orden, sin repetir consecutivos
 
         while (_clock.GetUtcNow() < deadline)
         {
@@ -181,6 +188,17 @@ public sealed class BrowserRunService(
                     }
                     var p = root.TryGetProperty("prog", out var pe) ? pe.GetString() : null;
                     if (!string.IsNullOrWhiteSpace(p) && p != lastProg) { live(p!); lastProg = p; }
+                    var s = root.TryGetProperty("sum", out var se) ? se.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(s)) { lastSum = s; }
+                    var b = root.TryGetProperty("ban", out var be) ? be.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(b) && b != lastBan)
+                    {
+                        lastBan = b;
+                        if (EsEventoCriticoDron(b!) && (eventos.Count == 0 || eventos[^1] != b) && eventos.Count < 40)
+                        {
+                            eventos.Add(b!.Length > 160 ? b[..160] : b);
+                        }
+                    }
                 }
                 catch { /* value no-JSON: se ignora este sondeo */ }
             }
@@ -198,7 +216,12 @@ public sealed class BrowserRunService(
                     shot = res2.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64;
                 }
                 catch { /* la captura final es opcional */ }
-                var okDet = lastProg is null ? "Descargas finalizadas." : $"Descargas finalizadas ({lastProg}).";
+                // El resumen por ventana va PRIMERO (el detalle se recorta a 600); la traza completa, al log.
+                var traza = TrazaDron(lastSum, eventos);
+                log.LogInformation("[DRON-TRAZA] flow={Flow} {Prog} {Traza}", flowId, lastProg, traza);
+                var okDet = string.IsNullOrWhiteSpace(traza)
+                    ? (lastProg is null ? "Descargas finalizadas." : $"Descargas finalizadas ({lastProg}).")
+                    : "Descargas finalizadas." + traza;
                 await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, okDet, ct);
                 return new StepRunResult(true, false, null, shot, null, 0, 0, 0, okDet);
             }
@@ -208,8 +231,28 @@ public sealed class BrowserRunService(
         }
 
         // Timeout: nunca aparecio el selector de fin. Benigno: el flujo sigue a Procesar con lo que haya en disco.
-        await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, "Espera agotada (timeout).", ct);
-        return new StepRunResult(false, false, "Espera agotada (timeout).", null, null, 0, 0, 0, "Espera agotada (timeout).");
+        var toTraza = TrazaDron(lastSum, eventos);
+        log.LogInformation("[DRON-TRAZA] flow={Flow} timeout {Prog} {Traza}", flowId, lastProg, toTraza);
+        var toDet = "Espera agotada (timeout)." + toTraza;
+        await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, toDet, ct);
+        return new StepRunResult(false, false, toDet, null, null, 0, 0, 0, toDet);
+    }
+
+    /// <summary>Eventos del banner del motor de descarga que explican un corte (los "OK"/"intento" no).</summary>
+    private static bool EsEventoCriticoDron(string ban) =>
+        System.Text.RegularExpressions.Regex.IsMatch(ban,
+            "SIN SESION|RE-LOGIN|re-login|RECHAZO|RE-BUSCAR|re-Buscar agotado|agotada|vacia|TIMEOUT|token NO regenera|fetch-err|tope MAX|FIN ",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>Resumen por ventana + eventos criticos, para el detalle del paso (la traza del navegador se
+    /// pierde al cerrarlo). Recortado para no inflar la bitacora.</summary>
+    private static string TrazaDron(string? sum, List<string> eventos)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(sum)) { sb.Append(' ').Append(sum!.Length > 900 ? sum[..900] : sum); }
+        if (eventos.Count > 0) { sb.Append(" [EVENTOS] ").Append(string.Join(" | ", eventos)); }
+        var r = sb.ToString();
+        return r.Length > 2500 ? r[..2500] : r;
     }
 
     private static string StepSessionKeyFor(Guid flowId) => $"stepflow-{flowId:N}";
@@ -315,10 +358,18 @@ public sealed class BrowserRunService(
     // Espera tras un paso en la corrida completa por pasos: valores < 100 son los "segundos" heredados del dron
     // legacy y se ignoran (no son ms reales); tope de 2 minutos por paso.
     internal const int MinPostStepWaitMs = 100;
+
+    /// <summary>Nombre de la variable del flujo que limita cuantas filas consume un bucle (simulacion/pruebas).</summary>
+    internal const string LoopRowCapVar = "TopeFilasBucle";
+
+    /// <summary>Tope de filas por bucle desde la variable del flujo <see cref="LoopRowCapVar"/>; 0 = sin tope.</summary>
+    internal static int LoopRowCap(IReadOnlyDictionary<string, string> vars)
+        => vars.TryGetValue(LoopRowCapVar, out var raw) && int.TryParse((raw ?? "").Trim(), out var n) && n > 0 ? n : 0;
     internal const int MaxPostStepWaitMs = 120_000;
 
     internal static bool NeedsStepwise(ScrapeFlow flow)
-        => flow.Steps.Any(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) || s.Kind == ScrapeStepKind.CrearActividad);
+        => flow.Steps.Any(s => !string.IsNullOrWhiteSpace(s.LoopOverVar)
+            || s.Kind is ScrapeStepKind.CrearActividad or ScrapeStepKind.Notificar);
 
     /// <summary>
     /// Pasos que consume el BUCLE que empieza en <paramref name="startIdx"/>: el cuerpo (hasta el primer
@@ -566,8 +617,19 @@ public sealed class BrowserRunService(
             {
                 var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
                     $"Dron {flow.Name}", ct);
+                // La tarea queda en las variables de sesion para el paso siguiente (p.ej. Notificar).
+                var sessCa = _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal));
+                foreach (var (k, v) in ScrapeCrearActividad.OutputVars(step, ca)) { sessCa[k] = v; }
                 await RecordStepRunAsync(db, flowId, step.Name, ca.Ok, ca.Created ? 1 : 0, 0, 0, ca.Detail, ct);
                 return new StepRunResult(ca.Ok, false, ca.Ok ? null : ca.Detail, null, ca.Detail, ca.Created ? 1 : 0, 0, 0, ca.Detail);
+            }
+
+            // Notificar: no va al navegador; avisa por el canal elegido que la tarea del contexto existe.
+            if (step.Kind == ScrapeStepKind.Notificar)
+            {
+                var nt = await ScrapeNotificar.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx, $"Dron {flow.Name}", ct);
+                await RecordStepRunAsync(db, flowId, step.Name, nt.Ok, 0, 0, 0, nt.Detail, ct);
+                return new StepRunResult(nt.Ok, false, nt.Ok ? null : nt.Detail, null, nt.Detail, 0, 0, 0, nt.Detail);
             }
 
             var sessionKey = StepSessionKeyFor(flowId);
@@ -1873,9 +1935,19 @@ public sealed class BrowserRunService(
                 {
                     var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
                         $"Dron {flow.Name}", ct);
+                    foreach (var (k, v) in ScrapeCrearActividad.OutputVars(step, ca)) { ctx.Set(k, v); }
                     if (!ca.Ok) { lastErr = ca.Detail; return false; }
                     if (ca.Created) { tareasCreadas++; }
                     actividadNotas.Add(ca.Detail);
+                    return true;
+                }
+
+                // Notificar (server-side, best-effort): un fallo de ENVIO no corta el bucle; una config invalida si.
+                if (step.Kind == ScrapeStepKind.Notificar)
+                {
+                    var nt = await ScrapeNotificar.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx, $"Dron {flow.Name}", ct);
+                    if (!nt.Ok) { lastErr = nt.Detail; return false; }
+                    actividadNotas.Add(nt.Detail);
                     return true;
                 }
 
@@ -1938,12 +2010,17 @@ public sealed class BrowserRunService(
             }
 
             const int MaxPages = 500; // tope de seguridad por si el total viene mal
+            // Tope de filas (variable del flujo TopeFilasBucle, ADR-0168): para simular o probar con pocos
+            // registros sin consumir todo el listado. Vacio/0 = sin tope.
+            var topeFilas = LoopRowCap(vars);
+            var topeAlcanzado = false;
             var page = 1;
             while (true)
             {
                 var rows = CurrentRows();
                 for (var ri = 0; ri < rows.Count; ri++)
                 {
+                    if (topeFilas > 0 && rowsOk >= topeFilas) { topeAlcanzado = true; break; }
                     ctx.Set("ROW", rows[ri]);
                     ctx.Set("ROW_INDEX", ri.ToString());
                     var rowOk = true;
@@ -1951,7 +2028,7 @@ public sealed class BrowserRunService(
                     if (rowOk) { rowsOk++; } else { break; }
                 }
                 pagesDone++;
-                if (lastErr is not null || !paginate) { break; }
+                if (lastErr is not null || !paginate || topeAlcanzado || (topeFilas > 0 && rowsOk >= topeFilas)) { break; }
 
                 var total = 1;
                 if (ctx.TryResolve(start.PageCountVar!, out var tp) && int.TryParse((tp ?? "").Trim(), out var tpn)) { total = tpn; }
@@ -1968,6 +2045,7 @@ public sealed class BrowserRunService(
 
             var okAll = lastErr is null;
             var detail = $"{rowsOk} filas consumidas en {pagesDone} pagina(s), {ins} ingeridas"
+                + (topeFilas > 0 ? $" (tope {topeFilas} filas)" : "")
                 + (actividadNotas.Count > 0 ? $", {tareasCreadas} actividad(es) creada(s)" : "")
                 + (lastErr is null ? "" : $"; ultimo error: {lastErr}");
             if (actividadNotas.Count > 0)
@@ -2036,7 +2114,9 @@ public sealed class BrowserRunService(
         if (flow is not null)
         {
             flow.LastRunAt = now;
-            flow.LastResultSummary = text.Length <= 600 ? text : text[..597] + "...";
+            // last_result_summary es varchar(400) (detail es 600): recortar a 400. Antes se recortaba a 600 y
+            // un detalle de 401-600 caracteres tumbaba el SaveChanges y el paso quedaba sin registro.
+            flow.LastResultSummary = text.Length <= 400 ? text : text[..397] + "...";
         }
         await db.SaveChangesAsync(ct);
     }

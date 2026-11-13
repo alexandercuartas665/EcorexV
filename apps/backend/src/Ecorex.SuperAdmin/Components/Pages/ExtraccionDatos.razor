@@ -20,6 +20,8 @@
 @inject Ecorex.Application.Actividades.IActividadCatalogoService Catalogo
 @inject Ecorex.Application.Tenancy.ITenantUserService UsersSvc
 @inject Ecorex.Application.Forms.IFormDefinitionService FormDefs
+@inject Ecorex.Application.Tenancy.IWhatsAppLineService WaLines
+@inject Ecorex.Application.Tenancy.IWhatsAppTemplateService WaTemplates
 
 <PageTitle>Extraccion de datos - ECOREX.tareas</PageTitle>
 
@@ -488,8 +490,83 @@
                                         <div class="xd-prop"><label>...vale</label><input class="xd-input" placeholder="Concluida" @bind="_caSaltarValor" /></div>
                                     </div>
                                 }
+                                else if (_sKind == ScrapeStepKind.Notificar)
+                                {
+                                    <div class="xd-help">Avisa que la tarea del registro esta creada. Ponlo DESPUES de "Crear actividad" (ese paso deja <code>&#123;&#123;TAREA&#125;&#125;</code> y <code>&#123;&#123;TAREA_NUEVA&#125;&#125;</code>). El mensaje admite los tokens de la tarea: <code>{tarea.numero}</code>, <code>{tarea.titulo}</code>, <code>{tarea.cliente}</code>, <code>{usuario.nombre}</code>, <code>{form.petof}</code>, <code>{tarea.enlace}</code>, y rutas del dron como <code>&#123;&#123;DETALLE.cabecera.solicitud&#125;&#125;</code>. Un fallo de envio no detiene el dron: queda en la bitacora de la tarea.</div>
+                                    <div class="xd-two">
+                                        <div class="xd-prop"><label>Canal</label>
+                                            <select class="xd-input" @bind="_ntCanal" @bind:after="LoadNtListsAsync">
+                                                <option value="@ScrapeNotificar.Canal.Campana">Campana (notificacion en la app)</option>
+                                                <option value="@ScrapeNotificar.Canal.Correo">Correo</option>
+                                                <option value="@ScrapeNotificar.Canal.WhatsApp">WhatsApp (plantilla aprobada)</option>
+                                                <option value="@ScrapeNotificar.Canal.WhatsAppGrupo">Grupo de WhatsApp</option>
+                                                <option value="@ScrapeNotificar.Canal.Telegram">Telegram</option>
+                                            </select></div>
+                                        <div class="xd-prop"><label>Tarea (ruta)</label><input class="xd-input mono" placeholder="TAREA" @bind="_ntTarea" /></div>
+                                    </div>
+                                    <label class="xd-check"><input type="checkbox" @bind="_ntSoloNueva" /> Solo si la tarea se creo en esta corrida (no repite el aviso al re-correr)</label>
+                                    @if (_ntCanal is ScrapeNotificar.Canal.Campana or ScrapeNotificar.Canal.Correo or ScrapeNotificar.Canal.WhatsApp)
+                                    {
+                                        <div class="xd-prop"><label>A quien</label>
+                                            <select class="xd-input" @bind="_ntDestino">
+                                                <option value="@ScrapeNotificar.Destino.Responsable">Responsable de la tarea</option>
+                                                <option value="@ScrapeNotificar.Destino.Usuarios">Usuarios elegidos</option>
+                                                <option value="@ScrapeNotificar.Destino.Concepto">Destinatarios del concepto</option>
+                                            </select></div>
+                                        @if (_ntDestino == ScrapeNotificar.Destino.Usuarios)
+                                        {
+                                            <div class="xd-prop" style="max-height:160px;overflow:auto">
+                                                @foreach (var u in _caUsuarios)
+                                                {
+                                                    <label class="xd-check"><input type="checkbox" checked="@_ntUsuarios.Contains(u.Id)" @onchange="e => ToggleNtUsuario(u.Id, e.Value is true)" /> @(u.DisplayName ?? u.Email)</label>
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                    @if (_ntCanal is ScrapeNotificar.Canal.WhatsApp or ScrapeNotificar.Canal.WhatsAppGrupo)
+                                    {
+                                        <div class="xd-prop"><label>Linea de WhatsApp</label>
+                                            <select class="xd-input" @bind="_ntLinea">
+                                                <option value="">(elige la linea)</option>
+                                                @foreach (var l in _ntLineas) { <option value="@l.Id">@l.InstanceName @(string.IsNullOrWhiteSpace(l.PhoneNumber) ? "" : "(" + l.PhoneNumber + ")")</option> }
+                                            </select></div>
+                                    }
+                                    @if (_ntCanal == ScrapeNotificar.Canal.WhatsApp)
+                                    {
+                                        <div class="xd-prop"><label>Plantilla aprobada</label>
+                                            <select class="xd-input" @bind="_ntPlantillaSel">
+                                                <option value="">(elige la plantilla)</option>
+                                                @foreach (var t in NtPlantillasDeLinea()) { <option value="@(t.Name + "|" + t.Language)">@t.Name (@t.Language) - @t.Status</option> }
+                                            </select>
+                                            @if (NtPlantillaActual() is { } tp)
+                                            {
+                                                <div class="xd-help">Texto: @tp.BodyText<br />Variables: <code>@string.Join(", ", tp.Variables.Select(v => v.Token))</code></div>
+                                            }
+                                        </div>
+                                        <div class="xd-prop"><label>Variables de la plantilla: variable -&gt; valor con tokens (JSON)</label>
+                                            <textarea class="xd-input xd-code-input" rows="3" placeholder='{"numero":"{tarea.numero}","titulo":"{tarea.titulo}","enlace":"{tarea.enlace}"}' @bind="_ntVars"></textarea>
+                                            <div class="xd-help">Si la variable se llama igual que un token (numero, titulo, cliente, enlace...) se llena sola; aqui solo van las que difieren.</div></div>
+                                    }
+                                    @if (_ntCanal == ScrapeNotificar.Canal.WhatsAppGrupo)
+                                    {
+                                        <div class="xd-prop"><label>Grupo (JID ...@@g.us)</label><input class="xd-input mono" placeholder="120363000000000000@@g.us" @bind="_ntGrupo" /></div>
+                                    }
+                                    @if (_ntCanal == ScrapeNotificar.Canal.Telegram)
+                                    {
+                                        <div class="xd-prop"><label>Chat de Telegram (id)</label><input class="xd-input mono" placeholder="-1001234567890" @bind="_ntChat" /></div>
+                                    }
+                                    @if (_ntCanal != ScrapeNotificar.Canal.WhatsApp)
+                                    {
+                                        @if (_ntCanal is ScrapeNotificar.Canal.Campana or ScrapeNotificar.Canal.Correo)
+                                        {
+                                            <div class="xd-prop"><label>@(_ntCanal == ScrapeNotificar.Canal.Correo ? "Asunto" : "Titulo") (plantilla)</label><input class="xd-input mono" placeholder="@ScrapeNotificar.DefaultAsunto" @bind="_ntAsunto" /></div>
+                                        }
+                                        <div class="xd-prop"><label>Mensaje (plantilla)</label><textarea class="xd-input mono" rows="3" placeholder="@ScrapeNotificar.DefaultMensaje" @bind="_ntMensaje"></textarea></div>
+                                        <label class="xd-check"><input type="checkbox" @bind="_ntEnlace" /> Agregar el enlace directo a la tarea</label>
+                                    }
+                                }
 
-                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador && _sKind != ScrapeStepKind.CrearActividad)
+                                @if (_sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador && _sKind != ScrapeStepKind.CrearActividad && _sKind != ScrapeStepKind.Notificar)
                                 {
                                     <div class="xd-prop">
                                         <label>Guardar salida como (motor: variable del flujo)</label>
@@ -504,7 +581,8 @@
                                         <label>Recorrer (ForEach) la variable (inicia bucle)</label>
                                         <input class="xd-input mono" placeholder="LISTADO.compras" @bind="_sLoopOverVar" />
                                         <div class="xd-help">Si lo pones, "Ejecutar bucle" recorre ese array; en cada vuelta la fila actual
-                                            queda como <code>&#123;&#123;ROW.campo&#125;&#125;</code> / <code>@("@@")ROW.campo@("@@")</code>. El cuerpo va de este paso al marcado "fin del bucle".</div>
+                                            queda como <code>&#123;&#123;ROW.campo&#125;&#125;</code> / <code>@("@@")ROW.campo@("@@")</code>. El cuerpo va de este paso al marcado "fin del bucle".
+                                            Para probar con pocas filas crea la variable del flujo <code>TopeFilasBucle</code> (ej. 2): el bucle se detiene al llegar a ese numero.</div>
                                     </div>
                                     <label class="xd-check"><input type="checkbox" @bind="_sIsLoopEnd" /> Este paso es el FIN del cuerpo del bucle</label>
                                     <div class="xd-prop">
@@ -574,7 +652,7 @@
                                         <div class="xd-help">Normalmente automatico: si el servidor NO ve la carpeta (prod Linux + agente Windows) lee los ZIP a traves del agente. Marca esto para PROBAR en dev con una sola maquina (app y agente en la misma PC). Requiere capacidad <code>Archivos</code> habilitada en la colmena y la carpeta en la allow-list (con prefijo <code>rw:</code> para poder limpiar).</div></div>
                                 }
 
-                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador && _sKind != ScrapeStepKind.CrearActividad)
+                                @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador && _sKind != ScrapeStepKind.CrearActividad && _sKind != ScrapeStepKind.Notificar)
                                 {
                                     <div class="xd-two">
                                         <div class="xd-prop"><label>Advertencia: etiqueta a vigilar (opcional)</label>
@@ -886,6 +964,15 @@
     private string _caSaltarRuta = "", _caSaltarValor = "", _caFormFields = "";
     private IReadOnlyList<Ecorex.Application.Actividades.ActividadSubcategoriaDto> _caConceptos = [];
     private IReadOnlyList<Ecorex.Application.Tenancy.TenantUserDto> _caUsuarios = [];
+
+    // Paso "Notificar" (config en MappingJson, ver ScrapeNotificar.Config).
+    private string _ntTarea = "", _ntLinea = "", _ntPlantillaSel = "", _ntVars = "", _ntGrupo = "", _ntChat = "", _ntAsunto = "", _ntMensaje = "";
+    private bool _ntSoloNueva = true, _ntEnlace = true;
+    private ScrapeNotificar.Canal _ntCanal = ScrapeNotificar.Canal.Campana;
+    private ScrapeNotificar.Destino _ntDestino = ScrapeNotificar.Destino.Responsable;
+    private HashSet<Guid> _ntUsuarios = new();
+    private IReadOnlyList<Ecorex.Application.Tenancy.WhatsAppLineDto> _ntLineas = [];
+    private IReadOnlyList<Ecorex.Application.Tenancy.WhatsAppTemplateDto> _ntPlantillas = [];
     private string _paCarpeta = "";
     private bool _paMoverProcesados = true;
     private bool _paSubirBlob = true;
@@ -1260,12 +1347,84 @@
     {
         LoadStepIntoEditor(s);
         LoadCaConfig(s);
+        LoadNtConfig(s);
         if (_sKind == ScrapeStepKind.CrearActividad) { await LoadCaListsAsync(); }
+        if (_sKind == ScrapeStepKind.Notificar) { await LoadCaListsAsync(); await LoadNtListsAsync(); }
     }
 
     private async Task OnStepKindChangedAsync()
     {
         if (_sKind == ScrapeStepKind.CrearActividad) { await LoadCaListsAsync(); }
+        if (_sKind == ScrapeStepKind.Notificar) { await LoadCaListsAsync(); await LoadNtListsAsync(); }
+    }
+
+    // Lineas y plantillas de WhatsApp para el paso "Notificar" (perezosas, solo si el canal las usa).
+    private async Task LoadNtListsAsync()
+    {
+        if (_ntCanal is not (ScrapeNotificar.Canal.WhatsApp or ScrapeNotificar.Canal.WhatsAppGrupo)) { return; }
+        try
+        {
+            if (_ntLineas.Count == 0) { _ntLineas = await WaLines.ListAsync(); }
+            if (_ntPlantillas.Count == 0) { _ntPlantillas = await WaTemplates.ListAsync(); }
+        }
+        catch (Exception ex) { _stepError = "No se pudieron cargar lineas/plantillas de WhatsApp: " + ex.Message; }
+    }
+
+    private IEnumerable<Ecorex.Application.Tenancy.WhatsAppTemplateDto> NtPlantillasDeLinea()
+        => Guid.TryParse(_ntLinea, out var lid) ? _ntPlantillas.Where(t => t.WhatsAppLineId == lid) : _ntPlantillas;
+
+    private Ecorex.Application.Tenancy.WhatsAppTemplateDto? NtPlantillaActual()
+    {
+        var parts = (_ntPlantillaSel ?? "").Split('|');
+        return parts.Length == 2 ? _ntPlantillas.FirstOrDefault(t => t.Name == parts[0] && t.Language == parts[1]) : null;
+    }
+
+    private void ToggleNtUsuario(Guid id, bool on)
+    {
+        if (on) { _ntUsuarios.Add(id); } else { _ntUsuarios.Remove(id); }
+    }
+
+    private void LoadNtConfig(ScrapeStepDto? s)
+    {
+        _ntTarea = _ntLinea = _ntPlantillaSel = _ntVars = _ntGrupo = _ntChat = _ntAsunto = _ntMensaje = "";
+        _ntSoloNueva = true; _ntEnlace = true;
+        _ntCanal = ScrapeNotificar.Canal.Campana; _ntDestino = ScrapeNotificar.Destino.Responsable;
+        _ntUsuarios = new();
+        if (s?.Kind != ScrapeStepKind.Notificar) { return; }
+        var cfg = ScrapeNotificar.Parse(s.MappingJson);
+        if (cfg is null) { return; }
+        _ntTarea = cfg.Tarea ?? ""; _ntSoloNueva = cfg.SoloSiNueva; _ntCanal = cfg.Canal; _ntDestino = cfg.Destino;
+        _ntUsuarios = cfg.UsuarioIds?.ToHashSet() ?? new();
+        _ntLinea = cfg.LineaId?.ToString() ?? "";
+        _ntPlantillaSel = string.IsNullOrWhiteSpace(cfg.Plantilla) ? "" : $"{cfg.Plantilla}|{cfg.Idioma}";
+        _ntVars = cfg.Variables is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(cfg.Variables, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) : "";
+        _ntGrupo = cfg.GrupoJid ?? ""; _ntChat = cfg.ChatId ?? ""; _ntAsunto = cfg.Asunto ?? ""; _ntMensaje = cfg.Mensaje ?? "";
+        _ntEnlace = cfg.IncluirEnlace;
+    }
+
+    // Arma la config del paso "Notificar". Devuelve null y fija _stepError si algo no cuadra.
+    private string? BuildNtMappingJson()
+    {
+        Dictionary<string, string>? vars = null;
+        try { if (!string.IsNullOrWhiteSpace(_ntVars)) { vars = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(_ntVars); } }
+        catch (System.Text.Json.JsonException ex) { _stepError = "JSON invalido en las variables: " + ex.Message; return null; }
+        var parts = (_ntPlantillaSel ?? "").Split('|');
+        var cfg = new ScrapeNotificar.Config
+        {
+            Tarea = NullIfBlank(_ntTarea), SoloSiNueva = _ntSoloNueva, Canal = _ntCanal, Destino = _ntDestino,
+            UsuarioIds = _ntDestino == ScrapeNotificar.Destino.Usuarios ? _ntUsuarios.ToList() : null,
+            LineaId = ParseGuid(_ntLinea),
+            Plantilla = parts.Length == 2 ? parts[0] : null, Idioma = parts.Length == 2 ? parts[1] : null,
+            Variables = vars, GrupoJid = NullIfBlank(_ntGrupo), ChatId = NullIfBlank(_ntChat),
+            Asunto = NullIfBlank(_ntAsunto), Mensaje = NullIfBlank(_ntMensaje), IncluirEnlace = _ntEnlace,
+        };
+        if (cfg.Canal == ScrapeNotificar.Canal.WhatsApp && (cfg.LineaId is null || cfg.Plantilla is null)) { _stepError = "WhatsApp: elige la linea y la plantilla."; return null; }
+        if (cfg.Canal == ScrapeNotificar.Canal.WhatsAppGrupo && (cfg.LineaId is null || cfg.GrupoJid is null)) { _stepError = "Grupo de WhatsApp: elige la linea y el grupo."; return null; }
+        if (cfg.Canal == ScrapeNotificar.Canal.Telegram && cfg.ChatId is null) { _stepError = "Telegram: indica el chat."; return null; }
+        if (cfg.Destino == ScrapeNotificar.Destino.Usuarios && cfg.UsuarioIds is not { Count: > 0 }
+            && cfg.Canal is ScrapeNotificar.Canal.Campana or ScrapeNotificar.Canal.Correo or ScrapeNotificar.Canal.WhatsApp)
+        { _stepError = "Elige al menos un usuario a notificar."; return null; }
+        return ScrapeNotificar.Serialize(cfg);
     }
 
     // Listas del editor "Crear actividad" (conceptos y usuarios), perezosas: solo si se usa ese tipo.
@@ -1513,8 +1672,10 @@
                 })
                 : _sKind == ScrapeStepKind.CrearActividad
                 ? BuildCaMappingJson()
+                : _sKind == ScrapeStepKind.Notificar
+                ? BuildNtMappingJson()
                 : NullIfBlank(_sMappingJson);
-            if (_sKind == ScrapeStepKind.CrearActividad && mappingJson is null) { return; } // _stepError ya explica
+            if ((_sKind is ScrapeStepKind.CrearActividad or ScrapeStepKind.Notificar) && mappingJson is null) { return; } // _stepError ya explica
             var req = new SaveScrapeStepRequest(
                 _editingStepId, _selected.Id, order, _sKind, _sName,
                 WaitMs: ParseInt(_sWaitMs), Url: NullIfBlank(_sUrl), Script: NullIfBlank(_sScript),
@@ -1695,6 +1856,7 @@
         ScrapeStepKind.IngestaNewton => "Ingesta NEWTON (API)",
         ScrapeStepKind.CerrarNavegador => "Cerrar navegador",
         ScrapeStepKind.CrearActividad => "Crear actividad (tarea + formulario)",
+        ScrapeStepKind.Notificar => "Notificar (aviso de la tarea por canal)",
         _ => k.ToString()
     };
 
@@ -1717,6 +1879,7 @@
         ScrapeStepKind.Wait => "wait",
         ScrapeStepKind.CerrarNavegador => "wait",
         ScrapeStepKind.CrearActividad => "extract",
+        ScrapeStepKind.Notificar => "wait",
         ScrapeStepKind.Ai => "ai",
         _ when IsExtractKind(k) => "extract",
         _ => "script"
@@ -1735,6 +1898,7 @@
         ScrapeStepKind.IngestaNewton => "Baja por la API de NEWTON los documentos recibidos como {CUFE}.xml y {CUFE}_newton.pdf a una carpeta propia.",
         ScrapeStepKind.CerrarNavegador => "Cierra la ventana viva del navegador (WebView2) y la saca de la cache del agente.",
         ScrapeStepKind.CrearActividad => "Crea UNA tarea por registro con su formulario diligenciado (cabecera + items), sin duplicar.",
+        ScrapeStepKind.Notificar => "Avisa por el canal elegido (campana, correo, WhatsApp, grupo, Telegram) que la tarea del registro esta creada.",
         _ when IsExtractKind(s.Kind) => "Inyecta JS que devuelve filas y las ingiere en la tabla destino.",
         _ => "Inyecta/ejecuta JavaScript (firmado por el servidor)."
     };

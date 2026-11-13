@@ -97,7 +97,13 @@ public enum ScrapeStepKind
     /// diligenciado (cabecera + grilla de items). No duplica: anota el numero de la tarea en una columna de
     /// la fila del Contenedor que tiene la clave y la omite si ya la tiene. La config (concepto, titulo,
     /// clave, contenedor/columnas, mapeo de campos y de la grilla, guarda) va en MappingJson.</summary>
-    CrearActividad = 22
+    CrearActividad = 22,
+
+    /// <summary>Notificar (server-side): avisa a uno o varios usuarios que la tarea del contexto ({{TAREA}}, la deja
+    /// "Crear actividad") ya existe, por el canal elegido (campana, correo, plantilla de WhatsApp, grupo de
+    /// WhatsApp o Telegram) con un mensaje-plantilla con los tokens de la tarea. Por defecto solo si la tarea es
+    /// nueva en esta corrida. La config va en MappingJson (ADR-0168).</summary>
+    Notificar = 23
 }
 
 /// <summary>

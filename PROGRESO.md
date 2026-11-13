@@ -2,6 +2,11 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-13 - Integracion a main de feat/agentes-sistema: dron DIAN, colmena, extraccion de datos y paso Crear actividad (ADR-0166, release v0.16.316)
+
+- AGENTE: Claude Opus 5.5 (dev principal), por encargo de la sesion ECOREX.soldarco. Merge --no-ff de origin/feat/agentes-sistema sobre el tronco v0.16.315: e57dffae + ce6b1e4b (lector Graph del token: reintenta ante timeout/red/429/5xx y nombra el 5xx real de Exchange), a006b0eb ("Procesar descargas DIAN" no borra el ZIP si su PDF/XML no subio, 3 intentos via agente, motivo por documento, AVISO si quedan pendientes, corta si la carpeta esta fuera de la allow-list), 2a1d1821 (colmena: la ventana viva usa la allow-list vigente; "https://dominio/ruta" coincide por host; requiere MSI > 1.9.7 para las PCs, no es parte de este deploy), f4d57017 (modal "+ Nueva variable" sin autocompletar de Chrome), 7c44c50b (ADR-0166: escape JS de {{VAR}}/@@ruta@@, paso CrearActividad = 22 sin migracion, corrida por pasos con bucles), 8680bcea (WaitMs tras cada paso suelto). Sin conflictos (191c1f8a ya estaba en el tronco por cherry-pick). Sin migraciones.
+- PENDIENTE: deploy SOLO con OK del usuario por version. Config de BD de SOLDARCO (dron Plataformas Ingenios: form FRM-INCAUCA-PED, concepto CAT-01-03, tablero PLATAFORMAS, columna TAREA, paso "Crear actividad del pedido", variables PdpEmpresa/PdpUsuario/PdpClave) NO viaja con el codigo: replicarla en prod solo con confirmacion del usuario; PdpClave la recrea el usuario. Prerrequisito de operador: carpeta de descargas DIAN con prefijo rw: en la colmena de SOLDARCO.
+
 ## 2026-11-13 - Agendas ola 5: tarea por turno, Directorio, herramientas del agente y calendario (ADR-0165, release v0.16.315, DESPLEGADO 2026-11-13)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Pendientes pedidos por el usuario tras las olas 3 y 4.

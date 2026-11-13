@@ -1,3 +1,5 @@
+using Ecorex.Contracts.Agent;
+
 namespace Ecorex.Agent.Core.Services;
 
 /// <summary>
@@ -25,14 +27,5 @@ public sealed class BrowserAllowList
     }
 
     /// <summary>true si el host (o un sufijo de dominio) esta permitido. Fail-closed si la lista esta vacia.</summary>
-    public bool IsAllowed(string? host)
-    {
-        if (string.IsNullOrWhiteSpace(host)) { return false; }
-        host = host.ToLowerInvariant();
-        foreach (var d in Load())
-        {
-            if (host == d || host.EndsWith("." + d, StringComparison.Ordinal)) { return true; }
-        }
-        return false;
-    }
+    public bool IsAllowed(string? host) => BrowserPolicy.HostMatches(host, Load());
 }

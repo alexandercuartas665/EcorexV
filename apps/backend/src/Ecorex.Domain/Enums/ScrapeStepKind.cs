@@ -90,7 +90,14 @@ public enum ScrapeStepKind
     /// mantiene abierta para conservar el login, y la saca de la cache del agente. Se cablea a la accion ya
     /// existente <c>BrowserActionKind.CloseSession</c>. Util como ultimo paso de un flujo para no dejar la
     /// ventana WebView2 abierta. No navega ni inyecta; no lleva configuracion.</summary>
-    CerrarNavegador = 21
+    CerrarNavegador = 21,
+
+    /// <summary>Crear actividad (server-side): crea UNA tarea del concepto configurado por el registro que
+    /// el flujo tiene en el contexto (p.ej. el pedido que leyo el bucle) y deja el formulario del concepto
+    /// diligenciado (cabecera + grilla de items). No duplica: anota el numero de la tarea en una columna de
+    /// la fila del Contenedor que tiene la clave y la omite si ya la tiene. La config (concepto, titulo,
+    /// clave, contenedor/columnas, mapeo de campos y de la grilla, guarda) va en MappingJson.</summary>
+    CrearActividad = 22
 }
 
 /// <summary>

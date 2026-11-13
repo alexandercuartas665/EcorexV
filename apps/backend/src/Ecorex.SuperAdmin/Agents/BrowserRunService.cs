@@ -234,6 +234,32 @@ public sealed class BrowserRunService(
                 return new BrowserRunResult(false, null, null, false, "El flujo no existe o no es de este tenant.");
             }
 
+            // Flujos con bucles / pasos de servidor (p.ej. DRON PLATAFORMAS INGENIOS): la corrida compilada no
+            // los recorre, asi que van por la corrida POR PASOS, en segundo plano (misma semantica de
+            // "despachado" para la UI y la programacion). Si el agente no esta en linea, sigue el camino de
+            // abajo, que parquea la corrida como offline.
+            if (NeedsStepwise(flow) && flow.ClientId is Guid cpk)
+            {
+                var cli = await db.DataClients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cpk && c.IsActive, ct);
+                if (cli is not null && registry.IsOnline(cli.ClientId))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await RunStepwiseCoreAsync(flowId, tenantId, 0, 1, null, trigger, runCorr,
+                                freshSession: true, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            log.LogError(ex, "[NAV-RUN] fallo la corrida por pasos corr={Corr} flow={Flow}", runCorr, flowId);
+                        }
+                    }, CancellationToken.None);
+                    log.LogInformation("[NAV-RUN] corrida por pasos lanzada corr={Corr} flow={Flow}", runCorr, flowId);
+                    return new BrowserRunResult(true, null, runCorr, false, null);
+                }
+            }
+
             var runId = await runLog.OpenAsync(flowId, trigger, firedAt, runCorr, flow.Steps.Count, ct);
 
             if (flow.ClientId is not Guid clientPk)
@@ -276,11 +302,58 @@ public sealed class BrowserRunService(
         }
     }
 
-    public async Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
+    public Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
         IProgress<FlowStepProgress>? progress, CancellationToken ct = default)
+        => RunStepwiseCoreAsync(flowId, tenantId, flowIndex, flowCount, progress, ImportRunTrigger.Manual, NewCorr(),
+            freshSession: false, ct);
+
+    /// <summary>
+    /// true si el flujo necesita la corrida POR PASOS (no la compilada lineal): tiene bucles (LoopOverVar) o
+    /// pasos que corren en el servidor dentro del flujo (Crear actividad). La compilada no recorre bucles ni
+    /// ingiere por IngestPath, asi que "Ejecutar ahora" y la programacion de esos flujos no procesaban nada.
+    /// </summary>
+    // Espera tras un paso en la corrida completa por pasos: valores < 100 son los "segundos" heredados del dron
+    // legacy y se ignoran (no son ms reales); tope de 2 minutos por paso.
+    internal const int MinPostStepWaitMs = 100;
+    internal const int MaxPostStepWaitMs = 120_000;
+
+    internal static bool NeedsStepwise(ScrapeFlow flow)
+        => flow.Steps.Any(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) || s.Kind == ScrapeStepKind.CrearActividad);
+
+    /// <summary>
+    /// Pasos que consume el BUCLE que empieza en <paramref name="startIdx"/>: el cuerpo (hasta el primer
+    /// IsLoopEnd, inclusive) y sus pasos de avance de pagina (IsPageNext despues del inicio y antes del
+    /// siguiente inicio de bucle). Misma regla que <see cref="RunLoopNowAsync"/>; la corrida por pasos no
+    /// los vuelve a correr sueltos.
+    /// </summary>
+    internal static HashSet<Guid> LoopMemberIds(IReadOnlyList<ScrapeStep> ordered, int startIdx)
     {
-        var runCorr = NewCorr();
+        var ids = new HashSet<Guid>();
+        var start = ordered[startIdx];
+        for (var i = startIdx; i < ordered.Count; i++)
+        {
+            ids.Add(ordered[i].Id);
+            if (ordered[i].IsLoopEnd) { break; }
+        }
+        var nextLoopStartOrder = ordered
+            .Where(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) && s.Order > start.Order)
+            .Select(s => (int?)s.Order).Min();
+        foreach (var s in ordered.Where(s => s.IsPageNext && s.Order > start.Order
+            && (nextLoopStartOrder is null || s.Order < nextLoopStartOrder)))
+        {
+            ids.Add(s.Id);
+        }
+        return ids;
+    }
+
+    private async Task<BrowserRunResult> RunStepwiseCoreAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
+        IProgress<FlowStepProgress>? progress, ImportRunTrigger trigger, string runCorr, bool freshSession,
+        CancellationToken ct)
+    {
         var firedAt = _clock.GetUtcNow();
+        // Corrida completa nueva (Ejecutar ahora / programacion): sin salidas capturadas de corridas anteriores,
+        // para que un bucle nunca consuma un LISTADO viejo si el paso que lo lee falla.
+        if (freshSession) { _stepSessionVars.TryRemove(flowId, out _); }
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -291,7 +364,7 @@ public sealed class BrowserRunService(
             if (flow is null) { return new BrowserRunResult(false, null, runCorr, false, "El flujo no existe o no es de este tenant."); }
             var flowName = flow.Name;
             var steps = flow.Steps.OrderBy(s => s.Order).ToList();
-            var runId = await runLog.OpenAsync(flowId, ImportRunTrigger.Manual, firedAt, runCorr, steps.Count, ct);
+            var runId = await runLog.OpenAsync(flowId, trigger, firedAt, runCorr, steps.Count, ct);
 
             if (flow.ClientId is not Guid clientPk)
             {
@@ -317,9 +390,11 @@ public sealed class BrowserRunService(
 
             int ins = 0, upd = 0, del = 0;
             var notas = new List<string>();
+            var consumidos = new HashSet<Guid>(); // pasos que ya corrio un bucle (cuerpo + avance de pagina)
             for (var i = 0; i < steps.Count; i++)
             {
                 var paso = steps[i];
+                if (consumidos.Contains(paso.Id)) { continue; }
                 progress?.Report(new FlowStepProgress(flowIndex, flowCount, flowName, i, steps.Count, paso.Name, false, false, null, null));
 
                 // Progreso EN VIVO dentro del paso (p.ej. "procesando 3/15"): los pasos largos (Procesar
@@ -330,7 +405,17 @@ public sealed class BrowserRunService(
                     flowIndex, flowCount, flowName, stepIdx, steps.Count, paso.Name, false, false, null, txt));
 
                 StepRunResult r;
-                try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct, stepLive); }
+                try
+                {
+                    // Inicio de bucle: recorre TODAS las filas (y paginas) con su cuerpo; luego esos pasos no se
+                    // corren sueltos. Sin bucles (p.ej. los drones DIAN) el camino es el de siempre.
+                    if (!string.IsNullOrWhiteSpace(paso.LoopOverVar))
+                    {
+                        consumidos.UnionWith(LoopMemberIds(steps, i));
+                        r = await RunLoopNowAsync(flowId, paso.Id, tenantId, ct);
+                    }
+                    else { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct, stepLive); }
+                }
                 catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
                 ins += r.Inserted; upd += r.Updated; del += r.Deleted;
 
@@ -350,10 +435,26 @@ public sealed class BrowserRunService(
                 }
                 // Pasos guarda/driver (Exploracion/Variable sin filas) devuelven Ok=false de forma benigna: se anota y sigue.
                 if (!r.Ok) { notas.Add(paso.Name); }
+
+                // Corrida completa nueva: respeta la espera del paso (WaitMs, en ms) antes del siguiente. El agente
+                // corre el JS y vuelve de inmediato; si el script dispara un postback (filtrar, consultar, login), sin
+                // esta pausa el paso siguiente leia la pagina VIEJA (0 filas). En el paso a paso manual la pausa la
+                // ponia el operador entre clics. Los bucles no pasan por aqui (ya funcionan con su propio ritmo) y la
+                // corrida del conciliador DIAN (freshSession=false) queda exactamente igual.
+                if (freshSession && paso.Kind != ScrapeStepKind.Wait && string.IsNullOrWhiteSpace(paso.LoopOverVar)
+                    && paso.WaitMs is int espera && espera >= MinPostStepWaitMs)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(espera, MaxPostStepWaitMs)), ct);
+                }
             }
 
             var det = $"Flujo ejecutado paso a paso ({steps.Count} pasos)"
                 + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
+            // Corrida completa nueva (Ejecutar ahora / programacion): no dejar la ventana del agente abierta.
+            if (freshSession)
+            {
+                try { await CloseStepSessionAsync(flowId, tenantId, ct); } catch { /* best-effort */ }
+            }
             await runLog.CloseAsync(runCorr, true, ins, upd, del, det, ct);
             log.LogInformation("[NAV-RUN] stepwise OK corr={Corr} flow={Flow} pasos={N}", runCorr, flowId, steps.Count);
             return new BrowserRunResult(true, runId, runCorr, false, det);
@@ -458,6 +559,15 @@ public sealed class BrowserRunService(
                 var (rok, rdetail, recs) = await InvokeRuleAsync(rules, step, ctx, ct);
                 await RecordStepRunAsync(db, flowId, step.Name, rok, recs, 0, 0, rdetail, ct);
                 return new StepRunResult(rok, false, rok ? null : rdetail, null, rdetail, recs, 0, 0, rdetail);
+            }
+
+            // Crear actividad: no va al navegador; crea la tarea del registro en contexto (sin duplicar).
+            if (step.Kind == ScrapeStepKind.CrearActividad)
+            {
+                var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
+                    $"Dron {flow.Name}", ct);
+                await RecordStepRunAsync(db, flowId, step.Name, ca.Ok, ca.Created ? 1 : 0, 0, 0, ca.Detail, ct);
+                return new StepRunResult(ca.Ok, false, ca.Ok ? null : ca.Detail, null, ca.Detail, ca.Created ? 1 : 0, 0, 0, ca.Detail);
             }
 
             var sessionKey = StepSessionKeyFor(flowId);
@@ -699,15 +809,23 @@ public sealed class BrowserRunService(
         var periodos = new HashSet<(int Anio, int Mes)>();
         var okFiles = new List<string>(); // archivos parseados OK: se mueven SOLO si SaveChanges confirma
         var cufePorZip = new List<(string Cufe, string Archivo)>(); // para subir el PDF/XML del zip por CUFE
+        var sinCargar = new List<(string Nombre, string Motivo)>(); // documentos que NO quedaron completos
 
         var procIdx = 0;
         foreach (var archivo in archivos)
         {
             live?.Invoke($"procesando {++procIdx}/{archivos.Length}");
             DianDoc? doc;
+            string? motivoParse = null;
             try { doc = DianUblParser.ParseZip(archivo, nuestroNit); }
-            catch { doc = null; }
-            if (doc is null || string.IsNullOrWhiteSpace(doc.Cufe)) { fallidos++; continue; }
+            catch (Exception ex) { doc = null; motivoParse = ex.Message; }
+            if (doc is null || string.IsNullOrWhiteSpace(doc.Cufe))
+            {
+                fallidos++;
+                sinCargar.Add((Path.GetFileName(archivo),
+                    "no se pudo leer como factura DIAN" + (motivoParse is null ? " (sin CUFE)" : ": " + motivoParse)));
+                continue;
+            }
 
             var existente = await fdb.ConciliacionDianBotDummies.FirstOrDefaultAsync(b => b.Cufe == doc.Cufe, ct);
             if (existente is null)
@@ -787,31 +905,17 @@ public sealed class BrowserRunService(
             var files = dbScope.ServiceProvider.GetRequiredService<IFileStorageService>();
             foreach (var (cufe, archivoOrig) in cufePorZip)
             {
-                var zipFinal = cfg.MoverProcesados ? Path.Combine(procDir, Path.GetFileName(archivoOrig)) : archivoOrig;
-                if (!File.Exists(zipFinal)) { continue; }
-                var baseName = SafeName(cufe);
-                var faltaPdf = await files.FindAsync("ConciliacionDian", cufe, "DIAN_PDF", baseName + "_dian.pdf", ct) is null;
-                var faltaXml = await files.FindAsync("ConciliacionDian", cufe, "DIAN_XML", baseName + "_dian.xml", ct) is null;
-                if (!faltaPdf && !faltaXml) { continue; }
-                try
-                {
-                    using var zip = System.IO.Compression.ZipFile.OpenRead(zipFinal);
-                    var pdfEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
-                    var xmlEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
-                    if (faltaPdf && pdfEntry is not null)
-                    {
-                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_PDF",
-                            baseName + "_dian.pdf", "application/pdf", ReadEntry(pdfEntry)), ct);
-                        subidos++;
-                    }
-                    if (faltaXml && xmlEntry is not null)
-                    {
-                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_XML",
-                            baseName + "_dian.xml", "text/xml", ReadEntry(xmlEntry)), ct);
-                        subidos++;
-                    }
-                }
-                catch { /* best-effort: no romper el paso por un zip corrupto */ }
+                var nombreZip = Path.GetFileName(archivoOrig);
+                // Si no se pudo mover, el ZIP sigue en la carpeta de entrada: subirlo desde donde este.
+                var zipFinal = cfg.MoverProcesados ? Path.Combine(procDir, nombreZip) : archivoOrig;
+                if (!File.Exists(zipFinal)) { zipFinal = archivoOrig; }
+                if (!File.Exists(zipFinal)) { sinCargar.Add((nombreZip, "el ZIP desaparecio antes de subir PDF/XML")); continue; }
+                byte[] zipBytes;
+                try { zipBytes = await File.ReadAllBytesAsync(zipFinal, ct); }
+                catch (Exception ex) { sinCargar.Add((nombreZip, "no se pudo abrir el ZIP: " + ex.Message)); continue; }
+                var (n, falla) = await SubirZipAlGestorAsync(files, cufe, zipBytes, ct);
+                subidos += n;
+                if (falla is not null) { sinCargar.Add((nombreZip, falla)); }
             }
         }
 
@@ -819,9 +923,13 @@ public sealed class BrowserRunService(
             + (fallidos > 0 ? $", {fallidos} con error" : "")
             + (cfg.AutoImportar ? $"; {importados} importados a conciliacion ({periodos.Count} periodo/s)" : "")
             + (cfg.SubirABlob ? $"; {subidos} archivo(s) al blob" : "")
-            + (cfg.MoverProcesados ? "; movidos a /procesados" : "") + ".";
-        await RecordStepRunAsync(fdb, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
-        return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
+            + (cfg.MoverProcesados ? "; movidos a /procesados" : "") + "."
+            + (sinCargar.Count > 0 ? " " + ResumenSinCargar(sinCargar) : "");
+        // Con documentos sin cargar el paso queda en AVISO (Ok=false): el flujo sigue (no es el OTP), pero el
+        // operador lo ve en el modal en vez de un "ok" enganoso.
+        var okPaso = sinCargar.Count == 0;
+        await RecordStepRunAsync(fdb, flowId, step.Name, okPaso, nuevos, actualizados, 0, detalle, ct);
+        return new StepRunResult(okPaso, false, okPaso ? null : detalle, null, null, nuevos, actualizados, 0, detalle);
     }
 
     /// <summary>Camino "via agente" de ProcesarArchivos: la carpeta de descargas vive en la maquina del
@@ -865,12 +973,32 @@ public sealed class BrowserRunService(
         if (cfg.EsperarAsentarSegundos > 0)
         {
             const int intervalo = 5;
-            int lastCount = -1, estableSeg = 0, total = 0;
+            int lastCount = -1, estableSeg = 0, total = 0, fallosList = 0;
             while (total < cfg.MaxEsperaSegundos)
             {
                 int n;
-                try { n = (await AgentListMatchingAsync(clientId, tenantStr, carpeta, patron, ct)).Count; }
-                catch { n = lastCount; } // un List fallido no aborta la espera; reintenta al siguiente tick.
+                try
+                {
+                    n = (await AgentListMatchingAsync(clientId, tenantStr, carpeta, patron, ct)).Count;
+                    fallosList = 0;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    // Un parpadeo del canal se reintenta al siguiente tick. Pero un error de CONFIGURACION
+                    // (carpeta fuera de la allow-list de la colmena, inexistente) o 3 fallos seguidos no se
+                    // arreglan esperando: se corta ya con el motivo, en vez de agotar MaxEsperaSegundos (15 min).
+                    fallosList++;
+                    if (EsErrorPermanenteArchivos(ex.Message) || fallosList >= 3)
+                    {
+                        var m = $"No se pudo listar la carpeta de descargas en el agente ({carpeta}): {ex.Message}"
+                            + (EsErrorPermanenteArchivos(ex.Message)
+                                ? ". Agrega esa carpeta en la colmena -> Archivos (con prefijo 'rw:' para que pueda borrar los procesados)."
+                                : ".");
+                        await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, m, ct);
+                        return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
+                    }
+                    n = lastCount;
+                }
                 if (n == lastCount) { estableSeg += intervalo; } else { estableSeg = 0; lastCount = n; }
                 if (n > 0 && estableSeg >= cfg.EsperarAsentarSegundos) { break; }
                 if (n == 0 && total >= cfg.GraciaInicialSegundos) { break; }
@@ -887,7 +1015,10 @@ public sealed class BrowserRunService(
         try { archivos = await AgentListMatchingAsync(clientId, tenantStr, carpeta, patron, ct); }
         catch (Exception ex)
         {
-            var m = $"No se pudo listar la carpeta del agente: {ex.Message}";
+            var m = $"No se pudo listar la carpeta del agente ({carpeta}): {ex.Message}"
+                + (EsErrorPermanenteArchivos(ex.Message)
+                    ? ". Agrega esa carpeta en la colmena -> Archivos (con prefijo 'rw:')."
+                    : ".");
             await RecordStepRunAsync(fdb, flowId, step.Name, false, 0, 0, 0, m, ct);
             return new StepRunResult(false, false, m, null, null, 0, 0, 0, m);
         }
@@ -904,21 +1035,32 @@ public sealed class BrowserRunService(
         var periodos = new HashSet<(int Anio, int Mes)>();
         var okBytes = new Dictionary<string, byte[]>(); // nombre -> bytes del ZIP (para blob + borrado), solo los OK
         var cufePorZip = new List<(string Cufe, string Archivo)>();
+        var sinCargar = new List<(string Nombre, string Motivo)>(); // documentos que NO quedaron completos
 
         var procIdx = 0;
         foreach (var nombre in archivos)
         {
             live?.Invoke($"leyendo del agente {++procIdx}/{archivos.Count}");
             var rutaRemota = carpeta.TrimEnd(sep) + sep + nombre;
-            byte[]? zipBytes;
-            try { zipBytes = await AgentReadBytesAsync(clientId, tenantStr, rutaRemota, ct); }
-            catch { zipBytes = null; }
-            if (zipBytes is null) { fallidos++; continue; }
+            var (zipBytes, motivoLectura) = await LeerZipDelAgenteConReintentoAsync(clientId, tenantStr, rutaRemota, ct);
+            if (zipBytes is null)
+            {
+                fallidos++;
+                sinCargar.Add((nombre, "no se pudo leer del agente: " + (motivoLectura ?? "sin detalle")));
+                continue;
+            }
 
             DianDoc? doc;
+            string? motivoParse = null;
             try { doc = DianUblParser.ParseZipBytes(zipBytes, nuestroNit); }
-            catch { doc = null; }
-            if (doc is null || string.IsNullOrWhiteSpace(doc.Cufe)) { fallidos++; continue; }
+            catch (Exception ex) { doc = null; motivoParse = ex.Message; }
+            if (doc is null || string.IsNullOrWhiteSpace(doc.Cufe))
+            {
+                fallidos++;
+                sinCargar.Add((nombre,
+                    "no se pudo leer como factura DIAN" + (motivoParse is null ? " (sin CUFE)" : ": " + motivoParse)));
+                continue;
+            }
 
             var existente = await fdb.ConciliacionDianBotDummies.FirstOrDefaultAsync(b => b.Cufe == doc.Cufe, ct);
             if (existente is null)
@@ -971,30 +1113,17 @@ public sealed class BrowserRunService(
             foreach (var (cufe, nombre) in cufePorZip)
             {
                 if (!okBytes.TryGetValue(nombre, out var bytes)) { continue; }
-                var baseName = SafeName(cufe);
-                var faltaPdf = await files.FindAsync("ConciliacionDian", cufe, "DIAN_PDF", baseName + "_dian.pdf", ct) is null;
-                var faltaXml = await files.FindAsync("ConciliacionDian", cufe, "DIAN_XML", baseName + "_dian.xml", ct) is null;
-                if (!faltaPdf && !faltaXml) { continue; }
-                try
+                var (n, falla) = await SubirZipAlGestorAsync(files, cufe, bytes, ct);
+                subidos += n;
+                if (falla is not null)
                 {
-                    using var ms = new MemoryStream(bytes, writable: false);
-                    using var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
-                    var pdfEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
-                    var xmlEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
-                    if (faltaPdf && pdfEntry is not null)
-                    {
-                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_PDF",
-                            baseName + "_dian.pdf", "application/pdf", ReadEntry(pdfEntry)), ct);
-                        subidos++;
-                    }
-                    if (faltaXml && xmlEntry is not null)
-                    {
-                        await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_XML",
-                            baseName + "_dian.xml", "text/xml", ReadEntry(xmlEntry)), ct);
-                        subidos++;
-                    }
+                    sinCargar.Add((nombre, falla));
+                    // CLAVE: aqui "mover procesados" BORRA el ZIP de origen. Si sus documentos no quedaron en el
+                    // gestor, NO se borra: se conserva para que la proxima corrida reintente la subida (el dedup
+                    // por CUFE evita duplicar la fila). Antes se borraba igual y la factura quedaba sin PDF/XML
+                    // para siempre.
+                    okBytes.Remove(nombre);
                 }
-                catch { /* best-effort: no romper el paso por un zip corrupto */ }
             }
         }
 
@@ -1041,9 +1170,15 @@ public sealed class BrowserRunService(
             + (cfg.SubirABlob ? $"; {subidos} archivo(s) al blob" : "")
             + (cfg.MoverProcesados ? (borradoBloqueado
                 ? "; no se borraron los ZIP de origen (carpeta sin permiso 'rw:'; el dedup por CUFE evita duplicar)"
-                : $"; {movidos} ZIP borrados del origen") : "") + ".";
-        await RecordStepRunAsync(fdb, flowId, step.Name, true, nuevos, actualizados, 0, detalle, ct);
-        return new StepRunResult(true, false, null, null, null, nuevos, actualizados, 0, detalle);
+                : $"; {movidos} ZIP borrados del origen") : "") + "."
+            + (sinCargar.Count > 0
+                ? " " + ResumenSinCargar(sinCargar) + " Sus ZIP se conservan en la carpeta del agente para reintentar."
+                : "");
+        // Con documentos sin cargar el paso queda en AVISO (Ok=false): el flujo sigue (no es el OTP), pero el
+        // operador lo ve en el modal en vez de un "ok" enganoso.
+        var okPaso = sinCargar.Count == 0;
+        await RecordStepRunAsync(fdb, flowId, step.Name, okPaso, nuevos, actualizados, 0, detalle, ct);
+        return new StepRunResult(okPaso, false, okPaso ? null : detalle, null, null, nuevos, actualizados, 0, detalle);
     }
 
     /// <summary>Lista la carpeta remota via sub-agente Archivos y devuelve los NOMBRES de archivo (no dirs)
@@ -1068,18 +1203,101 @@ public sealed class BrowserRunService(
             .ToList();
     }
 
-    /// <summary>Lee un archivo BINARIO remoto via sub-agente Archivos (ReadBytes -> base64) y lo decodifica.
-    /// Devuelve null si el agente reporta error (p.ej. archivo &gt; 5 MB o inexistente).</summary>
-    private async Task<byte[]?> AgentReadBytesAsync(
+    /// <summary>Error del sub-agente Archivos que NO se arregla reintentando: carpeta fuera de la allow-list
+    /// de la colmena, ruta inexistente o acceso denegado. Ante esto se corta con el motivo en vez de esperar.</summary>
+    private static bool EsErrorPermanenteArchivos(string? msg) =>
+        !string.IsNullOrEmpty(msg)
+        && (msg.Contains("allow-list", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("no existe", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("not found", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("denegad", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("denied", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Lee un ZIP de la maquina del agente con hasta 3 intentos (un ZIP recien descargado puede estar
+    /// bloqueado por el navegador o el canal tener un parpadeo). Devuelve los bytes o el MOTIVO del ultimo
+    /// fallo, para reportar por documento en vez de contarlo como "con error" sin decir cual ni por que.</summary>
+    private async Task<(byte[]? Bytes, string? Motivo)> LeerZipDelAgenteConReintentoAsync(
         string clientId, string tenantStr, string rutaRemota, CancellationToken ct)
     {
-        var corr = NewCorr();
-        var res = await fileChannel.ExecuteFilesAsync(clientId,
-            new FileRequestMsg(corr, tenantStr, new[] { new FileAction(FileActionKind.ReadBytes, rutaRemota) }),
-            TimeSpan.FromSeconds(90), ct);
-        var r0 = res.Results.Count > 0 ? res.Results[0] : null;
-        if (r0 is null || !r0.Ok || string.IsNullOrEmpty(r0.Value)) { return null; }
-        try { return Convert.FromBase64String(r0.Value); } catch { return null; }
+        string? motivo = null;
+        for (var intento = 1; intento <= 3; intento++)
+        {
+            try
+            {
+                var res = await fileChannel.ExecuteFilesAsync(clientId,
+                    new FileRequestMsg(NewCorr(), tenantStr, new[] { new FileAction(FileActionKind.ReadBytes, rutaRemota) }),
+                    TimeSpan.FromSeconds(90), ct);
+                var r0 = res.Results.Count > 0 ? res.Results[0] : null;
+                if (r0 is not null && r0.Ok && !string.IsNullOrEmpty(r0.Value))
+                {
+                    try { return (Convert.FromBase64String(r0.Value), null); }
+                    catch { motivo = "el agente devolvio datos corruptos"; }
+                }
+                else
+                {
+                    motivo = r0?.Error ?? res.Error ?? "sin respuesta del agente";
+                }
+                // Tope de tamano (5 MB) o carpeta no permitida: reintentar no cambia nada.
+                if (EsErrorPermanenteArchivos(motivo) || motivo?.Contains(" MB", StringComparison.OrdinalIgnoreCase) == true) { break; }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { motivo = ex.Message; }
+            if (intento < 3) { await Task.Delay(TimeSpan.FromSeconds(2 * intento), ct); }
+        }
+        return (null, motivo);
+    }
+
+    /// <summary>Sube al gestor (blob) el PDF y el XML de un ZIP DIAN por CUFE, desde los bytes. Idempotente
+    /// (no re-sube lo ya registrado). Devuelve cuantos subio y, si algo quedo SIN cargar, el motivo (antes
+    /// se tragaba la excepcion y la factura quedaba sin documentos sin que nadie se enterara).</summary>
+    private static async Task<(int Subidos, string? Falla)> SubirZipAlGestorAsync(
+        IFileStorageService files, string cufe, byte[] zipBytes, CancellationToken ct)
+    {
+        var baseName = SafeName(cufe);
+        var faltaPdf = await files.FindAsync("ConciliacionDian", cufe, "DIAN_PDF", baseName + "_dian.pdf", ct) is null;
+        var faltaXml = await files.FindAsync("ConciliacionDian", cufe, "DIAN_XML", baseName + "_dian.xml", ct) is null;
+        if (!faltaPdf && !faltaXml) { return (0, null); }
+        var subidos = 0;
+        var faltas = new List<string>();
+        try
+        {
+            using var ms = new MemoryStream(zipBytes, writable: false);
+            using var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read);
+            var pdfEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
+            var xmlEntry = zip.Entries.FirstOrDefault(e => e.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+            if (faltaPdf)
+            {
+                if (pdfEntry is null) { faltas.Add("el ZIP no trae PDF"); }
+                else
+                {
+                    await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_PDF",
+                        baseName + "_dian.pdf", "application/pdf", ReadEntry(pdfEntry)), ct);
+                    subidos++;
+                }
+            }
+            if (faltaXml)
+            {
+                if (xmlEntry is null) { faltas.Add("el ZIP no trae XML"); }
+                else
+                {
+                    await files.SaveAsync(new FileStorageSaveRequest("ConciliacionDian", cufe, "DIAN_XML",
+                        baseName + "_dian.xml", "text/xml", ReadEntry(xmlEntry)), ct);
+                    subidos++;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) { faltas.Add("no se pudo subir al gestor: " + ex.Message); }
+        return (subidos, faltas.Count == 0 ? null : string.Join(", ", faltas));
+    }
+
+    /// <summary>Resumen legible de los documentos que quedaron SIN cargar (max 5 con nombre + motivo).</summary>
+    private static string ResumenSinCargar(List<(string Nombre, string Motivo)> l)
+    {
+        static string Corto(string n) => n.Length > 20 ? n[..12] + "..." + n[^8..] : n;
+        return $"ATENCION: {l.Count} documento(s) SIN CARGAR: "
+            + string.Join("; ", l.Take(5).Select(x => $"{Corto(x.Nombre)} ({x.Motivo})"))
+            + (l.Count > 5 ? $"; y {l.Count - 5} mas" : "") + ".";
     }
 
     /// <summary>Traduce un patron glob simple ("*.zip", "FA*.zip") a una Regex anclada e insensible a mayusculas.</summary>
@@ -1629,7 +1847,8 @@ public sealed class BrowserRunService(
                 .Select(s => (int?)s.Order).Min();
             var pageSteps = ordered.Where(s => s.IsPageNext && s.Order > start.Order
                 && (nextLoopStartOrder is null || s.Order < nextLoopStartOrder)).ToList(); // avance+recarga entre paginas
-            int ins = 0, upd = 0, del = 0, rowsOk = 0, pagesDone = 0;
+            int ins = 0, upd = 0, del = 0, rowsOk = 0, pagesDone = 0, tareasCreadas = 0;
+            var actividadNotas = new List<string>();
             string? lastErr = null, lastShot = null;
             var started = DateTimeOffset.UtcNow;
 
@@ -1645,6 +1864,18 @@ public sealed class BrowserRunService(
                     var rules = scope.ServiceProvider.GetRequiredService<IRulesEngine>();
                     var (rok, rdetail, _) = await InvokeRuleAsync(rules, step, ctx, ct);
                     if (!rok) { lastErr = rdetail; return false; }
+                    return true;
+                }
+
+                // Crear actividad (server-side): una tarea por fila del bucle, sin duplicar. Un fallo de UNA fila
+                // (p.ej. concepto mal configurado) corta el bucle como cualquier otro paso, para que se vea.
+                if (step.Kind == ScrapeStepKind.CrearActividad)
+                {
+                    var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
+                        $"Dron {flow.Name}", ct);
+                    if (!ca.Ok) { lastErr = ca.Detail; return false; }
+                    if (ca.Created) { tareasCreadas++; }
+                    actividadNotas.Add(ca.Detail);
                     return true;
                 }
 
@@ -1737,7 +1968,12 @@ public sealed class BrowserRunService(
 
             var okAll = lastErr is null;
             var detail = $"{rowsOk} filas consumidas en {pagesDone} pagina(s), {ins} ingeridas"
+                + (actividadNotas.Count > 0 ? $", {tareasCreadas} actividad(es) creada(s)" : "")
                 + (lastErr is null ? "" : $"; ultimo error: {lastErr}");
+            if (actividadNotas.Count > 0)
+            {
+                log.LogInformation("[NAV-LOOP] {Flow} crear actividad: {Notas}", flow.Name, string.Join(" | ", actividadNotas));
+            }
             await activity.RecordAsync(new AgentActivityEntry(
                 tenantId, client.ClientId, null, AgentActivityKind.Browser, NewCorr(),
                 $"Bucle: {flow.Name} / {start.Name}", okAll, started, DateTimeOffset.UtcNow, detail));
@@ -1822,7 +2058,8 @@ public sealed class BrowserRunService(
         Name = s.Name,
         WaitMs = s.WaitMs,
         Url = ctx.Substitute(s.Url),
-        Script = ctx.Substitute(s.Script),
+        // El JS va escapado: cada valor resuelto cae dentro de un literal de cadena del script.
+        Script = ctx.SubstituteScript(s.Script),
         Selector = ctx.Substitute(s.Selector),
         MappingJson = s.MappingJson,
         TargetContainerId = s.TargetContainerId,

@@ -78,7 +78,7 @@ public static class ScrapeFlowCompiler
                 case ScrapeStepKind.InjectScript:
                 case ScrapeStepKind.Variable:
                     {
-                        var js = Substitute(RequireScript(step, "Inyectar JS"), variables)!;
+                        var js = Substitute(RequireScript(step, "Inyectar JS"), variables, escapeJs: true)!;
                         actions.Add(EvalSigned(js, correlationId, signingSecret, step));
                         break;
                     }
@@ -91,7 +91,7 @@ public static class ScrapeFlowCompiler
                 case ScrapeStepKind.Exploracion:
                 case ScrapeStepKind.WebResponse:
                     {
-                        var js = Substitute(RequireScript(step, "Extraer"), variables)!;
+                        var js = Substitute(RequireScript(step, "Extraer"), variables, escapeJs: true)!;
                         var container = step.TargetContainerId ?? defaultContainer
                             ?? throw new ScrapeCompileException(
                                 $"El paso '{step.Name}' (Extraer) no tiene tabla destino (ni el flujo tampoco).");
@@ -160,6 +160,10 @@ public static class ScrapeFlowCompiler
                 // Legacy que NO son acciones de navegador (invocan reglas/SQL/APIs del servidor o cierran el
                 // dron): aun no se ejecutan por esta via. Mensaje claro para que el operador los salte en el
                 // paso a paso en vez de un "tipo no soportado" opaco.
+                case ScrapeStepKind.CrearActividad:
+                    throw new ScrapeCompileException(
+                        $"El paso '{step.Name}' (Crear actividad) corre en el servidor: usa el paso a paso o la corrida por pasos.");
+
                 case ScrapeStepKind.Ensamblado:
                 case ScrapeStepKind.EjecutarSql:
                 case ScrapeStepKind.Api:
@@ -234,14 +238,16 @@ public static class ScrapeFlowCompiler
     }
 
     /// <summary>Reemplaza {{Nombre}} por su valor. Lo que no tenga variable definida se deja tal cual
-    /// (no se inventa un valor vacio: es mas util que el operador vea el placeholder sin resolver).</summary>
-    private static string? Substitute(string? input, IReadOnlyDictionary<string, string> variables)
+    /// (no se inventa un valor vacio: es mas util que el operador vea el placeholder sin resolver).
+    /// Con <paramref name="escapeJs"/> el valor se escapa para ir dentro de un literal de cadena JS
+    /// (<see cref="ScrapeRunContext.JsEscape"/>): asi una clave con comilla o barra no rompe el script.</summary>
+    internal static string? Substitute(string? input, IReadOnlyDictionary<string, string> variables, bool escapeJs = false)
     {
         if (string.IsNullOrEmpty(input) || variables.Count == 0 || !input.Contains("{{")) { return input; }
         var sb = new StringBuilder(input);
         foreach (var (name, value) in variables)
         {
-            sb.Replace("{{" + name + "}}", value);
+            sb.Replace("{{" + name + "}}", escapeJs ? ScrapeRunContext.JsEscape(value) : value);
         }
         return sb.ToString();
     }

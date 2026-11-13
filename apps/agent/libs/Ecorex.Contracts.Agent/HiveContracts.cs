@@ -113,17 +113,45 @@ public sealed record BrowserPolicy(bool Enabled, IReadOnlyList<string> Domains)
     public static readonly BrowserPolicy Denied = new(false, Array.Empty<string>());
 
     /// <summary>Coincidencia por sufijo de host ("example.com" permite "www.example.com").</summary>
-    public bool IsAllowed(string? host)
+    public bool IsAllowed(string? host) => Enabled && HostMatches(host, Domains);
+
+    /// <summary>
+    /// true si el host coincide (exacto o por sufijo de dominio) con alguna entrada de la lista. Las
+    /// entradas se normalizan con <see cref="NormalizeDomain"/>: el operador suele pegar la URL completa
+    /// ("https://apps.ejemplo.com/ruta") y antes esa entrada NUNCA coincidia. Fail-closed si no hay host.
+    /// </summary>
+    public static bool HostMatches(string? host, IEnumerable<string> domains)
     {
-        if (!Enabled || string.IsNullOrWhiteSpace(host)) { return false; }
-        host = host.ToLowerInvariant();
-        foreach (var d in Domains)
+        if (string.IsNullOrWhiteSpace(host)) { return false; }
+        host = host.Trim().ToLowerInvariant();
+        foreach (var d in domains)
         {
-            var domain = d.Trim().ToLowerInvariant();
+            var domain = NormalizeDomain(d);
             if (domain.Length == 0) { continue; }
             if (host == domain || host.EndsWith("." + domain, StringComparison.Ordinal)) { return true; }
         }
         return false;
+    }
+
+    /// <summary>
+    /// Deja solo el host de una entrada de la allow-list: quita esquema ("https://"), credenciales,
+    /// ruta/consulta/fragmento, puerto, comodin inicial ("*.") y punto final. Minusculas.
+    /// Ej. "https://Apps.Ejemplo.com:443/x?y" -> "apps.ejemplo.com".
+    /// </summary>
+    public static string NormalizeDomain(string? entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry)) { return string.Empty; }
+        var s = entry.Trim().ToLowerInvariant();
+        var scheme = s.IndexOf("://", StringComparison.Ordinal);
+        if (scheme >= 0) { s = s[(scheme + 3)..]; }
+        var cut = s.IndexOfAny(['/', '?', '#']);
+        if (cut >= 0) { s = s[..cut]; }
+        var at = s.LastIndexOf('@');
+        if (at >= 0) { s = s[(at + 1)..]; }
+        var colon = s.IndexOf(':');
+        if (colon >= 0) { s = s[..colon]; }
+        if (s.StartsWith("*.", StringComparison.Ordinal)) { s = s[2..]; }
+        return s.Trim('.');
     }
 }
 

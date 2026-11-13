@@ -299,6 +299,8 @@ public static class DependencyInjection
         // Herramientas del agente para agendar (ADR-0165 ola 5): grupo "agendas" del catalogo de cada agente.
         services.AddScoped<Agendas.AgendasToolset>();
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Agendas.AgendasToolset>());
+        // Recordatorios de turnos (ADR-0167): reglas + envio por WhatsApp (el worker vive en SuperAdmin).
+        services.AddScoped<Agendas.IAgendaRecordatoriosService, Agendas.AgendaRecordatoriosService>();
         // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de
         // terceros), oportunidades (embudo), agenda de citas y filtros dinamicos con conteo en vivo.
         services.AddScoped<Gestor.IGestorContactosService, Gestor.GestorContactosService>();

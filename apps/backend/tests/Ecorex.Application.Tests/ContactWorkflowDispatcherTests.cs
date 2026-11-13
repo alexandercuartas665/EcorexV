@@ -231,6 +231,8 @@ public class ContactWorkflowDispatcherTests
         public DbSet<AgendaServicioRequisito> AgendaServicioRequisitos => NotUsed<AgendaServicioRequisito>();
         public DbSet<AgendaTurno> AgendaTurnos => NotUsed<AgendaTurno>();
         public DbSet<AgendaTurnoRecurso> AgendaTurnoRecursos => NotUsed<AgendaTurnoRecurso>();
+        public DbSet<AgendaRecordatorioRegla> AgendaRecordatorioReglas => NotUsed<AgendaRecordatorioRegla>();
+        public DbSet<AgendaRecordatorioEnvio> AgendaRecordatorioEnvios => NotUsed<AgendaRecordatorioEnvio>();
         public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => NotUsed<ActividadSubcategoriaPlantillaGrupo>();
         public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => NotUsed<DocumentTemplateGroup>();
         public DbSet<DocumentTemplate> DocumentTemplates => NotUsed<DocumentTemplate>();

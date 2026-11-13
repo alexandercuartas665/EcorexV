@@ -303,7 +303,8 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
             ClienteTelefono = telefono,
             TerceroId = request.TerceroId,
             ConversationId = request.ConversationId,
-            Nota = Limpio(request.Nota, 500)
+            Nota = Limpio(request.Nota, 500),
+            HorarioDesdeUtc = _ahoraUtc()
         };
         (turno.InicioUtc, turno.FinUtc) = await UtcAsync(request.Fecha, request.Inicio, fin, cancellationToken);
         turno.Historial = Linea(ahora.Momento, $"Reservado para {request.Fecha:yyyy-MM-dd} {request.Inicio:HH\\:mm}-{fin:HH\\:mm} ({request.Origen}) con {Recursos(asignacion)}.");
@@ -376,6 +377,7 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         (turno.InicioUtc, turno.FinUtc) = await UtcAsync(request.Fecha, request.Inicio, fin, cancellationToken);
         turno.Estado = AgendaTurnoEstado.Reservado;
         turno.Reprogramaciones++;
+        turno.HorarioDesdeUtc = _ahoraUtc();
         var motivo = Limpio(request.Motivo, 300);
         turno.Historial = Agregar(turno.Historial, Linea(ahora.Momento,
             $"Reprogramado de {antes} a {request.Fecha:yyyy-MM-dd} {request.Inicio:HH\\:mm} con {Recursos(asignacion)}." + (motivo is null ? "" : $" Motivo: {motivo}")));

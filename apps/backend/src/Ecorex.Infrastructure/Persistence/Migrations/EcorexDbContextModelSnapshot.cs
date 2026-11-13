@@ -939,6 +939,225 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("agenda_plantilla_franjas", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecordatorioEnvio", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Canal")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("canal");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Detalle")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("detalle");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("estado");
+
+                    b.Property<DateTimeOffset>("InicioTurnoUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("inicio_turno_utc");
+
+                    b.Property<DateTimeOffset>("ProcesadoUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("procesado_utc");
+
+                    b.Property<DateTimeOffset>("ProgramadoUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("programado_utc");
+
+                    b.Property<string>("ReferenciaExterna")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("referencia_externa");
+
+                    b.Property<Guid>("ReglaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("regla_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TurnoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("turno_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_recordatorio_envios");
+
+                    b.HasIndex("ReglaId")
+                        .HasDatabaseName("ix_agenda_recordatorio_envios_regla_id");
+
+                    b.HasIndex("TurnoId")
+                        .HasDatabaseName("ix_agenda_recordatorio_envios_turno_id");
+
+                    b.HasIndex("TenantId", "ProcesadoUtc")
+                        .HasDatabaseName("ix_agenda_recordatorio_envios_tenant_id_procesado_utc");
+
+                    b.HasIndex("TenantId", "ReglaId", "TurnoId", "InicioTurnoUtc")
+                        .IsUnique()
+                        .HasDatabaseName("ix_agenda_recordatorio_envios_tenant_id_regla_id_turno_id_inic");
+
+                    b.ToTable("agenda_recordatorio_envios", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecordatorioRegla", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activa")
+                        .HasColumnType("boolean")
+                        .HasColumnName("activa");
+
+                    b.Property<Guid?>("AiAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_agent_id");
+
+                    b.Property<int>("AnticipacionMinutos")
+                        .HasColumnType("integer")
+                        .HasColumnName("anticipacion_minutos");
+
+                    b.Property<string>("Canal")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("canal");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("FueraDeHorario")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("fuera_de_horario");
+
+                    b.Property<TimeOnly?>("HoraDesde")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_desde");
+
+                    b.Property<TimeOnly?>("HoraHasta")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("hora_hasta");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("nombre");
+
+                    b.Property<string>("Objetivo")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("objetivo");
+
+                    b.Property<Guid?>("PlantillaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plantilla_id");
+
+                    b.Property<string>("ServicioIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("servicio_ids_json");
+
+                    b.Property<bool>("SoloSiNoConfirmado")
+                        .HasColumnType("boolean")
+                        .HasColumnName("solo_si_no_confirmado");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("VariablesJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("variables_json");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.Property<Guid?>("VoiceLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voice_line_id");
+
+                    b.Property<Guid?>("WhatsAppLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("whats_app_line_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_recordatorio_reglas");
+
+                    b.HasIndex("AiAgentId")
+                        .HasDatabaseName("ix_agenda_recordatorio_reglas_ai_agent_id");
+
+                    b.HasIndex("PlantillaId")
+                        .HasDatabaseName("ix_agenda_recordatorio_reglas_plantilla_id");
+
+                    b.HasIndex("WhatsAppLineId")
+                        .HasDatabaseName("ix_agenda_recordatorio_reglas_whats_app_line_id");
+
+                    b.HasIndex("TenantId", "Activa")
+                        .HasDatabaseName("ix_agenda_recordatorio_reglas_tenant_id_activa");
+
+                    b.ToTable("agenda_recordatorio_reglas", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecurso", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1466,6 +1685,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<TimeOnly>("HoraInicio")
                         .HasColumnType("time without time zone")
                         .HasColumnName("hora_inicio");
+
+                    b.Property<DateTimeOffset?>("HorarioDesdeUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("horario_desde_utc");
 
                     b.Property<DateTimeOffset>("InicioUtc")
                         .HasColumnType("timestamp with time zone")
@@ -20662,6 +20885,44 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_agenda_plantilla_franjas_agenda_plantillas_plantilla_id");
 
                     b.Navigation("Plantilla");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecordatorioEnvio", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaRecordatorioRegla", null)
+                        .WithMany()
+                        .HasForeignKey("ReglaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_recordatorio_envios_agenda_recordatorio_reglas_regla");
+
+                    b.HasOne("Ecorex.Domain.Entities.AgendaTurno", null)
+                        .WithMany()
+                        .HasForeignKey("TurnoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_recordatorio_envios_agenda_turnos_turno_id");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecordatorioRegla", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AiAgent", null)
+                        .WithMany()
+                        .HasForeignKey("AiAgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_recordatorio_reglas_ai_agents_ai_agent_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WhatsAppTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("PlantillaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_recordatorio_reglas_whats_app_templates_plantilla_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", null)
+                        .WithMany()
+                        .HasForeignKey("WhatsAppLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_recordatorio_reglas_whats_app_lines_whats_app_line_id");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecurso", b =>

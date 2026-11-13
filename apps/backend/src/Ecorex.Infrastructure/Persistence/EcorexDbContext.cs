@@ -312,6 +312,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<AgendaServicioRequisito> AgendaServicioRequisitos => Set<AgendaServicioRequisito>();
     public DbSet<AgendaTurno> AgendaTurnos => Set<AgendaTurno>();
     public DbSet<AgendaTurnoRecurso> AgendaTurnoRecursos => Set<AgendaTurnoRecurso>();
+    public DbSet<AgendaRecordatorioRegla> AgendaRecordatorioReglas => Set<AgendaRecordatorioRegla>();
+    public DbSet<AgendaRecordatorioEnvio> AgendaRecordatorioEnvios => Set<AgendaRecordatorioEnvio>();
     // Paquetes resultantes de separar un documento unido (un PDF nuevo por soporte de pago).
     public DbSet<DocumentoAnalisisPaquete> DocumentosAnalisisPaquetes => Set<DocumentoAnalisisPaquete>();
     // Config del Analizador: campos de metadata que extrae el agente y columnas del modal (self-serve).
@@ -427,6 +429,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         configurationBuilder.Properties<AgendaNovedadTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AgendaTurnoEstado>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AgendaTurnoOrigen>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<AgendaRecordatorioCanal>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<AgendaRecordatorioFueraHorario>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<AgendaRecordatorioEnvioEstado>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AiAgentRunLogKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<WhatsAppProvider>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ProjectStatus>().HaveConversion<string>().HaveMaxLength(40);
@@ -3122,6 +3127,31 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasIndex(x => new { x.TenantId, x.TerceroId });
             b.HasIndex(x => new { x.TenantId, x.ConversationId });
             b.HasIndex(x => new { x.TenantId, x.ServicioId, x.Fecha });
+        });
+
+        // Recordatorios de turnos (ADR-0167). El indice unico (regla, turno, inicio) garantiza que un mismo horario
+        // nunca se recuerda dos veces, ni con dos workers ni con reintentos.
+        modelBuilder.Entity<AgendaRecordatorioRegla>(b =>
+        {
+            b.Property(x => x.Nombre).HasMaxLength(120).IsRequired();
+            b.Property(x => x.ServicioIdsJson).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.VariablesJson).HasColumnType(longTextColumnType).IsRequired();
+            b.Property(x => x.Objetivo).HasMaxLength(1000);
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasOne<WhatsAppLine>().WithMany().HasForeignKey(x => x.WhatsAppLineId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<WhatsAppTemplate>().WithMany().HasForeignKey(x => x.PlantillaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<AiAgent>().WithMany().HasForeignKey(x => x.AiAgentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.Activa });
+        });
+
+        modelBuilder.Entity<AgendaRecordatorioEnvio>(b =>
+        {
+            b.Property(x => x.Detalle).HasMaxLength(500);
+            b.Property(x => x.ReferenciaExterna).HasMaxLength(200);
+            b.HasOne<AgendaRecordatorioRegla>().WithMany().HasForeignKey(x => x.ReglaId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<AgendaTurno>().WithMany().HasForeignKey(x => x.TurnoId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => new { x.TenantId, x.ReglaId, x.TurnoId, x.InicioTurnoUtc }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.ProcesadoUtc });
         });
 
         modelBuilder.Entity<AgendaTurnoRecurso>(b =>

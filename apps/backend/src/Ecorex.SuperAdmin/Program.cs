@@ -296,6 +296,8 @@ if (!disableWorkers)
     // Auto-archivado de tareas cerradas por tablero (ADR-0123): archiva lo que lleva N dias cerrado en
     // una columna de cierre. Mismo motivo para vivir aqui que los workers de arriba (prod solo levanta ecorex-app).
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.TaskAutoArchiveWorker>();
+    // Recordatorios de turnos de Agendas (ADR-0167): cada minuto envia los recordatorios que ya tocan.
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.AgendaRecordatorioWorker>();
 }
 
 // Analizador de documentos: procesa los PDFs encolados (rasterizar -> IA de vision -> separar), varios a la vez.

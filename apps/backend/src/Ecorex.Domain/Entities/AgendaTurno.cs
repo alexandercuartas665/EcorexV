@@ -51,6 +51,12 @@ public sealed class AgendaTurno : TenantEntity, ISoftDeletable, IVersioned
     /// <summary>Veces que se ha movido a otro horario.</summary>
     public int Reprogramaciones { get; set; }
 
+    /// <summary>
+    /// Cuando quedo el turno en su horario actual (al reservar o reprogramar). Los recordatorios cuyo momento ya
+    /// habia pasado a esa hora se omiten (no se avisa "falta una hora" a quien reservo hace 10 minutos).
+    /// </summary>
+    public DateTimeOffset? HorarioDesdeUtc { get; set; }
+
     /// <summary>Bitacora legible del turno (reservado, reprogramado, cancelado...). Texto largo.</summary>
     public string? Historial { get; set; }
 

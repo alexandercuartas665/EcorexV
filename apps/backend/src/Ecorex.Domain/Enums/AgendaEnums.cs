@@ -13,6 +13,34 @@ public enum AgendaVinculo
     Usuario = 1
 }
 
+/// <summary>Canal de un recordatorio de turno (ADR-0167). Se persiste como texto.</summary>
+public enum AgendaRecordatorioCanal
+{
+    WhatsApp = 0,
+    Llamada = 1
+}
+
+/// <summary>Que hacer si el momento del recordatorio cae fuera del horario permitido (ADR-0167).</summary>
+public enum AgendaRecordatorioFueraHorario
+{
+    /// <summary>Avisar antes: al final del ultimo horario permitido previo.</summary>
+    Adelantar = 0,
+
+    /// <summary>No avisar.</summary>
+    Omitir = 1
+}
+
+/// <summary>Resultado de un recordatorio procesado (ADR-0167). Se persiste como texto.</summary>
+public enum AgendaRecordatorioEnvioEstado
+{
+    Enviado = 0,
+    Fallido = 1,
+    Omitido = 2,
+
+    /// <summary>Reservado por un worker que lo esta enviando (evita el doble envio con dos procesos a la vez).</summary>
+    Pendiente = 3
+}
+
 /// <summary>Estados de un turno (ADR-0165 ola 4). Se persiste como texto.</summary>
 public enum AgendaTurnoEstado
 {

@@ -1,0 +1,438 @@
+@page "/agendas/recordatorios"
+@* Recordatorios de turnos (ADR-0167): reglas del tenant (cuanto antes, horario permitido, servicios, canal) y el
+   registro de envios. Etapa 1 = WhatsApp con linea + plantilla; la llamada con agente de voz llega en la etapa 2.
+   Permiso "agendas/recordatorios": Ver = entrar; Crear = nueva regla; Editar = cambiar / procesar ahora; Eliminar = quitar. *@
+@attribute [Authorize(Policy = "Perm:agendas/recordatorios:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using Ecorex.Application.Agendas
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@inject IAgendaRecordatoriosService Svc
+@inject ICurrentPermissions Perms
+
+<PageTitle>Recordatorios - Agendas - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">@MenuIcons.Render("calendar")</div>
+            <span>Agendas</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Recordatorios <span>de turnos</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Avisa a tus clientes antes de su turno. Si responden, el agente de la linea confirma, reprograma o cancela.</p>
+    </div>
+    <div class="agx-toolbar" style="margin:0;">
+        @if (_canEdit)
+        {
+            <button class="btn btn-outline-secondary" disabled="@_busy" @onclick="ProcesarAhora">Procesar ahora</button>
+        }
+        @if (_canCreate)
+        {
+            <button class="btn btn-primary" @onclick="Nueva">+ Nueva regla</button>
+        }
+    </div>
+</div>
+
+@if (_corrida is not null)
+{
+    <div class="alert @(_corrida.Fallidos > 0 ? "alert-warning" : "alert-success")" style="margin-bottom:12px;">
+        Pasada de recordatorios: @_corrida.Enviados enviados, @_corrida.Fallidos fallidos, @_corrida.Omitidos omitidos.
+        @foreach (var d in _corrida.Detalle.Take(5))
+        {
+            <div style="font-size:12.5px;">@d</div>
+        }
+    </div>
+}
+
+@if (_cargando)
+{
+    <p class="agx-muted">Cargando...</p>
+}
+else
+{
+    <div class="agx-split">
+        <div class="agx-card agx-list">
+            @if (_reglas.Count == 0 && _edit is null)
+            {
+                <p class="agx-muted" style="padding:14px 16px;margin:0;">Aun no hay reglas. Crea por ejemplo "WhatsApp un dia antes".</p>
+            }
+            @foreach (var r in _reglas)
+            {
+                <button class="@(_edit?.Id == r.Id ? "on" : "")" @onclick="() => Seleccionar(r)">
+                    <b>@r.Nombre</b>
+                    <small>@Anticipacion(r.AnticipacionMinutos) antes &middot; @(r.Canal == AgendaRecordatorioCanal.WhatsApp ? "WhatsApp" : "Llamada")@(r.Activa ? "" : " \u00B7 inactiva")</small>
+                    <small>@(r.ServicioIds.Count == 0 ? "Todos los servicios" : $"{r.ServicioIds.Count} servicio(s)")@(r.SoloSiNoConfirmado ? " \u00B7 solo si no confirmo" : "")</small>
+                </button>
+            }
+            @if (_edit is not null && _edit.Id is null)
+            {
+                <button class="on"><b>@(string.IsNullOrWhiteSpace(_edit.Nombre) ? "Nueva regla" : _edit.Nombre)</b><small>Sin guardar</small></button>
+            }
+        </div>
+
+        @if (_edit is not null)
+        {
+            <div class="agx-card">
+                <div class="agx-sec">
+                    <h2>@(string.IsNullOrWhiteSpace(_edit.Nombre) ? "Nueva regla" : _edit.Nombre)</h2>
+                    <div class="agx-toolbar" style="margin:0;">
+                        @if (_edit.Id is Guid id && _canDelete)
+                        {
+                            @if (_confirmBorrar)
+                            {
+                                <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => Borrar(id)">Confirmar: quitar</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmBorrar = true">Quitar</button>
+                            }
+                        }
+                        @if (PuedeGuardar)
+                        {
+                            <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="Guardar">Guardar</button>
+                        }
+                    </div>
+                </div>
+
+                <div class="agx-form">
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="rc-nombre">Nombre *</label>
+                        <input id="rc-nombre" class="form-control" @bind="_edit.Nombre" disabled="@(!PuedeGuardar)" placeholder="WhatsApp un dia antes" />
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="rc-cant">Avisar *</label>
+                        <div style="display:flex;gap:6px;">
+                            <input id="rc-cant" type="number" min="1" class="form-control" style="max-width:90px;" @bind="_edit.Cantidad" disabled="@(!PuedeGuardar)" />
+                            <select class="form-control" @bind="_edit.Unidad" disabled="@(!PuedeGuardar)" aria-label="Unidad">
+                                <option value="min">minutos antes</option>
+                                <option value="h">horas antes</option>
+                                <option value="d">dias antes</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label">Horario permitido (opcional)</label>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input type="time" class="form-control" value="@(_edit.HoraDesde?.ToString("HH:mm"))" disabled="@(!PuedeGuardar)" aria-label="Desde"
+                                   @onchange="e => _edit.HoraDesde = Hora(e.Value)" />
+                            <span class="agx-muted">a</span>
+                            <input type="time" class="form-control" value="@(_edit.HoraHasta?.ToString("HH:mm"))" disabled="@(!PuedeGuardar)" aria-label="Hasta"
+                                   @onchange="e => _edit.HoraHasta = Hora(e.Value)" />
+                        </div>
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="rc-fuera">Si cae fuera de ese horario</label>
+                        <select id="rc-fuera" class="form-control" @bind="_edit.FueraDeHorario" disabled="@(!PuedeGuardar)">
+                            <option value="@AgendaRecordatorioFueraHorario.Adelantar">Avisar antes (al cierre del horario anterior)</option>
+                            <option value="@AgendaRecordatorioFueraHorario.Omitir">No avisar</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
+                        <label style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" @bind="_edit.SoloSiNoConfirmado" disabled="@(!PuedeGuardar)" /> Solo si el cliente aun no confirmo</label>
+                        <label style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" @bind="_edit.Activa" disabled="@(!PuedeGuardar)" /> Activa</label>
+                    </div>
+                </div>
+
+                <div class="agx-sec"><div><h2>Servicios</h2><p class="agx-sub">Sin marcar ninguno, aplica a todos los servicios.</p></div></div>
+                <div style="padding:12px 18px;display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line);">
+                    @if (_op is not null && _op.Servicios.Count == 0)
+                    {
+                        <span class="agx-muted">Aun no hay servicios agendables.</span>
+                    }
+                    @foreach (var s in _op?.Servicios ?? Array.Empty<AgendaOpcionDto>())
+                    {
+                        var on = _edit.Servicios.Contains(s.Id);
+                        <button type="button" class="agx-fchip @(on ? "on" : "")" disabled="@(!PuedeGuardar)" @onclick="() => Alternar(s.Id)">@s.Nombre</button>
+                    }
+                </div>
+
+                <div class="agx-sec">
+                    <div><h2>Metodo</h2><p class="agx-sub">El mensaje queda en la conversacion del cliente; si contesta, lo atiende el agente de esa linea.</p></div>
+                    <span class="agx-seg">
+                        <button class="on">WhatsApp</button>
+                        <button disabled title="Llega en la siguiente etapa">Llamada (pronto)</button>
+                    </span>
+                </div>
+                <div class="agx-form">
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="rc-linea">Linea de WhatsApp *</label>
+                        <select id="rc-linea" class="form-control" value="@_edit.LineaId" disabled="@(!PuedeGuardar)"
+                                @onchange="e => { _edit.LineaId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; _edit.PlantillaId = null; _edit.Variables.Clear(); }">
+                            <option value="">Elige una linea</option>
+                            @foreach (var l in _op?.Lineas ?? Array.Empty<AgendaRecordatorioLineaDto>())
+                            {
+                                <option value="@l.Id">@l.Nombre (@l.Proveedor@(l.Conectada ? "" : ", desconectada"))</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="rc-plantilla">Plantilla *</label>
+                        <select id="rc-plantilla" class="form-control" value="@_edit.PlantillaId" disabled="@(!PuedeGuardar || _edit.LineaId is null)"
+                                @onchange="e => ElegirPlantilla(Guid.TryParse(e.Value?.ToString(), out var g) ? g : null)">
+                            <option value="">Elige una plantilla</option>
+                            @foreach (var p in PlantillasDeLinea)
+                            {
+                                <option value="@p.Id" disabled="@(!p.Usable)">@p.Nombre (@p.Idioma@(p.Usable ? "" : $", {p.Estado}"))</option>
+                            }
+                        </select>
+                        @if (_edit.LineaId is not null && !PlantillasDeLinea.Any())
+                        {
+                            <small class="agx-muted">Esta linea no tiene plantillas. Crealas en Plantillas WhatsApp.</small>
+                        }
+                    </div>
+                </div>
+                @if (PlantillaActual is { } pa)
+                {
+                    <div style="padding:12px 18px;border-bottom:1px solid var(--line);display:grid;gap:10px;">
+                        <div>
+                            <div class="form-label">Texto de la plantilla</div>
+                            <pre style="white-space:pre-wrap;font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;">@pa.Cuerpo</pre>
+                        </div>
+                        @if (pa.Variables.Count > 0)
+                        {
+                            <div class="form-label" style="margin:0;">Que dato del turno va en cada variable</div>
+                            @foreach (var v in pa.Variables)
+                            {
+                                var actual = _edit.Variables.TryGetValue(v, out var x) ? x : AgendaRecordatorioCalculo.Sugerida(v);
+                                <div style="display:grid;grid-template-columns:160px minmax(0,1fr);gap:8px;align-items:center;">
+                                    <span class="agx-chip slate" style="justify-self:start;">{{@v}}</span>
+                                    <select class="form-control" value="@actual" disabled="@(!PuedeGuardar)" aria-label="@($"Dato para {v}")"
+                                            @onchange="e => _edit.Variables[v] = e.Value?.ToString() ?? string.Empty">
+                                        <option value="">Elige un dato</option>
+                                        @foreach (var tk in AgendaRecordatorioCalculo.Tokens)
+                                        {
+                                            <option value="@tk.Token">@tk.Descripcion</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger agx-error" style="margin-bottom:12px;">@_error</div>
+                }
+                @if (_ok is not null)
+                {
+                    <div class="alert alert-success agx-error" style="margin-bottom:12px;">@_ok</div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="agx-card agx-empty"><p>Elige una regla o crea una nueva.</p></div>
+        }
+    </div>
+
+    <div class="agx-card" style="margin-top:16px;">
+        <div class="agx-sec"><div><h2>Envios recientes</h2><p class="agx-sub">Cada recordatorio se procesa una sola vez por turno y horario.</p></div></div>
+        @if (_envios.Count == 0)
+        {
+            <p class="agx-muted" style="padding:14px 18px;margin:0;">Aun no se ha procesado ningun recordatorio.</p>
+        }
+        else
+        {
+            <div class="agx-scroll">
+                <table class="agx-table">
+                    <thead><tr><th>Procesado</th><th>Turno</th><th>Regla</th><th>Estado</th><th>Detalle</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in _envios)
+                        {
+                            <tr>
+                                <td class="agx-num" style="white-space:nowrap;">@Local(e.ProcesadoUtc)</td>
+                                <td><b>@e.Cliente</b><br /><span class="agx-muted" style="font-size:12px;">@e.Servicio &middot; @e.FechaTurno.ToString("ddd dd MMM", Es) @e.HoraTurno.ToString("HH:mm")</span></td>
+                                <td>@e.ReglaNombre</td>
+                                <td><span class="agx-chip @ColorEstado(e.Estado)">@e.Estado</span></td>
+                                <td style="font-size:12.5px;max-width:420px;white-space:pre-wrap;">@e.Detalle</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const string ModuleKey = "agendas/recordatorios";
+    private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CO");
+    private static readonly TimeZoneInfo Bogota = ZonaBogota();
+
+    private sealed class ReglaEdit
+    {
+        public Guid? Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public bool Activa { get; set; } = true;
+        public int Cantidad { get; set; } = 1;
+        public string Unidad { get; set; } = "d";
+        public TimeOnly? HoraDesde { get; set; }
+        public TimeOnly? HoraHasta { get; set; }
+        public AgendaRecordatorioFueraHorario FueraDeHorario { get; set; } = AgendaRecordatorioFueraHorario.Adelantar;
+        public bool SoloSiNoConfirmado { get; set; }
+        public List<Guid> Servicios { get; set; } = new();
+        public Guid? LineaId { get; set; }
+        public Guid? PlantillaId { get; set; }
+        public Dictionary<string, string> Variables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public long? Version { get; set; }
+
+        public int Minutos => Unidad switch { "h" => Cantidad * 60, "d" => Cantidad * 1440, _ => Cantidad };
+    }
+
+    private bool _cargando = true;
+    private bool _busy;
+    private bool _confirmBorrar;
+    private string? _error, _ok;
+    private bool _canCreate, _canEdit, _canDelete;
+    private IReadOnlyList<AgendaRecordatorioReglaDto> _reglas = Array.Empty<AgendaRecordatorioReglaDto>();
+    private IReadOnlyList<AgendaRecordatorioEnvioDto> _envios = Array.Empty<AgendaRecordatorioEnvioDto>();
+    private AgendaRecordatorioOpcionesDto? _op;
+    private AgendaRecordatorioCorrida? _corrida;
+    private ReglaEdit? _edit;
+
+    private bool PuedeGuardar => _edit is not null && (_edit.Id is null ? _canCreate : _canEdit);
+    private IEnumerable<AgendaRecordatorioPlantillaDto> PlantillasDeLinea =>
+        _op is null || _edit?.LineaId is null ? Enumerable.Empty<AgendaRecordatorioPlantillaDto>() : _op.Plantillas.Where(p => p.LineaId == _edit.LineaId);
+    private AgendaRecordatorioPlantillaDto? PlantillaActual => _op?.Plantillas.FirstOrDefault(p => p.Id == _edit?.PlantillaId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canCreate = await Perms.CanCreateAsync(ModuleKey);
+        _canEdit = await Perms.CanEditAsync(ModuleKey);
+        _canDelete = await Perms.CanDeleteAsync(ModuleKey);
+        _op = await Svc.OpcionesAsync();
+        await CargarAsync(null);
+        _cargando = false;
+    }
+
+    private async Task CargarAsync(Guid? seleccionar)
+    {
+        _reglas = await Svc.ListReglasAsync();
+        _envios = await Svc.ListEnviosAsync(50);
+        var sel = (seleccionar is Guid id ? _reglas.FirstOrDefault(r => r.Id == id) : null) ?? _reglas.FirstOrDefault();
+        if (sel is not null) { Seleccionar(sel); } else { _edit = null; }
+    }
+
+    private void Seleccionar(AgendaRecordatorioReglaDto r)
+    {
+        _error = null;
+        _ok = null;
+        _confirmBorrar = false;
+        var (cantidad, unidad) = r.AnticipacionMinutos % 1440 == 0 ? (r.AnticipacionMinutos / 1440, "d")
+            : r.AnticipacionMinutos % 60 == 0 ? (r.AnticipacionMinutos / 60, "h") : (r.AnticipacionMinutos, "min");
+        _edit = new ReglaEdit
+        {
+            Id = r.Id,
+            Nombre = r.Nombre,
+            Activa = r.Activa,
+            Cantidad = cantidad,
+            Unidad = unidad,
+            HoraDesde = r.HoraDesde,
+            HoraHasta = r.HoraHasta,
+            FueraDeHorario = r.FueraDeHorario,
+            SoloSiNoConfirmado = r.SoloSiNoConfirmado,
+            Servicios = r.ServicioIds.ToList(),
+            LineaId = r.WhatsAppLineId,
+            PlantillaId = r.PlantillaId,
+            Variables = new Dictionary<string, string>(r.Variables, StringComparer.OrdinalIgnoreCase),
+            Version = r.Version
+        };
+    }
+
+    private void Nueva()
+    {
+        _error = null;
+        _ok = null;
+        _confirmBorrar = false;
+        _edit = new ReglaEdit
+        {
+            Nombre = "WhatsApp un dia antes",
+            HoraDesde = new TimeOnly(7, 0),
+            HoraHasta = new TimeOnly(20, 0),
+            LineaId = _op?.Lineas.FirstOrDefault(l => l.Conectada)?.Id
+        };
+    }
+
+    private void ElegirPlantilla(Guid? id)
+    {
+        if (_edit is null) { return; }
+        _edit.PlantillaId = id;
+        _edit.Variables.Clear();
+        if (PlantillaActual is { } p)
+        {
+            foreach (var v in p.Variables) { _edit.Variables[v] = AgendaRecordatorioCalculo.Sugerida(v); }
+        }
+    }
+
+    private void Alternar(Guid id)
+    {
+        if (_edit is null) { return; }
+        if (!_edit.Servicios.Remove(id)) { _edit.Servicios.Add(id); }
+    }
+
+    private async Task Guardar()
+    {
+        if (_edit is null || _busy) { return; }
+        _busy = true;
+        _error = null;
+        _ok = null;
+        try
+        {
+            var e = _edit;
+            var res = await Svc.SaveReglaAsync(new SaveAgendaRecordatorioReglaRequest(
+                e.Id, e.Nombre, e.Activa, e.Servicios, e.Minutos, e.HoraDesde, e.HoraHasta, e.FueraDeHorario, e.SoloSiNoConfirmado,
+                AgendaRecordatorioCanal.WhatsApp, e.LineaId, e.PlantillaId, e.Variables, Version: e.Version));
+            if (!res.Ok) { _error = res.Error; return; }
+            await CargarAsync(res.Id);
+            _ok = "Regla guardada. El sistema revisa los turnos cada minuto.";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Borrar(Guid id)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await Svc.DeleteReglaAsync(id);
+            if (!res.Ok) { _error = res.Error; return; }
+            await CargarAsync(null);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ProcesarAhora()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            _corrida = await Svc.ProcesarAsync();
+            _envios = await Svc.ListEnviosAsync(50);
+        }
+        finally { _busy = false; }
+    }
+
+    private static TimeOnly? Hora(object? valor) => TimeOnly.TryParse(valor?.ToString(), out var h) ? h : null;
+
+    private static string Anticipacion(int minutos) =>
+        minutos % 1440 == 0 ? $"{minutos / 1440} dia(s)" : minutos % 60 == 0 ? $"{minutos / 60} hora(s)" : $"{minutos} min";
+
+    private static string Local(DateTimeOffset utc) => TimeZoneInfo.ConvertTime(utc, Bogota).ToString("dd MMM HH:mm", Es);
+
+    private static TimeZoneInfo ZonaBogota()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("America/Bogota"); }
+        catch (Exception) { return TimeZoneInfo.CreateCustomTimeZone("COT", TimeSpan.FromHours(-5), "COT", "COT"); }
+    }
+
+    private static string ColorEstado(AgendaRecordatorioEnvioEstado e) => e switch
+    {
+        AgendaRecordatorioEnvioEstado.Enviado => "green",
+        AgendaRecordatorioEnvioEstado.Fallido => "rose",
+        AgendaRecordatorioEnvioEstado.Omitido => "slate",
+        _ => "amber"
+    };
+}

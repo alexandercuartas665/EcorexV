@@ -32,7 +32,7 @@ public sealed class AiInferenceService : IAiInferenceService
     // operativo (crear_actividad / crear_tarea). Si el modelo invoca cualquiera de estas, la red de
     // seguridad de cierre NO lo re-pincha. ADR-0154.
     internal static readonly IReadOnlySet<string> CloseToolNames =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "crear_actividad", "crear_tarea", "anotar_caso", "reservar_turno", "reprogramar_turno", "cancelar_turno" };
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "crear_lead", "crear_actividad", "crear_tarea", "anotar_caso", "reservar_turno", "reprogramar_turno", "confirmar_turno", "cancelar_turno" };
 
     // Zona horaria del tenant demo (America/Bogota = UTC-5, sin horario de verano). Mientras el Tenant no
     // guarde su propia zona, anclamos aqui para que el agente calcule fechas relativas con el anio correcto.

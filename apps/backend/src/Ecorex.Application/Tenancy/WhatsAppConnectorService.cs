@@ -800,7 +800,7 @@ public sealed class WhatsAppConnectorService : IWhatsAppConnectorService
     // Renderiza una plantilla a TEXTO libre para Evolution (que no usa HSM de Meta): compone header de texto +
     // cuerpo (con sus {{tokens}} sustituidos por los valores ya resueltos en bodyParams, en el orden de
     // VariablesJson) + footer. bodyParams[i] corresponde al i-esimo token de VariablesJson.
-    private static string RenderTemplateText(WhatsAppTemplate tpl, IReadOnlyList<string> bodyParams)
+    internal static string RenderTemplateText(WhatsAppTemplate tpl, IReadOnlyList<string> bodyParams)
     {
         var body = tpl.BodyText ?? string.Empty;
         var tokens = ParseTemplateTokens(tpl.VariablesJson);

@@ -304,6 +304,13 @@ public abstract class AgendaTurnosTestsBase
         Assert.False(ajeno.GetProperty("ok").GetBoolean());
         Assert.Empty((await Tool(otraConv, "turnos_del_cliente", new { })).GetProperty("turnos").EnumerateArray());
 
+        // El cliente responde al recordatorio "confirmo": el agente marca el turno confirmado (repetirlo no falla).
+        var conf = await Tool(convId, "confirmar_turno", new { turno_id = turnoId });
+        Assert.True(conf.GetProperty("ok").GetBoolean(), conf.ToString());
+        Assert.Equal(AgendaTurnoEstado.Confirmado, (await Turnos(c.Tenant).GetTurnoAsync(turnoId))!.Estado);
+        Assert.True((await Tool(convId, "confirmar_turno", new { turno_id = turnoId })).GetProperty("ok").GetBoolean());
+        Assert.False((await Tool(otraConv, "confirmar_turno", new { turno_id = turnoId })).GetProperty("ok").GetBoolean());
+
         var rep = await Tool(convId, "reprogramar_turno", new { turno_id = turnoId, fecha = "2026-11-17", hora = "10:00", motivo = "Llega tarde" });
         Assert.True(rep.GetProperty("ok").GetBoolean(), rep.ToString());
         Assert.Equal("10:00", rep.GetProperty("hora").GetString());

@@ -67,6 +67,11 @@ public sealed class AgendasToolset : IAgentToolset
             "Mueve un turno del cliente a otro hueco libre del mismo servicio. El id sale de turnos_del_cliente.",
             """{"type":"object","properties":{"turno_id":{"type":"string"},"fecha":{"type":"string","description":"yyyy-MM-dd"},"hora":{"type":"string","description":"HH:mm"},"motivo":{"type":"string"}},"required":["turno_id","fecha","hora"],"additionalProperties":false}"""),
         new AiToolSpec(
+            "confirmar_turno",
+            "Marca como CONFIRMADO un turno del cliente. Usala cuando el cliente responda a un recordatorio que si " +
+            "asiste (\"confirmo\", \"ahi estare\"). El id sale de turnos_del_cliente.",
+            """{"type":"object","properties":{"turno_id":{"type":"string"}},"required":["turno_id"],"additionalProperties":false}"""),
+        new AiToolSpec(
             "cancelar_turno",
             "Cancela un turno del cliente (libera el cupo). Pide el motivo al cliente. El id sale de turnos_del_cliente.",
             """{"type":"object","properties":{"turno_id":{"type":"string"},"motivo":{"type":"string"}},"required":["turno_id","motivo"],"additionalProperties":false}"""),
@@ -94,6 +99,7 @@ public sealed class AgendasToolset : IAgentToolset
                 "reservar_turno" => await ReservarAsync(args, cancellationToken),
                 "turnos_del_cliente" => await TurnosClienteAsync(cancellationToken),
                 "reprogramar_turno" => await ReprogramarAsync(args, cancellationToken),
+                "confirmar_turno" => await ConfirmarAsync(args, cancellationToken),
                 "cancelar_turno" => await CancelarAsync(args, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };
@@ -255,6 +261,30 @@ public sealed class AgendasToolset : IAgentToolset
             AiToolRunContext.MarkTaskTouched(taskId);
         }
         return Ok(TurnoJson(nuevo, "Turno reprogramado."), cierra: true);
+    }
+
+    private async Task<AgentToolResult> ConfirmarAsync(JsonElement args, CancellationToken ct)
+    {
+        var (turno, error) = await TurnoDelClienteAsync(Str(args, "turno_id"), ct);
+        if (turno is null)
+        {
+            return Err(error!);
+        }
+        if (turno.Estado == AgendaTurnoEstado.Confirmado)
+        {
+            return Ok(TurnoJson(turno, "El turno ya estaba confirmado."), cierra: true);
+        }
+        var res = await _turnos.CambiarEstadoAsync(new CambiarEstadoTurnoRequest(turno.Id, AgendaTurnoEstado.Confirmado,
+            "El cliente confirmo por WhatsApp", turno.Version, ActorName), ct);
+        if (!res.Ok)
+        {
+            return Err(res.Error ?? "No se pudo confirmar el turno.");
+        }
+        if (turno.TaskItemId is Guid taskId)
+        {
+            AiToolRunContext.MarkTaskTouched(taskId);
+        }
+        return Ok(TurnoJson((await _turnos.GetTurnoAsync(turno.Id, ct))!, "Turno confirmado."), cierra: true);
     }
 
     private async Task<AgentToolResult> CancelarAsync(JsonElement args, CancellationToken ct)

@@ -359,6 +359,9 @@ public interface IApplicationDbContext
     DbSet<AgendaServicioRequisito> AgendaServicioRequisitos { get; }
     DbSet<AgendaTurno> AgendaTurnos { get; }
     DbSet<AgendaTurnoRecurso> AgendaTurnoRecursos { get; }
+    /// <summary>Recordatorios de turnos (ADR-0167): reglas del tenant y envios procesados.</summary>
+    DbSet<AgendaRecordatorioRegla> AgendaRecordatorioReglas { get; }
+    DbSet<AgendaRecordatorioEnvio> AgendaRecordatorioEnvios { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

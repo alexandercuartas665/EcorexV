@@ -103,6 +103,8 @@ public class RowIngestServiceTests
         public DbSet<AgendaServicioRequisito> AgendaServicioRequisitos => throw new NotSupportedException();
         public DbSet<AgendaTurno> AgendaTurnos => throw new NotSupportedException();
         public DbSet<AgendaTurnoRecurso> AgendaTurnoRecursos => throw new NotSupportedException();
+        public DbSet<AgendaRecordatorioRegla> AgendaRecordatorioReglas => throw new NotSupportedException();
+        public DbSet<AgendaRecordatorioEnvio> AgendaRecordatorioEnvios => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => throw new NotSupportedException();
         public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => throw new NotSupportedException();
         public DbSet<DocumentTemplate> DocumentTemplates => throw new NotSupportedException();

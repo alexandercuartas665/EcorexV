@@ -216,8 +216,12 @@ public sealed class BrowserRunService(
                     shot = res2.Results.LastOrDefault(r => !string.IsNullOrEmpty(r.ScreenshotBase64))?.ScreenshotBase64;
                 }
                 catch { /* la captura final es opcional */ }
-                var okDet = (lastProg is null ? "Descargas finalizadas." : $"Descargas finalizadas ({lastProg}).")
-                    + TrazaDron(lastSum, eventos);
+                // El resumen por ventana va PRIMERO (el detalle se recorta a 600); la traza completa, al log.
+                var traza = TrazaDron(lastSum, eventos);
+                log.LogInformation("[DRON-TRAZA] flow={Flow} {Prog} {Traza}", flowId, lastProg, traza);
+                var okDet = string.IsNullOrWhiteSpace(traza)
+                    ? (lastProg is null ? "Descargas finalizadas." : $"Descargas finalizadas ({lastProg}).")
+                    : "Descargas finalizadas." + traza;
                 await RecordStepRunAsync(db, flowId, step.Name, true, 0, 0, 0, okDet, ct);
                 return new StepRunResult(true, false, null, shot, null, 0, 0, 0, okDet);
             }
@@ -227,7 +231,9 @@ public sealed class BrowserRunService(
         }
 
         // Timeout: nunca aparecio el selector de fin. Benigno: el flujo sigue a Procesar con lo que haya en disco.
-        var toDet = "Espera agotada (timeout)." + TrazaDron(lastSum, eventos);
+        var toTraza = TrazaDron(lastSum, eventos);
+        log.LogInformation("[DRON-TRAZA] flow={Flow} timeout {Prog} {Traza}", flowId, lastProg, toTraza);
+        var toDet = "Espera agotada (timeout)." + toTraza;
         await RecordStepRunAsync(db, flowId, step.Name, false, 0, 0, 0, toDet, ct);
         return new StepRunResult(false, false, toDet, null, null, 0, 0, 0, toDet);
     }
@@ -2073,7 +2079,9 @@ public sealed class BrowserRunService(
         if (flow is not null)
         {
             flow.LastRunAt = now;
-            flow.LastResultSummary = text.Length <= 600 ? text : text[..597] + "...";
+            // last_result_summary es varchar(400) (detail es 600): recortar a 400. Antes se recortaba a 600 y
+            // un detalle de 401-600 caracteres tumbaba el SaveChanges y el paso quedaba sin registro.
+            flow.LastResultSummary = text.Length <= 400 ? text : text[..397] + "...";
         }
         await db.SaveChangesAsync(ct);
     }

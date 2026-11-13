@@ -1197,6 +1197,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("anticipacion_min_minutos");
 
+                    b.Property<Guid?>("ConceptoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("concepto_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -1251,6 +1255,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_agenda_servicios");
+
+                    b.HasIndex("ConceptoId")
+                        .HasDatabaseName("ix_agenda_servicios_concepto_id");
 
                     b.HasIndex("TenantId", "Nombre")
                         .HasDatabaseName("ix_agenda_servicios_tenant_id_nombre");
@@ -1414,6 +1421,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("cliente_telefono");
 
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("conversation_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -1483,6 +1494,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("servicio_id");
 
+                    b.Property<Guid?>("TaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("task_item_id");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("tenant_id");
@@ -1510,11 +1525,20 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasIndex("ServicioId")
                         .HasDatabaseName("ix_agenda_turnos_servicio_id");
 
+                    b.HasIndex("TaskItemId")
+                        .HasDatabaseName("ix_agenda_turnos_task_item_id");
+
                     b.HasIndex("TerceroId")
                         .HasDatabaseName("ix_agenda_turnos_tercero_id");
 
+                    b.HasIndex("TenantId", "ConversationId")
+                        .HasDatabaseName("ix_agenda_turnos_tenant_id_conversation_id");
+
                     b.HasIndex("TenantId", "Fecha")
                         .HasDatabaseName("ix_agenda_turnos_tenant_id_fecha");
+
+                    b.HasIndex("TenantId", "TerceroId")
+                        .HasDatabaseName("ix_agenda_turnos_tenant_id_tercero_id");
 
                     b.HasIndex("TenantId", "ServicioId", "Fecha")
                         .HasDatabaseName("ix_agenda_turnos_tenant_id_servicio_id_fecha");
@@ -20699,6 +20723,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Recurso");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaServicio", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", null)
+                        .WithMany()
+                        .HasForeignKey("ConceptoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_servicios_actividad_subcategorias_concepto_id");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AgendaServicioRequisito", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.AgendaServicio", "Servicio")
@@ -20719,6 +20752,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_agenda_turnos_agenda_servicios_servicio_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", null)
+                        .WithMany()
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_turnos_task_items_task_item_id");
 
                     b.HasOne("Ecorex.Domain.Entities.Tercero", null)
                         .WithMany()

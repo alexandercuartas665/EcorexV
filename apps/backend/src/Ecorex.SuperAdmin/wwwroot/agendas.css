@@ -138,3 +138,22 @@
 @media (max-width: 1400px) {
     .agx-split { grid-template-columns: minmax(0, 1fr) !important; }
 }
+
+/* Turnos: selector de vista y calendario semanal (ADR-0165 ola 5). */
+.agx-seg { display: inline-flex; background: var(--surface-3); border-radius: 10px; padding: 3px; gap: 2px; }
+.agx-seg button { border: 0; background: transparent; padding: 5px 11px; border-radius: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.agx-seg button.on { background: var(--surface); color: var(--ink); box-shadow: var(--sh-sm); }
+.agx-cal { display: grid; grid-template-columns: 56px repeat(7, minmax(120px, 1fr)); min-width: 920px; }
+.agx-cal > div { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); min-height: 46px; }
+.agx-cal-h { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); padding: 10px; background: var(--surface-2); min-height: 0 !important; }
+.agx-cal-h.today { color: var(--t-blue); }
+.agx-cal-hora { font-size: 11.5px; color: var(--ink-3); padding: 6px 8px; text-align: right; }
+.agx-cal-celda { padding: 4px; display: flex; flex-direction: column; gap: 4px; }
+.agx-cal-turno { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 1px; border: 0; border-radius: 8px; padding: 5px 7px; font-size: 12px; cursor: pointer; color: var(--ink); }
+.agx-cal-turno small { font-size: 11px; opacity: .8; }
+.agx-cal-turno.blue { background: var(--t-blue-bg); }
+.agx-cal-turno.green { background: var(--t-green-bg); }
+.agx-cal-turno.slate { background: var(--t-slate-bg); }
+.agx-cal-turno.amber { background: var(--t-amber-bg); }
+.agx-cal-turno.rose { background: var(--t-rose-bg); text-decoration: line-through; }
+.agx-cal-turno.conflicto { box-shadow: inset 3px 0 0 var(--t-rose); }

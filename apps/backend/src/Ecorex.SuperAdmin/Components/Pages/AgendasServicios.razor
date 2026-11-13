@@ -59,7 +59,7 @@ else
                 <button class="@(_edit?.Id == s.Id ? "on" : "")" @onclick="() => Seleccionar(s)">
                     <b>@s.Nombre</b>
                     <small class="agx-num">@s.DuracionMinutos min &middot; @string.Join(" + ", s.Requisitos.Select(r => r.Nombre))@(s.Activo ? "" : " \u00B7 inactivo")</small>
-                    <small class="agx-num">@s.TurnosProximos turno(s) proximos@(s.AgentePuedeReservar ? " \u00B7 el agente reserva" : "")</small>
+                    <small class="agx-num">@s.TurnosProximos turno(s) proximos@(s.AgentePuedeReservar ? " \u00B7 el agente reserva" : "")@(s.ConceptoNombre is null ? "" : $" \u00B7 tarea: {s.ConceptoNombre}")</small>
                 </button>
             }
             @if (_edit is not null && _edit.Id is null)
@@ -111,6 +111,17 @@ else
                     <div class="field" style="margin:0;">
                         <label class="form-label" for="ag-s-desc">Descripcion</label>
                         <input id="ag-s-desc" class="form-control" @bind="_edit.Descripcion" disabled="@(!PuedeGuardar)" placeholder="Que incluye, como prepararse" />
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="ag-s-concepto">Tarea que nace con cada turno</label>
+                        <select id="ag-s-concepto" class="form-control" @bind="_edit.ConceptoId" disabled="@(!PuedeGuardar)">
+                            <option value="">Ninguna (solo el turno)</option>
+                            @foreach (var c in _conceptos)
+                            {
+                                <option value="@c.Id">@c.Nombre</option>
+                            }
+                        </select>
+                        <small class="agx-muted">La tarea hereda el tablero, el flujo y el formulario del concepto.</small>
                     </div>
                     <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
                         <label style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" @bind="_edit.AgentePuedeReservar" disabled="@(!PuedeGuardar)" /> El agente de IA puede reservarlo</label>
@@ -188,6 +199,7 @@ else
         public int AnticipacionMinMinutos { get; set; } = 60;
         public int AnticipacionMaxDias { get; set; } = 30;
         public bool AgentePuedeReservar { get; set; }
+        public Guid? ConceptoId { get; set; }
         public bool Activo { get; set; } = true;
         public long? Version { get; set; }
         public List<RequisitoEdit> Requisitos { get; set; } = new();
@@ -200,6 +212,7 @@ else
     private bool _canCreate, _canEdit, _canDelete;
     private IReadOnlyList<AgendaServicioDto> _servicios = Array.Empty<AgendaServicioDto>();
     private IReadOnlyList<AgendaRecursoDto> _recursos = Array.Empty<AgendaRecursoDto>();
+    private IReadOnlyList<AgendaOpcionDto> _conceptos = Array.Empty<AgendaOpcionDto>();
     private ServicioEdit? _edit;
 
     private bool PuedeGuardar => _edit is not null && (_edit.Id is null ? _canCreate : _canEdit);
@@ -210,6 +223,7 @@ else
         _canEdit = await Perms.CanEditAsync(ModuleKey);
         _canDelete = await Perms.CanDeleteAsync(ModuleKey);
         _recursos = await Agendas.ListRecursosAsync();
+        _conceptos = await Turnos.ListConceptosAsync();
         await CargarAsync(null);
         _cargando = false;
     }
@@ -235,6 +249,7 @@ else
             AnticipacionMinMinutos = s.AnticipacionMinMinutos,
             AnticipacionMaxDias = s.AnticipacionMaxDias,
             AgentePuedeReservar = s.AgentePuedeReservar,
+            ConceptoId = s.ConceptoId,
             Activo = s.Activo,
             Version = s.Version,
             Requisitos = s.Requisitos.Select(r => new RequisitoEdit { Nombre = r.Nombre, RecursoIds = r.RecursoIds.ToList() }).ToList()
@@ -267,7 +282,7 @@ else
             var e = _edit;
             var res = await Turnos.SaveServicioAsync(new SaveAgendaServicioRequest(
                 e.Id, e.Nombre, e.Descripcion, e.DuracionMinutos, e.AnticipacionMinMinutos, e.AnticipacionMaxDias,
-                e.AgentePuedeReservar, e.Activo, e.Requisitos.Select(r => new AgendaRequisitoDto(r.Nombre, r.RecursoIds)).ToList(), e.Version));
+                e.AgentePuedeReservar, e.Activo, e.Requisitos.Select(r => new AgendaRequisitoDto(r.Nombre, r.RecursoIds)).ToList(), e.Version, e.ConceptoId));
             if (!res.Ok) { _error = res.Error; return; }
             await CargarAsync(res.Id);
             _ok = "Servicio guardado.";

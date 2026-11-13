@@ -6,11 +6,13 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using System.Globalization
 @using Ecorex.Application.Agendas
+@using Ecorex.Application.Directorio
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @inject IAgendaTurnosService Svc
 @inject IAgendaService Agendas
 @inject ICurrentPermissions Perms
+@inject AuthenticationStateProvider AuthState
 
 <PageTitle>Turnos - ECOREX.tareas</PageTitle>
 
@@ -53,6 +55,10 @@ else
             <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(0)">Esta semana</button>
             <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(7)">&rarr;</button>
             <b style="margin-left:6px;">Semana del @_lunes.ToString("dd MMM yyyy", Es)</b>
+            <span class="agx-seg" style="margin-left:8px;">
+                <button class="@(_vista == "lista" ? "on" : "")" @onclick="@(() => _vista = "lista")">Lista</button>
+                <button class="@(_vista == "cal" ? "on" : "")" @onclick="@(() => _vista = "cal")">Calendario</button>
+            </span>
         </div>
         <div class="agx-toolbar" style="margin:0;">
             <select class="form-control" style="width:auto;" aria-label="Filtrar por servicio" @onchange="async e => { _filtroServicio = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; await CargarAsync(); }">
@@ -73,7 +79,42 @@ else
         </div>
     </div>
 
-    @if (Visibles.Count == 0)
+    @if (_vista == "cal")
+    {
+        var horas = HorasCalendario();
+        <div class="agx-card agx-scroll">
+            <div class="agx-cal">
+                <div class="agx-cal-h"></div>
+                @for (var i = 0; i < 7; i++)
+                {
+                    var dia = _lunes.AddDays(i);
+                    <div class="agx-cal-h @(dia == _hoy ? "today" : "")">@dia.ToString("ddd dd", Es)</div>
+                }
+                @foreach (var h in horas)
+                {
+                    <div class="agx-cal-hora agx-num">@($"{h:00}:00")</div>
+                    @for (var i = 0; i < 7; i++)
+                    {
+                        var dia = _lunes.AddDays(i);
+                        <div class="agx-cal-celda">
+                            @foreach (var t in Visibles.Where(x => x.Fecha == dia && x.HoraInicio.Hour == h))
+                            {
+                                <button type="button" class="agx-cal-turno @ColorEstado(t.Estado) @(t.Conflicto is not null ? "conflicto" : "")" title="@t.ServicioNombre" @onclick="() => _detalle = t">
+                                    <b class="agx-num">@t.HoraInicio.ToString("HH:mm")</b> @t.ClienteNombre
+                                    <small>@t.ServicioNombre</small>
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+        <div class="agx-toolbar" style="margin-top:10px;font-size:12px;">
+            <span class="agx-chip blue">Reservado</span><span class="agx-chip green">Confirmado</span><span class="agx-chip slate">Atendido</span>
+            <span class="agx-chip amber">No asistio</span><span class="agx-chip rose">Cancelado / choca</span>
+        </div>
+    }
+    else if (Visibles.Count == 0)
     {
         <div class="agx-card agx-empty"><p>No hay turnos esta semana con estos filtros.</p></div>
     }
@@ -87,8 +128,8 @@ else
                     {
                         <tr>
                             <td class="agx-num" style="white-space:nowrap;"><b>@t.Fecha.ToString("ddd dd MMM", Es)</b><br /><span class="agx-muted">@t.HoraInicio.ToString("HH:mm")&ndash;@t.HoraFin.ToString("HH:mm")</span></td>
-                            <td>@t.ServicioNombre@(t.Reprogramaciones > 0 ? $" (reprogramado x{t.Reprogramaciones})" : "")</td>
-                            <td><b>@t.ClienteNombre</b>@if (!string.IsNullOrWhiteSpace(t.ClienteTelefono)) {<br /><span class="agx-muted">@t.ClienteTelefono</span>}</td>
+                            <td>@t.ServicioNombre@(t.Reprogramaciones > 0 ? $" (reprogramado x{t.Reprogramaciones})" : "")@if (t.TaskNumero is not null) {<br /><span class="agx-chip slate agx-num" title="Tarea de ECOREX del turno">@t.TaskNumero</span>}</td>
+                            <td><b>@t.ClienteNombre</b>@if (!string.IsNullOrWhiteSpace(t.ClienteTelefono)) {<br /><span class="agx-muted">@t.ClienteTelefono</span>}@if (t.TerceroNombre is not null) {<br /><span class="agx-chip violet" title="Contacto del Directorio">@t.TerceroNombre</span>}</td>
                             <td style="font-size:12.5px;">@foreach (var r in t.Recursos) {<div><span class="agx-muted">@r.Requisito:</span> @r.RecursoNombre</div>}</td>
                             <td><span class="agx-chip @ColorEstado(t.Estado)">@NombreEstado(t.Estado)</span>@if (t.Conflicto is not null) {<br /><span class="agx-chip rose" style="margin-top:4px;white-space:normal;" title="Reprogramalo o cancelalo">Choca con: @t.Conflicto</span>}@if (t.Origen != AgendaTurnoOrigen.Manual) {<br /><span class="agx-muted" style="font-size:11.5px;">@t.Origen</span>}</td>
                             <td style="text-align:right;white-space:nowrap;">
@@ -171,6 +212,20 @@ else
                 }
                 @if (_ag.Turno is null)
                 {
+                    <div class="agx-toolbar" style="margin-bottom:8px;">
+                        <span class="form-label" style="margin:0;">Contacto del Directorio:</span>
+                        @if (_ag.TerceroId is not null)
+                        {
+                            <span class="agx-chip violet">@_ag.TerceroNombre</span>
+                            <button type="button" class="btn btn-xs btn-outline-secondary" @onclick="() => { _ag.TerceroId = null; _ag.TerceroNombre = null; }">Quitar</button>
+                        }
+                        else
+                        {
+                            <span class="agx-muted" style="font-size:12.5px;">ninguno</span>
+                        }
+                        <button type="button" class="btn btn-xs btn-outline-secondary" @onclick="() => AbrirPicker(TerceroPickerMode.Personas)">Buscar persona</button>
+                        <button type="button" class="btn btn-xs btn-outline-secondary" @onclick="() => AbrirPicker(TerceroPickerMode.Empresas)">Buscar empresa</button>
+                    </div>
                     <div class="field-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
                         <div class="field">
                             <label class="form-label" for="ag-t-cli">Cliente *</label>
@@ -221,6 +276,12 @@ else
                     <dt>Cuando</dt><dd>@_detalle.Fecha.ToString("dddd dd MMM yyyy", Es), @_detalle.HoraInicio.ToString("HH:mm")&ndash;@_detalle.HoraFin.ToString("HH:mm")</dd>
                     <dt>Estado</dt><dd><span class="agx-chip @ColorEstado(_detalle.Estado)">@NombreEstado(_detalle.Estado)</span></dd>
                     <dt>Telefono</dt><dd>@(_detalle.ClienteTelefono ?? "-")</dd>
+                    <dt>Directorio</dt><dd>@(_detalle.TerceroNombre ?? "-")</dd>
+                    <dt>Tarea</dt><dd>@(_detalle.TaskNumero ?? "Sin tarea (el servicio no tiene concepto)")</dd>
+                    @if (_detalle.Conflicto is not null)
+                    {
+                        <dt>Choca con</dt><dd><span class="agx-chip rose">@_detalle.Conflicto</span></dd>
+                    }
                     <dt>Recursos</dt><dd>@string.Join(", ", _detalle.Recursos.Select(r => $"{r.Requisito}: {r.RecursoNombre}"))</dd>
                     <dt>Nota</dt><dd>@(_detalle.Nota ?? "-")</dd>
                 </dl>
@@ -257,6 +318,8 @@ else
     </div>
 }
 
+<TerceroPickerModal @ref="_picker" OnPick="OnPickTercero" />
+
 @code {
     private const string ModuleKey = "agendas/turnos";
     private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CO");
@@ -270,6 +333,8 @@ else
         public IReadOnlyList<AgendaHueco> Huecos { get; set; } = Array.Empty<AgendaHueco>();
         public AgendaHueco? Hueco { get; set; }
         public string? Cliente { get; set; }
+        public Guid? TerceroId { get; set; }
+        public string? TerceroNombre { get; set; }
         public string? Telefono { get; set; }
         public string? Nota { get; set; }
         public string? Error { get; set; }
@@ -287,6 +352,9 @@ else
     private IReadOnlyList<AgendaTurnoDto> _turnos = Array.Empty<AgendaTurnoDto>();
     private AgendarEdit? _ag;
     private AgendaTurnoDto? _detalle;
+    private TerceroPickerModal? _picker;
+    private string _vista = "lista";
+    private string? _actorName;
 
     private List<AgendaTurnoDto> Visibles => _turnos.Where(t => _verCancelados || t.Estado != AgendaTurnoEstado.Cancelado).ToList();
 
@@ -294,6 +362,8 @@ else
     {
         _canCreate = await Perms.CanCreateAsync(ModuleKey);
         _canEdit = await Perms.CanEditAsync(ModuleKey);
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        _actorName = auth.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
         _hoy = await Agendas.HoyAsync();
         _lunes = AgendaCalculo.LunesDe(_hoy);
         _servicios = await Svc.ListServiciosAsync();
@@ -342,6 +412,31 @@ else
         _ag.Cargando = false;
     }
 
+    private async Task AbrirPicker(TerceroPickerMode modo)
+    {
+        if (_picker is null) { return; }
+        await _picker.OpenAsync(modo, title: "Contacto del Directorio", subtitle: "Elige quien toma el turno.");
+    }
+
+    private Task OnPickTercero(TerceroListItemDto row)
+    {
+        if (_ag is not null)
+        {
+            _ag.TerceroId = row.Id;
+            _ag.TerceroNombre = row.Nombre;
+            if (string.IsNullOrWhiteSpace(_ag.Cliente)) { _ag.Cliente = row.Nombre; }
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Horas visibles en el calendario: de 7 a 18 como minimo, ampliadas con los turnos de la semana.</summary>
+    private List<int> HorasCalendario()
+    {
+        var desde = Math.Min(7, Visibles.Select(t => t.HoraInicio.Hour).DefaultIfEmpty(7).Min());
+        var hasta = Math.Max(18, Visibles.Select(t => t.HoraInicio.Hour).DefaultIfEmpty(18).Max());
+        return Enumerable.Range(desde, hasta - desde + 1).ToList();
+    }
+
     private static bool Igual(AgendaHueco? a, AgendaHueco b) => a is not null && a.Fecha == b.Fecha && a.Inicio == b.Inicio;
 
     private async Task ConfirmarAgendar()
@@ -353,8 +448,9 @@ else
         {
             var h = _ag.Hueco;
             var res = _ag.Turno is null
-                ? await Svc.ReservarAsync(new ReservarTurnoRequest(_ag.ServicioId, h.Fecha, h.Inicio, _ag.Cliente ?? string.Empty, _ag.Telefono, _ag.Nota))
-                : await Svc.ReprogramarAsync(new ReprogramarTurnoRequest(_ag.Turno.Id, h.Fecha, h.Inicio, _ag.Nota, _ag.Turno.Version));
+                ? await Svc.ReservarAsync(new ReservarTurnoRequest(_ag.ServicioId, h.Fecha, h.Inicio, _ag.Cliente ?? string.Empty, _ag.Telefono, _ag.Nota,
+                    TerceroId: _ag.TerceroId, ActorName: _actorName))
+                : await Svc.ReprogramarAsync(new ReprogramarTurnoRequest(_ag.Turno.Id, h.Fecha, h.Inicio, _ag.Nota, _ag.Turno.Version, ActorName: _actorName));
             if (!res.Ok)
             {
                 _ag.Error = res.Error;
@@ -385,7 +481,7 @@ else
         _errDet = null;
         try
         {
-            var res = await Svc.CambiarEstadoAsync(new CambiarEstadoTurnoRequest(_detalle.Id, estado, _motivo, _detalle.Version));
+            var res = await Svc.CambiarEstadoAsync(new CambiarEstadoTurnoRequest(_detalle.Id, estado, _motivo, _detalle.Version, _actorName));
             if (!res.Ok) { _errDet = res.Error; return; }
             await CargarAsync();
             _detalle = await Svc.GetTurnoAsync(_detalle.Id);

@@ -1,7 +1,12 @@
+using System.Text.Json;
 using Ecorex.Application.Agendas;
 using Ecorex.Application.Common;
+using Ecorex.Application.Organization;
+using Ecorex.Application.Tenancy;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Integration.Tests;
 
@@ -187,14 +192,152 @@ public abstract class AgendaTurnosTestsBase
         Assert.Null(otra.Aviso);
     }
 
+    [Fact]
+    public async Task TurnoConConcepto_CreaTareaLigadaAlDirectorio_YLaMantieneAlDia()
+    {
+        var c = await SeedCdaAsync("CDA tareas");
+        var (actorId, conceptoId, terceroId) = await SeedConceptoYContactoAsync(c.Tenant, "3104567890");
+        var svc = (await Turnos(c.Tenant).ListServiciosAsync()).Single();
+        Assert.True((await Turnos(c.Tenant).SaveServicioAsync(new SaveAgendaServicioRequest(svc.Id, svc.Nombre, null, svc.DuracionMinutos,
+            svc.AnticipacionMinMinutos, svc.AnticipacionMaxDias, svc.AgentePuedeReservar, true, svc.Requisitos, svc.Version, conceptoId))).Ok);
+
+        await using var ctx = _fixture.CreateContext(c.Tenant);
+        var tenantCtx = new FixedTenant(c.Tenant, actorId);
+        var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx),
+            new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster()), new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
+        var turnos = new AgendaTurnosService(ctx, tenantCtx, () => Ahora, tasks);
+
+        // Sin telefono: se toma el de la ficha del Directorio.
+        var res = await turnos.ReservarAsync(new ReservarTurnoRequest(c.Servicio, Martes17, H(8), "Laura Paz", null, "Placa ABC123", TerceroId: terceroId, ActorName: "Recepcion"));
+        Assert.True(res.Ok, res.Error);
+        var turno = (await turnos.GetTurnoAsync(res.Id!.Value))!;
+        Assert.Equal("3104567890", turno.ClienteTelefono);
+        Assert.Equal(terceroId, turno.TerceroId);
+        Assert.NotNull(turno.TaskItemId);
+        Assert.False(string.IsNullOrWhiteSpace(turno.TaskNumero));
+
+        var tarea = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == turno.TaskItemId);
+        Assert.Equal(conceptoId, tarea.SubcategoriaId);
+        Assert.Equal(terceroId, tarea.TerceroId);
+        Assert.Equal(new DateTimeOffset(2026, 11, 17, 13, 0, 0, TimeSpan.Zero), tarea.StartDate); // 8:00 Bogota = 13:00 UTC
+
+        // Reprogramar mueve las fechas de la tarea; cancelar la cierra.
+        Assert.True((await turnos.ReprogramarAsync(new ReprogramarTurnoRequest(turno.Id, Martes17, H(10), "Pidio mas tarde", turno.Version))).Ok);
+        tarea = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == turno.TaskItemId);
+        Assert.Equal(new DateTimeOffset(2026, 11, 17, 15, 0, 0, TimeSpan.Zero), tarea.StartDate);
+        turno = (await turnos.GetTurnoAsync(turno.Id))!;
+        Assert.True((await turnos.CambiarEstadoAsync(new CambiarEstadoTurnoRequest(turno.Id, AgendaTurnoEstado.Cancelado, "Vehiculo varado", turno.Version))).Ok);
+        tarea = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == turno.TaskItemId);
+        Assert.True(tarea.IsArchived);
+        Assert.Contains("archivada", (await turnos.GetTurnoAsync(turno.Id))!.Historial);
+
+        // Los turnos del cliente se encuentran por su contacto y por su telefono.
+        Assert.Single(await turnos.TurnosDelClienteAsync(terceroId, null, null, Martes17));
+        Assert.Single(await turnos.TurnosDelClienteAsync(null, "+57 310 456 7890", null, Martes17));
+        Assert.Empty(await turnos.TurnosDelClienteAsync(null, "3000000000", null, Martes17));
+    }
+
+    [Fact]
+    public async Task Agente_ConsultaReservaReprogramaYCancela_SoloLosTurnosDeSuCliente()
+    {
+        var c = await SeedCdaAsync("CDA agente");
+        var (_, _, terceroId) = await SeedConceptoYContactoAsync(c.Tenant, "3159876543");
+        Guid convId, otraConv;
+        await using (var db = _fixture.CreateContext(c.Tenant))
+        {
+            var conv = new Conversation { TenantId = c.Tenant, ContactPhone = "573159876543", ContactName = "Transportes del Sur" };
+            var otra = new Conversation { TenantId = c.Tenant, ContactPhone = "573001112233", ContactName = "Otro cliente" };
+            db.Conversations.AddRange(conv, otra);
+            await db.SaveChangesAsync();
+            (convId, otraConv) = (conv.Id, otra.Id);
+        }
+
+        async Task<JsonElement> Tool(Guid conversacion, string tool, object args)
+        {
+            await using var ctx = _fixture.CreateContext(c.Tenant);
+            var toolset = new AgendasToolset(ctx, new AgendaTurnosService(ctx, new FixedTenant(c.Tenant), () => Ahora));
+            using (AiToolRunContext.Begin(conversacion, null, null))
+            {
+                var r = await toolset.ExecuteAsync(tool, JsonSerializer.Serialize(args), Guid.Empty, autonomous: true);
+                return JsonDocument.Parse(r.Json).RootElement.Clone();
+            }
+        }
+
+        // Los recursos aun no tienen "el agente puede agendar": no hay huecos para el agente.
+        var sinRecursos = await Tool(convId, "consultar_disponibilidad", new { servicio = "revision", fecha = "2026-11-17", dias = 1 });
+        Assert.Equal(0, sinRecursos.GetProperty("huecos").GetArrayLength());
+        foreach (var id in new[] { c.Linea, c.InspA, c.InspB })
+        {
+            var r = (await Agendas(c.Tenant).GetRecursoAsync(id))!;
+            Assert.True((await Agendas(c.Tenant).SaveRecursoAsync(new SaveAgendaRecursoRequest(r.Id, r.Nombre, r.Descripcion, r.TipoRecursoId, r.SedeId, r.TenantUserId, true, true, r.Version))).Ok);
+        }
+
+        var servicios = await Tool(convId, "servicios_agendables", new { });
+        Assert.Equal("Revision tecnico-mecanica", servicios.GetProperty("servicios")[0].GetProperty("nombre").GetString());
+        var disp = await Tool(convId, "consultar_disponibilidad", new { servicio = "revision", fecha = "2026-11-17", dias = 1 });
+        Assert.Equal("07:00", disp.GetProperty("huecos")[0].GetProperty("horas")[0].GetString());
+
+        // Nombre escrito distinto (mayusculas, tildes, palabras de relleno) y 'desde' como alias de 'fecha'.
+        var conTildes = "Revisi" + (char)0xF3 + "n T" + (char)0xE9 + "cnico-Mec" + (char)0xE1 + "nica";
+        var otroNombre = await Tool(convId, "consultar_disponibilidad", new { servicio = conTildes, desde = "2026-11-17", dias = 1 });
+        Assert.True(otroNombre.GetProperty("ok").GetBoolean(), otroNombre.ToString());
+        // Domingo sin agenda: no hay huecos y trae los siguientes dias con cupo (para no inventar horarios).
+        var domingo = await Tool(convId, "consultar_disponibilidad", new { servicio = "revision", fecha = "2026-11-22", dias = 1 });
+        Assert.Equal(0, domingo.GetProperty("huecos").GetArrayLength());
+        Assert.Equal("2026-11-23", domingo.GetProperty("siguientes")[0].GetProperty("fecha").GetString());
+
+        var reserva = await Tool(convId, "reservar_turno", new { servicio = "Revision tecnico-mecanica", fecha = "2026-11-17", hora = "08:00", nombre = "Placa XYZ987" });
+        Assert.True(reserva.GetProperty("ok").GetBoolean(), reserva.ToString());
+        var turnoId = reserva.GetProperty("turno_id").GetGuid();
+        var turno = (await Turnos(c.Tenant).GetTurnoAsync(turnoId))!;
+        Assert.Equal(AgendaTurnoOrigen.Agente, turno.Origen);
+        Assert.Equal(terceroId, turno.TerceroId);          // ligado al contacto del Directorio por el telefono
+        Assert.Equal("573159876543", turno.ClienteTelefono); // el telefono sale de la conversacion, no del modelo
+
+        // Repetir la misma reserva no duplica.
+        var repetida = await Tool(convId, "reservar_turno", new { servicio = "Revision tecnico-mecanica", fecha = "2026-11-17", hora = "08:00", nombre = "Placa XYZ987" });
+        Assert.Equal(turnoId, repetida.GetProperty("turno_id").GetGuid());
+        Assert.Single((await Tool(convId, "turnos_del_cliente", new { })).GetProperty("turnos").EnumerateArray());
+
+        // Otro cliente no puede tocar el turno.
+        var ajeno = await Tool(otraConv, "cancelar_turno", new { turno_id = turnoId, motivo = "x" });
+        Assert.False(ajeno.GetProperty("ok").GetBoolean());
+        Assert.Empty((await Tool(otraConv, "turnos_del_cliente", new { })).GetProperty("turnos").EnumerateArray());
+
+        var rep = await Tool(convId, "reprogramar_turno", new { turno_id = turnoId, fecha = "2026-11-17", hora = "10:00", motivo = "Llega tarde" });
+        Assert.True(rep.GetProperty("ok").GetBoolean(), rep.ToString());
+        Assert.Equal("10:00", rep.GetProperty("hora").GetString());
+
+        Assert.False((await Tool(convId, "cancelar_turno", new { turno_id = turnoId, motivo = "" })).GetProperty("ok").GetBoolean());
+        Assert.True((await Tool(convId, "cancelar_turno", new { turno_id = turnoId, motivo = "Vendio el vehiculo" })).GetProperty("ok").GetBoolean());
+        Assert.Equal(AgendaTurnoEstado.Cancelado, (await Turnos(c.Tenant).GetTurnoAsync(turnoId))!.Estado);
+    }
+
+    /// <summary>Usuario actor, un concepto sin flujo y un contacto del Directorio con telefono.</summary>
+    private async Task<(Guid ActorPlatformId, Guid ConceptoId, Guid TerceroId)> SeedConceptoYContactoAsync(Guid tenantId, string telefono)
+    {
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var p = new PlatformUser { Email = $"recep-{Guid.NewGuid():N}@agendas.test", DisplayName = "Recepcion", EmailVerified = true, Status = PlatformUserStatus.Active };
+        ctx.PlatformUsers.Add(p);
+        ctx.TenantUsers.Add(new TenantUser { TenantId = tenantId, PlatformUserId = p.Id, Email = p.Email, TenantRole = TenantRole.Owner, Status = PlatformUserStatus.Active });
+        var cat = new ActividadCategoria { TenantId = tenantId, Codigo = "CAT-AG", Nombre = "Agendas" };
+        ctx.ActividadCategorias.Add(cat);
+        var concepto = new ActividadSubcategoria { TenantId = tenantId, CategoriaId = cat.Id, Codigo = "AG-RTM", Nombre = "Turno RTM" };
+        ctx.ActividadSubcategorias.Add(concepto);
+        var tercero = new Tercero { TenantId = tenantId, Nombre = "Cliente Directorio", Tipo = TerceroTipo.Persona, Telefono = telefono };
+        ctx.Terceros.Add(tercero);
+        await ctx.SaveChangesAsync();
+        return (p.Id, concepto.Id, tercero.Id);
+    }
+
     private AgendaService Agendas(Guid tenantId) => new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId));
 
     private AgendaTurnosService Turnos(Guid tenantId) => new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId), () => Ahora);
 
-    private sealed class FixedTenant(Guid tenantId) : ITenantContext
+    private sealed class FixedTenant(Guid tenantId, Guid? userId = null) : ITenantContext
     {
         public Guid? TenantId => tenantId;
-        public Guid? UserId => null;
+        public Guid? UserId => userId;
     }
 }
 

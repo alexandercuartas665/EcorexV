@@ -24,8 +24,14 @@ public sealed class AgendaServicio : TenantEntity, ISoftDeletable, IVersioned
     /// <summary>Maximo de dias hacia adelante en que se puede reservar.</summary>
     public int AnticipacionMaxDias { get; set; } = 60;
 
-    /// <summary>Si el agente de IA puede reservar este servicio (lo usa la ola del agente).</summary>
+    /// <summary>Si el agente de IA puede reservar este servicio (herramientas del grupo "agendas").</summary>
     public bool AgentePuedeReservar { get; set; }
+
+    /// <summary>
+    /// Concepto (ActividadSubcategoria) de la TAREA que nace con cada turno: hereda su tablero, columna, flujo y
+    /// formulario. null = el turno no crea tarea.
+    /// </summary>
+    public Guid? ConceptoId { get; set; }
 
     public bool Activo { get; set; } = true;
 

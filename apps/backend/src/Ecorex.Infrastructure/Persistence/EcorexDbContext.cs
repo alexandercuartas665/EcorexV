@@ -3096,6 +3096,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Nombre).HasMaxLength(150).IsRequired();
             b.Property(x => x.Descripcion).HasMaxLength(500);
             b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasOne<ActividadSubcategoria>().WithMany().HasForeignKey(x => x.ConceptoId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.Nombre });
         });
 
@@ -3116,7 +3117,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Version).IsConcurrencyToken();
             b.HasOne(x => x.Servicio).WithMany().HasForeignKey(x => x.ServicioId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Tercero>().WithMany().HasForeignKey(x => x.TerceroId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<TaskItem>().WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => new { x.TenantId, x.Fecha });
+            b.HasIndex(x => new { x.TenantId, x.TerceroId });
+            b.HasIndex(x => new { x.TenantId, x.ConversationId });
             b.HasIndex(x => new { x.TenantId, x.ServicioId, x.Fecha });
         });
 

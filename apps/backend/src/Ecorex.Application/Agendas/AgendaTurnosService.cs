@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,10 @@ namespace Ecorex.Application.Agendas;
 /// los festivos y dias no operativos se leen del calendario de la entidad (TenantOperatingDays), sin duplicarlo.
 /// Para no entregar el mismo cupo dos veces, reservar/reprogramar tocan la fila de cada recurso asignado dentro de
 /// la transaccion: su Version (token de concurrencia) hace fallar a la segunda reserva simultanea.
+/// Ola 5: si el servicio tiene CONCEPTO, cada turno crea una TAREA de ECOREX de ese concepto (tablero, flujo y
+/// formulario del concepto) via ITaskItemService; reprogramar/cancelar la mantienen al dia (fechas, comentario,
+/// cierre). La tarea se crea DESPUES de confirmar el turno y es best-effort: si falla, el turno queda y el
+/// historial lo dice.
 /// </summary>
 public sealed class AgendaTurnosService : IAgendaTurnosService
 {
@@ -22,19 +27,23 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly Func<DateTimeOffset> _ahoraUtc;
+    private readonly ITaskItemService? _tasks;
 
-    public AgendaTurnosService(IApplicationDbContext db, ITenantContext tenant)
-        : this(db, tenant, () => DateTimeOffset.UtcNow)
+    public AgendaTurnosService(IApplicationDbContext db, ITenantContext tenant, ITaskItemService tasks)
+        : this(db, tenant, () => DateTimeOffset.UtcNow, tasks)
     {
     }
 
-    /// <summary>Constructor con reloj inyectable (pruebas).</summary>
-    public AgendaTurnosService(IApplicationDbContext db, ITenantContext tenant, Func<DateTimeOffset> ahoraUtc)
+    /// <summary>Constructor con reloj inyectable (pruebas). Sin <paramref name="tasks"/> los turnos no crean tarea.</summary>
+    public AgendaTurnosService(IApplicationDbContext db, ITenantContext tenant, Func<DateTimeOffset> ahoraUtc, ITaskItemService? tasks = null)
     {
         _db = db;
         _tenant = tenant;
         _ahoraUtc = ahoraUtc;
+        _tasks = tasks;
     }
+
+    private const string ActorPorDefecto = "Agendas";
 
     private Guid TenantId => _tenant.TenantId ?? Guid.Empty;
 
@@ -54,11 +63,16 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
             .GroupBy(t => t.ServicioId)
             .Select(g => new { g.Key, N = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.N, cancellationToken);
+        var conceptoIds = servicios.Where(s => s.ConceptoId.HasValue).Select(s => s.ConceptoId!.Value).Distinct().ToList();
+        var conceptos = await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(c => conceptoIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Nombre, cancellationToken);
         return servicios.Select(s => new AgendaServicioDto(
             s.Id, s.Nombre, s.Descripcion, s.DuracionMinutos, s.AnticipacionMinMinutos, s.AnticipacionMaxDias,
             s.AgentePuedeReservar, s.Activo, s.Version,
             s.Requisitos.OrderBy(r => r.Orden).Select(r => new AgendaRequisitoDto(r.Nombre, LeerIds(r.RecursoIdsJson))).ToList(),
-            proximos.GetValueOrDefault(s.Id))).ToList();
+            proximos.GetValueOrDefault(s.Id),
+            s.ConceptoId, s.ConceptoId is Guid cid ? conceptos.GetValueOrDefault(cid) : null)).ToList();
     }
 
     public async Task<AgendaOpResult> SaveServicioAsync(SaveAgendaServicioRequest request, CancellationToken cancellationToken = default)
@@ -107,6 +121,11 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         {
             return AgendaOpResult.Mal($"Ya existe un servicio llamado \"{nombre}\".");
         }
+        if (request.ConceptoId is Guid conceptoId
+            && !await _db.ActividadSubcategorias.AnyAsync(c => c.Id == conceptoId && !c.IsArchived, cancellationToken))
+        {
+            return AgendaOpResult.Mal("El concepto elegido para la tarea ya no existe o esta archivado.");
+        }
 
         await using var tx = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         AgendaServicio? s;
@@ -135,6 +154,7 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         s.AnticipacionMinMinutos = request.AnticipacionMinMinutos;
         s.AnticipacionMaxDias = request.AnticipacionMaxDias;
         s.AgentePuedeReservar = request.AgentePuedeReservar;
+        s.ConceptoId = request.ConceptoId;
         s.Activo = request.Activo;
         s.UpdatedAt = DateTimeOffset.UtcNow;
         var orden = 0;
@@ -190,7 +210,8 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
     // Huecos
     // =====================================================================================================
 
-    public async Task<IReadOnlyList<AgendaHueco>> HuecosAsync(Guid servicioId, DateOnly desde, int dias, Guid? excluirTurnoId = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AgendaHueco>> HuecosAsync(Guid servicioId, DateOnly desde, int dias, Guid? excluirTurnoId = null,
+        bool soloRecursosAgente = false, CancellationToken cancellationToken = default)
     {
         var servicio = await _db.AgendaServicios.AsNoTracking().Include(s => s.Requisitos)
             .FirstOrDefaultAsync(s => s.Id == servicioId, cancellationToken);
@@ -212,7 +233,7 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
             return Array.Empty<AgendaHueco>();
         }
         var requisitos = Requisitos(servicio);
-        var datos = await CargarAsync(requisitos.SelectMany(r => r.RecursoIds).Distinct().ToList(), inicio, fin, excluirTurnoId, cancellationToken);
+        var datos = await CargarAsync(requisitos.SelectMany(r => r.RecursoIds).Distinct().ToList(), inicio, fin, excluirTurnoId, soloRecursosAgente, cancellationToken);
         var huecos = new List<AgendaHueco>();
         for (var d = inicio; d <= fin; d = d.AddDays(1))
         {
@@ -246,9 +267,22 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         }
         var fin = request.Inicio.AddMinutes(servicio.DuracionMinutos);
 
+        // Contacto del Directorio: debe existir en el tenant (filtro global); si no llega telefono, se toma de la ficha.
+        var telefono = Limpio(request.ClienteTelefono, 40);
+        if (request.TerceroId is Guid terceroId)
+        {
+            var tercero = await _db.Terceros.AsNoTracking().Where(x => x.Id == terceroId)
+                .Select(x => new { x.Telefono }).FirstOrDefaultAsync(cancellationToken);
+            if (tercero is null)
+            {
+                return AgendaOpResult.Mal("El contacto del Directorio ya no existe.");
+            }
+            telefono ??= Limpio(tercero.Telefono, 40);
+        }
+
         await using var tx = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
         var requisitos = Requisitos(servicio);
-        var datos = await CargarAsync(requisitos.SelectMany(r => r.RecursoIds).Distinct().ToList(), request.Fecha, request.Fecha, null, cancellationToken);
+        var datos = await CargarAsync(requisitos.SelectMany(r => r.RecursoIds).Distinct().ToList(), request.Fecha, request.Fecha, null, request.SoloRecursosAgente, cancellationToken);
         var asignacion = AgendaTurnosCalculo.Asignar(requisitos, datos.Dia(request.Fecha), request.Fecha, request.Inicio, fin);
         if (asignacion is null)
         {
@@ -266,7 +300,9 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
             Estado = AgendaTurnoEstado.Reservado,
             Origen = request.Origen,
             ClienteNombre = cliente,
-            ClienteTelefono = Limpio(request.ClienteTelefono, 40),
+            ClienteTelefono = telefono,
+            TerceroId = request.TerceroId,
+            ConversationId = request.ConversationId,
             Nota = Limpio(request.Nota, 500)
         };
         (turno.InicioUtc, turno.FinUtc) = await UtcAsync(request.Fecha, request.Inicio, fin, cancellationToken);
@@ -285,6 +321,7 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         {
             return AgendaOpResult.Mal(ErrCupoTomado);
         }
+        await CrearTareaAsync(turno, servicio, asignacion, request.ActorName, cancellationToken);
         return AgendaOpResult.Bien(turno.Id);
     }
 
@@ -322,7 +359,7 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         }
         var fin = request.Inicio.AddMinutes(servicio.DuracionMinutos);
         var requisitos = Requisitos(servicio);
-        var datos = await CargarAsync(requisitos.SelectMany(r => r.RecursoIds).Distinct().ToList(), request.Fecha, request.Fecha, turno.Id, cancellationToken);
+        var datos = await CargarAsync(requisitos.SelectMany(r => r.RecursoIds).Distinct().ToList(), request.Fecha, request.Fecha, turno.Id, request.SoloRecursosAgente, cancellationToken);
         var asignacion = AgendaTurnosCalculo.Asignar(requisitos, datos.Dia(request.Fecha), request.Fecha, request.Inicio, fin);
         if (asignacion is null)
         {
@@ -355,6 +392,8 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         {
             return AgendaOpResult.Mal(ErrCupoTomado);
         }
+        await SincronizarTareaAsync(turno, $"Turno reprogramado de {antes} a {request.Fecha:yyyy-MM-dd} {request.Inicio:HH\\:mm}."
+            + (motivo is null ? "" : $" Motivo: {motivo}"), false, request.ActorName, cancellationToken);
         return AgendaOpResult.Bien(turno.Id);
     }
 
@@ -390,6 +429,10 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         {
             return AgendaOpResult.Mal(ErrConcurrencia);
         }
+        // La tarea del turno: comentario siempre; un turno cancelado ARCHIVA su tarea (sale de los tableros sin
+        // marcarse como trabajo hecho; la maquina de estados no deja cerrar una tarea pendiente).
+        await SincronizarTareaAsync(turno, $"Turno {Estado(request.Estado)}." + (motivo is null ? "" : $" Motivo: {motivo}"),
+            request.Estado == AgendaTurnoEstado.Cancelado, request.ActorName, cancellationToken);
         return AgendaOpResult.Bien(turno.Id);
     }
 
@@ -461,11 +504,20 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
             }
         }
 
+        var terceroIds = turnos.Where(t => t.TerceroId.HasValue).Select(t => t.TerceroId!.Value).Distinct().ToList();
+        var terceros = await _db.Terceros.AsNoTracking().Where(x => terceroIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Nombre, cancellationToken);
+        var taskIds = turnos.Where(t => t.TaskItemId.HasValue).Select(t => t.TaskItemId!.Value).Distinct().ToList();
+        var tareas = await _db.TaskItems.AsNoTracking().Where(x => taskIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Number, cancellationToken);
+
         return turnos.Select(t => new AgendaTurnoDto(
             t.Id, t.ServicioId, t.Servicio?.Nombre ?? "-", t.Fecha, t.HoraInicio, t.HoraFin, t.Estado, t.Origen,
             t.ClienteNombre, t.ClienteTelefono, t.Nota, t.Reprogramaciones, t.Historial, t.Version,
             t.Recursos.Select(r => new AgendaTurnoRecursoDto(r.Requisito, r.RecursoId, nombres.GetValueOrDefault(r.RecursoId) ?? "-")).ToList(),
-            conflictos.GetValueOrDefault(t.Id)))
+            conflictos.GetValueOrDefault(t.Id),
+            t.TerceroId, t.TerceroId is Guid tid ? terceros.GetValueOrDefault(tid) : null,
+            t.TaskItemId, t.TaskItemId is Guid kid ? tareas.GetValueOrDefault(kid) : null))
             .ToList();
     }
 
@@ -500,11 +552,13 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
         }
     }
 
-    private async Task<DatosRango> CargarAsync(List<Guid> recursoIds, DateOnly desde, DateOnly hasta, Guid? excluirTurnoId, CancellationToken cancellationToken)
+    private async Task<DatosRango> CargarAsync(List<Guid> recursoIds, DateOnly desde, DateOnly hasta, Guid? excluirTurnoId,
+        bool soloRecursosAgente, CancellationToken cancellationToken)
     {
-        // Solo recursos ACTIVOS del tenant (el filtro global ya descarta los de otro tenant y los borrados).
+        // Solo recursos ACTIVOS del tenant (el filtro global ya descarta los de otro tenant y los borrados). Para el
+        // agente, ademas, solo los marcados "el agente de IA puede agendar en este recurso".
         var nombres = await _db.AgendaRecursos.AsNoTracking()
-            .Where(r => recursoIds.Contains(r.Id) && r.Activo)
+            .Where(r => recursoIds.Contains(r.Id) && r.Activo && (!soloRecursosAgente || r.AgenteHabilitado))
             .ToDictionaryAsync(r => r.Id, r => r.Nombre, cancellationToken);
         var ids = nombres.Keys.ToList();
 
@@ -578,6 +632,171 @@ public sealed class AgendaTurnosService : IAgendaTurnosService
     // =====================================================================================================
     // Utilidades
     // =====================================================================================================
+
+    // ---- Tarea de ECOREX por turno (ola 5) ----
+
+    /// <summary>
+    /// Crea la tarea del concepto del servicio para el turno recien confirmado: titulo con servicio y cliente, inicio
+    /// y vencimiento = horas del turno, contacto del Directorio, conversacion de origen y asignada al usuario del
+    /// primer recurso tipo persona. Best-effort: un fallo queda en el historial del turno, no deshace la reserva.
+    /// </summary>
+    private async Task CrearTareaAsync(AgendaTurno turno, AgendaServicio servicio, IReadOnlyList<AgendaAsignacion> asignacion, string? actorName, CancellationToken cancellationToken)
+    {
+        if (_tasks is null || servicio.ConceptoId is not Guid conceptoId)
+        {
+            return;
+        }
+        var recursoIds = asignacion.Select(a => a.RecursoId).ToList();
+        var usuarios = await _db.AgendaRecursos.AsNoTracking()
+            .Where(r => recursoIds.Contains(r.Id) && r.TenantUserId != null)
+            .Select(r => new { r.Id, r.TenantUserId })
+            .ToListAsync(cancellationToken);
+        var asignado = asignacion.Select(a => usuarios.FirstOrDefault(u => u.Id == a.RecursoId)?.TenantUserId).FirstOrDefault(u => u.HasValue);
+        var descripcion = $"Turno de {servicio.Nombre} el {turno.Fecha:yyyy-MM-dd} de {turno.HoraInicio:HH\\:mm} a {turno.HoraFin:HH\\:mm} "
+            + $"con {Recursos(asignacion)}." + (turno.Nota is null ? "" : $" Nota: {turno.Nota}");
+        try
+        {
+            var creada = await _tasks.CreateAsync(new CreateTaskItemRequest(
+                Title: $"{servicio.Nombre} - {turno.ClienteNombre} ({turno.Fecha:dd/MM} {turno.HoraInicio:HH\\:mm})",
+                ActivityTypeId: null,
+                Description: descripcion,
+                AssigneeTenantUserId: asignado,
+                DueDate: turno.FinUtc,
+                RequesterName: turno.ClienteNombre,
+                RequesterPhone: turno.ClienteTelefono,
+                StartDate: turno.InicioUtc,
+                SubcategoriaId: conceptoId,
+                TerceroId: turno.TerceroId,
+                ConversationId: turno.ConversationId), Actor, actorName ?? ActorPorDefecto, cancellationToken);
+            var tracked = await _db.AgendaTurnos.FirstAsync(t => t.Id == turno.Id, cancellationToken);
+            var ahora = await AhoraLocalAsync(cancellationToken);
+            if (creada.IsOk && creada.Value is not null)
+            {
+                tracked.TaskItemId = creada.Value.Item.Id;
+                tracked.Historial = Agregar(tracked.Historial, Linea(ahora.Momento, $"Tarea {creada.Value.Item.Number} creada."));
+            }
+            else
+            {
+                tracked.Historial = Agregar(tracked.Historial, Linea(ahora.Momento, $"No se pudo crear la tarea: {creada.Error}"));
+            }
+            await _db.SaveChangesAsync(cancellationToken);
+            turno.TaskItemId = tracked.TaskItemId;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // La reserva ya quedo confirmada: el fallo de la tarea no la deshace.
+            await AnotarAsync(turno.Id, $"No se pudo crear la tarea: {ex.Message}", cancellationToken);
+        }
+    }
+
+    /// <summary>Mantiene al dia la tarea del turno: fechas (inicio/vencimiento), un comentario y, si se cancela, la archiva.</summary>
+    private async Task SincronizarTareaAsync(AgendaTurno turno, string comentario, bool archivar, string? actorName, CancellationToken cancellationToken)
+    {
+        if (_tasks is null || turno.TaskItemId is not Guid taskId)
+        {
+            return;
+        }
+        try
+        {
+            var tarea = await _db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
+            if (tarea is null)
+            {
+                return;
+            }
+            if (tarea.StartDate != turno.InicioUtc || tarea.DueDate != turno.FinUtc)
+            {
+                tarea.StartDate = turno.InicioUtc;
+                tarea.DueDate = turno.FinUtc;
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            var comentado = await _tasks.AddCommentAsync(taskId, comentario, Actor, actorName ?? ActorPorDefecto, cancellationToken);
+            if (!comentado.IsOk)
+            {
+                await AnotarAsync(turno.Id, $"No se pudo comentar la tarea: {comentado.Error}", cancellationToken);
+            }
+            if (archivar && !tarea.IsArchived)
+            {
+                var archivada = await _tasks.ArchiveAsync(taskId, Actor, actorName ?? ActorPorDefecto, cancellationToken);
+                await AnotarAsync(turno.Id, archivada.IsOk ? "Tarea archivada por la cancelacion." : $"No se pudo archivar la tarea: {archivada.Error}", cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await AnotarAsync(turno.Id, $"No se pudo actualizar la tarea: {ex.Message}", cancellationToken);
+        }
+    }
+
+    private Guid Actor => _tenant.UserId ?? Guid.Empty;
+
+    /// <summary>Agrega una linea al historial del turno sin dejar caer la operacion si el guardado falla.</summary>
+    private async Task AnotarAsync(Guid turnoId, string texto, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var tracked = await _db.AgendaTurnos.FirstAsync(t => t.Id == turnoId, cancellationToken);
+            tracked.Historial = Agregar(tracked.Historial, Linea((await AhoraLocalAsync(cancellationToken)).Momento, texto));
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // El historial es informativo: no se propaga.
+        }
+    }
+
+    // ---- Turnos del cliente / conceptos ----
+
+    public async Task<IReadOnlyList<AgendaTurnoDto>> TurnosDelClienteAsync(Guid? terceroId, string? telefono, Guid? conversationId, DateOnly desde,
+        CancellationToken cancellationToken = default)
+    {
+        var tel10 = Ultimos10(telefono);
+        var sufijo = tel10 is null ? null : tel10[^Math.Min(7, tel10.Length)..];
+        if (terceroId is null && tel10 is null && conversationId is null)
+        {
+            return Array.Empty<AgendaTurnoDto>();
+        }
+        // Pre-filtro en BD (contacto, conversacion o telefono por sufijo); la coincidencia exacta del telefono se
+        // verifica en memoria con los ultimos 10 digitos.
+        var candidatos = await _db.AgendaTurnos.AsNoTracking()
+            .Include(t => t.Servicio)
+            .Include(t => t.Recursos)
+            .Where(t => t.Fecha >= desde
+                && ((terceroId != null && t.TerceroId == terceroId)
+                    || (conversationId != null && t.ConversationId == conversationId)
+                    || (sufijo != null && t.ClienteTelefono != null && EF.Functions.Like(t.ClienteTelefono, "%" + sufijo))))
+            .OrderBy(t => t.Fecha).ThenBy(t => t.HoraInicio)
+            .Take(200)
+            .ToListAsync(cancellationToken);
+        var propios = candidatos.Where(t =>
+                (terceroId != null && t.TerceroId == terceroId)
+                || (conversationId != null && t.ConversationId == conversationId)
+                || (tel10 != null && Ultimos10(t.ClienteTelefono) == tel10))
+            .ToList();
+        return await ProyectarAsync(propios, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AgendaOpcionDto>> ListConceptosAsync(CancellationToken cancellationToken = default) =>
+        await _db.ActividadSubcategorias.AsNoTracking()
+            .Where(c => !c.IsArchived)
+            .OrderBy(c => c.Nombre)
+            .Select(c => new AgendaOpcionDto(c.Id, c.Nombre))
+            .ToListAsync(cancellationToken);
+
+    public async Task<DateOnly> HoyAsync(CancellationToken cancellationToken = default) => (await AhoraLocalAsync(cancellationToken)).Fecha;
+
+    /// <summary>Ultimos 10 digitos de un telefono (mismo criterio que el Directorio y los casos del cliente).</summary>
+    public static string? Ultimos10(string? telefono)
+    {
+        if (string.IsNullOrWhiteSpace(telefono))
+        {
+            return null;
+        }
+        var digitos = new string(telefono.Where(char.IsDigit).ToArray());
+        if (digitos.Length < 7)
+        {
+            return null;
+        }
+        return digitos.Length > 10 ? digitos[^10..] : digitos;
+    }
 
     private readonly record struct AhoraLocal(DateOnly Fecha, TimeOnly Hora, DateTime Momento);
 

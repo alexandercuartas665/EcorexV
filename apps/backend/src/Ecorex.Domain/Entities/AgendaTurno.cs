@@ -39,6 +39,12 @@ public sealed class AgendaTurno : TenantEntity, ISoftDeletable, IVersioned
     /// <summary>Contacto del Directorio, si se vinculo.</summary>
     public Guid? TerceroId { get; set; }
 
+    /// <summary>Tarea de ECOREX creada para el turno (si el servicio tiene concepto).</summary>
+    public Guid? TaskItemId { get; set; }
+
+    /// <summary>Conversacion (WhatsApp/chat) desde la que el agente tomo el turno.</summary>
+    public Guid? ConversationId { get; set; }
+
     /// <summary>Nota libre. varchar(500).</summary>
     public string? Nota { get; set; }
 

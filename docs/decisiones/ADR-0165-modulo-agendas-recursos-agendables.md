@@ -1,6 +1,6 @@
 # ADR-0165: Modulo de Agendas generico (recursos agendables, agendas base y agenda del recurso)
 
-**Estado:** Aceptado (olas 1 y 2 en v0.16.313; olas 3 y 4 en v0.16.314; olas 5 y 6 propuestas)
+**Estado:** Aceptado (olas 1 y 2 en v0.16.313; olas 3 y 4 en v0.16.314; ola 5 en v0.16.315; ola 6 propuesta)
 **Fecha:** 2026-11-12
 **Relacionado:** proyecto hermano Visal (modulos "Agendas base", "Agendas de profesionales", "Calendario",
 "Novedades de profesionales"); ADR-0106 (calendario operativo del tenant); CLAUDE.md seccion 7 (se elimino del
@@ -71,7 +71,22 @@ entidad "Cita" del repo es la agenda del Gestor de Clientes (000740), una funcio
    - Novedad sobre turnos ya tomados: se guarda, AVISA cuantos turnos quedaron dentro y la lista de Turnos los marca
      "Choca con: ..." (tambien si el calendario cierra el dia despues) para reprogramarlos. No se mueven solos.
    - Un recurso o servicio con turnos proximos no se puede quitar.
-   - Pendiente: crear una TAREA de ECOREX por turno (concepto, flujo, formulario) y vista Calendario.
+5. (hecha, v0.16.315) Integracion con el resto de ECOREX:
+   - TAREA por turno: el servicio elige un CONCEPTO (opcional); cada turno crea una tarea de ese concepto via
+     ITaskItemService (hereda tablero, columna, flujo y formulario), con inicio/vencimiento = horas del turno,
+     contacto del Directorio, conversacion de origen y asignada al usuario del primer recurso tipo persona. Se
+     crea DESPUES de confirmar el turno y es best-effort (un fallo queda en el historial, no deshace la reserva).
+     Reprogramar actualiza las fechas y comenta; cancelar comenta y ARCHIVA la tarea (la maquina de estados no
+     deja cerrar una tarea pendiente, y archivar no la marca como trabajo hecho).
+   - Directorio: el turno se liga a un contacto (persona o empresa) con el selector del Directorio; sin telefono
+     se toma el de la ficha. El agente lo liga solo por los ultimos 10 digitos del telefono de la conversacion.
+   - Agente (grupo de herramientas "agendas", encendido por defecto, se apaga por agente): servicios_agendables,
+     consultar_disponibilidad, reservar_turno, turnos_del_cliente, reprogramar_turno y cancelar_turno. Solo
+     servicios con "el agente puede reservarlo" y recursos con "el agente puede agendar"; el telefono sale de la
+     conversacion (no del modelo); solo toca turnos de ESE cliente; no duplica la misma reserva; reservar/
+     reprogramar/cancelar cuentan como cierre (red de seguridad ADR-0154) y marcan la tarea como tocada para la
+     alerta de cierre (ADR-0163). Sin huecos en la fecha pedida devuelve 'siguientes' para que no invente horarios.
+   - Vista Calendario de la semana en Turnos (dias x horas, color por estado, marca de conflicto).
 5. (propuesta) Herramientas del agente: consultar_disponibilidad, reservar_turno, turnos_del_cliente, reprogramar,
    cancelar; recordatorio y "no asistio". `AgendaRecurso.AgenteHabilitado` ya existe para gobernarlo.
 6. (propuesta) Reserva publica por enlace.
@@ -80,8 +95,8 @@ entidad "Cita" del repo es la agenda del Gestor de Clientes (000740), una funcio
 
 - Cada tenant puede montar agendas de cualquier cosa sin codigo, con el mismo proceso que ya usa Visal.
 - La disponibilidad descuenta los turnos tomados (ola 4); la ficha del recurso muestra "N tomados".
-- Pendiente: tarea de ECOREX por turno, herramientas del agente, vinculo del cliente al Directorio, aplicar el
-  cambio de una agenda base a sus copias, franjas que cruzan la medianoche, festivos con excepcion por recurso.
+- Pendiente: reserva publica por enlace (ola 6), aplicar el cambio de una agenda base a sus copias, franjas que
+  cruzan la medianoche, festivos con excepcion por recurso, recordatorio automatico antes del turno.
 
 ## Verificacion
 
@@ -93,3 +108,8 @@ entidad "Cita" del repo es la agenda del Gestor de Clientes (000740), una funcio
 - Olas 3 y 4: `AgendaTurnosCalculoTests` (unitarias) y `AgendaTurnosTests` dual PG + SQL Server (separar hasta agotar,
   reprogramar, cancelar, festivo, anticipacion, novedad sobre turno tomado, aislamiento). Simulacion por Chrome con un
   consultorio medico y un CDA (linea con 2 cupos + 2 inspectores).
+- Ola 5: `AgendaTurnosTests` dual (tarea por turno ligada al Directorio y al dia con reprogramar/cancelar; agente
+  consulta/reserva/reprograma/cancela solo lo de su cliente, nombre tolerante, 'siguientes'). E2E con SARA por el
+  emulador de canal: la primera corrida destapo que el modelo usaba 'fecha' (no 'desde'), escribia el servicio
+  distinto y, ante vacio, INVENTO horarios; corregido (alias, coincidencia tolerante, 'siguientes', regla en la
+  descripcion). Segunda corrida: ofrecio horas reales y reservo el turno con su tarea T00101 ligada al contacto.

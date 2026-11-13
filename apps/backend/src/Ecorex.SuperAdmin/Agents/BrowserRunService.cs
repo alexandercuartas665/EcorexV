@@ -312,6 +312,11 @@ public sealed class BrowserRunService(
     /// pasos que corren en el servidor dentro del flujo (Crear actividad). La compilada no recorre bucles ni
     /// ingiere por IngestPath, asi que "Ejecutar ahora" y la programacion de esos flujos no procesaban nada.
     /// </summary>
+    // Espera tras un paso en la corrida completa por pasos: valores < 100 son los "segundos" heredados del dron
+    // legacy y se ignoran (no son ms reales); tope de 2 minutos por paso.
+    internal const int MinPostStepWaitMs = 100;
+    internal const int MaxPostStepWaitMs = 120_000;
+
     internal static bool NeedsStepwise(ScrapeFlow flow)
         => flow.Steps.Any(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) || s.Kind == ScrapeStepKind.CrearActividad);
 
@@ -430,6 +435,17 @@ public sealed class BrowserRunService(
                 }
                 // Pasos guarda/driver (Exploracion/Variable sin filas) devuelven Ok=false de forma benigna: se anota y sigue.
                 if (!r.Ok) { notas.Add(paso.Name); }
+
+                // Corrida completa nueva: respeta la espera del paso (WaitMs, en ms) antes del siguiente. El agente
+                // corre el JS y vuelve de inmediato; si el script dispara un postback (filtrar, consultar, login), sin
+                // esta pausa el paso siguiente leia la pagina VIEJA (0 filas). En el paso a paso manual la pausa la
+                // ponia el operador entre clics. Los bucles no pasan por aqui (ya funcionan con su propio ritmo) y la
+                // corrida del conciliador DIAN (freshSession=false) queda exactamente igual.
+                if (freshSession && paso.Kind != ScrapeStepKind.Wait && string.IsNullOrWhiteSpace(paso.LoopOverVar)
+                    && paso.WaitMs is int espera && espera >= MinPostStepWaitMs)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(espera, MaxPostStepWaitMs)), ct);
+                }
             }
 
             var det = $"Flujo ejecutado paso a paso ({steps.Count} pasos)"

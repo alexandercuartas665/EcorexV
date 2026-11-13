@@ -1174,6 +1174,148 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("agenda_recurso_vigencias", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaServicio", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit")
+                        .HasColumnName("activo");
+
+                    b.Property<bool>("AgentePuedeReservar")
+                        .HasColumnType("bit")
+                        .HasColumnName("agente_puede_reservar");
+
+                    b.Property<int>("AnticipacionMaxDias")
+                        .HasColumnType("int")
+                        .HasColumnName("anticipacion_max_dias");
+
+                    b.Property<int>("AnticipacionMinMinutos")
+                        .HasColumnType("int")
+                        .HasColumnName("anticipacion_min_minutos");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<int>("DuracionMinutos")
+                        .HasColumnType("int")
+                        .HasColumnName("duracion_minutos");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("nombre");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_servicios");
+
+                    b.HasIndex("TenantId", "Nombre")
+                        .HasDatabaseName("ix_agenda_servicios_tenant_id_nombre");
+
+                    b.ToTable("agenda_servicios", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaServicioRequisito", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("nombre");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int")
+                        .HasColumnName("orden");
+
+                    b.Property<string>("RecursoIdsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("recurso_ids_json");
+
+                    b.Property<Guid>("ServicioId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("servicio_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_servicio_requisitos");
+
+                    b.HasIndex("ServicioId")
+                        .HasDatabaseName("ix_agenda_servicio_requisitos_servicio_id");
+
+                    b.HasIndex("TenantId", "ServicioId", "Orden")
+                        .HasDatabaseName("ix_agenda_servicio_requisitos_tenant_id_servicio_id_orden");
+
+                    b.ToTable("agenda_servicio_requisitos", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AgendaTipoRecurso", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1252,6 +1394,200 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_agenda_tipos_recurso_tenant_id_nombre");
 
                     b.ToTable("agenda_tipos_recurso", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaTurno", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ClienteNombre")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("cliente_nombre");
+
+                    b.Property<string>("ClienteTelefono")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("cliente_telefono");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("estado");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha");
+
+                    b.Property<DateTimeOffset>("FinUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fin_utc");
+
+                    b.Property<string>("Historial")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("historial");
+
+                    b.Property<TimeOnly>("HoraFin")
+                        .HasColumnType("time")
+                        .HasColumnName("hora_fin");
+
+                    b.Property<TimeOnly>("HoraInicio")
+                        .HasColumnType("time")
+                        .HasColumnName("hora_inicio");
+
+                    b.Property<DateTimeOffset>("InicioUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("inicio_utc");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Nota")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("nota");
+
+                    b.Property<string>("Origen")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("origen");
+
+                    b.Property<int>("Reprogramaciones")
+                        .HasColumnType("int")
+                        .HasColumnName("reprogramaciones");
+
+                    b.Property<Guid>("ServicioId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("servicio_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("TerceroId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tercero_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_turnos");
+
+                    b.HasIndex("ServicioId")
+                        .HasDatabaseName("ix_agenda_turnos_servicio_id");
+
+                    b.HasIndex("TerceroId")
+                        .HasDatabaseName("ix_agenda_turnos_tercero_id");
+
+                    b.HasIndex("TenantId", "Fecha")
+                        .HasDatabaseName("ix_agenda_turnos_tenant_id_fecha");
+
+                    b.HasIndex("TenantId", "ServicioId", "Fecha")
+                        .HasDatabaseName("ix_agenda_turnos_tenant_id_servicio_id_fecha");
+
+                    b.ToTable("agenda_turnos", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaTurnoRecurso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly>("Fecha")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha");
+
+                    b.Property<TimeOnly>("HoraFin")
+                        .HasColumnType("time")
+                        .HasColumnName("hora_fin");
+
+                    b.Property<TimeOnly>("HoraInicio")
+                        .HasColumnType("time")
+                        .HasColumnName("hora_inicio");
+
+                    b.Property<Guid>("RecursoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("recurso_id");
+
+                    b.Property<string>("Requisito")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("requisito");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TurnoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("turno_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agenda_turno_recursos");
+
+                    b.HasIndex("RecursoId")
+                        .HasDatabaseName("ix_agenda_turno_recursos_recurso_id");
+
+                    b.HasIndex("TurnoId")
+                        .HasDatabaseName("ix_agenda_turno_recursos_turno_id");
+
+                    b.HasIndex("TenantId", "RecursoId", "Fecha")
+                        .HasDatabaseName("ix_agenda_turno_recursos_tenant_id_recurso_id_fecha");
+
+                    b.ToTable("agenda_turno_recursos", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AgentActivityLog", b =>
@@ -20363,6 +20699,55 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Recurso");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaServicioRequisito", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaServicio", "Servicio")
+                        .WithMany("Requisitos")
+                        .HasForeignKey("ServicioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_servicio_requisitos_agenda_servicios_servicio_id");
+
+                    b.Navigation("Servicio");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaTurno", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaServicio", "Servicio")
+                        .WithMany()
+                        .HasForeignKey("ServicioId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_turnos_agenda_servicios_servicio_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.Tercero", null)
+                        .WithMany()
+                        .HasForeignKey("TerceroId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agenda_turnos_terceros_tercero_id");
+
+                    b.Navigation("Servicio");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaTurnoRecurso", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.AgendaRecurso", null)
+                        .WithMany()
+                        .HasForeignKey("RecursoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_turno_recursos_agenda_recursos_recurso_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.AgendaTurno", "Turno")
+                        .WithMany("Recursos")
+                        .HasForeignKey("TurnoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_agenda_turno_recursos_agenda_turnos_turno_id");
+
+                    b.Navigation("Turno");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.AiAgent", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ActividadSubcategoria", null)
@@ -22687,6 +23072,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.AgendaRecursoVigencia", b =>
                 {
                     b.Navigation("Franjas");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaServicio", b =>
+                {
+                    b.Navigation("Requisitos");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.AgendaTurno", b =>
+                {
+                    b.Navigation("Recursos");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisHoja", b =>

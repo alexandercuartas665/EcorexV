@@ -5,6 +5,9 @@ namespace Ecorex.Application.Agendas;
 /// <summary>Resultado de una operacion de escritura del modulo de Agendas (ADR-0165): ok + error legible + id.</summary>
 public sealed record AgendaOpResult(bool Ok, string? Error = null, Guid? Id = null)
 {
+    /// <summary>Advertencia de una operacion exitosa (p.ej. turnos que quedan dentro de una novedad nueva).</summary>
+    public string? Aviso { get; init; }
+
     public static AgendaOpResult Bien(Guid? id = null) => new(true, null, id);
     public static AgendaOpResult Mal(string error) => new(false, error);
 }
@@ -56,9 +59,10 @@ public sealed record SaveAgendaNovedadRequest(
 /// <summary>Disponibilidad de un recurso en un dia: franjas de la agenda que aplica, cupos y lo que los cierra.</summary>
 public sealed record AgendaDiaDto(
     DateOnly Fecha, string? VigenciaNombre, IReadOnlyList<AgendaFranjaDto> Franjas,
-    int CuposTotales, int CuposBloqueados, string? Cierre, IReadOnlyList<string> Novedades)
+    int CuposTotales, int CuposBloqueados, string? Cierre, IReadOnlyList<string> Novedades, int CuposOcupados = 0)
 {
-    public int CuposDisponibles => Math.Max(0, CuposTotales - CuposBloqueados);
+    /// <summary>Cupos que aun se pueden tomar: total - cerrados por novedad/calendario - ocupados por turnos.</summary>
+    public int CuposDisponibles => Math.Max(0, CuposTotales - CuposBloqueados - CuposOcupados);
 }
 
 /// <summary>Opcion simple (id + nombre) para selectores de sede o usuario.</summary>

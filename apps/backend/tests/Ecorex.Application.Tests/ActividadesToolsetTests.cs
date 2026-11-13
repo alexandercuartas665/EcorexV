@@ -291,6 +291,10 @@ public class ActividadesToolsetTests
         public DbSet<AgendaRecursoVigencia> AgendaRecursoVigencias => throw new NotSupportedException();
         public DbSet<AgendaRecursoFranja> AgendaRecursoFranjas => throw new NotSupportedException();
         public DbSet<AgendaNovedad> AgendaNovedades => throw new NotSupportedException();
+        public DbSet<AgendaServicio> AgendaServicios => throw new NotSupportedException();
+        public DbSet<AgendaServicioRequisito> AgendaServicioRequisitos => throw new NotSupportedException();
+        public DbSet<AgendaTurno> AgendaTurnos => throw new NotSupportedException();
+        public DbSet<AgendaTurnoRecurso> AgendaTurnoRecursos => throw new NotSupportedException();
         public DbSet<ActividadSubcategoriaPlantillaGrupo> ActividadSubcategoriaPlantillaGrupos => throw new NotSupportedException();
         public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => throw new NotSupportedException();
         public DbSet<DocumentTemplate> DocumentTemplates => throw new NotSupportedException();

@@ -354,6 +354,11 @@ public interface IApplicationDbContext
     DbSet<AgendaRecursoVigencia> AgendaRecursoVigencias { get; }
     DbSet<AgendaRecursoFranja> AgendaRecursoFranjas { get; }
     DbSet<AgendaNovedad> AgendaNovedades { get; }
+    /// <summary>Agendas olas 3 y 4 (ADR-0165): servicios agendables con sus requisitos y turnos tomados.</summary>
+    DbSet<AgendaServicio> AgendaServicios { get; }
+    DbSet<AgendaServicioRequisito> AgendaServicioRequisitos { get; }
+    DbSet<AgendaTurno> AgendaTurnos { get; }
+    DbSet<AgendaTurnoRecurso> AgendaTurnoRecursos { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 

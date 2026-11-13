@@ -119,8 +119,10 @@ public static class AgendaCalculo
         DateOnly fecha,
         IEnumerable<AgendaVigenciaCalc> vigencias,
         IEnumerable<AgendaBloqueo> bloqueos,
-        string? cierreCalendario)
+        string? cierreCalendario,
+        IEnumerable<AgendaOcupacion>? ocupaciones = null)
     {
+        var ocup = ocupaciones?.ToList() ?? new List<AgendaOcupacion>();
         var vigencia = VigenciaPara(vigencias, fecha);
         var franjas = vigencia?.Franjas.Where(f => f.Dia == fecha.DayOfWeek).OrderBy(f => f.Inicio).ToList()
             ?? new List<AgendaFranjaDto>();
@@ -137,6 +139,7 @@ public static class AgendaCalculo
         }
 
         var bloqueados = 0;
+        var ocupados = 0;
         foreach (var f in franjas)
         {
             var bloques = Bloques(f);
@@ -148,9 +151,13 @@ public static class AgendaCalculo
                 {
                     bloqueados += f.Cupo;
                 }
+                else
+                {
+                    ocupados += Math.Min(f.Cupo, ocup.Count(o => o.Inicio < fin && o.Fin > ini));
+                }
             }
         }
-        return new AgendaDiaDto(fecha, vigencia.Nombre, franjas, total, bloqueados, null, delDia.Select(b => b.Etiqueta).ToList());
+        return new AgendaDiaDto(fecha, vigencia.Nombre, franjas, total, bloqueados, null, delDia.Select(b => b.Etiqueta).ToList(), ocupados);
     }
 
     /// <summary>Lunes de la semana de <paramref name="fecha"/>.</summary>

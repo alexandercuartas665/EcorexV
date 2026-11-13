@@ -1,0 +1,428 @@
+@page "/agendas/turnos"
+@* Modulo de Agendas (ADR-0165, ola 4): turnos. Separar un turno sobre los huecos libres de un servicio,
+   reprogramarlo, confirmarlo, marcarlo atendido / no asistio o cancelarlo (libera el cupo). Permiso
+   "agendas/turnos": Ver = entrar; Crear = agendar; Editar = reprogramar y cambiar estado. *@
+@attribute [Authorize(Policy = "Perm:agendas/turnos:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Globalization
+@using Ecorex.Application.Agendas
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Auth
+@inject IAgendaTurnosService Svc
+@inject IAgendaService Agendas
+@inject ICurrentPermissions Perms
+
+<PageTitle>Turnos - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">@MenuIcons.Render("calendar")</div>
+            <span>Agendas</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Turnos</h1>
+        <p class="page-sub" style="margin-bottom:0;">Separa turnos sobre los huecos libres, reprogramalos y lleva su estado. Los festivos salen del calendario de la entidad.</p>
+    </div>
+    @if (_canCreate && _servicios.Count > 0)
+    {
+        <button class="btn btn-primary" @onclick="() => AbrirAgendar(null)">+ Agendar turno</button>
+    }
+</div>
+
+@if (_cargando)
+{
+    <p class="agx-muted">Cargando...</p>
+}
+else if (_servicios.Count == 0)
+{
+    <div class="agx-card agx-empty">
+        <h3>Primero crea un servicio agendable</h3>
+        <p>Los turnos se toman sobre un servicio (duracion + recursos que ocupa).</p>
+        <a class="btn btn-primary" href="agendas/servicios">Ir a servicios agendables</a>
+    </div>
+}
+else
+{
+    @if (_msg is not null)
+    {
+        <div class="alert alert-success" style="margin-bottom:12px;">@_msg</div>
+    }
+    <div class="agx-toolbar" style="justify-content:space-between;">
+        <div class="agx-toolbar" style="margin:0;">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(-7)">&larr;</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(0)">Esta semana</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverSemana(7)">&rarr;</button>
+            <b style="margin-left:6px;">Semana del @_lunes.ToString("dd MMM yyyy", Es)</b>
+        </div>
+        <div class="agx-toolbar" style="margin:0;">
+            <select class="form-control" style="width:auto;" aria-label="Filtrar por servicio" @onchange="async e => { _filtroServicio = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; await CargarAsync(); }">
+                <option value="">Todos los servicios</option>
+                @foreach (var s in _servicios)
+                {
+                    <option value="@s.Id">@s.Nombre</option>
+                }
+            </select>
+            <select class="form-control" style="width:auto;" aria-label="Filtrar por recurso" @onchange="async e => { _filtroRecurso = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null; await CargarAsync(); }">
+                <option value="">Todos los recursos</option>
+                @foreach (var r in _recursos)
+                {
+                    <option value="@r.Id">@r.Nombre</option>
+                }
+            </select>
+            <label style="display:flex;gap:6px;align-items:center;margin:0;font-size:13px;"><input type="checkbox" @bind="_verCancelados" /> Ver cancelados</label>
+        </div>
+    </div>
+
+    @if (Visibles.Count == 0)
+    {
+        <div class="agx-card agx-empty"><p>No hay turnos esta semana con estos filtros.</p></div>
+    }
+    else
+    {
+        <div class="agx-card agx-scroll">
+            <table class="agx-table">
+                <thead><tr><th>Cuando</th><th>Servicio</th><th>Cliente</th><th>Recursos</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var t in Visibles)
+                    {
+                        <tr>
+                            <td class="agx-num" style="white-space:nowrap;"><b>@t.Fecha.ToString("ddd dd MMM", Es)</b><br /><span class="agx-muted">@t.HoraInicio.ToString("HH:mm")&ndash;@t.HoraFin.ToString("HH:mm")</span></td>
+                            <td>@t.ServicioNombre@(t.Reprogramaciones > 0 ? $" (reprogramado x{t.Reprogramaciones})" : "")</td>
+                            <td><b>@t.ClienteNombre</b>@if (!string.IsNullOrWhiteSpace(t.ClienteTelefono)) {<br /><span class="agx-muted">@t.ClienteTelefono</span>}</td>
+                            <td style="font-size:12.5px;">@foreach (var r in t.Recursos) {<div><span class="agx-muted">@r.Requisito:</span> @r.RecursoNombre</div>}</td>
+                            <td><span class="agx-chip @ColorEstado(t.Estado)">@NombreEstado(t.Estado)</span>@if (t.Conflicto is not null) {<br /><span class="agx-chip rose" style="margin-top:4px;white-space:normal;" title="Reprogramalo o cancelalo">Choca con: @t.Conflicto</span>}@if (t.Origen != AgendaTurnoOrigen.Manual) {<br /><span class="agx-muted" style="font-size:11.5px;">@t.Origen</span>}</td>
+                            <td style="text-align:right;white-space:nowrap;">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _detalle = t">Ver</button>
+                                @if (_canEdit && AgendaTurnosCalculo.Reprogramable(t.Estado))
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => AbrirAgendar(t)">Reprogramar</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@* ---------------- Modal: agendar / reprogramar ---------------- *@
+@if (_ag is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:860px;">
+            <div class="modal-head">
+                <h3>@(_ag.Turno is null ? "Agendar turno" : $"Reprogramar turno de {_ag.Turno.ClienteNombre}")</h3>
+                <button class="modal-close" @onclick="() => _ag = null">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="field-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
+                    <div class="field">
+                        <label class="form-label" for="ag-t-serv">Servicio</label>
+                        <select id="ag-t-serv" class="form-control" disabled="@(_ag.Turno is not null)" value="@_ag.ServicioId" @onchange="async e => { if (Guid.TryParse(e.Value?.ToString(), out var g)) { _ag.ServicioId = g; _ag.Hueco = null; await CargarHuecos(); } }">
+                            @foreach (var s in _servicios.Where(s => s.Activo || s.Id == _ag.ServicioId))
+                            {
+                                <option value="@s.Id">@s.Nombre (@s.DuracionMinutos min)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Huecos desde</label>
+                        <div class="agx-toolbar" style="margin:0;">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverHuecos(-7)">&larr;</button>
+                            <span class="agx-num" style="font-weight:600;">@_ag.Desde.ToString("dd MMM", Es) a @_ag.Desde.AddDays(6).ToString("dd MMM", Es)</span>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoverHuecos(7)">&rarr;</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="agx-card" style="max-height:300px;overflow:auto;margin-bottom:12px;">
+                    @if (_ag.Cargando)
+                    {
+                        <p class="agx-muted" style="padding:12px 16px;margin:0;">Buscando huecos...</p>
+                    }
+                    else if (_ag.Huecos.Count == 0)
+                    {
+                        <p class="agx-muted" style="padding:12px 16px;margin:0;">No hay huecos libres en estos 7 dias. Prueba la semana siguiente.</p>
+                    }
+                    else
+                    {
+                        @foreach (var dia in _ag.Huecos.GroupBy(h => h.Fecha))
+                        {
+                            <div style="padding:10px 16px;border-bottom:1px solid var(--line);">
+                                <div style="font-weight:700;font-size:13px;margin-bottom:6px;">@dia.Key.ToString("dddd dd MMM", Es) <span class="agx-muted" style="font-weight:500;">&middot; @dia.Count() huecos</span></div>
+                                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                                    @foreach (var h in dia)
+                                    {
+                                        <button type="button" class="agx-fchip @(Igual(_ag.Hueco, h) ? "on" : "")" @onclick="() => _ag.Hueco = h">@h.Inicio.ToString("HH:mm")</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                @if (_ag.Hueco is not null)
+                {
+                    <div class="alert alert-info" style="margin-bottom:10px;">
+                        <b>@_ag.Hueco.Fecha.ToString("dddd dd MMM", Es), @_ag.Hueco.Inicio.ToString("HH:mm") a @_ag.Hueco.Fin.ToString("HH:mm")</b>
+                        con @string.Join(" + ", _ag.Hueco.Asignacion.Select(a => $"{a.Requisito}: {a.RecursoNombre}"))
+                    </div>
+                }
+                @if (_ag.Turno is null)
+                {
+                    <div class="field-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
+                        <div class="field">
+                            <label class="form-label" for="ag-t-cli">Cliente *</label>
+                            <input id="ag-t-cli" class="form-control" @bind="_ag.Cliente" placeholder="Nombre de quien toma el turno" />
+                        </div>
+                        <div class="field">
+                            <label class="form-label" for="ag-t-tel">Telefono</label>
+                            <input id="ag-t-tel" class="form-control" @bind="_ag.Telefono" placeholder="3001234567" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="ag-t-nota">Nota</label>
+                        <input id="ag-t-nota" class="form-control" @bind="_ag.Nota" placeholder="Placa, motivo de consulta, observaciones" />
+                    </div>
+                }
+                else
+                {
+                    <div class="field">
+                        <label class="form-label" for="ag-t-motivo">Motivo de la reprogramacion</label>
+                        <input id="ag-t-motivo" class="form-control" @bind="_ag.Nota" placeholder="El cliente pidio otro dia, incapacidad del medico..." />
+                    </div>
+                }
+                @if (_ag.Error is not null)
+                {
+                    <div class="alert alert-danger">@_ag.Error</div>
+                }
+            </div>
+            <div class="modal-foot">
+                <span style="flex:1"></span>
+                <button class="btn btn-outline-secondary" @onclick="() => _ag = null">Cancelar</button>
+                <button class="btn btn-primary" disabled="@(_busy || _ag.Hueco is null)" @onclick="ConfirmarAgendar">@(_ag.Turno is null ? "Separar turno" : "Mover turno")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---------------- Modal: detalle / estado ---------------- *@
+@if (_detalle is not null)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="max-width:640px;">
+            <div class="modal-head">
+                <h3>@_detalle.ClienteNombre &middot; @_detalle.ServicioNombre</h3>
+                <button class="modal-close" @onclick="CerrarDetalle">&times;</button>
+            </div>
+            <div class="modal-body">
+                <dl class="agx-kv" style="margin-bottom:12px;">
+                    <dt>Cuando</dt><dd>@_detalle.Fecha.ToString("dddd dd MMM yyyy", Es), @_detalle.HoraInicio.ToString("HH:mm")&ndash;@_detalle.HoraFin.ToString("HH:mm")</dd>
+                    <dt>Estado</dt><dd><span class="agx-chip @ColorEstado(_detalle.Estado)">@NombreEstado(_detalle.Estado)</span></dd>
+                    <dt>Telefono</dt><dd>@(_detalle.ClienteTelefono ?? "-")</dd>
+                    <dt>Recursos</dt><dd>@string.Join(", ", _detalle.Recursos.Select(r => $"{r.Requisito}: {r.RecursoNombre}"))</dd>
+                    <dt>Nota</dt><dd>@(_detalle.Nota ?? "-")</dd>
+                </dl>
+                <div class="form-label">Historial</div>
+                <pre style="white-space:pre-wrap;font-size:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:180px;overflow:auto;">@_detalle.Historial</pre>
+                @if (_canEdit && Siguientes(_detalle.Estado).Any())
+                {
+                    <div class="field">
+                        <label class="form-label" for="ag-t-mot">Motivo (obligatorio para cancelar)</label>
+                        <input id="ag-t-mot" class="form-control" @bind="_motivo" placeholder="Por que cambia el estado" />
+                    </div>
+                }
+                @if (_errDet is not null)
+                {
+                    <div class="alert alert-danger">@_errDet</div>
+                }
+            </div>
+            <div class="modal-foot" style="flex-wrap:wrap;gap:6px;">
+                @if (_canEdit)
+                {
+                    @foreach (var e in Siguientes(_detalle.Estado))
+                    {
+                        <button class="btn btn-sm @(e == AgendaTurnoEstado.Cancelado ? "btn-outline-danger" : "btn-outline-secondary")" disabled="@_busy" @onclick="() => Cambiar(e)">@Accion(e)</button>
+                    }
+                    @if (AgendaTurnosCalculo.Reprogramable(_detalle.Estado))
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="async () => { var t = _detalle; _detalle = null; await AbrirAgendar(t); }">Reprogramar</button>
+                    }
+                }
+                <span style="flex:1"></span>
+                <button class="btn btn-outline-secondary" @onclick="CerrarDetalle">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string ModuleKey = "agendas/turnos";
+    private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CO");
+
+    private sealed class AgendarEdit
+    {
+        public AgendaTurnoDto? Turno { get; set; }
+        public Guid ServicioId { get; set; }
+        public DateOnly Desde { get; set; }
+        public bool Cargando { get; set; }
+        public IReadOnlyList<AgendaHueco> Huecos { get; set; } = Array.Empty<AgendaHueco>();
+        public AgendaHueco? Hueco { get; set; }
+        public string? Cliente { get; set; }
+        public string? Telefono { get; set; }
+        public string? Nota { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private bool _cargando = true;
+    private bool _busy;
+    private bool _canCreate, _canEdit;
+    private bool _verCancelados;
+    private string? _msg, _errDet, _motivo;
+    private DateOnly _hoy, _lunes;
+    private Guid? _filtroServicio, _filtroRecurso;
+    private IReadOnlyList<AgendaServicioDto> _servicios = Array.Empty<AgendaServicioDto>();
+    private IReadOnlyList<AgendaRecursoDto> _recursos = Array.Empty<AgendaRecursoDto>();
+    private IReadOnlyList<AgendaTurnoDto> _turnos = Array.Empty<AgendaTurnoDto>();
+    private AgendarEdit? _ag;
+    private AgendaTurnoDto? _detalle;
+
+    private List<AgendaTurnoDto> Visibles => _turnos.Where(t => _verCancelados || t.Estado != AgendaTurnoEstado.Cancelado).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canCreate = await Perms.CanCreateAsync(ModuleKey);
+        _canEdit = await Perms.CanEditAsync(ModuleKey);
+        _hoy = await Agendas.HoyAsync();
+        _lunes = AgendaCalculo.LunesDe(_hoy);
+        _servicios = await Svc.ListServiciosAsync();
+        _recursos = await Agendas.ListRecursosAsync();
+        await CargarAsync();
+        _cargando = false;
+    }
+
+    private async Task CargarAsync() =>
+        _turnos = await Svc.ListTurnosAsync(_lunes, _lunes.AddDays(6), _filtroRecurso, _filtroServicio);
+
+    private async Task MoverSemana(int dias)
+    {
+        _lunes = dias == 0 ? AgendaCalculo.LunesDe(_hoy) : _lunes.AddDays(dias);
+        await CargarAsync();
+    }
+
+    private async Task AbrirAgendar(AgendaTurnoDto? turno)
+    {
+        _msg = null;
+        var servicio = turno?.ServicioId ?? _filtroServicio ?? _servicios.FirstOrDefault(s => s.Activo)?.Id ?? _servicios[0].Id;
+        _ag = new AgendarEdit
+        {
+            Turno = turno,
+            ServicioId = servicio,
+            Desde = turno is null ? (_lunes > _hoy ? _lunes : _hoy) : (turno.Fecha > _hoy ? turno.Fecha : _hoy)
+        };
+        await CargarHuecos();
+    }
+
+    private async Task MoverHuecos(int dias)
+    {
+        if (_ag is null) { return; }
+        var nuevo = _ag.Desde.AddDays(dias);
+        _ag.Desde = nuevo < _hoy ? _hoy : nuevo;
+        _ag.Hueco = null;
+        await CargarHuecos();
+    }
+
+    private async Task CargarHuecos()
+    {
+        if (_ag is null) { return; }
+        _ag.Cargando = true;
+        StateHasChanged();
+        _ag.Huecos = await Svc.HuecosAsync(_ag.ServicioId, _ag.Desde, 7, _ag.Turno?.Id);
+        _ag.Cargando = false;
+    }
+
+    private static bool Igual(AgendaHueco? a, AgendaHueco b) => a is not null && a.Fecha == b.Fecha && a.Inicio == b.Inicio;
+
+    private async Task ConfirmarAgendar()
+    {
+        if (_ag?.Hueco is null || _busy) { return; }
+        _busy = true;
+        _ag.Error = null;
+        try
+        {
+            var h = _ag.Hueco;
+            var res = _ag.Turno is null
+                ? await Svc.ReservarAsync(new ReservarTurnoRequest(_ag.ServicioId, h.Fecha, h.Inicio, _ag.Cliente ?? string.Empty, _ag.Telefono, _ag.Nota))
+                : await Svc.ReprogramarAsync(new ReprogramarTurnoRequest(_ag.Turno.Id, h.Fecha, h.Inicio, _ag.Nota, _ag.Turno.Version));
+            if (!res.Ok)
+            {
+                _ag.Error = res.Error;
+                await CargarHuecos();
+                return;
+            }
+            _msg = _ag.Turno is null
+                ? $"Turno separado: {h.Fecha.ToString("dddd dd MMM", Es)} a las {h.Inicio:HH\\:mm}."
+                : $"Turno movido al {h.Fecha.ToString("dddd dd MMM", Es)} a las {h.Inicio:HH\\:mm}.";
+            _lunes = AgendaCalculo.LunesDe(h.Fecha);
+            _ag = null;
+            await CargarAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private void CerrarDetalle()
+    {
+        _detalle = null;
+        _errDet = null;
+        _motivo = null;
+    }
+
+    private async Task Cambiar(AgendaTurnoEstado estado)
+    {
+        if (_detalle is null || _busy) { return; }
+        _busy = true;
+        _errDet = null;
+        try
+        {
+            var res = await Svc.CambiarEstadoAsync(new CambiarEstadoTurnoRequest(_detalle.Id, estado, _motivo, _detalle.Version));
+            if (!res.Ok) { _errDet = res.Error; return; }
+            await CargarAsync();
+            _detalle = await Svc.GetTurnoAsync(_detalle.Id);
+            _motivo = null;
+            _msg = $"Turno {NombreEstado(estado).ToLowerInvariant()}.";
+        }
+        finally { _busy = false; }
+    }
+
+    private static IEnumerable<AgendaTurnoEstado> Siguientes(AgendaTurnoEstado e) =>
+        new[] { AgendaTurnoEstado.Confirmado, AgendaTurnoEstado.Atendido, AgendaTurnoEstado.NoAsistio, AgendaTurnoEstado.Cancelado }
+            .Where(x => AgendaTurnosCalculo.PuedeCambiar(e, x));
+
+    private static string Accion(AgendaTurnoEstado e) => e switch
+    {
+        AgendaTurnoEstado.Confirmado => "Confirmar",
+        AgendaTurnoEstado.Atendido => "Marcar atendido",
+        AgendaTurnoEstado.NoAsistio => "No asistio",
+        AgendaTurnoEstado.Cancelado => "Cancelar turno",
+        _ => e.ToString()
+    };
+
+    private static string NombreEstado(AgendaTurnoEstado e) => e switch
+    {
+        AgendaTurnoEstado.Reservado => "Reservado",
+        AgendaTurnoEstado.Confirmado => "Confirmado",
+        AgendaTurnoEstado.Atendido => "Atendido",
+        AgendaTurnoEstado.NoAsistio => "No asistio",
+        _ => "Cancelado"
+    };
+
+    private static string ColorEstado(AgendaTurnoEstado e) => e switch
+    {
+        AgendaTurnoEstado.Reservado => "blue",
+        AgendaTurnoEstado.Confirmado => "green",
+        AgendaTurnoEstado.Atendido => "slate",
+        AgendaTurnoEstado.NoAsistio => "amber",
+        _ => "rose"
+    };
+}

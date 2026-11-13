@@ -152,6 +152,10 @@ else
                         {
                             <div class="alert alert-danger" style="margin:0;">@_errNov</div>
                         }
+                        @if (_avisoNov is not null)
+                        {
+                            <div class="alert alert-warning" style="margin:0;">@_avisoNov <a class="agx-link" href="agendas/turnos">Ir a Turnos</a></div>
+                        }
                     </div>
                 }
             </div>
@@ -232,7 +236,7 @@ else
                                 else
                                 {
                                     <span class="big">@d.CuposDisponibles</span>
-                                    <span class="agx-muted agx-num" style="font-size:12px;">de @d.CuposTotales cupos</span>
+                                    <span class="agx-muted agx-num" style="font-size:12px;">de @d.CuposTotales cupos@(d.CuposOcupados > 0 ? $" \u00B7 {d.CuposOcupados} tomados" : "")</span>
                                     <div class="agx-bar"><i style="width:@(d.CuposTotales == 0 ? 0 : 100 * d.CuposDisponibles / d.CuposTotales)%"></i></div>
                                 }
                                 @foreach (var n in d.Novedades)
@@ -340,7 +344,7 @@ else
     private bool _sucio;
     private bool _confirmBorrarVig;
     private bool _canEdit;
-    private string? _msg, _errVig, _errNov, _errImp;
+    private string? _msg, _errVig, _errNov, _errImp, _avisoNov;
     private DateOnly _hoy;
     private DateOnly _lunes;
     private AgendaRecursoDto? _recurso;
@@ -515,6 +519,7 @@ else
         if (_busy) { return; }
         _busy = true;
         _errNov = null;
+        _avisoNov = null;
         _msg = null;
         try
         {
@@ -526,6 +531,7 @@ else
             }
             _nov = new NovedadEdit { Desde = _hoy, Hasta = _hoy };
             await CargarAsync(_vig?.Id);
+            _avisoNov = res.Aviso;
         }
         finally
         {

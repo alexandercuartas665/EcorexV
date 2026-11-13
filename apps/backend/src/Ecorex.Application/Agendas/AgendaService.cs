@@ -268,6 +268,13 @@ public sealed class AgendaService : IAgendaService
         {
             return AgendaOpResult.Mal("El recurso ya no existe.");
         }
+        var hoy = await HoyAsync(cancellationToken);
+        var pendientes = await _db.AgendaTurnoRecursos.CountAsync(o => o.RecursoId == id && o.Fecha >= hoy
+            && (o.Turno!.Estado == AgendaTurnoEstado.Reservado || o.Turno!.Estado == AgendaTurnoEstado.Confirmado), cancellationToken);
+        if (pendientes > 0)
+        {
+            return AgendaOpResult.Mal($"No se puede quitar: tiene {pendientes} turno(s) proximos. Reprogramalos o cancelalos, o inactiva el recurso.");
+        }
         // Borrado logico en cascada diferida: el recurso y sus vigencias/novedades quedan marcados en una sola
         // transaccion (las franjas cuelgan de la vigencia y no se consultan sin ella).
         await using var tx = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(cancellationToken);
@@ -628,7 +635,20 @@ public sealed class AgendaService : IAgendaService
         n.HoraHasta = request.HoraHasta;
         n.Nota = Limpio(request.Nota, 300);
         await _db.SaveChangesAsync(cancellationToken);
-        return AgendaOpResult.Bien(n.Id);
+
+        // Turnos ya tomados que quedan dentro de la novedad: no se mueven solos, se avisa para reprogramarlos.
+        var dentro = await _db.AgendaTurnoRecursos.AsNoTracking()
+            .Where(o => o.RecursoId == request.RecursoId && o.Fecha >= request.Desde && o.Fecha <= request.Hasta
+                && (o.Turno!.Estado == AgendaTurnoEstado.Reservado || o.Turno!.Estado == AgendaTurnoEstado.Confirmado))
+            .Select(o => new { o.HoraInicio, o.HoraFin })
+            .ToListAsync(cancellationToken);
+        var afectados = dentro.Count(o => request.HoraDesde is not TimeOnly hd || request.HoraHasta is not TimeOnly hh
+            || (hd < o.HoraFin && hh > o.HoraInicio));
+        return AgendaOpResult.Bien(n.Id) with
+        {
+            Aviso = afectados == 0 ? null
+                : $"{afectados} turno(s) ya tomados quedan dentro de esta novedad. Reprogramalos o cancelalos en Turnos (aparecen marcados)."
+        };
     }
 
     public async Task<AgendaOpResult> DeleteNovedadAsync(Guid id, CancellationToken cancellationToken = default)
@@ -667,9 +687,17 @@ public sealed class AgendaService : IAgendaService
             .Where(d => d.Date >= lunes && d.Date <= domingo)
             .ToDictionaryAsync(d => d.Date, d => string.IsNullOrWhiteSpace(d.Reason) ? "Dia no operativo" : d.Reason!, cancellationToken);
 
+        // Turnos tomados (no cancelados) que ocupan este recurso en la semana (ADR-0165 ola 4).
+        var ocupaciones = await _db.AgendaTurnoRecursos.AsNoTracking()
+            .Where(o => o.RecursoId == recursoId && o.Fecha >= lunes && o.Fecha <= domingo
+                && o.Turno!.Estado != AgendaTurnoEstado.Cancelado)
+            .Select(o => new { o.Fecha, o.HoraInicio, o.HoraFin })
+            .ToListAsync(cancellationToken);
+
         return Enumerable.Range(0, 7)
             .Select(i => lunes.AddDays(i))
-            .Select(d => AgendaCalculo.Dia(d, vigencias, bloqueosCalc, cierres.GetValueOrDefault(d)))
+            .Select(d => AgendaCalculo.Dia(d, vigencias, bloqueosCalc, cierres.GetValueOrDefault(d),
+                ocupaciones.Where(o => o.Fecha == d).Select(o => new AgendaOcupacion(o.HoraInicio, o.HoraFin))))
             .ToList();
     }
 

@@ -3943,7 +3943,9 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     private static readonly (string Name, string Route, string Code, string Description)[] AgendasMenuItems =
     {
         ("Recursos agendables", "agendas/recursos", "001683", "Recursos con agenda (personas, espacios, equipos...), su agenda propia y novedades (ADR-0165)."),
-        ("Agendas base", "agendas/base", "001684", "Plantillas semanales reutilizables que se importan a cada recurso (ADR-0165).")
+        ("Agendas base", "agendas/base", "001684", "Plantillas semanales reutilizables que se importan a cada recurso (ADR-0165)."),
+        ("Servicios agendables", "agendas/servicios", "001685", "Que se reserva: duracion, anticipacion y recursos que ocupa a la vez (ADR-0165 ola 3)."),
+        ("Turnos", "agendas/turnos", "001686", "Separar, reprogramar, confirmar y cancelar turnos sobre los huecos libres (ADR-0165 ola 4).")
     };
 
     /// <summary>Registra (insert-if-missing) las definiciones de modulo de Agendas en el catalogo global

@@ -1,6 +1,6 @@
 # ADR-0165: Modulo de Agendas generico (recursos agendables, agendas base y agenda del recurso)
 
-**Estado:** Aceptado (olas 1 y 2 implementadas en v0.16.313; olas 3 a 6 propuestas)
+**Estado:** Aceptado (olas 1 y 2 en v0.16.313; olas 3 y 4 en v0.16.314; olas 5 y 6 propuestas)
 **Fecha:** 2026-11-12
 **Relacionado:** proyecto hermano Visal (modulos "Agendas base", "Agendas de profesionales", "Calendario",
 "Novedades de profesionales"); ADR-0106 (calendario operativo del tenant); CLAUDE.md seccion 7 (se elimino del
@@ -53,10 +53,25 @@ entidad "Cita" del repo es la agenda del Gestor de Clientes (000740), una funcio
 
 1. (hecha) Tipos de recurso, recursos agendables, agendas base.
 2. (hecha) Agenda del recurso (importar, vigencias, editar), novedades, disponibilidad semanal con el calendario.
-3. (propuesta) Servicios agendables: duracion, recursos requeridos a la vez (p.ej. tecnico + vehiculo), colchones,
-   anticipacion minima/maxima, concepto de tarea que nace al reservar.
-4. (propuesta) Turnos como TAREAS de ECOREX (TaskItem con fecha y recursos): vistas Tablero/Lista/Calendario y
-   concurrencia optimista para no entregar el mismo cupo dos veces.
+3. (hecha, v0.16.314) Servicios agendables: duracion, anticipacion minima (minutos) y maxima (dias), "el agente puede
+   reservar" y REQUISITOS: cada requisito se cumple con UNO de sus recursos elegibles libre todo el turno; varios
+   requisitos = varios recursos a la vez (p.ej. Linea + Inspector). Los elegibles se guardan como JSON de ids,
+   validados contra el tenant al guardar y filtrados por el filtro global al calcular.
+4. (hecha, v0.16.314) Turnos (`AgendaTurno` + `AgendaTurnoRecurso`): separar sobre los huecos libres, reprogramar,
+   confirmar, atendido, no asistio y cancelar (con motivo; libera el cupo). Fecha y horas locales + instante UTC.
+   Historial legible en el turno.
+   - Reglas del hueco: empieza en el inicio de un bloque de la franja de CADA recurso asignado (si los bloques
+     difieren, solo valen los inicios comunes), termina dentro de la franja y ocupa todos los bloques que toca; en
+     cada bloque caben tantos turnos como el cupo. Se prefiere el recurso menos ocupado del dia.
+   - Festivos/dias no operativos: el calendario de la ENTIDAD (TenantOperatingDays, configuracion de la entidad);
+     el modulo no tiene calendario propio.
+   - No entregar el mismo cupo dos veces: reservar/reprogramar tocan la fila de cada recurso asignado dentro de la
+     transaccion; su Version (token de concurrencia) hace fallar a la segunda reserva simultanea ("ese horario se
+     acaba de ocupar").
+   - Novedad sobre turnos ya tomados: se guarda, AVISA cuantos turnos quedaron dentro y la lista de Turnos los marca
+     "Choca con: ..." (tambien si el calendario cierra el dia despues) para reprogramarlos. No se mueven solos.
+   - Un recurso o servicio con turnos proximos no se puede quitar.
+   - Pendiente: crear una TAREA de ECOREX por turno (concepto, flujo, formulario) y vista Calendario.
 5. (propuesta) Herramientas del agente: consultar_disponibilidad, reservar_turno, turnos_del_cliente, reprogramar,
    cancelar; recordatorio y "no asistio". `AgendaRecurso.AgenteHabilitado` ya existe para gobernarlo.
 6. (propuesta) Reserva publica por enlace.
@@ -64,9 +79,9 @@ entidad "Cita" del repo es la agenda del Gestor de Clientes (000740), una funcio
 ## Consecuencias
 
 - Cada tenant puede montar agendas de cualquier cosa sin codigo, con el mismo proceso que ya usa Visal.
-- La disponibilidad aun no descuenta turnos tomados (llega con la ola 4).
-- Pendiente para olas siguientes: grupos con miembros (asignar al libre), vinculo a contactos del Directorio,
-  calendario por sede (hoy el calendario es del tenant).
+- La disponibilidad descuenta los turnos tomados (ola 4); la ficha del recurso muestra "N tomados".
+- Pendiente: tarea de ECOREX por turno, herramientas del agente, vinculo del cliente al Directorio, aplicar el
+  cambio de una agenda base a sus copias, franjas que cruzan la medianoche, festivos con excepcion por recurso.
 
 ## Verificacion
 
@@ -75,3 +90,6 @@ entidad "Cita" del repo es la agenda del Gestor de Clientes (000740), una funcio
   validaciones, concurrencia optimista, duplicar, tipo en uso, AISLAMIENTO cross-tenant.
 - E2E en dev (5234, AGROMETALICAS): tipos sugeridos -> agenda base -> recurso Persona -> importar -> novedad parcial
   -> disponibilidad (viernes 8 de 16 cupos por la capacitacion de la tarde).
+- Olas 3 y 4: `AgendaTurnosCalculoTests` (unitarias) y `AgendaTurnosTests` dual PG + SQL Server (separar hasta agotar,
+  reprogramar, cancelar, festivo, anticipacion, novedad sobre turno tomado, aislamiento). Simulacion por Chrome con un
+  consultorio medico y un CDA (linea con 2 cupos + 2 inspectores).

@@ -1,0 +1,290 @@
+@page "/agendas/servicios"
+@* Modulo de Agendas (ADR-0165, ola 3): servicios agendables = lo que se reserva. Duracion, anticipacion y los
+   recursos que ocupa A LA VEZ (requisitos: "Linea" + "Inspector", "Medico"...). Permiso "agendas/servicios". *@
+@attribute [Authorize(Policy = "Perm:agendas/servicios:View")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Agendas
+@using Ecorex.SuperAdmin.Auth
+@using Ecorex.SuperAdmin.Components.Shared.Agendas
+@inject IAgendaTurnosService Turnos
+@inject IAgendaService Agendas
+@inject ICurrentPermissions Perms
+
+<PageTitle>Servicios agendables - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon">@MenuIcons.Render("calendar")</div>
+            <span>Agendas</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Servicios <span>agendables</span></h1>
+        <p class="page-sub" style="margin-bottom:0;">Lo que se reserva: cuanto dura, con cuanta anticipacion y que recursos ocupa al mismo tiempo.</p>
+    </div>
+    @if (_canCreate && _recursos.Count > 0)
+    {
+        <button class="btn btn-primary" @onclick="Nuevo">+ Nuevo servicio</button>
+    }
+</div>
+
+@if (_cargando)
+{
+    <p class="agx-muted">Cargando...</p>
+}
+else if (_recursos.Count == 0)
+{
+    <div class="agx-card agx-empty">
+        <h3>Primero crea los recursos que atienden</h3>
+        <p>Un servicio se presta con uno o varios recursos agendables (personas, salas, lineas...).</p>
+        <a class="btn btn-primary" href="agendas/recursos">Ir a recursos agendables</a>
+    </div>
+}
+else if (_servicios.Count == 0 && _edit is null)
+{
+    <div class="agx-card agx-empty">
+        <h3>Aun no hay servicios agendables</h3>
+        <p>Por ejemplo "Consulta de medicina general" de 20 minutos con un medico, o "Revision tecnico-mecanica" de 60 minutos con una linea y un inspector.</p>
+        @if (_canCreate)
+        {
+            <button class="btn btn-primary" @onclick="Nuevo">Crear el primero</button>
+        }
+    </div>
+}
+else
+{
+    <div class="agx-split">
+        <div class="agx-card agx-list">
+            @foreach (var s in _servicios)
+            {
+                <button class="@(_edit?.Id == s.Id ? "on" : "")" @onclick="() => Seleccionar(s)">
+                    <b>@s.Nombre</b>
+                    <small class="agx-num">@s.DuracionMinutos min &middot; @string.Join(" + ", s.Requisitos.Select(r => r.Nombre))@(s.Activo ? "" : " \u00B7 inactivo")</small>
+                    <small class="agx-num">@s.TurnosProximos turno(s) proximos@(s.AgentePuedeReservar ? " \u00B7 el agente reserva" : "")</small>
+                </button>
+            }
+            @if (_edit is not null && _edit.Id is null)
+            {
+                <button class="on"><b>@(string.IsNullOrWhiteSpace(_edit.Nombre) ? "Nuevo servicio" : _edit.Nombre)</b><small>Sin guardar</small></button>
+            }
+        </div>
+
+        @if (_edit is not null)
+        {
+            <div class="agx-card">
+                <div class="agx-sec">
+                    <h2>@(string.IsNullOrWhiteSpace(_edit.Nombre) ? "Nuevo servicio" : _edit.Nombre)</h2>
+                    <div class="agx-toolbar" style="margin:0;">
+                        @if (_edit.Id is Guid id && _canDelete)
+                        {
+                            @if (_confirmBorrar)
+                            {
+                                <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => Borrar(id)">Confirmar: quitar</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmBorrar = true">Quitar</button>
+                            }
+                        }
+                        @if (PuedeGuardar)
+                        {
+                            <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="Guardar">Guardar</button>
+                        }
+                    </div>
+                </div>
+                <div class="agx-form">
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="ag-s-nombre">Nombre *</label>
+                        <input id="ag-s-nombre" class="form-control" @bind="_edit.Nombre" disabled="@(!PuedeGuardar)" placeholder="Consulta de medicina general" />
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="ag-s-dur">Duracion (minutos) *</label>
+                        <input id="ag-s-dur" type="number" min="5" max="720" step="5" class="form-control" @bind="_edit.DuracionMinutos" disabled="@(!PuedeGuardar)" />
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="ag-s-min">Anticipacion minima (minutos)</label>
+                        <input id="ag-s-min" type="number" min="0" step="15" class="form-control" @bind="_edit.AnticipacionMinMinutos" disabled="@(!PuedeGuardar)" />
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="ag-s-max">Reserva hasta (dias adelante)</label>
+                        <input id="ag-s-max" type="number" min="1" max="365" class="form-control" @bind="_edit.AnticipacionMaxDias" disabled="@(!PuedeGuardar)" />
+                    </div>
+                    <div class="field" style="margin:0;">
+                        <label class="form-label" for="ag-s-desc">Descripcion</label>
+                        <input id="ag-s-desc" class="form-control" @bind="_edit.Descripcion" disabled="@(!PuedeGuardar)" placeholder="Que incluye, como prepararse" />
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;justify-content:center;">
+                        <label style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" @bind="_edit.AgentePuedeReservar" disabled="@(!PuedeGuardar)" /> El agente de IA puede reservarlo</label>
+                        <label style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" @bind="_edit.Activo" disabled="@(!PuedeGuardar)" /> Activo</label>
+                    </div>
+                </div>
+
+                <div class="agx-sec">
+                    <div>
+                        <h2>Recursos que ocupa a la vez</h2>
+                        <p class="agx-sub">Cada requisito se cumple con UNO de los recursos marcados que este libre todo el turno. Varios requisitos = varios recursos al mismo tiempo.</p>
+                    </div>
+                    @if (PuedeGuardar)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="AgregarRequisito">+ Requisito</button>
+                    }
+                </div>
+                @for (var i = 0; i < _edit.Requisitos.Count; i++)
+                {
+                    var req = _edit.Requisitos[i];
+                    var idx = i;
+                    <div style="padding:12px 18px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;">
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <input class="form-control" style="max-width:260px;" @bind="req.Nombre" disabled="@(!PuedeGuardar)" placeholder="Medico, Linea, Inspector..." aria-label="Nombre del requisito" />
+                            <span class="agx-muted" style="font-size:12px;">@req.RecursoIds.Count recurso(s)</span>
+                            <span style="flex:1"></span>
+                            @if (PuedeGuardar && _edit.Requisitos.Count > 1)
+                            {
+                                <button class="btn btn-xs btn-outline-danger" title="Quitar requisito" @onclick="() => _edit.Requisitos.RemoveAt(idx)">&times;</button>
+                            }
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                            @foreach (var r in _recursos.Where(r => r.Activo || req.RecursoIds.Contains(r.Id)))
+                            {
+                                var marcado = req.RecursoIds.Contains(r.Id);
+                                <button type="button" class="agx-fchip @(marcado ? "on" : "")" disabled="@(!PuedeGuardar)" @onclick="() => Alternar(req, r.Id)">
+                                    @r.Nombre <span style="opacity:.7;font-weight:500;">&middot; @r.TipoNombre</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (_error is not null)
+                {
+                    <div class="alert alert-danger agx-error" style="margin-bottom:12px;">@_error</div>
+                }
+                @if (_ok is not null)
+                {
+                    <div class="alert alert-success agx-error" style="margin-bottom:12px;">@_ok</div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="agx-card agx-empty"><p>Elige un servicio para ver o editar.</p></div>
+        }
+    </div>
+}
+
+@code {
+    private const string ModuleKey = "agendas/servicios";
+
+    private sealed class RequisitoEdit
+    {
+        public string Nombre { get; set; } = string.Empty;
+        public List<Guid> RecursoIds { get; set; } = new();
+    }
+
+    private sealed class ServicioEdit
+    {
+        public Guid? Id { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Descripcion { get; set; }
+        public int DuracionMinutos { get; set; } = 30;
+        public int AnticipacionMinMinutos { get; set; } = 60;
+        public int AnticipacionMaxDias { get; set; } = 30;
+        public bool AgentePuedeReservar { get; set; }
+        public bool Activo { get; set; } = true;
+        public long? Version { get; set; }
+        public List<RequisitoEdit> Requisitos { get; set; } = new();
+    }
+
+    private bool _cargando = true;
+    private bool _busy;
+    private bool _confirmBorrar;
+    private string? _error, _ok;
+    private bool _canCreate, _canEdit, _canDelete;
+    private IReadOnlyList<AgendaServicioDto> _servicios = Array.Empty<AgendaServicioDto>();
+    private IReadOnlyList<AgendaRecursoDto> _recursos = Array.Empty<AgendaRecursoDto>();
+    private ServicioEdit? _edit;
+
+    private bool PuedeGuardar => _edit is not null && (_edit.Id is null ? _canCreate : _canEdit);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canCreate = await Perms.CanCreateAsync(ModuleKey);
+        _canEdit = await Perms.CanEditAsync(ModuleKey);
+        _canDelete = await Perms.CanDeleteAsync(ModuleKey);
+        _recursos = await Agendas.ListRecursosAsync();
+        await CargarAsync(null);
+        _cargando = false;
+    }
+
+    private async Task CargarAsync(Guid? seleccionar)
+    {
+        _servicios = await Turnos.ListServiciosAsync();
+        var sel = (seleccionar is Guid id ? _servicios.FirstOrDefault(s => s.Id == id) : null) ?? _servicios.FirstOrDefault();
+        if (sel is not null) { Seleccionar(sel); } else { _edit = null; }
+    }
+
+    private void Seleccionar(AgendaServicioDto s)
+    {
+        _error = null;
+        _ok = null;
+        _confirmBorrar = false;
+        _edit = new ServicioEdit
+        {
+            Id = s.Id,
+            Nombre = s.Nombre,
+            Descripcion = s.Descripcion,
+            DuracionMinutos = s.DuracionMinutos,
+            AnticipacionMinMinutos = s.AnticipacionMinMinutos,
+            AnticipacionMaxDias = s.AnticipacionMaxDias,
+            AgentePuedeReservar = s.AgentePuedeReservar,
+            Activo = s.Activo,
+            Version = s.Version,
+            Requisitos = s.Requisitos.Select(r => new RequisitoEdit { Nombre = r.Nombre, RecursoIds = r.RecursoIds.ToList() }).ToList()
+        };
+    }
+
+    private void Nuevo()
+    {
+        _error = null;
+        _ok = null;
+        _confirmBorrar = false;
+        _edit = new ServicioEdit { Requisitos = new() { new RequisitoEdit { Nombre = "Atiende" } } };
+    }
+
+    private void AgregarRequisito() => _edit?.Requisitos.Add(new RequisitoEdit());
+
+    private static void Alternar(RequisitoEdit req, Guid id)
+    {
+        if (!req.RecursoIds.Remove(id)) { req.RecursoIds.Add(id); }
+    }
+
+    private async Task Guardar()
+    {
+        if (_edit is null || _busy) { return; }
+        _busy = true;
+        _error = null;
+        _ok = null;
+        try
+        {
+            var e = _edit;
+            var res = await Turnos.SaveServicioAsync(new SaveAgendaServicioRequest(
+                e.Id, e.Nombre, e.Descripcion, e.DuracionMinutos, e.AnticipacionMinMinutos, e.AnticipacionMaxDias,
+                e.AgentePuedeReservar, e.Activo, e.Requisitos.Select(r => new AgendaRequisitoDto(r.Nombre, r.RecursoIds)).ToList(), e.Version));
+            if (!res.Ok) { _error = res.Error; return; }
+            await CargarAsync(res.Id);
+            _ok = "Servicio guardado.";
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Borrar(Guid id)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await Turnos.DeleteServicioAsync(id);
+            if (!res.Ok) { _error = res.Error; _confirmBorrar = false; return; }
+            await CargarAsync(null);
+        }
+        finally { _busy = false; }
+    }
+}

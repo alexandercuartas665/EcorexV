@@ -295,6 +295,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.ITenantOperatingCalendarService, Tenancy.TenantOperatingCalendarService>();
         // Modulo de Agendas (ADR-0165): recursos agendables, agendas base, vigencias, novedades y disponibilidad.
         services.AddScoped<Agendas.IAgendaService, Agendas.AgendaService>();
+        services.AddScoped<Agendas.IAgendaTurnosService, Agendas.AgendaTurnosService>();
         // Gestor de Clientes (modulo 000740): prospectos scrapeados, Bolsa de contactos (kanban de
         // terceros), oportunidades (embudo), agenda de citas y filtros dinamicos con conteo en vivo.
         services.AddScoped<Gestor.IGestorContactosService, Gestor.GestorContactosService>();

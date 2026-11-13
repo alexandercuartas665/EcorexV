@@ -88,9 +88,9 @@ public sealed class RetellVoiceService : IRetellVoiceService
             var voiceId = string.IsNullOrWhiteSpace(cfg.VoiceId) ? DefaultVoiceId : cfg.VoiceId!;
             var language = string.IsNullOrWhiteSpace(cfg.Language) ? "es-419" : cfg.Language;
             var prompt = ComposePrompt(systemPrompt, request.PromptExtra, request.Objetivo);
-            var hash = PromptHash(prompt, voiceId, language);
+            var hash = PromptHash(prompt + AnalysisSignature(request.AnalysisFields), voiceId, language);
 
-            var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId, cancellationToken);
+            var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId, request.AnalysisFields, cancellationToken);
             if (!ensure.Ok)
             {
                 return new VoicePlaceCallResult(false, null, ensure.Error, ensure.Retryable);
@@ -111,7 +111,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         var sipHeaders = string.IsNullOrWhiteSpace(cfg.SipUsername)
             ? null
             : new Dictionary<string, string> { ["X-Telnyx-Username"] = cfg.SipUsername! };
-        var metadata = new Dictionary<string, string> { ["source"] = "ecorex-contact-workflow" };
+        var metadata = new Dictionary<string, string> { ["source"] = string.IsNullOrWhiteSpace(request.Source) ? "ecorex-contact-workflow" : request.Source! };
         if (request.ContactWorkflowRunId is Guid runId) { metadata["contact_workflow_run_id"] = runId.ToString(); }
 
         var callRes = await _retell.CreatePhoneCallAsync(apiKey, new RetellCreateCallRequest(
@@ -415,7 +415,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
     private sealed record EnsureResult(bool Ok, string? AgentId, string? Error, bool Retryable);
 
     private async Task<EnsureResult> EnsureAgentAsync(string apiKey, string hash, string prompt, string voiceId,
-        string language, Guid? aiAgentId, CancellationToken ct)
+        string language, Guid? aiAgentId, IReadOnlyList<RetellAnalysisField>? analysis, CancellationToken ct)
     {
         var existing = await _db.RetellAgentMaps.FirstOrDefaultAsync(m => m.PromptHash == hash, ct);
         if (existing is not null)
@@ -432,7 +432,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
 
         var agent = await _retell.CreateAgentAsync(apiKey, new RetellCreateAgentRequest(
-            LlmId: llm.LlmId!, VoiceId: voiceId, Language: language, AgentName: "ECOREX voz"), ct);
+            LlmId: llm.LlmId!, VoiceId: voiceId, Language: language, AgentName: "ECOREX voz", PostCallAnalysis: analysis), ct);
         if (!agent.Ok || string.IsNullOrEmpty(agent.AgentId))
         {
             return new EnsureResult(false, null, agent.Error ?? $"Retell create-agent HTTP {agent.StatusCode}.", IsTransient(agent.StatusCode));
@@ -487,6 +487,15 @@ public sealed class RetellVoiceService : IRetellVoiceService
             };
         }
         return "";
+    }
+
+    /// <summary>Firma de los campos de analisis post-llamada (vacia si no hay): agentes con campos distintos no se
+    /// reutilizan entre si. Sin campos el hash es el de siempre (los agentes ya creados siguen valiendo).</summary>
+    public static string AnalysisSignature(IReadOnlyList<RetellAnalysisField>? fields)
+    {
+        if (fields is not { Count: > 0 }) { return string.Empty; }
+        return "\n#analysis:" + string.Join("|", fields.Select(f =>
+            $"{f.Name}:{f.Type}:{f.Description}:{string.Join(",", f.Choices ?? Array.Empty<string>())}"));
     }
 
     /// <summary>Hash de identidad del agente Retell = prompt + voz + idioma.</summary>

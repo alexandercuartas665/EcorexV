@@ -1,6 +1,6 @@
 # ADR-0167: Recordatorios de turnos configurables (WhatsApp ahora, llamada con agente de voz despues)
 
-**Estado:** Aceptado (etapa 1 WhatsApp en v0.16.317; etapa 2 llamada propuesta)
+**Estado:** Aceptado (etapa 1 WhatsApp en v0.16.317; etapa 2 llamada con agente de voz en v0.16.319)
 **Fecha:** 2026-11-13
 **Relacionado:** ADR-0165 (Agendas: servicios, turnos, herramientas del agente), ADR-0102 (plantillas WhatsApp por
 YCloud), ADR-0164 (envio registrado en Conversaciones), ADR-0056 / Capa 3a (llamadas de voz RetellAI + Telnyx).
@@ -25,8 +25,8 @@ linea y plantilla, o llamada telefonica con un agente del sistema). Decisiones t
      {turno.servicio}, {turno.fecha}, {turno.hora}, {turno.recurso}, {turno.ticket}, {empresa.nombre}...). Las
      variables se sugieren por nombre. YCloud y Cloud API exigen plantilla APROBADA; Evolution y el emulador la
      convierten a texto (mismo camino de envio para todos los proveedores).
-   - Llamada: la regla ya guarda agente del sistema, linea de voz y objetivo (sin migracion para la etapa 2); hoy no
-     se deja guardar con ese canal.
+   - Llamada (etapa 2): linea de voz Retell lista (habilitada, con API key y numero saliente), agente del sistema
+     opcional (su prompt se antepone) e instruccion adicional de la empresa. Ver punto 7.
 2. **Envio unico** (`AgendaRecordatorioEnvio`, indice unico regla + turno + inicio del turno): se RESERVA (Pendiente)
    antes de enviar y luego queda Enviado / Fallido / Omitido con su motivo. Nunca se avisa dos veces el mismo horario;
    si el turno se reprograma, el nuevo horario genera su propio recordatorio. Un fallo NO se reintenta solo (no se le
@@ -39,6 +39,26 @@ linea y plantilla, o llamada telefonica con un agente del sistema). Decisiones t
 5. **Worker** `AgendaRecordatorioWorker` cada minuto (dentro de SuperAdmin como los demas; respeta
    ECOREX_DISABLE_WORKERS). La pantalla /agendas/recordatorios tiene "Procesar ahora" para probar y operar.
 6. Menu: Agendas > Recordatorios (`agendas/recordatorios`, 001687). Migracion aditiva dual `AddAgendaRecordatorios`.
+7. **Etapa 2 - llamada con agente de voz** (sin migracion: los campos de la regla ya existian y el estado nuevo
+   `EnLlamada` se guarda como texto):
+   - **Guion constante por regla** (`AgendaRecordatorioLlamada.Guion`): saludar, recordar, preguntar si asiste; si no
+     puede, cancelar (pide motivo) o cambiar (pide dia/hora preferidos, sin prometer horario). Los datos del turno van
+     como variables dinamicas de Retell ({{cliente}}, {{servicio}}, {{fecha}}, {{hora}}, {{recurso}}, {{empresa}}),
+     asi el prompt no cambia entre turnos y Retell REUTILIZA el mismo agente (RetellAgentMap por hash).
+   - **Resultado estructurado**: en modo compuesto ECOREX crea el agente con `post_call_analysis_data`
+     (`resultado_turno` enum confirma | cancela | reprogramar | no_contesto | sin_definir, y `nota_turno`); los campos
+     entran en el hash del agente (sin campos el hash es el de siempre). En modo simple (la linea trae un agente ya
+     armado en Retell) ese agente debe definir los mismos dos campos; la pantalla lo advierte.
+   - **Envio**: se coloca la llamada (telefono normalizado a E.164, +57 por defecto) y el envio queda `EnLlamada` con
+     el call_id. Nunca se reintenta (no se llama dos veces).
+   - **Cierre** (cada pasada del worker): se lee la VoiceCall con `IRetellVoiceService.GetCallResultAsync` (la
+     actualiza el webhook de Retell y, si no llega, el sondeo GET call). Analizada -> se interpreta resultado_turno
+     (tolerante a mayusculas, tildes y sinonimos): confirma -> turno Confirmado; cancela -> turno Cancelado con el
+     motivo (archiva su tarea); reprogramar -> nota "Pendiente de reprogramar" con el dia/hora pedidos; sin respuesta
+     clara -> nota. No conectada / error -> envio Fallido "no contesto". Sin resultado en 3 horas -> Fallido. El estado
+     del turno solo se toca si sigue en el MISMO horario que se recordo; el cambio pasa por
+     `IAgendaTurnosService.CambiarEstadoAsync` (historial + comentario en la tarea).
+   - El worker tambien barre los tenants con llamadas `EnLlamada` aunque ya no tengan reglas activas.
 
 ## Opciones consideradas
 
@@ -52,8 +72,10 @@ linea y plantilla, o llamada telefonica con un agente del sistema). Decisiones t
 
 - Los clientes reciben el aviso por la linea y plantilla que elija cada empresa; si contestan, el agente confirma,
   reprograma o cancela sin intervencion humana.
-- Etapa 2 (llamada): colocar la llamada con `IRetellVoiceService` (agente, linea de voz, variables del turno) y, con el
-  resultado del webhook (call_analysis), confirmar o cancelar el turno. Requiere la linea de voz real para probar.
+- Etapa 2 (llamada): la llamada confirma o cancela el turno sola; "reprogramar" queda anotado para que la empresa o el
+  agente de WhatsApp proponga el nuevo horario (el agente de voz no tiene herramientas de agenda en vivo; darle
+  funciones de Retell para reservar en la llamada seria una etapa 3). La prueba real requiere una linea de voz
+  Retell + Telnyx configurada en el tenant (cuesta por minuto).
 
 ## Verificacion
 
@@ -65,3 +87,10 @@ linea y plantilla, o llamada telefonica con un agente del sistema). Decisiones t
 - E2E local (5234, AGROMETALICAS, linea emulador): regla "5 dias antes" -> 3 enviados (texto real con fecha, hora y
   medica) y 2 fallidos por turnos sin telefono; el cliente responde "CONFIRMO" y SARA llama turnos_del_cliente +
   confirmar_turno: el turno queda Confirmado con el recordatorio y la confirmacion en su historial.
+- Etapa 2: `AgendaRecordatorioLlamadaTests` (unitarias: E.164, variables nunca vacias, guion constante, interpretacion
+  del resultado, firma de analisis en el hash) y en `AgendaRecordatoriosTests` dual la llamada con un servicio de voz
+  simulado: 5 turnos -> 5 llamadas con los datos del turno y el mismo guion; resultados confirma / cancela (con motivo)
+  / reprogramar / no contesto aplicados al turno; el que sigue en curso se da por fallido a las 3 horas; nadie recibe
+  dos llamadas. E2E local (5234, AGRO, linea de voz de PRUEBA con clave falsa en la BD local): la regla se guarda desde
+  la pantalla y "Procesar ahora" intenta 5 llamadas: 3 fallan con "La API key de Retell no se pudo descifrar" y 2 por
+  turnos sin telefono (no se llama a nadie).

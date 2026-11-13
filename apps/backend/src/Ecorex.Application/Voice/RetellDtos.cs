@@ -18,7 +18,13 @@ public sealed record RetellCreateAgentRequest(
     string LlmId,
     string VoiceId,
     string? Language = null,
-    string? AgentName = null);
+    string? AgentName = null,
+    // Campos que Retell extrae al analizar la llamada (post_call_analysis_data -> custom_analysis_data).
+    IReadOnlyList<RetellAnalysisField>? PostCallAnalysis = null);
+
+/// <summary>Un campo del analisis post-llamada de Retell (post_call_analysis_data). Type: string | enum | boolean |
+/// number; Choices solo para enum. El valor llega en call_analysis.custom_analysis_data[Name].</summary>
+public sealed record RetellAnalysisField(string Name, string Type, string Description, IReadOnlyList<string>? Choices = null);
 
 public sealed record RetellCreateAgentResult(bool Ok, string? AgentId, string? Error, int StatusCode);
 

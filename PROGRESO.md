@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-13 - Agendas: recordatorio de turnos por LLAMADA con agente de voz (ADR-0167 etapa 2, release v0.16.319, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Peticion del usuario: "sigue con la etapa 2" (llamada que actualiza el turno).
+- HECHO: canal Llamada en las reglas de recordatorio (linea de voz Retell lista + agente opcional + instruccion). Guion constante por regla con variables dinamicas del turno (Retell reutiliza el agente); el agente compuesto se crea con post_call_analysis_data (resultado_turno + nota_turno; RetellCreateAgentRequest.PostCallAnalysis, VoicePlaceCallRequest.AnalysisFields/Source; la firma de los campos entra en el hash). Envio EnLlamada con el call_id; en cada pasada se lee la VoiceCall (webhook o sondeo) y se aplica: confirma -> Confirmado, cancela -> Cancelado con motivo, reprogramar -> nota "Pendiente de reprogramar", no contesto -> Fallido, sin resultado en 3 h -> Fallido. Solo si el turno sigue en el mismo horario. Pantalla /agendas/recordatorios: selector WhatsApp/Llamada, linea de voz, agente, instruccion, guion visible y aviso para lineas en modo simple. SIN migracion (estado nuevo como texto; has-pending-model-changes limpio).
+- VERIFICADO: build verde; Application.Tests 1381/1381; integracion dual PG + SQL Server Agendas*/AgendaTurnos*/AgendaRecordatorios* 28/28 (incluye la llamada simulada con los 5 resultados); dotnet format limpio en lo tocado. E2E local 5234 AGRO: regla de llamada guardada desde la UI; "Procesar ahora" -> 5 fallidos con motivo (3 por la clave falsa de la linea de PRUEBA, 2 sin telefono).
+- QUEDA EN LA BD LOCAL: linea de voz "Linea de voz de PRUEBA (clave falsa)" (id 01a1d6f0-0000-7000-8000-00000000b001) y la regla "Llamada un dia antes" en AGRO.
+- SIGUIENTE: prueba real con una linea Retell + Telnyx del tenant (cuesta por minuto; con OK del usuario y un numero de prueba). Deploy de v0.16.317..v0.16.319 SOLO con OK del usuario.
+
 ## 2026-11-13 - Integracion a main de feat/agentes-sistema: paso Notificar del DRON y tope de filas (ADR-0168, release v0.16.318, SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (dev principal), a pedido de ECOREX.plataformas (autorizado por el usuario).

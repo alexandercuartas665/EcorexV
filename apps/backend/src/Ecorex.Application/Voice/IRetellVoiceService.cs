@@ -18,7 +18,12 @@ public sealed record VoicePlaceCallRequest(
     Guid? RetellVoiceLineId = null,
     // Variables dinamicas EXTRA (clave->valor) que se mandan tal cual a Retell (retell_llm_dynamic_variables),
     // ademas de las del contacto. La prueba por linea las usa para rellenar los {{placeholders}} del prompt.
-    IReadOnlyDictionary<string, string>? ExtraDynamicVariables = null);
+    IReadOnlyDictionary<string, string>? ExtraDynamicVariables = null,
+    // Campos del analisis post-llamada que debe extraer el agente (solo modo compuesto: ECOREX crea el agente; en
+    // modo simple el agente de Retell debe tenerlos definidos). Forman parte de la identidad del agente reutilizado.
+    IReadOnlyList<RetellAnalysisField>? AnalysisFields = null,
+    // Origen de la llamada (metadata "source" en Retell). Null = "ecorex-contact-workflow".
+    string? Source = null);
 
 /// <summary>Resultado de colocar la llamada. Retryable = fallo transitorio (5xx/red); un 4xx NUNCA es retryable.</summary>
 public sealed record VoicePlaceCallResult(bool Placed, string? CallId, string? Error, bool Retryable);

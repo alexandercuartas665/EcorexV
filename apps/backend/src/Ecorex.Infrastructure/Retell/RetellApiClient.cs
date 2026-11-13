@@ -53,6 +53,15 @@ internal sealed class RetellApiClient : IRetellApiClient
         };
         if (!string.IsNullOrWhiteSpace(request.Language)) { payload["language"] = request.Language; }
         if (!string.IsNullOrWhiteSpace(request.AgentName)) { payload["agent_name"] = request.AgentName; }
+        if (request.PostCallAnalysis is { Count: > 0 })
+        {
+            payload["post_call_analysis_data"] = request.PostCallAnalysis.Select(f =>
+            {
+                var d = new Dictionary<string, object?> { ["type"] = f.Type, ["name"] = f.Name, ["description"] = f.Description };
+                if (f.Choices is { Count: > 0 }) { d["choices"] = f.Choices; }
+                return d;
+            }).ToList();
+        }
 
         var (status, body, err) = await SendAsync(HttpMethod.Post, "/create-agent", apiKey, payload, allowRetry: true, cancellationToken);
         if (err is not null || !IsSuccess(status))

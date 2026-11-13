@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
+using Ecorex.Application.Voice;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -24,22 +25,32 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
     private readonly ITenantContext _tenant;
     private readonly IWhatsAppConnectorService _connector;
     private readonly IChatService? _chat;
+    private readonly IRetellVoiceService? _voz;
+    private readonly IAgendaTurnosService? _turnos;
     private readonly Func<DateTimeOffset> _ahoraUtc;
 
-    public AgendaRecordatoriosService(IApplicationDbContext db, ITenantContext tenant, IWhatsAppConnectorService connector, IChatService chat)
-        : this(db, tenant, connector, chat, () => DateTimeOffset.UtcNow)
+    /// <summary>Una llamada sin resultado despues de este tiempo se da por fallida.</summary>
+    private static readonly TimeSpan EsperaMaximaLlamada = TimeSpan.FromHours(3);
+
+    public AgendaRecordatoriosService(IApplicationDbContext db, ITenantContext tenant, IWhatsAppConnectorService connector, IChatService chat,
+        IRetellVoiceService voz, IAgendaTurnosService turnos)
+        : this(db, tenant, connector, chat, () => DateTimeOffset.UtcNow, voz, turnos)
     {
     }
 
-    /// <summary>Constructor con reloj inyectable (pruebas). Sin <paramref name="chat"/> no se registra en la conversacion.</summary>
+    /// <summary>Constructor con reloj inyectable (pruebas). Sin <paramref name="chat"/> no se registra en la conversacion;
+    /// sin <paramref name="voz"/> las reglas de llamada fallan con motivo; sin <paramref name="turnos"/> el resultado de
+    /// la llamada solo se anota en el historial (no cambia el estado del turno).</summary>
     public AgendaRecordatoriosService(IApplicationDbContext db, ITenantContext tenant, IWhatsAppConnectorService connector,
-        IChatService? chat, Func<DateTimeOffset> ahoraUtc)
+        IChatService? chat, Func<DateTimeOffset> ahoraUtc, IRetellVoiceService? voz = null, IAgendaTurnosService? turnos = null)
     {
         _db = db;
         _tenant = tenant;
         _connector = connector;
         _chat = chat;
         _ahoraUtc = ahoraUtc;
+        _voz = voz;
+        _turnos = turnos;
     }
 
     private Guid TenantId => _tenant.TenantId ?? Guid.Empty;
@@ -79,45 +90,69 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
         {
             return AgendaOpResult.Mal("Uno de los servicios elegidos ya no existe.");
         }
+        Guid? lineaId = null, plantillaId = null, vozId = null, agenteId = null;
+        var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (request.Canal == AgendaRecordatorioCanal.Llamada)
         {
-            return AgendaOpResult.Mal("El recordatorio por llamada llega en la siguiente etapa; por ahora usa WhatsApp.");
-        }
-
-        // WhatsApp: linea + plantilla de esa linea, usable por el proveedor, y todas sus variables con dato.
-        if (request.WhatsAppLineId is not Guid lineaId)
-        {
-            return AgendaOpResult.Mal("Elige la linea de WhatsApp desde la que se envia el recordatorio.");
-        }
-        var linea = await _db.WhatsAppLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lineaId, cancellationToken);
-        if (linea is null)
-        {
-            return AgendaOpResult.Mal("La linea de WhatsApp ya no existe.");
-        }
-        if (request.PlantillaId is not Guid plantillaId)
-        {
-            return AgendaOpResult.Mal("Elige la plantilla del recordatorio.");
-        }
-        var plantilla = await _db.WhatsAppTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == plantillaId, cancellationToken);
-        if (plantilla is null || plantilla.WhatsAppLineId != lineaId)
-        {
-            return AgendaOpResult.Mal("La plantilla no existe o no pertenece a la linea elegida.");
-        }
-        if (!PlantillaUsable(linea.Provider, plantilla.Status))
-        {
-            return AgendaOpResult.Mal(RequiereAprobacion(linea.Provider)
-                ? $"La plantilla '{plantilla.Name}' aun no esta aprobada por Meta (estado {plantilla.Status}); con esta linea solo se envian plantillas aprobadas."
-                : $"La plantilla '{plantilla.Name}' esta {plantilla.Status} y no se puede usar.");
-        }
-        var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (token, _) in WhatsAppTemplateComponents.ParseVariables(plantilla.VariablesJson))
-        {
-            var expr = request.Variables.TryGetValue(token, out var e) && !string.IsNullOrWhiteSpace(e) ? e.Trim() : AgendaRecordatorioCalculo.Sugerida(token);
-            if (string.IsNullOrWhiteSpace(expr))
+            // Llamada: linea de voz lista (habilitada, con key y numero) y, opcional, el agente cuyo prompt se suma al guion.
+            if (request.VoiceLineId is not Guid vid)
             {
-                return AgendaOpResult.Mal($"Asigna un dato del turno a la variable '{token}' de la plantilla.");
+                return AgendaOpResult.Mal("Elige la linea de voz desde la que se hace la llamada.");
             }
-            variables[token] = expr.Length > 300 ? expr[..300] : expr;
+            var voz = await _db.RetellVoiceLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == vid, cancellationToken);
+            if (voz is null)
+            {
+                return AgendaOpResult.Mal("La linea de voz ya no existe.");
+            }
+            if (!voz.IsEnabled || string.IsNullOrEmpty(voz.RetellApiKeyEncrypted) || string.IsNullOrWhiteSpace(voz.FromNumber))
+            {
+                return AgendaOpResult.Mal($"La linea de voz '{voz.Name}' no esta lista: debe estar habilitada y tener API key y numero saliente.");
+            }
+            if (request.AiAgentId is Guid aid && !await _db.AiAgents.AnyAsync(a => a.Id == aid, cancellationToken))
+            {
+                return AgendaOpResult.Mal("El agente elegido ya no existe.");
+            }
+            vozId = vid;
+            agenteId = request.AiAgentId;
+        }
+        else
+        {
+            // WhatsApp: linea + plantilla de esa linea, usable por el proveedor, y todas sus variables con dato.
+            if (request.WhatsAppLineId is not Guid lid)
+            {
+                return AgendaOpResult.Mal("Elige la linea de WhatsApp desde la que se envia el recordatorio.");
+            }
+            var linea = await _db.WhatsAppLines.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lid, cancellationToken);
+            if (linea is null)
+            {
+                return AgendaOpResult.Mal("La linea de WhatsApp ya no existe.");
+            }
+            if (request.PlantillaId is not Guid pid)
+            {
+                return AgendaOpResult.Mal("Elige la plantilla del recordatorio.");
+            }
+            var plantilla = await _db.WhatsAppTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == pid, cancellationToken);
+            if (plantilla is null || plantilla.WhatsAppLineId != lid)
+            {
+                return AgendaOpResult.Mal("La plantilla no existe o no pertenece a la linea elegida.");
+            }
+            if (!PlantillaUsable(linea.Provider, plantilla.Status))
+            {
+                return AgendaOpResult.Mal(RequiereAprobacion(linea.Provider)
+                    ? $"La plantilla '{plantilla.Name}' aun no esta aprobada por Meta (estado {plantilla.Status}); con esta linea solo se envian plantillas aprobadas."
+                    : $"La plantilla '{plantilla.Name}' esta {plantilla.Status} y no se puede usar.");
+            }
+            foreach (var (token, _) in WhatsAppTemplateComponents.ParseVariables(plantilla.VariablesJson))
+            {
+                var expr = request.Variables.TryGetValue(token, out var e) && !string.IsNullOrWhiteSpace(e) ? e.Trim() : AgendaRecordatorioCalculo.Sugerida(token);
+                if (string.IsNullOrWhiteSpace(expr))
+                {
+                    return AgendaOpResult.Mal($"Asigna un dato del turno a la variable '{token}' de la plantilla.");
+                }
+                variables[token] = expr.Length > 300 ? expr[..300] : expr;
+            }
+            lineaId = lid;
+            plantillaId = pid;
         }
 
         AgendaRecordatorioRegla? r;
@@ -150,8 +185,8 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
         r.WhatsAppLineId = lineaId;
         r.PlantillaId = plantillaId;
         r.VariablesJson = JsonSerializer.Serialize(variables);
-        r.AiAgentId = request.AiAgentId;
-        r.VoiceLineId = request.VoiceLineId;
+        r.AiAgentId = agenteId;
+        r.VoiceLineId = vozId;
         r.Objetivo = Limpio(request.Objetivo, 1000);
         try
         {
@@ -186,12 +221,16 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
             .Select(s => new AgendaOpcionDto(s.Id, s.Nombre)).ToListAsync(cancellationToken);
         var agentes = await _db.AiAgents.AsNoTracking().Where(a => a.IsActive).OrderBy(a => a.Name)
             .Select(a => new AgendaOpcionDto(a.Id, a.Name)).ToListAsync(cancellationToken);
+        var lineasVoz = await _db.RetellVoiceLines.AsNoTracking().OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name)
+            .Select(l => new AgendaRecordatorioLineaVozDto(l.Id, l.Name,
+                l.IsEnabled && l.RetellApiKeyEncrypted != null && l.FromNumber != null, l.RetellAgentId != null && l.RetellAgentId != ""))
+            .ToListAsync(cancellationToken);
         return new AgendaRecordatorioOpcionesDto(
             lineas.Select(l => new AgendaRecordatorioLineaDto(l.Id, l.InstanceName, l.Provider.ToString(), l.Status == WhatsAppLineStatus.Connected)).ToList(),
             plantillas.Where(t => proveedor.ContainsKey(t.WhatsAppLineId)).Select(t => new AgendaRecordatorioPlantillaDto(
                 t.Id, t.WhatsAppLineId, t.Name, t.Language, t.Status.ToString(), PlantillaUsable(proveedor[t.WhatsAppLineId], t.Status),
                 WhatsAppTemplateComponents.ParseVariables(t.VariablesJson).Select(v => v.Token).ToList(), t.BodyText)).ToList(),
-            servicios, agentes);
+            servicios, agentes, lineasVoz);
     }
 
     public async Task<IReadOnlyList<AgendaRecordatorioEnvioDto>> ListEnviosAsync(int maximo = 100, Guid? turnoId = null, CancellationToken cancellationToken = default)
@@ -220,14 +259,23 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
         }).ToList();
     }
 
-    public async Task<IReadOnlyList<Guid>> TenantsConReglasAsync(CancellationToken cancellationToken = default) =>
+    public async Task<IReadOnlyList<Guid>> TenantsConReglasAsync(CancellationToken cancellationToken = default)
+    {
         // Barrido del worker (solo ids): se lee cruzando tenants a proposito; cada tenant se procesa luego en su
-        // propio ambito con el filtro global.
-        await _db.AgendaRecordatorioReglas.AsNoTracking().IgnoreQueryFilters()
+        // propio ambito con el filtro global. Tambien los que tienen llamadas esperando resultado (aunque ya no
+        // tengan reglas activas), para cerrarlas.
+        var conReglas = await _db.AgendaRecordatorioReglas.AsNoTracking().IgnoreQueryFilters()
             .Where(r => r.Activa && !r.IsDeleted)
             .Select(r => r.TenantId)
             .Distinct()
             .ToListAsync(cancellationToken);
+        var conLlamadas = await _db.AgendaRecordatorioEnvios.AsNoTracking().IgnoreQueryFilters()
+            .Where(e => e.Estado == AgendaRecordatorioEnvioEstado.EnLlamada)
+            .Select(e => e.TenantId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        return conReglas.Union(conLlamadas).ToList();
+    }
 
     // =====================================================================================================
     // Procesamiento
@@ -236,16 +284,20 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
     public async Task<AgendaRecordatorioCorrida> ProcesarAsync(CancellationToken cancellationToken = default)
     {
         var ahora = _ahoraUtc();
-        var reglas = await _db.AgendaRecordatorioReglas.AsNoTracking()
-            .Where(r => r.Activa && r.Canal == AgendaRecordatorioCanal.WhatsApp)
-            .ToListAsync(cancellationToken);
-        if (reglas.Count == 0)
-        {
-            return new AgendaRecordatorioCorrida(0, 0, 0, Array.Empty<string>());
-        }
         var tenant = await _db.Tenants.AsNoTracking().Where(t => t.Id == TenantId)
             .Select(t => new { t.Name, t.TimeZoneId }).FirstOrDefaultAsync(cancellationToken);
         var zona = Zona(tenant?.TimeZoneId);
+
+        // Primero se cierran las llamadas que ya tienen resultado (confirma / cancela / reprogramar / no contesto).
+        var resueltas = await ResolverLlamadasAsync(zona, cancellationToken);
+
+        var reglas = await _db.AgendaRecordatorioReglas.AsNoTracking()
+            .Where(r => r.Activa)
+            .ToListAsync(cancellationToken);
+        if (reglas.Count == 0)
+        {
+            return new AgendaRecordatorioCorrida(0, 0, 0, Array.Empty<string>(), resueltas);
+        }
 
         // Ventana: lo mas lejano que puede tocar avisar (+1 dia por si "Adelantar" lo movio al dia anterior).
         var hasta = ahora.AddMinutes(reglas.Max(r => r.AnticipacionMinutos) + 1440);
@@ -259,7 +311,7 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
             .ToListAsync(cancellationToken);
         if (turnos.Count == 0)
         {
-            return new AgendaRecordatorioCorrida(0, 0, 0, Array.Empty<string>());
+            return new AgendaRecordatorioCorrida(0, 0, 0, Array.Empty<string>(), resueltas);
         }
 
         var turnoIds = turnos.Select(t => t.Id).ToList();
@@ -325,7 +377,7 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
                 catch (DbUpdateException)
                 {
                     detalle.Add("Otro proceso ya estaba enviando estos recordatorios; se reintenta en la proxima pasada.");
-                    return new AgendaRecordatorioCorrida(enviados, fallidos, omitidos, detalle);
+                    return new AgendaRecordatorioCorrida(enviados, fallidos, omitidos, detalle, resueltas);
                 }
                 hechos.Add((regla.Id, turno.Id, turno.InicioUtc));
                 if (accion == AgendaRecordatorioAccion.Omitir)
@@ -338,24 +390,185 @@ public sealed class AgendaRecordatoriosService : IAgendaRecordatoriosService
                 var valores = AgendaRecordatorioCalculo.Valores(turno.ClienteNombre, turno.Servicio?.Nombre ?? "su servicio",
                     turno.Fecha, turno.HoraInicio, turno.HoraFin, recursos,
                     turno.TaskItemId is Guid kid ? tickets.GetValueOrDefault(kid) : null, turno.ClienteTelefono, tenant?.Name);
-                var (ok, texto, referencia) = await EnviarWhatsAppAsync(regla, turno, plantillas, valores, cancellationToken);
+                var llamada = regla.Canal == AgendaRecordatorioCanal.Llamada;
+                var (ok, texto, referencia) = llamada
+                    ? await LlamarAsync(regla, turno, valores, cancellationToken)
+                    : await EnviarWhatsAppAsync(regla, turno, plantillas, valores, cancellationToken);
 
                 var trackedEnvio = await _db.AgendaRecordatorioEnvios.FirstAsync(e => e.Id == envio.Id, cancellationToken);
-                trackedEnvio.Estado = ok ? AgendaRecordatorioEnvioEstado.Enviado : AgendaRecordatorioEnvioEstado.Fallido;
+                trackedEnvio.Estado = !ok ? AgendaRecordatorioEnvioEstado.Fallido
+                    : llamada ? AgendaRecordatorioEnvioEstado.EnLlamada : AgendaRecordatorioEnvioEstado.Enviado;
                 trackedEnvio.Detalle = Recortar(texto, 500);
                 trackedEnvio.ReferenciaExterna = Recortar(referencia, 200);
                 trackedEnvio.ProcesadoUtc = _ahoraUtc();
                 var trackedTurno = await _db.AgendaTurnos.FirstAsync(t => t.Id == turno.Id, cancellationToken);
                 var local = TimeZoneInfo.ConvertTime(_ahoraUtc(), zona).DateTime;
-                trackedTurno.Historial = Agregar(trackedTurno.Historial,
-                    $"{local:yyyy-MM-dd HH:mm} " + (ok
-                        ? $"Recordatorio por WhatsApp enviado ({regla.Nombre})."
-                        : $"No se pudo enviar el recordatorio por WhatsApp ({regla.Nombre}): {texto}"));
+                var linea = (ok, llamada) switch
+                {
+                    (true, true) => $"Llamada de recordatorio en curso ({regla.Nombre}).",
+                    (true, false) => $"Recordatorio por WhatsApp enviado ({regla.Nombre}).",
+                    (false, true) => $"No se pudo hacer la llamada de recordatorio ({regla.Nombre}): {texto}",
+                    _ => $"No se pudo enviar el recordatorio por WhatsApp ({regla.Nombre}): {texto}"
+                };
+                trackedTurno.Historial = Agregar(trackedTurno.Historial, $"{local:yyyy-MM-dd HH:mm} {linea}");
                 await _db.SaveChangesAsync(cancellationToken);
                 if (ok) { enviados++; } else { fallidos++; detalle.Add($"{turno.ClienteNombre}: {texto}"); }
             }
         }
-        return new AgendaRecordatorioCorrida(enviados, fallidos, omitidos, detalle);
+        return new AgendaRecordatorioCorrida(enviados, fallidos, omitidos, detalle, resueltas);
+    }
+
+    /// <summary>
+    /// Coloca la llamada de recordatorio con el agente de voz (ADR-0167 etapa 2). El guion es constante por regla y los
+    /// datos del turno van como variables dinamicas (Retell reutiliza el mismo agente); el agente deja el resultado en
+    /// el analisis post-llamada. Devuelve (ok, detalle o error, call_id). Nunca reintenta: no se llama dos veces.
+    /// </summary>
+    private async Task<(bool Ok, string Texto, string? Referencia)> LlamarAsync(
+        AgendaRecordatorioRegla regla, AgendaTurno turno, IReadOnlyDictionary<string, string> valores, CancellationToken cancellationToken)
+    {
+        if (_voz is null)
+        {
+            return (false, "Las llamadas de voz no estan disponibles en este servidor.", null);
+        }
+        var numero = AgendaRecordatorioLlamada.TelefonoE164(turno.ClienteTelefono);
+        if (numero is null)
+        {
+            return (false, string.IsNullOrWhiteSpace(turno.ClienteTelefono)
+                ? "El turno no tiene telefono del cliente."
+                : $"El telefono '{turno.ClienteTelefono}' no es valido para llamar.", null);
+        }
+        if (regla.VoiceLineId is not Guid vozId)
+        {
+            return (false, "La regla no tiene una linea de voz.", null);
+        }
+        var variables = AgendaRecordatorioLlamada.VariablesDinamicas(valores);
+        VoicePlaceCallResult res;
+        try
+        {
+            res = await _voz.PlaceCallAsync(new VoicePlaceCallRequest(
+                ToNumber: numero,
+                AiAgentId: regla.AiAgentId,
+                PromptExtra: AgendaRecordatorioLlamada.Guion(regla.Objetivo),
+                Objetivo: null,
+                FormulariosPermitidos: Array.Empty<Guid>(),
+                ContactVariables: new Dictionary<string, string?> { ["nombre"] = turno.ClienteNombre, ["empresa"] = variables["empresa"] },
+                RetellVoiceLineId: vozId,
+                ExtraDynamicVariables: variables,
+                AnalysisFields: AgendaRecordatorioLlamada.CamposAnalisis,
+                Source: AgendaRecordatorioLlamada.Origen), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return (false, $"Error del proveedor de voz: {ex.Message}", null);
+        }
+        return res.Placed && !string.IsNullOrWhiteSpace(res.CallId)
+            ? (true, $"Llamada colocada a {numero}; esperando el resultado.", res.CallId)
+            : (false, res.Error ?? "No se pudo colocar la llamada.", null);
+    }
+
+    /// <summary>
+    /// Cierra las llamadas de recordatorio que ya tienen resultado: lee la VoiceCall (la actualiza el webhook de Retell
+    /// y, si no llega, el sondeo de <see cref="IRetellVoiceService.GetCallResultAsync"/>), interpreta resultado_turno y lo
+    /// aplica al turno. Una llamada sin resultado tras <see cref="EsperaMaximaLlamada"/> queda fallida.
+    /// </summary>
+    private async Task<int> ResolverLlamadasAsync(TimeZoneInfo zona, CancellationToken cancellationToken)
+    {
+        var pendientes = await _db.AgendaRecordatorioEnvios
+            .Where(e => e.Estado == AgendaRecordatorioEnvioEstado.EnLlamada)
+            .OrderBy(e => e.ProcesadoUtc)
+            .Take(200)
+            .ToListAsync(cancellationToken);
+        if (pendientes.Count == 0)
+        {
+            return 0;
+        }
+        var ahora = _ahoraUtc();
+        var resueltas = 0;
+        foreach (var envio in pendientes)
+        {
+            if (_voz is null || string.IsNullOrWhiteSpace(envio.ReferenciaExterna))
+            {
+                await CerrarLlamadaAsync(envio, AgendaRecordatorioEnvioEstado.Fallido, "No se pudo leer el resultado de la llamada (sin servicio de voz).", null, zona, cancellationToken);
+                continue;
+            }
+            VoiceCallResultDto? res;
+            try
+            {
+                res = await _voz.GetCallResultAsync(envio.ReferenciaExterna, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                continue; // fallo transitorio leyendo el resultado: se reintenta en la proxima pasada
+            }
+            if (res is null)
+            {
+                await CerrarLlamadaAsync(envio, AgendaRecordatorioEnvioEstado.Fallido, "No se encontro la llamada.", null, zona, cancellationToken);
+                continue;
+            }
+            if (res.Status is not ("Analyzed" or "Failed" or "Error"))
+            {
+                if (ahora - envio.ProcesadoUtc > EsperaMaximaLlamada)
+                {
+                    await CerrarLlamadaAsync(envio, AgendaRecordatorioEnvioEstado.Fallido,
+                        $"La llamada no entrego resultado en {EsperaMaximaLlamada.TotalHours:0} horas (estado {res.Status}).", null, zona, cancellationToken);
+                }
+                continue;
+            }
+
+            var (resultado, nota) = AgendaRecordatorioLlamada.Interpretar(res.Status, res.CustomData);
+            await CerrarLlamadaAsync(envio,
+                resultado == AgendaLlamadaResultado.NoContesto ? AgendaRecordatorioEnvioEstado.Fallido : AgendaRecordatorioEnvioEstado.Enviado,
+                "Llamada: " + AgendaRecordatorioLlamada.Describir(resultado, nota) + ".", (resultado, nota), zona, cancellationToken);
+            resueltas++;
+        }
+        return resueltas;
+    }
+
+    /// <summary>Cierra el envio de una llamada y, si hay resultado, lo aplica al turno: confirma, cancela (motivo de la
+    /// llamada) o lo anota en el historial. Solo toca el turno si sigue en el mismo horario que se recordo.</summary>
+    private async Task CerrarLlamadaAsync(AgendaRecordatorioEnvio envio, AgendaRecordatorioEnvioEstado estado, string detalle,
+        (AgendaLlamadaResultado Resultado, string? Nota)? resultado, TimeZoneInfo zona, CancellationToken cancellationToken)
+    {
+        const string Actor = "Recordatorio por llamada";
+        envio.Estado = estado;
+        envio.ProcesadoUtc = _ahoraUtc();
+        var turno = await _db.AgendaTurnos.FirstOrDefaultAsync(t => t.Id == envio.TurnoId, cancellationToken);
+        string? anotar = resultado is null ? $"Llamada de recordatorio sin resultado: {detalle}" : null;
+        if (turno is not null && resultado is { } r)
+        {
+            var mismoHorario = turno.InicioUtc == envio.InicioTurnoUtc;
+            var cambio = r.Resultado switch
+            {
+                AgendaLlamadaResultado.Confirma when turno.Estado == AgendaTurnoEstado.Reservado => AgendaTurnoEstado.Confirmado,
+                AgendaLlamadaResultado.Cancela when turno.Estado is AgendaTurnoEstado.Reservado or AgendaTurnoEstado.Confirmado => AgendaTurnoEstado.Cancelado,
+                _ => (AgendaTurnoEstado?)null
+            };
+            if (cambio is { } nuevo && mismoHorario && _turnos is not null)
+            {
+                var motivo = nuevo == AgendaTurnoEstado.Confirmado
+                    ? "El cliente confirmo en la llamada de recordatorio"
+                    : "Cancelado por el cliente en la llamada de recordatorio" + (string.IsNullOrWhiteSpace(r.Nota) ? "" : $": {r.Nota}");
+                var res = await _turnos.CambiarEstadoAsync(new CambiarEstadoTurnoRequest(turno.Id, nuevo, motivo, turno.Version, Actor), cancellationToken);
+                if (!res.Ok)
+                {
+                    detalle += $" No se pudo actualizar el turno: {res.Error}";
+                    anotar = $"Llamada de recordatorio: {AgendaRecordatorioLlamada.Describir(r.Resultado, r.Nota)}. No se pudo actualizar el turno: {res.Error}";
+                }
+            }
+            else
+            {
+                anotar = $"Llamada de recordatorio: {AgendaRecordatorioLlamada.Describir(r.Resultado, r.Nota)}."
+                    + (r.Resultado == AgendaLlamadaResultado.Reprogramar ? " Pendiente de reprogramar." : "")
+                    + (cambio is not null && !mismoHorario ? " El turno cambio de horario despues de la llamada; no se modifico." : "");
+            }
+        }
+        envio.Detalle = Recortar(detalle, 500);
+        if (turno is not null && anotar is not null)
+        {
+            var local = TimeZoneInfo.ConvertTime(_ahoraUtc(), zona).DateTime;
+            turno.Historial = Agregar(turno.Historial, $"{local:yyyy-MM-dd HH:mm} {anotar}");
+        }
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>Manda la plantilla de la regla al cliente y la registra en su conversacion. Devuelve (ok, texto o error, id del mensaje).</summary>

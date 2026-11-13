@@ -1,6 +1,7 @@
 @page "/agendas/recordatorios"
 @* Recordatorios de turnos (ADR-0167): reglas del tenant (cuanto antes, horario permitido, servicios, canal) y el
-   registro de envios. Etapa 1 = WhatsApp con linea + plantilla; la llamada con agente de voz llega en la etapa 2.
+   registro de envios. Canal WhatsApp (linea + plantilla) o Llamada (linea de voz + agente; el resultado de la
+   llamada confirma o cancela el turno).
    Permiso "agendas/recordatorios": Ver = entrar; Crear = nueva regla; Editar = cambiar / procesar ahora; Eliminar = quitar. *@
 @attribute [Authorize(Policy = "Perm:agendas/recordatorios:View")]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
@@ -37,7 +38,7 @@
 @if (_corrida is not null)
 {
     <div class="alert @(_corrida.Fallidos > 0 ? "alert-warning" : "alert-success")" style="margin-bottom:12px;">
-        Pasada de recordatorios: @_corrida.Enviados enviados, @_corrida.Fallidos fallidos, @_corrida.Omitidos omitidos.
+        Pasada de recordatorios: @_corrida.Enviados enviados, @_corrida.Fallidos fallidos, @_corrida.Omitidos omitidos@(_corrida.LlamadasResueltas > 0 ? $", {_corrida.LlamadasResueltas} llamada(s) con resultado" : "").
         @foreach (var d in _corrida.Detalle.Take(5))
         {
             <div style="font-size:12.5px;">@d</div>
@@ -148,12 +149,18 @@ else
                 </div>
 
                 <div class="agx-sec">
-                    <div><h2>Metodo</h2><p class="agx-sub">El mensaje queda en la conversacion del cliente; si contesta, lo atiende el agente de esa linea.</p></div>
+                    <div><h2>Metodo</h2><p class="agx-sub">@(_edit.Canal == AgendaRecordatorioCanal.WhatsApp
+                        ? "El mensaje queda en la conversacion del cliente; si contesta, lo atiende el agente de esa linea."
+                        : "Un agente de voz llama al cliente; lo que responda se aplica al turno.")</p></div>
                     <span class="agx-seg">
-                        <button class="on">WhatsApp</button>
-                        <button disabled title="Llega en la siguiente etapa">Llamada (pronto)</button>
+                        <button class="@(_edit.Canal == AgendaRecordatorioCanal.WhatsApp ? "on" : "")" disabled="@(!PuedeGuardar)"
+                                @onclick="() => _edit.Canal = AgendaRecordatorioCanal.WhatsApp">WhatsApp</button>
+                        <button class="@(_edit.Canal == AgendaRecordatorioCanal.Llamada ? "on" : "")" disabled="@(!PuedeGuardar)"
+                                @onclick="ElegirLlamada">Llamada</button>
                     </span>
                 </div>
+                @if (_edit.Canal == AgendaRecordatorioCanal.WhatsApp)
+                {
                 <div class="agx-form">
                     <div class="field" style="margin:0;">
                         <label class="form-label" for="rc-linea">Linea de WhatsApp *</label>
@@ -210,6 +217,63 @@ else
                         }
                     </div>
                 }
+                }
+                else
+                {
+                    <div class="agx-form">
+                        <div class="field" style="margin:0;">
+                            <label class="form-label" for="rc-voz">Linea de voz *</label>
+                            <select id="rc-voz" class="form-control" value="@_edit.VoiceLineId" disabled="@(!PuedeGuardar)"
+                                    @onchange="e => _edit.VoiceLineId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null">
+                                <option value="">Elige una linea</option>
+                                @foreach (var l in _op?.LineasVoz ?? Array.Empty<AgendaRecordatorioLineaVozDto>())
+                                {
+                                    <option value="@l.Id" disabled="@(!l.Lista)">@l.Nombre@(l.Lista ? "" : " (no lista)")@(l.ModoSimple ? " \u00B7 agente de Retell" : "")</option>
+                                }
+                            </select>
+                            @if (_op is not null && _op.LineasVoz.Count == 0)
+                            {
+                                <small class="agx-muted">No hay lineas de voz. Configuralas en Lineas de voz (Retell).</small>
+                            }
+                        </div>
+                        <div class="field" style="margin:0;">
+                            <label class="form-label" for="rc-agente">Agente (opcional)</label>
+                            <select id="rc-agente" class="form-control" value="@_edit.AiAgentId" disabled="@(!PuedeGuardar)"
+                                    @onchange="e => _edit.AiAgentId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null">
+                                <option value="">Solo el guion de recordatorio</option>
+                                @foreach (var a in _op?.Agentes ?? Array.Empty<AgendaOpcionDto>())
+                                {
+                                    <option value="@a.Id">@a.Nombre</option>
+                                }
+                            </select>
+                            <small class="agx-muted">Su prompt (nombre, tono, politicas) se suma al guion.</small>
+                        </div>
+                    </div>
+                    <div style="padding:12px 18px;border-bottom:1px solid var(--line);display:grid;gap:10px;">
+                        <div class="field" style="margin:0;">
+                            <label class="form-label" for="rc-obj">Instruccion adicional (opcional)</label>
+                            <textarea id="rc-obj" class="form-control" rows="2" @bind="_edit.Objetivo" disabled="@(!PuedeGuardar)"
+                                      placeholder="Ej.: recuerdale traer la orden medica y llegar 15 minutos antes."></textarea>
+                        </div>
+                        @if (VozActual is { ModoSimple: true })
+                        {
+                            <div class="alert alert-warning" style="margin:0;font-size:12.5px;">
+                                Esta linea usa un agente ya armado en Retell: el guion de abajo no se aplica. Ese agente debe tener en su analisis
+                                post-llamada los campos <code>resultado_turno</code> (confirma, cancela, reprogramar, no_contesto, sin_definir) y
+                                <code>nota_turno</code>. Los datos del turno si le llegan como variables: {{cliente}}, {{servicio}}, {{fecha}},
+                                {{hora}}, {{recurso}}, {{empresa}}.
+                            </div>
+                        }
+                        <div>
+                            <div class="form-label">Guion de la llamada</div>
+                            <pre style="white-space:pre-wrap;font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;">@AgendaRecordatorioLlamada.Guion(_edit.Objetivo)</pre>
+                        </div>
+                        <p class="agx-sub" style="margin:0;">
+                            Al terminar la llamada: si confirma, el turno queda Confirmado; si cancela, se cancela con su motivo; si pide otro horario,
+                            queda anotado en el turno para reprogramarlo; si no contesta, queda como fallido en los envios.
+                        </p>
+                    </div>
+                }
                 @if (_error is not null)
                 {
                     <div class="alert alert-danger agx-error" style="margin-bottom:12px;">@_error</div>
@@ -244,7 +308,7 @@ else
                                 <td class="agx-num" style="white-space:nowrap;">@Local(e.ProcesadoUtc)</td>
                                 <td><b>@e.Cliente</b><br /><span class="agx-muted" style="font-size:12px;">@e.Servicio &middot; @e.FechaTurno.ToString("ddd dd MMM", Es) @e.HoraTurno.ToString("HH:mm")</span></td>
                                 <td>@e.ReglaNombre</td>
-                                <td><span class="agx-chip @ColorEstado(e.Estado)">@e.Estado</span></td>
+                                <td><span class="agx-chip @ColorEstado(e.Estado)">@(e.Estado == AgendaRecordatorioEnvioEstado.EnLlamada ? "En llamada" : e.Estado.ToString())</span>@(e.Canal == AgendaRecordatorioCanal.Llamada ? " \u260E" : "")</td>
                                 <td style="font-size:12.5px;max-width:420px;white-space:pre-wrap;">@e.Detalle</td>
                             </tr>
                         }
@@ -275,6 +339,10 @@ else
         public Guid? LineaId { get; set; }
         public Guid? PlantillaId { get; set; }
         public Dictionary<string, string> Variables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public AgendaRecordatorioCanal Canal { get; set; } = AgendaRecordatorioCanal.WhatsApp;
+        public Guid? VoiceLineId { get; set; }
+        public Guid? AiAgentId { get; set; }
+        public string? Objetivo { get; set; }
         public long? Version { get; set; }
 
         public int Minutos => Unidad switch { "h" => Cantidad * 60, "d" => Cantidad * 1440, _ => Cantidad };
@@ -295,6 +363,7 @@ else
     private IEnumerable<AgendaRecordatorioPlantillaDto> PlantillasDeLinea =>
         _op is null || _edit?.LineaId is null ? Enumerable.Empty<AgendaRecordatorioPlantillaDto>() : _op.Plantillas.Where(p => p.LineaId == _edit.LineaId);
     private AgendaRecordatorioPlantillaDto? PlantillaActual => _op?.Plantillas.FirstOrDefault(p => p.Id == _edit?.PlantillaId);
+    private AgendaRecordatorioLineaVozDto? VozActual => _op?.LineasVoz.FirstOrDefault(l => l.Id == _edit?.VoiceLineId);
 
     protected override async Task OnInitializedAsync()
     {
@@ -336,6 +405,10 @@ else
             LineaId = r.WhatsAppLineId,
             PlantillaId = r.PlantillaId,
             Variables = new Dictionary<string, string>(r.Variables, StringComparer.OrdinalIgnoreCase),
+            Canal = r.Canal,
+            VoiceLineId = r.VoiceLineId,
+            AiAgentId = r.AiAgentId,
+            Objetivo = r.Objetivo,
             Version = r.Version
         };
     }
@@ -352,6 +425,17 @@ else
             HoraHasta = new TimeOnly(20, 0),
             LineaId = _op?.Lineas.FirstOrDefault(l => l.Conectada)?.Id
         };
+    }
+
+    private void ElegirLlamada()
+    {
+        if (_edit is null) { return; }
+        _edit.Canal = AgendaRecordatorioCanal.Llamada;
+        _edit.VoiceLineId ??= _op?.LineasVoz.FirstOrDefault(l => l.Lista)?.Id;
+        if (_edit.Id is null && _edit.Nombre.StartsWith("WhatsApp", StringComparison.OrdinalIgnoreCase))
+        {
+            _edit.Nombre = "Llamada " + _edit.Nombre["WhatsApp".Length..].TrimStart();
+        }
     }
 
     private void ElegirPlantilla(Guid? id)
@@ -382,7 +466,7 @@ else
             var e = _edit;
             var res = await Svc.SaveReglaAsync(new SaveAgendaRecordatorioReglaRequest(
                 e.Id, e.Nombre, e.Activa, e.Servicios, e.Minutos, e.HoraDesde, e.HoraHasta, e.FueraDeHorario, e.SoloSiNoConfirmado,
-                AgendaRecordatorioCanal.WhatsApp, e.LineaId, e.PlantillaId, e.Variables, Version: e.Version));
+                e.Canal, e.LineaId, e.PlantillaId, e.Variables, e.AiAgentId, e.VoiceLineId, e.Objetivo, e.Version));
             if (!res.Ok) { _error = res.Error; return; }
             await CargarAsync(res.Id);
             _ok = "Regla guardada. El sistema revisa los turnos cada minuto.";

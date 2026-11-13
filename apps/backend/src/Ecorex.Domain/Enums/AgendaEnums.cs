@@ -38,7 +38,10 @@ public enum AgendaRecordatorioEnvioEstado
     Omitido = 2,
 
     /// <summary>Reservado por un worker que lo esta enviando (evita el doble envio con dos procesos a la vez).</summary>
-    Pendiente = 3
+    Pendiente = 3,
+
+    /// <summary>Llamada colocada; se espera su resultado (etapa 2) para aplicarlo al turno.</summary>
+    EnLlamada = 4
 }
 
 /// <summary>Estados de un turno (ADR-0165 ola 4). Se persiste como texto.</summary>

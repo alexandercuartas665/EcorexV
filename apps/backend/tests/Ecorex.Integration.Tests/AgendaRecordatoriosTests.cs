@@ -2,6 +2,7 @@ using Ecorex.Application.Admin;
 using Ecorex.Application.Agendas;
 using Ecorex.Application.Common;
 using Ecorex.Application.Tenancy;
+using Ecorex.Application.Voice;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +13,8 @@ namespace Ecorex.Integration.Tests;
 /// ADR-0167 (recordatorios de turnos) en matriz dual PostgreSQL / SQL Server: validacion de la regla (plantilla de la
 /// linea, aprobada si es YCloud/Cloud, variables con dato), envio por la plantilla con los datos del turno, una sola
 /// vez por turno y horario (aun con varias pasadas), nuevo envio tras reprogramar, omisiones con motivo, historial
-/// del turno y AISLAMIENTO cross-tenant.
+/// del turno y AISLAMIENTO cross-tenant. Etapa 2: la llamada con agente de voz (simulado) y su resultado aplicado al
+/// turno (confirma, cancela, reprogramar, no contesto, sin resultado a tiempo).
 /// </summary>
 public abstract class AgendaRecordatoriosTestsBase
 {
@@ -26,7 +28,8 @@ public abstract class AgendaRecordatoriosTestsBase
 
     private static TimeOnly H(int h, int m = 0) => new(h, m);
 
-    private sealed record Base(Guid Tenant, Guid Servicio, Guid Linea, Guid Plantilla, Guid PlantillaYCloudBorrador, Guid LineaYCloud);
+    private sealed record Base(Guid Tenant, Guid Servicio, Guid Linea, Guid Plantilla, Guid PlantillaYCloudBorrador, Guid LineaYCloud,
+        Guid LineaVoz, Guid LineaVozSinKey);
 
     private async Task<Base> SeedAsync(string nombre)
     {
@@ -52,18 +55,30 @@ public abstract class AgendaRecordatoriosTestsBase
         db.WhatsAppLines.AddRange(linea, lineaYc);
         var plantilla = new WhatsAppTemplate
         {
-            TenantId = tenantId, WhatsAppLineId = linea.Id, Name = "recordatorio_turno", Language = "es", Status = WhatsAppTemplateStatus.Approved,
+            TenantId = tenantId,
+            WhatsAppLineId = linea.Id,
+            Name = "recordatorio_turno",
+            Language = "es",
+            Status = WhatsAppTemplateStatus.Approved,
             BodyText = "Hola {{cliente}}, te recordamos tu turno el {{fecha}} a las {{hora}}. Responde SI para confirmar.",
             VariablesJson = """[{"token":"cliente","example":"Ana"},{"token":"fecha","example":"martes"},{"token":"hora","example":"3 pm"}]"""
         };
         var borrador = new WhatsAppTemplate
         {
-            TenantId = tenantId, WhatsAppLineId = lineaYc.Id, Name = "recordatorio_borrador", Language = "es", Status = WhatsAppTemplateStatus.Draft,
-            BodyText = "Hola {{cliente}}", VariablesJson = """[{"token":"cliente","example":"Ana"}]"""
+            TenantId = tenantId,
+            WhatsAppLineId = lineaYc.Id,
+            Name = "recordatorio_borrador",
+            Language = "es",
+            Status = WhatsAppTemplateStatus.Draft,
+            BodyText = "Hola {{cliente}}",
+            VariablesJson = """[{"token":"cliente","example":"Ana"}]"""
         };
         db.WhatsAppTemplates.AddRange(plantilla, borrador);
+        var voz = new RetellVoiceLine { TenantId = tenantId, Name = "Recordatorios", RetellApiKeyEncrypted = "cifrada", FromNumber = "+5716000000", IsEnabled = true };
+        var vozSinKey = new RetellVoiceLine { TenantId = tenantId, Name = "Sin key", FromNumber = "+5716000001", IsEnabled = true };
+        db.RetellVoiceLines.AddRange(voz, vozSinKey);
         await db.SaveChangesAsync();
-        return new Base(tenantId, servicio, linea.Id, plantilla.Id, borrador.Id, lineaYc.Id);
+        return new Base(tenantId, servicio, linea.Id, plantilla.Id, borrador.Id, lineaYc.Id, voz.Id, vozSinKey.Id);
     }
 
     private SaveAgendaRecordatorioReglaRequest Regla(Base b, int minutos, bool soloNoConfirmado = false, Guid? plantilla = null, Guid? linea = null,
@@ -82,8 +97,11 @@ public abstract class AgendaRecordatoriosTestsBase
         var borrador = await Recordatorios(b.Tenant, fake).SaveReglaAsync(Regla(b, 60, plantilla: b.PlantillaYCloudBorrador, linea: b.LineaYCloud));
         Assert.False(borrador.Ok);
         Assert.Contains("aprobada", borrador.Error);
-        // Llamada aun no.
+        // Llamada: exige una linea de voz lista (habilitada, con key y numero).
         Assert.False((await Recordatorios(b.Tenant, fake).SaveReglaAsync(Regla(b, 60) with { Canal = AgendaRecordatorioCanal.Llamada })).Ok);
+        var sinKey = await Recordatorios(b.Tenant, fake).SaveReglaAsync(Regla(b, 60) with { Canal = AgendaRecordatorioCanal.Llamada, VoiceLineId = b.LineaVozSinKey });
+        Assert.False(sinKey.Ok);
+        Assert.Contains("no esta lista", sinKey.Error);
         // Horario a medias.
         Assert.False((await Recordatorios(b.Tenant, fake).SaveReglaAsync(Regla(b, 60) with { HoraDesde = H(7) })).Ok);
         // Bien: las variables cliente/fecha/hora se sugieren solas.
@@ -173,12 +191,127 @@ public abstract class AgendaRecordatoriosTestsBase
         Assert.Contains("No se pudo enviar el recordatorio", (await Turnos(a.Tenant).GetTurnoAsync(pendiente.Id!.Value))!.Historial);
     }
 
+    [Fact]
+    public async Task Llamada_ColocaConDatosDelTurno_YAplicaElResultado()
+    {
+        var b = await SeedAsync("Rec llamada");
+        var fake = new FakeConnector();
+        var voz = new FakeVoz();
+        var regla = await Recordatorios(b.Tenant, fake, voz).SaveReglaAsync(Regla(b, 120) with
+        {
+            Nombre = "Llamada 2 horas antes",
+            Canal = AgendaRecordatorioCanal.Llamada,
+            VoiceLineId = b.LineaVoz,
+            Objetivo = "Recuerdale traer la orden medica."
+        });
+        Assert.True(regla.Ok, regla.Error);
+        var guardada = Assert.Single(await Recordatorios(b.Tenant, fake, voz).ListReglasAsync());
+        Assert.Null(guardada.WhatsAppLineId);
+        Assert.Null(guardada.PlantillaId);
+
+        // Cinco turnos el martes 17 (reservados hoy jueves): 9:00, 9:20, 9:40, 10:00, 10:20.
+        var martes = new DateOnly(2026, 11, 17);
+        var nombres = new[] { "Ana Confirma", "Luis Cancela", "Marta Cambia", "Pedro NoContesta", "Rosa Tarde" };
+        var ids = new List<Guid>();
+        for (var i = 0; i < nombres.Length; i++)
+        {
+            var r = await Turnos(b.Tenant).ReservarAsync(new ReservarTurnoRequest(b.Servicio, martes, H(9).AddMinutes(20 * i), nombres[i], $"310456789{i}", null));
+            Assert.True(r.Ok, r.Error);
+            ids.Add(r.Id!.Value);
+        }
+
+        // Martes 8:30: tocan los cinco (2 horas antes). Se colocan las llamadas y quedan "en llamada".
+        _reloj = new DateTimeOffset(2026, 11, 17, 13, 30, 0, TimeSpan.Zero);
+        var c1 = await Recordatorios(b.Tenant, fake, voz).ProcesarAsync();
+        Assert.Equal(5, c1.Enviados);
+        Assert.Empty(fake.Envios); // nada por WhatsApp
+        Assert.Equal(5, voz.Llamadas.Count);
+        var primera = voz.Llamadas[0];
+        Assert.Equal("+573104567890", primera.ToNumber);
+        Assert.Equal(b.LineaVoz, primera.RetellVoiceLineId);
+        Assert.Equal("Ana Confirma", primera.ExtraDynamicVariables!["cliente"]);
+        Assert.Equal("9:00 a. m.", primera.ExtraDynamicVariables["hora"]);
+        Assert.Equal("Rec llamada", primera.ExtraDynamicVariables["empresa"]);
+        Assert.Contains("{{cliente}}", primera.PromptExtra);           // el guion no lleva los datos: Retell reutiliza el agente
+        Assert.Contains("orden medica", primera.PromptExtra);
+        Assert.Equal(primera.PromptExtra, voz.Llamadas[4].PromptExtra);
+        Assert.Contains(primera.AnalysisFields!, f => f.Name == AgendaRecordatorioLlamada.CampoResultado);
+        Assert.All(await Recordatorios(b.Tenant, fake, voz).ListEnviosAsync(), e => Assert.Equal(AgendaRecordatorioEnvioEstado.EnLlamada, e.Estado));
+        Assert.Contains("Llamada de recordatorio en curso", (await Turnos(b.Tenant).GetTurnoAsync(ids[0]))!.Historial);
+
+        // Llegan los resultados (menos el de Rosa, que sigue en curso).
+        voz.Resultado("call-1", "Analyzed", ("resultado_turno", "confirma"));
+        voz.Resultado("call-2", "Analyzed", ("resultado_turno", "Cancela"), ("nota_turno", "tiene un viaje"));
+        voz.Resultado("call-3", "Analyzed", ("resultado_turno", "reprogramar"), ("nota_turno", "el jueves en la tarde"));
+        voz.Resultado("call-4", "Failed");
+        voz.Resultado("call-5", "Ongoing");
+        _reloj = _reloj.AddMinutes(5);
+        var c2 = await Recordatorios(b.Tenant, fake, voz).ProcesarAsync();
+        Assert.Equal(4, c2.LlamadasResueltas);
+        Assert.Equal(0, c2.Enviados); // no se vuelve a llamar a nadie
+
+        Assert.Equal(AgendaTurnoEstado.Confirmado, (await Turnos(b.Tenant).GetTurnoAsync(ids[0]))!.Estado);
+        var cancelado = (await Turnos(b.Tenant).GetTurnoAsync(ids[1]))!;
+        Assert.Equal(AgendaTurnoEstado.Cancelado, cancelado.Estado);
+        Assert.Contains("tiene un viaje", cancelado.Historial);
+        var cambia = (await Turnos(b.Tenant).GetTurnoAsync(ids[2]))!;
+        Assert.Equal(AgendaTurnoEstado.Reservado, cambia.Estado);
+        Assert.Contains("Pendiente de reprogramar", cambia.Historial);
+        Assert.Contains("el jueves en la tarde", cambia.Historial);
+        Assert.Contains("no contesto", (await Turnos(b.Tenant).GetTurnoAsync(ids[3]))!.Historial);
+
+        var envios = await Recordatorios(b.Tenant, fake, voz).ListEnviosAsync();
+        Assert.Contains(envios, e => e.Cliente == "Ana Confirma" && e.Estado == AgendaRecordatorioEnvioEstado.Enviado && e.Detalle!.Contains("confirmo"));
+        Assert.Contains(envios, e => e.Cliente == "Pedro NoContesta" && e.Estado == AgendaRecordatorioEnvioEstado.Fallido);
+        Assert.Contains(envios, e => e.Cliente == "Rosa Tarde" && e.Estado == AgendaRecordatorioEnvioEstado.EnLlamada);
+
+        // Rosa: 3 horas sin resultado -> fallida con motivo.
+        _reloj = _reloj.AddHours(4);
+        var c3 = await Recordatorios(b.Tenant, fake, voz).ProcesarAsync();
+        Assert.Equal(0, c3.LlamadasResueltas);
+        Assert.Contains(await Recordatorios(b.Tenant, fake, voz).ListEnviosAsync(),
+            e => e.Cliente == "Rosa Tarde" && e.Estado == AgendaRecordatorioEnvioEstado.Fallido && e.Detalle!.Contains("no entrego resultado"));
+        Assert.Contains("sin resultado", (await Turnos(b.Tenant).GetTurnoAsync(ids[4]))!.Historial);
+        Assert.Equal(5, voz.Llamadas.Count);
+    }
+
     private AgendaService Agendas(Guid tenantId) => new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId));
 
     private AgendaTurnosService Turnos(Guid tenantId) => new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId), () => _reloj);
 
-    private AgendaRecordatoriosService Recordatorios(Guid tenantId, FakeConnector fake) =>
-        new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId), fake, null, () => _reloj);
+    private AgendaRecordatoriosService Recordatorios(Guid tenantId, FakeConnector fake, FakeVoz? voz = null)
+    {
+        // Mismo contexto para recordatorios y turnos (como en la app: un DbContext por scope).
+        var db = _fixture.CreateContext(tenantId);
+        var tenant = new FixedTenant(tenantId);
+        return new(db, tenant, fake, null, () => _reloj, voz, new AgendaTurnosService(db, tenant, () => _reloj));
+    }
+
+    /// <summary>Servicio de voz de prueba: registra las llamadas y devuelve el resultado que fije la prueba.</summary>
+    private sealed class FakeVoz : IRetellVoiceService
+    {
+        private readonly Dictionary<string, VoiceCallResultDto> _resultados = new();
+
+        public List<VoicePlaceCallRequest> Llamadas { get; } = new();
+
+        public void Resultado(string callId, string estado, params (string Clave, string Valor)[] datos) =>
+            _resultados[callId] = new VoiceCallResultDto(callId, estado, null, null, null, null, null, null, null,
+                CustomData: datos.Length == 0 ? null : datos.ToDictionary(d => d.Clave, d => d.Valor));
+
+        public Task<VoicePlaceCallResult> PlaceCallAsync(VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
+        {
+            Llamadas.Add(request);
+            return Task.FromResult(new VoicePlaceCallResult(true, "call-" + Llamadas.Count, null, false));
+        }
+
+        public Task<VoiceCallResultDto?> GetCallResultAsync(string callId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<VoiceCallResultDto?>(_resultados.TryGetValue(callId, out var r)
+                ? r
+                : new VoiceCallResultDto(callId, "Registered", null, null, null, null, null, null, null));
+
+        public Task<VoiceTestAgentInfoDto?> GetTestAgentInfoAsync(Guid lineId, Guid? aiAgentId, string? promptExtra, string? objetivo, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
 
     private sealed class FixedTenant(Guid tenantId) : ITenantContext
     {

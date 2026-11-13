@@ -2,6 +2,7 @@ extern alias superadmin;
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Forms;
+using Ecorex.Application.Notifications;
 using Ecorex.Application.Organization;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
@@ -165,7 +166,8 @@ public abstract class ScrapeCrearActividadTestsBase
         {
             var platformUser = new PlatformUser { Email = $"user-{tenantId:N}@dron.test", EmailVerified = true, Status = PlatformUserStatus.Active };
             ctx.PlatformUsers.Add(platformUser);
-            ctx.TenantUsers.Add(new TenantUser { TenantId = tenantId, PlatformUserId = platformUser.Id, Email = platformUser.Email });
+            var tenantUser = new TenantUser { TenantId = tenantId, PlatformUserId = platformUser.Id, Email = platformUser.Email };
+            ctx.TenantUsers.Add(tenantUser);
             await ctx.SaveChangesAsync();
 
             // Formulario del concepto: cabecera + grilla de items, activo.
@@ -201,12 +203,156 @@ public abstract class ScrapeCrearActividadTestsBase
             ctx.DataContainerCells.Add(new DataContainerCell { TenantId = tenantId, RowId = row.Id, ColumnId = petofCol.Id, Value = "1501899999" });
             await ctx.SaveChangesAsync();
 
-            return new SeedData(tenantId, platformUser.Id, concepto.Id, form.Id, container.Id, row.Id, tareaCol.Id);
+            return new SeedData(tenantId, platformUser.Id, concepto.Id, form.Id, container.Id, row.Id, tareaCol.Id, tenantUser.Id, tenantUser.Email);
         }
     }
 
     private sealed record SeedData(Guid TenantId, Guid PlatformUserId, Guid SubcategoriaId, Guid FormId,
-        Guid ContainerId, Guid RowId, Guid TareaColId);
+        Guid ContainerId, Guid RowId, Guid TareaColId, Guid TenantUserId, string TenantUserEmail);
+
+    // ---- Paso Notificar (ADR-0167): corre "Crear actividad" y luego "Notificar" sobre el MISMO contexto ----
+
+    [Fact]
+    public async Task Notificar_Campana_AlResponsable_YNoRepiteAlRecorrer()
+    {
+        var seed = await SeedAsync("Dron Notificar Campana");
+        var notificar = NotificarStep(new ScrapeNotificar.Config
+        {
+            Canal = ScrapeNotificar.Canal.Campana,
+            Destino = ScrapeNotificar.Destino.Responsable,
+            Asunto = "Pedido {form.petof}",
+            Mensaje = "Tarea {tarea.numero} sol {{DETALLE.cabecera.solicitud}}",
+        });
+
+        var (crear1, aviso1, _) = await RunCrearYNotificarAsync(seed, notificar, responsable: true);
+        Assert.True(crear1.Created, crear1.Detail);
+        Assert.True(aviso1.Ok, aviso1.Detail);
+        Assert.Equal(1, aviso1.Enviados);
+
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var n = await ctx.Notifications.SingleAsync(x => x.RecipientTenantUserId == seed.TenantUserId && x.Kind == NotificationKind.General);
+            Assert.Equal("Pedido 1501899999", n.Title);
+            Assert.Equal($"Tarea {crear1.TaskNumber} sol SOL-7", n.Body);
+            var task = await ctx.TaskItems.SingleAsync(t => t.Number == crear1.TaskNumber);
+            Assert.True(await ctx.TaskItemActivities.AnyAsync(a => a.TaskItemId == task.Id && a.Text.StartsWith("Aviso por campana")));
+        }
+
+        // Segunda corrida: la tarea ya existe -> TAREA_NUEVA=0 -> no se repite el aviso.
+        var (crear2, aviso2, _) = await RunCrearYNotificarAsync(seed, notificar, responsable: true);
+        Assert.False(crear2.Created);
+        Assert.True(aviso2.Ok);
+        Assert.Equal(0, aviso2.Enviados);
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            Assert.Equal(1, await ctx.Notifications.CountAsync(x => x.RecipientTenantUserId == seed.TenantUserId && x.Kind == NotificationKind.General));
+        }
+    }
+
+    [Fact]
+    public async Task Notificar_Correo_AUsuariosElegidos()
+    {
+        var seed = await SeedAsync("Dron Notificar Correo");
+        var notificar = NotificarStep(new ScrapeNotificar.Config
+        {
+            Canal = ScrapeNotificar.Canal.Correo,
+            Destino = ScrapeNotificar.Destino.Usuarios,
+            UsuarioIds = [seed.TenantUserId],
+            Asunto = "Nueva tarea {tarea.numero}",
+        });
+
+        var (crear, aviso, sender) = await RunCrearYNotificarAsync(seed, notificar, responsable: false);
+
+        Assert.True(aviso.Ok, aviso.Detail);
+        Assert.Equal(1, aviso.Enviados);
+        var mail = Assert.Single(sender.Emails);
+        Assert.Equal(seed.TenantUserEmail, mail.To);
+        Assert.Equal($"Nueva tarea {crear.TaskNumber}", mail.Subject);
+    }
+
+    [Fact]
+    public async Task Notificar_WhatsApp_SinPlantilla_EsErrorDeConfig()
+    {
+        var seed = await SeedAsync("Dron Notificar WA");
+        var notificar = NotificarStep(new ScrapeNotificar.Config { Canal = ScrapeNotificar.Canal.WhatsApp });
+
+        var (_, aviso, sender) = await RunCrearYNotificarAsync(seed, notificar, responsable: true);
+
+        Assert.False(aviso.Ok);
+        Assert.Contains("plantilla", aviso.Detail);
+        Assert.Empty(sender.Emails);
+    }
+
+    private static ScrapeStep NotificarStep(ScrapeNotificar.Config cfg) => new()
+    {
+        Name = "Notificar",
+        Kind = ScrapeStepKind.Notificar,
+        MappingJson = ScrapeNotificar.Serialize(cfg),
+    };
+
+    private async Task<(ScrapeCrearActividad.Result Crear, ScrapeNotificar.Result Aviso, FakeChannelSender Sender)> RunCrearYNotificarAsync(
+        SeedData seed, ScrapeStep notificar, bool responsable)
+    {
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenant = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+        var engine = new WorkflowEngine(ctx, tenant, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
+        var tasks = new TaskItemService(ctx, tenant, new SequenceService(ctx, tenant), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
+        var forms = new FormResponseService(ctx, engine, new SequenceService(ctx, tenant), tenant,
+            new NoOpFormRecordBroadcaster(),
+            new Ecorex.Application.Forms.Lookups.FormLookupService(Array.Empty<Ecorex.Application.Forms.Lookups.IFormLookupSource>()),
+            new Ecorex.Application.Rules.RulesEngine(ctx, tenant, new ServiceCollection().BuildServiceProvider()));
+        var sender = new FakeChannelSender();
+        var sp = new ServiceCollection()
+            .AddSingleton<ITaskItemService>(tasks)
+            .AddSingleton<IFormResponseService>(forms)
+            .AddSingleton<INotifyTokenResolver>(new NotifyTokenResolver(ctx, TimeProvider.System))
+            .AddSingleton<INotificationService>(new NotificationService(ctx))
+            .AddSingleton<INotificationChannelSender>(sender)
+            .BuildServiceProvider();
+
+        var crearStep = Step(seed);
+        if (responsable)
+        {
+            var cfg = ScrapeCrearActividad.Parse(crearStep.MappingJson)! with { ResponsableId = seed.TenantUserId };
+            crearStep.MappingJson = ScrapeCrearActividad.Serialize(cfg);
+        }
+
+        var run = new ScrapeRunContext();
+        run.Set("DETALLE", Detalle("1501899999", "Pendiente"));
+        var crear = await ScrapeCrearActividad.RunAsync(sp, ctx, seed.TenantId, crearStep, run, "Dron prueba", CancellationToken.None);
+        foreach (var (k, v) in ScrapeCrearActividad.OutputVars(crearStep, crear)) { run.Set(k, v); }
+        var aviso = await ScrapeNotificar.RunAsync(sp, ctx, seed.TenantId, notificar, run, "Dron prueba", CancellationToken.None);
+        return (crear, aviso, sender);
+    }
+
+    /// <summary>Doble del despachador de canales: registra los correos y no envia nada.</summary>
+    private sealed class FakeChannelSender : INotificationChannelSender
+    {
+        public List<(string To, string Subject, string Html)> Emails { get; } = new();
+
+        public Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
+        {
+            Emails.Add((toEmail, subject, htmlBody));
+            return Task.FromResult(true);
+        }
+
+        public Task<WhatsAppSendOutcome> SendWhatsAppTemplateAsync(Guid lineId, string phone, string templateName, string? language,
+            IReadOnlyDictionary<string, string> tokens, Guid actorUserId, string? attachmentBase64 = null, string? attachmentMime = null,
+            string? attachmentFileName = null, string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null,
+            string? headerMediaFileNameOverride = null, IReadOnlyDictionary<string, string>? decisionLinksByButtonLabel = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new WhatsAppSendOutcome(true, null));
+
+        public Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> SendWhatsAppDocumentAsync(Guid lineId, string phone, string base64, string? mimeType, string? fileName,
+            string? caption, Guid actorUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<bool> SendTelegramAsync(string chatId, string text, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+    }
 
     private sealed class TestTenantContext(Guid? tenantId, Guid? userId = null) : ITenantContext
     {

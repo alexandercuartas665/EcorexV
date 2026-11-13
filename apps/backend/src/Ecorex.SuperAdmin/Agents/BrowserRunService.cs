@@ -358,10 +358,18 @@ public sealed class BrowserRunService(
     // Espera tras un paso en la corrida completa por pasos: valores < 100 son los "segundos" heredados del dron
     // legacy y se ignoran (no son ms reales); tope de 2 minutos por paso.
     internal const int MinPostStepWaitMs = 100;
+
+    /// <summary>Nombre de la variable del flujo que limita cuantas filas consume un bucle (simulacion/pruebas).</summary>
+    internal const string LoopRowCapVar = "TopeFilasBucle";
+
+    /// <summary>Tope de filas por bucle desde la variable del flujo <see cref="LoopRowCapVar"/>; 0 = sin tope.</summary>
+    internal static int LoopRowCap(IReadOnlyDictionary<string, string> vars)
+        => vars.TryGetValue(LoopRowCapVar, out var raw) && int.TryParse((raw ?? "").Trim(), out var n) && n > 0 ? n : 0;
     internal const int MaxPostStepWaitMs = 120_000;
 
     internal static bool NeedsStepwise(ScrapeFlow flow)
-        => flow.Steps.Any(s => !string.IsNullOrWhiteSpace(s.LoopOverVar) || s.Kind == ScrapeStepKind.CrearActividad);
+        => flow.Steps.Any(s => !string.IsNullOrWhiteSpace(s.LoopOverVar)
+            || s.Kind is ScrapeStepKind.CrearActividad or ScrapeStepKind.Notificar);
 
     /// <summary>
     /// Pasos que consume el BUCLE que empieza en <paramref name="startIdx"/>: el cuerpo (hasta el primer
@@ -609,8 +617,19 @@ public sealed class BrowserRunService(
             {
                 var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
                     $"Dron {flow.Name}", ct);
+                // La tarea queda en las variables de sesion para el paso siguiente (p.ej. Notificar).
+                var sessCa = _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal));
+                foreach (var (k, v) in ScrapeCrearActividad.OutputVars(step, ca)) { sessCa[k] = v; }
                 await RecordStepRunAsync(db, flowId, step.Name, ca.Ok, ca.Created ? 1 : 0, 0, 0, ca.Detail, ct);
                 return new StepRunResult(ca.Ok, false, ca.Ok ? null : ca.Detail, null, ca.Detail, ca.Created ? 1 : 0, 0, 0, ca.Detail);
+            }
+
+            // Notificar: no va al navegador; avisa por el canal elegido que la tarea del contexto existe.
+            if (step.Kind == ScrapeStepKind.Notificar)
+            {
+                var nt = await ScrapeNotificar.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx, $"Dron {flow.Name}", ct);
+                await RecordStepRunAsync(db, flowId, step.Name, nt.Ok, 0, 0, 0, nt.Detail, ct);
+                return new StepRunResult(nt.Ok, false, nt.Ok ? null : nt.Detail, null, nt.Detail, 0, 0, 0, nt.Detail);
             }
 
             var sessionKey = StepSessionKeyFor(flowId);
@@ -1916,9 +1935,19 @@ public sealed class BrowserRunService(
                 {
                     var ca = await ScrapeCrearActividad.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx,
                         $"Dron {flow.Name}", ct);
+                    foreach (var (k, v) in ScrapeCrearActividad.OutputVars(step, ca)) { ctx.Set(k, v); }
                     if (!ca.Ok) { lastErr = ca.Detail; return false; }
                     if (ca.Created) { tareasCreadas++; }
                     actividadNotas.Add(ca.Detail);
+                    return true;
+                }
+
+                // Notificar (server-side, best-effort): un fallo de ENVIO no corta el bucle; una config invalida si.
+                if (step.Kind == ScrapeStepKind.Notificar)
+                {
+                    var nt = await ScrapeNotificar.RunAsync(scope.ServiceProvider, db, tenantId, step, ctx, $"Dron {flow.Name}", ct);
+                    if (!nt.Ok) { lastErr = nt.Detail; return false; }
+                    actividadNotas.Add(nt.Detail);
                     return true;
                 }
 
@@ -1981,12 +2010,17 @@ public sealed class BrowserRunService(
             }
 
             const int MaxPages = 500; // tope de seguridad por si el total viene mal
+            // Tope de filas (variable del flujo TopeFilasBucle, ADR-0167): para simular o probar con pocos
+            // registros sin consumir todo el listado. Vacio/0 = sin tope.
+            var topeFilas = LoopRowCap(vars);
+            var topeAlcanzado = false;
             var page = 1;
             while (true)
             {
                 var rows = CurrentRows();
                 for (var ri = 0; ri < rows.Count; ri++)
                 {
+                    if (topeFilas > 0 && rowsOk >= topeFilas) { topeAlcanzado = true; break; }
                     ctx.Set("ROW", rows[ri]);
                     ctx.Set("ROW_INDEX", ri.ToString());
                     var rowOk = true;
@@ -1994,7 +2028,7 @@ public sealed class BrowserRunService(
                     if (rowOk) { rowsOk++; } else { break; }
                 }
                 pagesDone++;
-                if (lastErr is not null || !paginate) { break; }
+                if (lastErr is not null || !paginate || topeAlcanzado || (topeFilas > 0 && rowsOk >= topeFilas)) { break; }
 
                 var total = 1;
                 if (ctx.TryResolve(start.PageCountVar!, out var tp) && int.TryParse((tp ?? "").Trim(), out var tpn)) { total = tpn; }
@@ -2011,6 +2045,7 @@ public sealed class BrowserRunService(
 
             var okAll = lastErr is null;
             var detail = $"{rowsOk} filas consumidas en {pagesDone} pagina(s), {ins} ingeridas"
+                + (topeFilas > 0 ? $" (tope {topeFilas} filas)" : "")
                 + (actividadNotas.Count > 0 ? $", {tareasCreadas} actividad(es) creada(s)" : "")
                 + (lastErr is null ? "" : $"; ultimo error: {lastErr}");
             if (actividadNotas.Count > 0)

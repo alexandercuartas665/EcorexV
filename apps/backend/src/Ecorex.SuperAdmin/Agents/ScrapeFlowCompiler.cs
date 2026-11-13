@@ -161,8 +161,9 @@ public static class ScrapeFlowCompiler
                 // dron): aun no se ejecutan por esta via. Mensaje claro para que el operador los salte en el
                 // paso a paso en vez de un "tipo no soportado" opaco.
                 case ScrapeStepKind.CrearActividad:
+                case ScrapeStepKind.Notificar:
                     throw new ScrapeCompileException(
-                        $"El paso '{step.Name}' (Crear actividad) corre en el servidor: usa el paso a paso o la corrida por pasos.");
+                        $"El paso '{step.Name}' ({step.Kind}) corre en el servidor: usa el paso a paso o la corrida por pasos.");
 
                 case ScrapeStepKind.Ensamblado:
                 case ScrapeStepKind.EjecutarSql:

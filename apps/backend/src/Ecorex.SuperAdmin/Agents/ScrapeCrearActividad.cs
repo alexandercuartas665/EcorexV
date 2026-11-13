@@ -67,6 +67,20 @@ public static class ScrapeCrearActividad
 
     public sealed record Result(bool Ok, bool Created, string Detail, string? TaskNumber);
 
+    /// <summary>Nombre por defecto de la variable con el numero de la tarea (si el paso no define OutputVar).</summary>
+    public const string DefaultOutputVar = "TAREA";
+
+    /// <summary>
+    /// Variables que el paso deja en el contexto para los pasos siguientes (p.ej. Notificar): el numero de la
+    /// tarea (creada o ya existente) en <c>{{TAREA}}</c> y si se creo en ESTA corrida en <c>{{TAREA_NUEVA}}</c>
+    /// ("1"/"0"). El nombre base sale del OutputVar del paso si lo tiene. Sin tarea -> vacio y "0".
+    /// </summary>
+    public static IReadOnlyList<(string Name, string Value)> OutputVars(ScrapeStep step, Result r)
+    {
+        var name = string.IsNullOrWhiteSpace(step.OutputVar) ? DefaultOutputVar : step.OutputVar.Trim();
+        return [(name, r.TaskNumber ?? string.Empty), (name + "_NUEVA", r.Created ? "1" : "0")];
+    }
+
     public static Config? Parse(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) { return null; }
@@ -246,6 +260,9 @@ public static class ScrapeCrearActividad
         if (!draft.IsOk || draft.Value is null) { return " Formulario sin llenar: " + (draft.Error ?? "no se pudo abrir el borrador") + "."; }
         var saved = await forms.SaveAsync(draft.Value.Id, data, submit: false, cancellationToken: ct);
         if (!saved.IsOk) { return " Formulario sin llenar: " + (saved.Error ?? "error al guardar") + "."; }
+        // Formulario PRINCIPAL de la tarea: la UI ya lo trata asi cuando es el unico, pero el resolvedor de tokens de
+        // los avisos ({form.petof}, paso Notificar / reglas de nodo) solo lee el marcado como activo.
+        await forms.SetActiveTaskFormAsync(draft.Value.Id, ct);
         return $" Formulario con {data.Count} campo(s)"
             + (faltan.Count > 0 ? $"; no existen en el formulario: {string.Join(", ", faltan)}" : "") + ".";
     }

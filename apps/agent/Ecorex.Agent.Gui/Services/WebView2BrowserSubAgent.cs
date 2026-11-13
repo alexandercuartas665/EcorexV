@@ -211,6 +211,12 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
             // incluso reusando una sesion viva (puede cambiar entre pasos; null vuelve al destino por defecto).
             instance.SetDownloadFolder(req.DownloadFolder);
 
+            // Politica VIGENTE para esta orden, tambien al reusar una sesion viva. Antes la instancia se
+            // quedaba con la politica de cuando se abrio la ventana: si el operador agregaba un dominio a
+            // la allow-list, la sesion viva lo seguia rechazando hasta "Cerrar navegador"; y si lo QUITABA,
+            // la ventana abierta lo seguia permitiendo (fallo abierto). Ahora cada orden la refresca.
+            instance.SetPolicy(policy);
+
             // La sesion viva NO se cierra al terminar (se reusa en la proxima orden); el resto si.
             var closeAtEnd = !keepAlive;
             try
@@ -269,7 +275,7 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
 
         private readonly Window _window;
         private readonly WpfWebView2 _web;
-        private readonly BrowserPolicy _policy;
+        private BrowserPolicy _policy;
         private readonly string _userDataDir;
         private readonly bool _persistent;
         private readonly List<DownloadRecord> _downloads = new();
@@ -285,6 +291,9 @@ public sealed class WebView2BrowserSubAgent : IBrowserSubAgent
         {
             _downloadFolder = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
         }
+
+        /// <summary>Reemplaza la politica (allow-list) de esta instancia por la vigente. Solo hilo de UI.</summary>
+        public void SetPolicy(BrowserPolicy policy) => _policy = policy;
 
         /// <summary>True cuando la ventana/WebView2 ya no sirve (cerrada por <see cref="Close"/> o por el
         /// operador a mano). El cache de sesiones vivas lo consulta para no reusar una instancia muerta.</summary>

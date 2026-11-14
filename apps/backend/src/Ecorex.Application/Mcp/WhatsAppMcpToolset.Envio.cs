@@ -275,11 +275,12 @@ public sealed partial class WhatsAppMcpToolset
         {
             type = kind switch { "texto" => "text", "imagen" => "image", "video" => "video", _ => "audio" },
             content,
-            caption = Str(args, "pie"),
+            // Evolution exige caption string y statusJidList array aunque sea para todos (rechaza null con HTTP 400).
+            caption = Str(args, "pie") ?? string.Empty,
             backgroundColor = Str(args, "color_fondo") ?? "#25D366",
             font = 1,
             allContacts = all,
-            statusJidList = all ? null : jids
+            statusJidList = all ? new List<string>() : jids
         }, ct);
         return raw.Ok ? Ok(new { ok = true, estado = kind, para_todos = all, contactos = all ? (int?)null : jids.Count }) : EvoErr(raw, "No se pudo publicar el estado");
     }

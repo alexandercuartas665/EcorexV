@@ -53,7 +53,7 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
             CloudAccessTokenEncrypted = request.Provider == WhatsAppProvider.Cloud && !string.IsNullOrWhiteSpace(request.CloudAccessToken)
                 ? _secretProtector.Protect(request.CloudAccessToken.Trim())
                 : null,
-            YCloudPhoneNumberId = request.Provider == WhatsAppProvider.YCloud ? Clean(request.YCloudPhoneNumberId) : null,
+            YCloudPhoneNumberId = request.Provider == WhatsAppProvider.YCloud ? YCloudNumber(request.YCloudPhoneNumberId) : null,
             YCloudWabaId = request.Provider == WhatsAppProvider.YCloud ? Clean(request.YCloudWabaId) : null,
             YCloudApiKeyEncrypted = request.Provider == WhatsAppProvider.YCloud && !string.IsNullOrWhiteSpace(request.YCloudApiKey)
                 ? _secretProtector.Protect(request.YCloudApiKey.Trim())
@@ -167,4 +167,12 @@ public sealed class WhatsAppLineService : IWhatsAppLineService
             l.YCloudPhoneNumberId, l.YCloudWabaId, !string.IsNullOrEmpty(l.YCloudApiKeyEncrypted));
 
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    // El webhook de YCloud entrega el numero de negocio ('to') SOLO con digitos: se guarda igual ("+57 312..." ->
+    // "57312...") para que la linea reciba sus mensajes entrantes y estados.
+    internal static string? YCloudNumber(string? s)
+    {
+        var digits = new string((s ?? string.Empty).Where(char.IsDigit).ToArray());
+        return digits.Length == 0 ? null : digits;
+    }
 }

@@ -2113,7 +2113,7 @@ app.MapPost("/webhooks/ycloud", async (
                 if (digits.Length == 0) { continue; }
                 var stLine = await db.WhatsAppLines.IgnoreQueryFilters().FirstOrDefaultAsync(l =>
                     l.Provider == Ecorex.Domain.Enums.WhatsAppProvider.YCloud
-                    && ((!string.IsNullOrEmpty(s.BusinessNumber) && l.YCloudPhoneNumberId == s.BusinessNumber)
+                    && ((!string.IsNullOrEmpty(s.BusinessNumber) && (l.YCloudPhoneNumberId == s.BusinessNumber || l.YCloudPhoneNumberId == "+" + s.BusinessNumber))
                         || (!string.IsNullOrEmpty(s.WabaId) && l.YCloudWabaId == s.WabaId)), ct);
                 if (stLine is null) { continue; }
 
@@ -2163,10 +2163,13 @@ app.MapPost("/webhooks/ycloud", async (
     var ingested = 0;
     foreach (var m in messages)
     {
-        // Sin contexto de tenant aun: la linea YCloud se identifica por su numero de negocio ('to').
+        // Sin contexto de tenant aun: la linea YCloud se identifica por su numero de negocio ('to', solo digitos).
+        // La linea puede estar guardada con o sin '+' (antes de normalizar al crear se aceptaba "+57..."): se
+        // aceptan ambas formas para que esas lineas no queden sordas.
+        var toPlus = "+" + m.To;
         var line = await db.WhatsAppLines.IgnoreQueryFilters()
             .FirstOrDefaultAsync(l => l.Provider == Ecorex.Domain.Enums.WhatsAppProvider.YCloud
-                && l.YCloudPhoneNumberId == m.To, ct);
+                && (l.YCloudPhoneNumberId == m.To || l.YCloudPhoneNumberId == toPlus), ct);
         if (line is null)
         {
             log.LogWarning("Webhook YCloud: mensaje para el numero {To} que no corresponde a ninguna linea YCloud registrada.", m.To);

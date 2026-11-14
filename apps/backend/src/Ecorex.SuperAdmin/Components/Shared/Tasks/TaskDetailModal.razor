@@ -797,6 +797,65 @@
                             }
                             <p class="tk-empty-note" style="margin-top:6px;">Cronometra con Iniciar, o escribe horas:minutos. Cada registro queda en la Bitacora.</p>
                         }
+                        @if (_totalSeconds > 0 || _showWorkLogs)
+                        {
+                            <button type="button" class="btn btn-sm btn-link" style="padding:0;margin-top:4px;font-size:12.5px;"
+                                    @onclick="ToggleWorkLogsAsync">@(_showWorkLogs ? "Ocultar registros" : "Ver registros (corregir o anular)")</button>
+                        }
+                        @if (_showWorkLogs)
+                        {
+                            <div style="margin-top:8px;display:grid;gap:6px;">
+                                @foreach (var w in _workLogs)
+                                {
+                                    var wl = w;
+                                    var puede = !readOnly && PuedeCorregirTiempo(wl);
+                                    <div style="border:1px solid var(--line, #e5e7eb);border-radius:8px;padding:6px 8px;font-size:12.5px;">
+                                        @if (_editWorkLogId == wl.Id)
+                                        {
+                                            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                                                <input type="number" class="form-control form-control-sm tk-manual-num" @bind="_editWlHours" min="0" max="24" placeholder="HH" />
+                                                <span>:</span>
+                                                <input type="number" class="form-control form-control-sm tk-manual-num" @bind="_editWlMinutes" min="0" max="59" placeholder="MM" />
+                                                <input class="form-control form-control-sm tk-timer-note" @bind="_editWlNote" placeholder="Nota" />
+                                                <button class="btn btn-sm btn-success" @onclick="SaveWorkLogEditAsync" disabled="@_busy">Guardar</button>
+                                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _editWorkLogId = null" disabled="@_busy">Cancelar</button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                                <strong>@TaskUi.FormatDuration(wl.Seconds)</strong>
+                                                <span style="opacity:.75;">@UserEmail(wl.TenantUserId) &middot; @wl.LoggedAt.ToLocalTime().ToString("dd MMM HH:mm")</span>
+                                                @if (!string.IsNullOrWhiteSpace(wl.Note))
+                                                {
+                                                    <span style="flex-basis:100%;">@wl.Note</span>
+                                                }
+                                                @if (puede)
+                                                {
+                                                    <span style="margin-left:auto;display:flex;gap:6px;">
+                                                        @if (_confirmDeleteWorkLogId == wl.Id)
+                                                        {
+                                                            <span>&iquest;Anular este registro?</span>
+                                                            <button class="btn btn-sm btn-danger" style="padding:0 8px;" @onclick="() => DeleteWorkLogAsync(wl.Id)" disabled="@_busy">Si, anular</button>
+                                                            <button class="btn btn-sm btn-outline-secondary" style="padding:0 8px;" @onclick="() => _confirmDeleteWorkLogId = null">No</button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button class="btn btn-sm btn-outline-primary" style="padding:0 8px;" @onclick="() => StartWorkLogEdit(wl)" disabled="@_busy">Corregir</button>
+                                                            <button class="btn btn-sm btn-outline-danger" style="padding:0 8px;" @onclick="() => _confirmDeleteWorkLogId = wl.Id" disabled="@_busy">Anular</button>
+                                                        }
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                @if (_workLogs.Count == 0)
+                                {
+                                    <div class="tk-empty-note">No hay registros de tiempo.</div>
+                                }
+                            </div>
+                        }
                     </div>
                     @* Subtareas (tareas hijas, ADR-0065): tareas completas colgadas de esta; el
                        "Avance" de arriba agrega su progreso. Clic en una la abre en este mismo modal. *@
@@ -1846,6 +1905,15 @@
     private int? _manualHours;
     private int? _manualMinutes;
     private string? _workLogError;
+    // Correccion de registros de tiempo (dueno del registro u Owner/Admin).
+    private bool _showWorkLogs;
+    private IReadOnlyList<TaskWorkLogDto> _workLogs = Array.Empty<TaskWorkLogDto>();
+    private Guid? _editWorkLogId;
+    private Guid? _confirmDeleteWorkLogId;
+    private int? _editWlHours;
+    private int? _editWlMinutes;
+    private string? _editWlNote;
+    private Guid _actorCache;
 
     // Valor recien copiado al portapapeles (email/telefono/nombre del contacto): muestra "Copiado" ~1.4s.
     private string? _copiedValue;
@@ -1976,6 +2044,9 @@
             _projects = (await ProjectsSvc.ListAsync(includeArchived: true)).ToList();
             _editingTitle = _editingDesc = _confirmClose = _confirmArchive = false;
             _conflict = _actionError = _workLogError = _attError = _moveNote = null;
+            _showWorkLogs = false;
+            _workLogs = Array.Empty<TaskWorkLogDto>();
+            _editWorkLogId = _confirmDeleteWorkLogId = null;
             _openMenu = null;
             _timerRunning = false;
             // El cronometro vive en un singleton JS a nivel de PAGINA: si no se reinicia al abrir, un valor
@@ -2062,6 +2133,10 @@
         if (_detail is not null)
         {
             _totalSeconds = _detail.TotalWorkSeconds;
+            if (_showWorkLogs)
+            {
+                _workLogs = await tasksSvc.ListWorkLogsAsync(taskId);
+            }
             // Plazos de flujo (Fase 2): las fechas llevan HORA (datetime-local), no se truncan a .Date.
             _editDue = _detail.Item.DueDate?.ToLocalTime().DateTime;
             _editStart = _detail.Item.StartDate?.ToLocalTime().DateTime;
@@ -3857,6 +3932,94 @@
                 _workLogError = result.Error;
                 return;
             }
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ===== Correccion de registros de tiempo =====
+
+    // Solo es una ayuda visual: el servicio vuelve a validar (dueno del registro u Owner/Admin, tarea no cerrada).
+    private bool PuedeCorregirTiempo(TaskWorkLogDto w)
+    {
+        var me = _users.FirstOrDefault(u => u.PlatformUserId == _actorCache);
+        return me is not null && (me.Id == w.TenantUserId || me.TenantRole is TenantRole.Owner or TenantRole.Admin);
+    }
+
+    private async Task ToggleWorkLogsAsync()
+    {
+        if (_detail is null) { return; }
+        _showWorkLogs = !_showWorkLogs;
+        _editWorkLogId = _confirmDeleteWorkLogId = null;
+        if (_showWorkLogs)
+        {
+            _actorCache = await ActorAsync();
+            _workLogs = await TasksSvc.ListWorkLogsAsync(_detail.Item.Id);
+        }
+    }
+
+    private void StartWorkLogEdit(TaskWorkLogDto w)
+    {
+        _workLogError = null;
+        _confirmDeleteWorkLogId = null;
+        _editWorkLogId = w.Id;
+        _editWlHours = w.Seconds / 3600;
+        _editWlMinutes = (w.Seconds % 3600) / 60;
+        _editWlNote = w.Note;
+    }
+
+    private async Task SaveWorkLogEditAsync()
+    {
+        if (_detail is null || _editWorkLogId is not Guid id) { return; }
+        var seconds = (_editWlHours ?? 0) * 3600 + (_editWlMinutes ?? 0) * 60;
+        var original = _workLogs.FirstOrDefault(w => w.Id == id);
+        // Si no toco la duracion, se conservan los segundos sueltos del cronometro (no se redondea a minutos).
+        if (original is not null && seconds == original.Seconds / 60 * 60) { seconds = original.Seconds; }
+        if (seconds <= 0)
+        {
+            _workLogError = "La duracion debe ser mayor que cero. Para quitar el registro usa Anular.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.UpdateWorkLogAsync(
+                new UpdateTaskWorkLogRequest(id, seconds, string.IsNullOrWhiteSpace(_editWlNote) ? null : _editWlNote.Trim()),
+                await ActorAsync(), await ActorNameAsync());
+            if (!result.IsOk)
+            {
+                _workLogError = result.Error;
+                return;
+            }
+            _editWorkLogId = null;
+            _workLogError = null;
+            await ReloadAsync(_detail.Item.Id);
+            await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteWorkLogAsync(Guid id)
+    {
+        if (_detail is null) { return; }
+        _busy = true;
+        try
+        {
+            var result = await TasksSvc.DeleteWorkLogAsync(id, await ActorAsync(), await ActorNameAsync());
+            _confirmDeleteWorkLogId = null;
+            if (!result.IsOk)
+            {
+                _workLogError = result.Error;
+                return;
+            }
+            _workLogError = null;
             await ReloadAsync(_detail.Item.Id);
             await NotifyChangedAsync(_detail!.Item.Id, _detail.Item.Status);
         }

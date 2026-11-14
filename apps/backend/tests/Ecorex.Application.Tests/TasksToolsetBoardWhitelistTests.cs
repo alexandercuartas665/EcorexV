@@ -157,6 +157,8 @@ public class TasksToolsetBoardWhitelistTests
         public Task<TaskCoreResult<TaskWorkLogDto>> AddWorkLogAsync(AddTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<TaskWorkLogDto>> ListWorkLogsAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<long> TotalSecondsAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<TaskWorkLogDto>> UpdateWorkLogAsync(UpdateTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<bool>> DeleteWorkLogAsync(Guid workLogId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PagedResult<TaskItemSummaryDto>> ListAsync(TaskItemListFilter filter, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskItemDetailDto?> GetDetailAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }

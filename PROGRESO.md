@@ -2,7 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-13 - MCP de WhatsApp: estados de imagen/video como data: URI (release v0.16.321)
+## 2026-11-14 - Actividades: corregir o anular un registro de tiempo mal cargado (release v0.16.322, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Peticion del usuario: si se carga mal un tiempo en la actividad no hay como corregirlo. Decision del usuario: lo corrige el dueno del registro y el Owner/Admin corrige el de cualquiera.
+- HECHO: ITaskItemService.UpdateWorkLogAsync (nueva duracion 1 s a 24 h + nota) y DeleteWorkLogAsync (anula; registro hijo como adjuntos/checklist: se borra y la Bitacora inmutable conserva lo anulado). Permiso en el servicio (dueno u Owner/Admin -> si no, Forbidden), tarea cerrada no deja tocar tiempos, filtro global por tenant. Cada correccion queda en la Bitacora ("corrigio un registro de trabajo de 5h 00m a 30m", "anulo un registro de 30m de trabajo"). Modal de la tarea: "Ver registros (corregir o anular)" bajo el Total de Registro de tiempo, con Corregir (HH:MM + nota) y Anular (con confirmacion). Sin migracion.
+- VERIFICADO: build verde; TaskWorkLogCorreccionTests dual PG + SQL Server 4/4 (dueno corrige/anula, otro miembro no, admin si, duracion 0 rechazada, tarea cerrada, aislamiento cross-tenant); Application.Tests 1381/1381; dotnet format limpio. E2E local 5234 AGRO en T00093: carga 5h -> Corregir a 30m (Total 30m) -> Anular (Total 0m) y las dos lineas en la Bitacora.
+- SIGUIENTE: deploy con OK del usuario.
+
+## 2026-11-13 - MCP de WhatsApp: estados de imagen/video como data: URI (release v0.16.321, DESPLEGADO 2026-11-13)
 
 - AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.mcp (fix #2 de publicar_estado).
 - CAUSA (verificada en el codigo de Evolution 2.3.7 de prod, solo lectura): formatStatusMessage arma { image|video: { url: content } } y el getStream de Baileys solo acepta ahi http(s), data: URI o una ruta de archivo; el base64 suelto lo abria como ruta -> HTTP 400 ENAMETOOLONG. El audio si acepta base64 crudo (ffmpeg).

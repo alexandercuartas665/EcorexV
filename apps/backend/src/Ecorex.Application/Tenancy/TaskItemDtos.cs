@@ -136,4 +136,7 @@ public sealed record AddTaskWorkLogRequest(
     WorkLogKind Kind = WorkLogKind.Manual, DateTimeOffset? LoggedAt = null,
     bool LogActivity = false);
 
+/// <summary>Correccion de un registro de tiempo: nueva duracion (1 s a 24 h) y nota. Lo puede hacer quien lo registro o un Owner/Admin.</summary>
+public sealed record UpdateTaskWorkLogRequest(Guid WorkLogId, int Seconds, string? Note);
+
 public sealed record AddTaskAttachmentRequest(Guid TaskItemId, string FileName, string Url, string? MimeType, long SizeBytes);

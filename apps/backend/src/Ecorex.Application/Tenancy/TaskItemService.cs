@@ -1500,6 +1500,85 @@ public sealed class TaskItemService : ITaskItemService
             workLog.Note, workLog.Kind, workLog.LoggedAt));
     }
 
+    public async Task<TaskCoreResult<TaskWorkLogDto>> UpdateWorkLogAsync(UpdateTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        if (request.Seconds <= 0 || request.Seconds > MaxWorkLogSeconds)
+        {
+            return TaskCoreResult<TaskWorkLogDto>.Invalid(
+                $"Los segundos deben estar entre 1 y {MaxWorkLogSeconds} (24 horas).");
+        }
+        var (workLog, status, error) = await WorkLogEditableAsync(request.WorkLogId, actorUserId, cancellationToken);
+        if (workLog is null)
+        {
+            return new TaskCoreResult<TaskWorkLogDto>(status, null, error);
+        }
+        var before = workLog.Seconds;
+        var note = Normalize(request.Note);
+        if (before == request.Seconds && note == workLog.Note)
+        {
+            return TaskCoreResult<TaskWorkLogDto>.Ok(ToDto(workLog));
+        }
+        workLog.Seconds = request.Seconds;
+        workLog.Note = note;
+        var noteSuffix = string.IsNullOrWhiteSpace(note) ? string.Empty : $": {note}";
+        var detalle = before == request.Seconds
+            ? $"corrigio la nota de un registro de {WorkDuration(before)} de trabajo{noteSuffix}"
+            : $"corrigio un registro de trabajo de {WorkDuration(before)} a {WorkDuration(request.Seconds)}{noteSuffix}";
+        _db.TaskItemActivities.Add(BuildActivity(workLog.TenantId, workLog.TaskItemId, actorUserId, actorName,
+            TaskActivityType.Action, detalle));
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<TaskWorkLogDto>.Ok(ToDto(workLog));
+    }
+
+    public async Task<TaskCoreResult<bool>> DeleteWorkLogAsync(Guid workLogId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default)
+    {
+        var (workLog, status, error) = await WorkLogEditableAsync(workLogId, actorUserId, cancellationToken);
+        if (workLog is null)
+        {
+            return new TaskCoreResult<bool>(status, false, error);
+        }
+        // Registro hijo (como adjuntos o checklist): se borra; la Bitacora (inmutable) conserva que se anulo y cuanto era.
+        var noteSuffix = string.IsNullOrWhiteSpace(workLog.Note) ? string.Empty : $" ({workLog.Note})";
+        _db.TaskItemActivities.Add(BuildActivity(workLog.TenantId, workLog.TaskItemId, actorUserId, actorName,
+            TaskActivityType.Action, $"anulo un registro de {WorkDuration(workLog.Seconds)} de trabajo{noteSuffix}"));
+        _db.TaskWorkLogs.Remove(workLog);
+        await _db.SaveChangesAsync(cancellationToken);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    /// <summary>
+    /// Carga un registro de tiempo si el actor puede corregirlo: quien lo registro o un Owner/Admin del tenant.
+    /// NotFound si no existe (el filtro global ya oculta los de otros tenants).
+    /// </summary>
+    private async Task<(TaskWorkLog? WorkLog, TaskCoreStatus Status, string? Error)> WorkLogEditableAsync(Guid workLogId, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var workLog = await _db.TaskWorkLogs.FirstOrDefaultAsync(w => w.Id == workLogId, cancellationToken);
+        if (workLog is null)
+        {
+            return (null, TaskCoreStatus.NotFound, "Registro de tiempo no encontrado.");
+        }
+        var me = await _db.TenantUsers.AsNoTracking().FirstOrDefaultAsync(u => u.PlatformUserId == actorUserId, cancellationToken);
+        if (me is null)
+        {
+            return (null, TaskCoreStatus.Forbidden, "Tu usuario no pertenece al tenant.");
+        }
+        if (workLog.TenantUserId != me.Id && me.TenantRole is not (TenantRole.Owner or TenantRole.Admin))
+        {
+            return (null, TaskCoreStatus.Forbidden, "Solo quien registro el tiempo o un administrador puede corregirlo.");
+        }
+        var cerrada = await _db.TaskItems.AsNoTracking()
+            .AnyAsync(t => t.Id == workLog.TaskItemId && t.Status == TaskItemStatus.Closed, cancellationToken);
+        return cerrada
+            ? (null, TaskCoreStatus.Invalid, "La tarea esta cerrada: no se pueden corregir sus tiempos.")
+            : (workLog, TaskCoreStatus.Ok, null);
+    }
+
+    private static TaskWorkLogDto ToDto(TaskWorkLog w) =>
+        new(w.Id, w.TaskItemId, w.TenantUserId, w.Seconds, w.Note, w.Kind, w.LoggedAt);
+
+    private static string WorkDuration(int s) =>
+        s >= 3600 ? $"{s / 3600}h {(s % 3600) / 60:00}m" : s >= 60 ? $"{s / 60}m" : $"{s}s";
+
     public async Task<IReadOnlyList<TaskWorkLogDto>> ListWorkLogsAsync(Guid taskId, CancellationToken cancellationToken = default)
     {
         await using var lease = _dbFactory?.Create();

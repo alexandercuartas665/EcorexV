@@ -143,6 +143,10 @@ public interface ITaskItemService
 
     // Worklog
     Task<TaskCoreResult<TaskWorkLogDto>> AddWorkLogAsync(AddTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+    /// <summary>Corrige duracion/nota de un registro de tiempo (dueno del registro u Owner/Admin); deja la correccion en la Bitacora.</summary>
+    Task<TaskCoreResult<TaskWorkLogDto>> UpdateWorkLogAsync(UpdateTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
+    /// <summary>Anula (borra) un registro de tiempo cargado por error (dueno u Owner/Admin); la Bitacora conserva lo anulado.</summary>
+    Task<TaskCoreResult<bool>> DeleteWorkLogAsync(Guid workLogId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TaskWorkLogDto>> ListWorkLogsAsync(Guid taskId, CancellationToken cancellationToken = default);
     Task<long> TotalSecondsAsync(Guid taskId, CancellationToken cancellationToken = default);
 

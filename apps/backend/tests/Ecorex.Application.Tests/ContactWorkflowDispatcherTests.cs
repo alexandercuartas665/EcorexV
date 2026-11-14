@@ -139,6 +139,8 @@ public class ContactWorkflowDispatcherTests
         public Task<TaskCoreResult<TaskWorkLogDto>> AddWorkLogAsync(AddTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<IReadOnlyList<TaskWorkLogDto>> ListWorkLogsAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<long> TotalSecondsAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<TaskCoreResult<TaskWorkLogDto>> UpdateWorkLogAsync(UpdateTaskWorkLogRequest request, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<TaskCoreResult<bool>> DeleteWorkLogAsync(Guid workLogId, Guid actorUserId, string actorName, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<PagedResult<TaskItemSummaryDto>> ListAsync(TaskItemListFilter filter, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskItemDetailDto?> GetDetailAsync(Guid taskId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }

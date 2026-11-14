@@ -2,6 +2,11 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-14 - Release v0.16.324: integra feat/agentes-sistema @ cef94cd5 (Notificar a numeros de WhatsApp + import YCloud, ADR-0168)
+
+- AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.plataformas. Fast-forward sobre v0.16.323, sin migraciones.
+- SIGUIENTE: deploy con OK del usuario. La plantilla aviso_nuevo_pedido_plataforma y el paso Notificar configurado siguen solo en la BD local.
+
 ## 2026-11-14 - DRON: Notificar a numeros de WhatsApp sueltos + import de YCloud conserva variables con nombre (ADR-0168 addendum, sin release)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas), rama feat/agentes-sistema (fast-forward a origin/main v0.16.323). Peticion del usuario.
@@ -9,12 +14,13 @@
 - CONFIG LOCAL: plantilla aviso_nuevo_pedido_plataforma sometida en YCloud (linea LINEA de SOLDARCO, pendiente de aprobacion de Meta); paso Notificar por WhatsApp al 573217626882 en el DRON real (102536) y en la simulacion (105559). Corrida local del DRON: 0 pedidos pendientes en el portal, 19 concluidas sin cambios.
 - VERIFICADO: SuperAdmin 233/233, Application 1386/1386, integracion dual PG + SQL Server 26/26 (WhatsAppTemplates + ScrapeCrearActividad).
 - SIGUIENTE: reiniciar la app 5263 con este codigo; cuando Meta apruebe la plantilla, correr la simulacion y confirmar el WhatsApp; integrar al tronco.
+
 ## 2026-11-14 - Release v0.16.323: integra feat/agentes-sistema (DRON DIAN v11 + "Pedir al ejecutar", ADR-0169)
 
 - AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.soldarco (DIAN).
 - HECHO: merge de feat/agentes-sistema @ 2b670973 sobre el tronco v0.16.322. Incluye la migracion aditiva AddScrapeVariableAskOnRun (scrape_variables.ask_on_run + prompt, PG + SQL Server). NO incluye config de BD: el script DRON v11 y las variables marcadas Pedir siguen solo en la BD local; prod mantiene su script v8 (sin variables marcadas el modal no aparece).
 - NOTA: Integration ChatIngestTests.Webhook_IngestsMessageIdempotently_AndAdvisorCanRead reportada fallando por la sesion DIAN, ajena a este cambio.
-- SIGUIENTE: deploy con OK del usuario; migrar la config del DRON a prod requiere OK aparte.
+- SIGUIENTE: desplegado con OK del usuario (footer /login v0.16.323, migracion aplicada). Migrar la config del DRON a prod requiere OK aparte.
 
 ## 2026-11-14 - Actividades: corregir o anular un registro de tiempo mal cargado (release v0.16.322, DESPLEGADO 2026-11-14)
 

@@ -175,6 +175,17 @@ public sealed class ConciliacionDianService : IConciliacionDianService
 
     // ---- Acciones ----
 
+    public async Task<IReadOnlyList<string>> CufesDelBotAsync(DateTimeOffset desdeUtc, DateTimeOffset hastaUtc,
+        CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is null) { return Array.Empty<string>(); }
+        return await _db.ConciliacionDianBotDummies.AsNoTracking()
+            .Where(b => b.Cufe != "" && b.FechaDoc >= desdeUtc && b.FechaDoc <= hastaUtc)
+            .Select(b => b.Cufe)
+            .Distinct()
+            .ToListAsync(ct);
+    }
+
     public async Task<int> ImportarDesdeBotAsync(Guid documentoId, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tenantId) { return 0; }

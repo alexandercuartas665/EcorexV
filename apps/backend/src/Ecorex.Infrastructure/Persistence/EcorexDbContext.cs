@@ -1007,6 +1007,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         modelBuilder.Entity<ScrapeVariable>(b =>
         {
             b.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            b.Property(x => x.Prompt).HasMaxLength(200);
             b.HasOne(x => x.Flow).WithMany(x => x.Variables)
                 .HasForeignKey(x => x.FlowId).OnDelete(DeleteBehavior.Cascade);
             // Una variable por (flujo, nombre): {{Name}} tiene que ser univoco.

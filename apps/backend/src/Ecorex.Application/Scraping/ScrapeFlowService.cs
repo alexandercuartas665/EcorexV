@@ -470,6 +470,9 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         entity.FlowId = req.FlowId;
         entity.Name = name;
         entity.IsSecret = req.IsSecret;
+        // "Pedir al ejecutar" no aplica a las secretas (no se muestran en claro como valor por defecto).
+        entity.AskOnRun = req.AskOnRun && !req.IsSecret;
+        entity.Prompt = NullIfBlank(req.Prompt) is { } p ? (p.Length > 200 ? p[..200] : p) : null;
         // El valor: si viene, se cifra (secreto) o se guarda tal cual (no secreto). Si es edicion y NO
         // viene, se conserva el existente -no se puede consultar un secreto, pero si reescribirlo-.
         if (!string.IsNullOrEmpty(req.Value))
@@ -521,7 +524,7 @@ public sealed class ScrapeFlowService : IScrapeFlowService
     // mostrar tal cual. Las secretas van cifradas: aqui NO se devuelven, se piden con RevealVariableSecretAsync.
     private static ScrapeVariableDto MapVariable(ScrapeVariable v) =>
         new(v.Id, v.FlowId, v.Name, !string.IsNullOrEmpty(v.ValueEncrypted), v.IsSecret,
-            v.IsSecret ? null : v.ValueEncrypted);
+            v.IsSecret ? null : v.ValueEncrypted, v.AskOnRun && !v.IsSecret, v.Prompt);
 
     private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 

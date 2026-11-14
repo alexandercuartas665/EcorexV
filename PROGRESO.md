@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-14 - DRON DIAN v11 + variables "Pedir al ejecutar" + fix del barrido de corridas colgadas (ADR-0169, sin release)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.dian), rama feat/agentes-sistema (fast-forward a origin/main v0.16.321).
+- DIAGNOSTICO (corrida local v10 del 2026-11-13): la v10 ya recorre las ventanas (116 docs vs 27-49 de la v8), pero la busqueda DIAN parece topar en 100 registros y las ventanas de 30 dias pierden la mayoria; la espera de 19 min se agoto en la ventana 5/6. La corrida quedo marcada "colgada" aunque siguio viva (barrido de 20 min).
+- HECHO: ScrapeVariable.AskOnRun/Prompt (migracion AddScrapeVariableAskOnRun PG+SQL Server); checkbox "Pedir al ejecutar" en Extraccion de datos; modal "Parametros de la extraccion" en "Importar del bot" (overrides solo de la corrida, nunca persistidos) + CUFES_CONOCIDOS para saltar lo ya cargado; GetAskVariablesAsync; set de corridas vivas que el barrido respeta. Config LOCAL: script 2051 v11 (ventanas VENTANA_DIAS=7, DIAS_DESDE, salta conocidos, parte ventana al tope de 100), DIAS_ATRAS=30 y DIAS_DESDE=0 marcadas Pedir, espera 2061 = 60 min.
+- VERIFICADO: build verde; Application 1381/1381, SuperAdmin 224/224, Domain 35/35; modal y editor probados en 5263.
+- SIGUIENTE: UNA corrida local con la v11; si las fantasmas bajan, migrar la config a prod (OK del usuario) y entregar la rama al tronco.
+
 ## 2026-11-13 - MCP de WhatsApp: estados de imagen/video como data: URI (release v0.16.321)
 
 - AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.mcp (fix #2 de publicar_estado).

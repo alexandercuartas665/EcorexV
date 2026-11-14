@@ -157,6 +157,34 @@ public class WhatsAppTemplateComponentsTests
         Assert.Equal(("a", "1"), (lower[0].Token, lower[0].Example));
     }
 
+    private const string LocalBody = "Hola, llego un pedido.\n\nPeticion: {{pedido}}\nSolicitud: {{ solicitud }}\nTarea: {{tarea}}\n\nRevisalo.";
+    private const string LocalVars = """[{"Token":"pedido","Example":"1501"},{"Token":"solicitud","Example":"500"},{"Token":"tarea","Example":"T1"}]""";
+
+    [Fact]
+    public void HasFriendlyTokensFor_MismoCuerpoCompilado_ConservaNombres()
+    {
+        var meta = "Hola, llego un pedido.\r\n\r\nPeticion: {{1}}\r\nSolicitud: {{2}}\r\nTarea: {{3}}\r\n\r\nRevisalo. ";
+        Assert.True(WhatsAppTemplateComponents.HasFriendlyTokensFor(LocalBody, LocalVars, meta));
+    }
+
+    [Theory]
+    [InlineData("Hola, llego un pedido.\n\nPeticion: {{1}}\nSolicitud: {{2}}\nTarea: {{3}}\n\nOtro texto.")]
+    [InlineData("Hola, llego un pedido.\n\nPeticion: {{2}}\nSolicitud: {{1}}\nTarea: {{3}}\n\nRevisalo.")]
+    [InlineData("")]
+    public void HasFriendlyTokensFor_CuerpoDistinto_TomaElDeMeta(string meta)
+    {
+        Assert.False(WhatsAppTemplateComponents.HasFriendlyTokensFor(LocalBody, LocalVars, meta));
+    }
+
+    [Fact]
+    public void HasFriendlyTokensFor_VariablesYaPosicionales_TomaElDeMeta()
+    {
+        const string body = "Pedido {{1}} tarea {{2}}.";
+        const string vars = """[{"Token":"1","Example":"a"},{"Token":"2","Example":"b"}]""";
+        Assert.False(WhatsAppTemplateComponents.HasFriendlyTokensFor(body, vars, body));
+        Assert.False(WhatsAppTemplateComponents.HasFriendlyTokensFor("Sin variables.", null, "Sin variables."));
+    }
+
     [Fact]
     public void MetaCategory_EnMayusculas()
         => Assert.Equal("UTILITY", WhatsAppTemplateComponents.MetaCategory(WhatsAppTemplateCategory.Utility));

@@ -512,6 +512,10 @@
                                                 <option value="@ScrapeNotificar.Destino.Responsable">Responsable de la tarea</option>
                                                 <option value="@ScrapeNotificar.Destino.Usuarios">Usuarios elegidos</option>
                                                 <option value="@ScrapeNotificar.Destino.Concepto">Destinatarios del concepto</option>
+                                                @if (_ntCanal == ScrapeNotificar.Canal.WhatsApp)
+                                                {
+                                                    <option value="@ScrapeNotificar.Destino.Numeros">Solo numeros de WhatsApp</option>
+                                                }
                                             </select></div>
                                         @if (_ntDestino == ScrapeNotificar.Destino.Usuarios)
                                         {
@@ -522,6 +526,12 @@
                                                 }
                                             </div>
                                         }
+                                    }
+                                    @if (_ntCanal == ScrapeNotificar.Canal.WhatsApp)
+                                    {
+                                        <div class="xd-prop"><label>@(_ntDestino == ScrapeNotificar.Destino.Numeros ? "Numeros de WhatsApp" : "Numeros adicionales (opcional)")</label>
+                                            <textarea class="xd-input mono" rows="3" placeholder="573001234567&#10;3109876543" @bind="_ntTelefonos"></textarea>
+                                            <small class="muted-cell">Uno por linea (o separados por coma). 10 digitos que empiezan por 3 se toman como celular de Colombia (+57). Se suman a los destinatarios elegidos, sin repetir.</small></div>
                                     }
                                     @if (_ntCanal is ScrapeNotificar.Canal.WhatsApp or ScrapeNotificar.Canal.WhatsAppGrupo)
                                     {
@@ -975,7 +985,7 @@
     private IReadOnlyList<Ecorex.Application.Tenancy.TenantUserDto> _caUsuarios = [];
 
     // Paso "Notificar" (config en MappingJson, ver ScrapeNotificar.Config).
-    private string _ntTarea = "", _ntLinea = "", _ntPlantillaSel = "", _ntVars = "", _ntGrupo = "", _ntChat = "", _ntAsunto = "", _ntMensaje = "";
+    private string _ntTarea = "", _ntLinea = "", _ntPlantillaSel = "", _ntVars = "", _ntGrupo = "", _ntChat = "", _ntAsunto = "", _ntMensaje = "", _ntTelefonos = "";
     private bool _ntSoloNueva = true, _ntEnlace = true;
     private ScrapeNotificar.Canal _ntCanal = ScrapeNotificar.Canal.Campana;
     private ScrapeNotificar.Destino _ntDestino = ScrapeNotificar.Destino.Responsable;
@@ -1397,7 +1407,7 @@
 
     private void LoadNtConfig(ScrapeStepDto? s)
     {
-        _ntTarea = _ntLinea = _ntPlantillaSel = _ntVars = _ntGrupo = _ntChat = _ntAsunto = _ntMensaje = "";
+        _ntTarea = _ntLinea = _ntPlantillaSel = _ntVars = _ntGrupo = _ntChat = _ntAsunto = _ntMensaje = _ntTelefonos = "";
         _ntSoloNueva = true; _ntEnlace = true;
         _ntCanal = ScrapeNotificar.Canal.Campana; _ntDestino = ScrapeNotificar.Destino.Responsable;
         _ntUsuarios = new();
@@ -1411,6 +1421,7 @@
         _ntVars = cfg.Variables is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(cfg.Variables, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) : "";
         _ntGrupo = cfg.GrupoJid ?? ""; _ntChat = cfg.ChatId ?? ""; _ntAsunto = cfg.Asunto ?? ""; _ntMensaje = cfg.Mensaje ?? "";
         _ntEnlace = cfg.IncluirEnlace;
+        _ntTelefonos = cfg.Telefonos is { Count: > 0 } ? string.Join("\n", cfg.Telefonos) : "";
     }
 
     // Arma la config del paso "Notificar". Devuelve null y fija _stepError si algo no cuadra.
@@ -1428,7 +1439,12 @@
             Plantilla = parts.Length == 2 ? parts[0] : null, Idioma = parts.Length == 2 ? parts[1] : null,
             Variables = vars, GrupoJid = NullIfBlank(_ntGrupo), ChatId = NullIfBlank(_ntChat),
             Asunto = NullIfBlank(_ntAsunto), Mensaje = NullIfBlank(_ntMensaje), IncluirEnlace = _ntEnlace,
+            Telefonos = _ntCanal == ScrapeNotificar.Canal.WhatsApp && ScrapeNotificar.SplitPhones(_ntTelefonos) is { Count: > 0 } tels ? tels : null,
         };
+        if (cfg.Destino == ScrapeNotificar.Destino.Numeros && cfg.Canal != ScrapeNotificar.Canal.WhatsApp) { _stepError = "Solo numeros: aplica al canal WhatsApp."; return null; }
+        var invalidos = (cfg.Telefonos ?? []).Where(t => ScrapeNotificar.NormalizePhone(t) is null).ToList();
+        if (invalidos.Count > 0) { _stepError = "Numero(s) de WhatsApp invalido(s): " + string.Join(", ", invalidos); return null; }
+        if (cfg.Destino == ScrapeNotificar.Destino.Numeros && cfg.Telefonos is not { Count: > 0 }) { _stepError = "Indica al menos un numero de WhatsApp."; return null; }
         if (cfg.Canal == ScrapeNotificar.Canal.WhatsApp && (cfg.LineaId is null || cfg.Plantilla is null)) { _stepError = "WhatsApp: elige la linea y la plantilla."; return null; }
         if (cfg.Canal == ScrapeNotificar.Canal.WhatsAppGrupo && (cfg.LineaId is null || cfg.GrupoJid is null)) { _stepError = "Grupo de WhatsApp: elige la linea y el grupo."; return null; }
         if (cfg.Canal == ScrapeNotificar.Canal.Telegram && cfg.ChatId is null) { _stepError = "Telegram: indica el chat."; return null; }

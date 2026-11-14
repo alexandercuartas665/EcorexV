@@ -136,6 +136,43 @@ public class ScrapeNotificarTests
         Assert.Equal(0, BrowserRunService.LoopRowCap(new Dictionary<string, string>()));
     }
 
+    [Theory]
+    [InlineData("573217626882", "+573217626882")]
+    [InlineData("+57 321 762 6882", "+573217626882")]
+    [InlineData("3217626882", "+573217626882")]
+    [InlineData("0057-321-762-6882", "+573217626882")]
+    [InlineData("12345", null)]
+    [InlineData("abc", null)]
+    [InlineData("", null)]
+    public void NormalizePhone_deja_E164(string tel, string? esperado)
+    {
+        Assert.Equal(esperado, ScrapeNotificar.NormalizePhone(tel));
+    }
+
+    [Fact]
+    public void SplitPhones_y_NormalizePhones_quitan_invalidos_y_repetidos()
+    {
+        var tels = ScrapeNotificar.SplitPhones("573217626882\r\n3217626882, 3001234567 ; malo\n\n");
+        Assert.Equal(4, tels.Count);
+        Assert.Equal(["+573217626882", "+573001234567"], ScrapeNotificar.NormalizePhones(tels));
+        Assert.Empty(ScrapeNotificar.SplitPhones("  "));
+    }
+
+    [Fact]
+    public void Config_round_trip_con_telefonos_y_destino_numeros()
+    {
+        var json = ScrapeNotificar.Serialize(new ScrapeNotificar.Config
+        {
+            Canal = ScrapeNotificar.Canal.WhatsApp,
+            Destino = ScrapeNotificar.Destino.Numeros,
+            Telefonos = ["573217626882"],
+        });
+        Assert.Contains("\"Numeros\"", json);
+        var back = ScrapeNotificar.Parse(json)!;
+        Assert.Equal(ScrapeNotificar.Destino.Numeros, back.Destino);
+        Assert.Equal(["573217626882"], back.Telefonos!);
+    }
+
     [Fact]
     public void NeedsStepwise_incluye_Notificar()
     {

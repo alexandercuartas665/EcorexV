@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-14 - DRON: Notificar a numeros de WhatsApp sueltos + import de YCloud conserva variables con nombre (ADR-0168 addendum, sin release)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas), rama feat/agentes-sistema (fast-forward a origin/main v0.16.323). Peticion del usuario.
+- HECHO: ScrapeNotificar.Config.Telefonos + Destino.Numeros (editor: "Solo numeros de WhatsApp" / "Numeros adicionales"); WhatsAppTemplateService.ImportFromYCloudAsync ya no pisa el cuerpo/variables con nombre cuando Meta devuelve el mismo cuerpo en posicionales (WhatsAppTemplateComponents.HasFriendlyTokensFor).
+- CONFIG LOCAL: plantilla aviso_nuevo_pedido_plataforma sometida en YCloud (linea LINEA de SOLDARCO, pendiente de aprobacion de Meta); paso Notificar por WhatsApp al 573217626882 en el DRON real (102536) y en la simulacion (105559). Corrida local del DRON: 0 pedidos pendientes en el portal, 19 concluidas sin cambios.
+- VERIFICADO: SuperAdmin 233/233, Application 1386/1386, integracion dual PG + SQL Server 26/26 (WhatsAppTemplates + ScrapeCrearActividad).
+- SIGUIENTE: reiniciar la app 5263 con este codigo; cuando Meta apruebe la plantilla, correr la simulacion y confirmar el WhatsApp; integrar al tronco.
 ## 2026-11-14 - Release v0.16.323: integra feat/agentes-sistema (DRON DIAN v11 + "Pedir al ejecutar", ADR-0169)
 
 - AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.soldarco (DIAN).

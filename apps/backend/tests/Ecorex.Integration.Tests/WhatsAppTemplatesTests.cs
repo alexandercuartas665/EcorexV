@@ -119,17 +119,65 @@ public abstract class WhatsAppTemplatesTestsBase
         Assert.True(tplB.IsOk, tplB.Error);
     }
 
+    [Fact]
+    public async Task ImportFromYCloud_ConservaLasVariablesConNombre_YActualizaElEstado()
+    {
+        var seed = await SeedTenantAsync("WA Import nombres");
+        var ycLineId = Guid.CreateVersion7();
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            ctx.WhatsAppLines.Add(new WhatsAppLine
+            {
+                Id = ycLineId,
+                TenantId = seed.TenantId,
+                InstanceName = "Linea YCloud",
+                Provider = WhatsAppProvider.YCloud,
+                YCloudApiKeyEncrypted = "api-key",
+                YCloudWabaId = "waba-1",
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        const string body = "Llego el pedido {{pedido}}.\n\nTarea creada: {{tarea}}. Revisalo pronto.";
+        var created = await RunAsync(seed, s => s.CreateAsync(new SaveWhatsAppTemplateRequest(
+            "aviso_pedido", "es", WhatsAppTemplateCategory.Utility, body, ycLineId,
+            Variables: new[] { new WhatsAppTemplateVariable("pedido", "1501"), new WhatsAppTemplateVariable("tarea", "T1") })));
+        Assert.True(created.IsOk, created.Error);
+
+        // Meta devuelve el MISMO cuerpo en posicionales (aprobada) y ademas otra plantilla con cuerpo distinto.
+        var fake = new ListingYCloudClient(
+            new YCloudTemplateStatus("aviso_pedido", "es", "APPROVED", "tpl-1", null, "UTILITY",
+                BodyText: "Llego el pedido {{1}}.\r\n\r\nTarea creada: {{2}}. Revisalo pronto.", VariableExamples: ["1501", "T1"]));
+        var report = await RunAsync(seed, s => s.ImportFromYCloudAsync(ycLineId), fake);
+        Assert.True(report.IsOk, report.Error);
+
+        var dto = await RunAsync(seed, s => s.GetAsync(created.Value!.Id));
+        Assert.Equal(WhatsAppTemplateStatus.Approved, dto!.Status);
+        Assert.Equal("tpl-1", dto.ProviderTemplateId);
+        Assert.Equal(body, dto.BodyText);
+        Assert.Equal(["pedido", "tarea"], dto.Variables.Select(v => v.Token).ToArray());
+
+        // Si en Meta el cuerpo cambio de verdad, se toma el de Meta (posicional).
+        var changed = new ListingYCloudClient(
+            new YCloudTemplateStatus("aviso_pedido", "es", "APPROVED", "tpl-1", null, "UTILITY",
+                BodyText: "Otro texto {{1}}.", VariableExamples: ["x"]));
+        await RunAsync(seed, s => s.ImportFromYCloudAsync(ycLineId), changed);
+        var dto2 = await RunAsync(seed, s => s.GetAsync(created.Value!.Id));
+        Assert.Equal("Otro texto {{1}}.", dto2!.BodyText);
+        Assert.Equal(["1"], dto2.Variables.Select(v => v.Token).ToArray());
+    }
+
     // ---- Helpers ----
 
     private static SaveWhatsAppTemplateRequest Req(string name, string lang, Guid lineId)
         => new(name, lang, WhatsAppTemplateCategory.Utility, $"Hola {{{{cliente}}}} ({name}).", lineId);
 
-    private async Task<T> RunAsync<T>(SeedData seed, Func<IWhatsAppTemplateService, Task<T>> action)
+    private async Task<T> RunAsync<T>(SeedData seed, Func<IWhatsAppTemplateService, Task<T>> action, IYCloudApiClient? ycloud = null)
     {
         await using var ctx = _fixture.CreateContext(seed.TenantId);
         var tenantContext = new TestTenantContext(seed.TenantId, seed.UserId);
         var service = new WhatsAppTemplateService(ctx, tenantContext, new AuditWriter(ctx), TimeProvider.System,
-            new UnusedYCloudClient(), new PassthroughProtector(), new UnusedWhatsAppConnector());
+            ycloud ?? new UnusedYCloudClient(), new PassthroughProtector(), new UnusedWhatsAppConnector());
         return await action(service);
     }
 
@@ -160,6 +208,21 @@ public abstract class WhatsAppTemplatesTestsBase
         public Task<LineSendResult> SendReactionAsync(Guid lineId, string phone, string externalMessageId, string emoji, string? remoteJid = null, CancellationToken ct = default) => throw Nope();
         public Task<Ecorex.Application.Admin.EvolutionMediaResult> FetchInboundMediaAsync(Guid lineId, string messageKeyId, CancellationToken ct = default) => throw Nope();
         public Task<Ecorex.Application.Tenancy.WhatsAppDeliveryProbeResult> ProbeDeliveryStatusAsync(Guid lineId, string externalId, CancellationToken ct = default) => throw Nope();
+    }
+
+    /// <summary>Doble de YCloud que solo LISTA plantillas (para el import); lo demas no se usa.</summary>
+    private sealed class ListingYCloudClient(params YCloudTemplateStatus[] items) : IYCloudApiClient
+    {
+        private static Task<T> Fail<T>() => throw new InvalidOperationException("No debe llamarse en este test.");
+        public Task<YCloudTemplateListResult> ListTemplatesAsync(string apiKey, string wabaId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new YCloudTemplateListResult(true, items, null));
+        public Task<YCloudCheckResult> CheckAsync(string apiKey, string? phoneNumber, CancellationToken cancellationToken = default) => Fail<YCloudCheckResult>();
+        public Task<YCloudSendResult> SendTextAsync(string apiKey, string fromPhone, string toPhone, string text, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudSendResult> SendMediaAsync(string apiKey, string fromPhone, string toPhone, YCloudMediaKind kind, string mediaUrl, string? caption, string? fileName, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudSendResult> SendTemplateAsync(string apiKey, string fromPhone, string toPhone, string templateName, string language, IReadOnlyList<string> bodyParams, string? headerMediaType = null, string? headerMediaUrl = null, string? headerMediaFileName = null, IReadOnlyList<WhatsAppUrlButtonParam>? urlButtons = null, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudSendResult> SendReactionAsync(string apiKey, string fromPhone, string toPhone, string messageId, string emoji, CancellationToken cancellationToken = default) => Fail<YCloudSendResult>();
+        public Task<YCloudTemplateResult> CreateTemplateAsync(string apiKey, string wabaId, string name, string language, string category, object components, int? ttlSeconds, CancellationToken cancellationToken = default) => Fail<YCloudTemplateResult>();
+        public Task<YCloudMessageStatusResult> GetMessageAsync(string apiKey, string messageId, CancellationToken cancellationToken = default) => Fail<YCloudMessageStatusResult>();
     }
 
     private sealed class UnusedYCloudClient : IYCloudApiClient

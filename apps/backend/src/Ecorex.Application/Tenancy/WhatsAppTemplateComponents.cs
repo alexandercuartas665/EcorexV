@@ -85,6 +85,27 @@ public static class WhatsAppTemplateComponents
         return new CompiledBody(text.Trim(), examples);
     }
 
+    private static readonly Regex PositionalToken = new(@"^\d+$", RegexOptions.Compiled);
+    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+
+    /// <summary>
+    /// True si el cuerpo LOCAL con tokens amigables ({{pedido}}, {{cliente}}...) compilado a {{1}},{{2}}... es el
+    /// mismo cuerpo que devuelve Meta/YCloud: es la plantilla que se creo desde el sistema. Al reconciliar
+    /// ("Importar desde YCloud") se deben CONSERVAR esos nombres, porque los emisores (paso Notificar del dron,
+    /// reglas de nodo, cierres del agente) arman los parametros buscando las variables POR NOMBRE; si se pisan
+    /// con "1","2","3" los parametros quedan vacios y el envio se bloquea. Compara sin importar espacios ni saltos.
+    /// </summary>
+    public static bool HasFriendlyTokensFor(string? localBody, string? localVariablesJson, string? providerBody)
+    {
+        var vars = ParseVariables(localVariablesJson);
+        if (vars.Count == 0 || vars.All(v => PositionalToken.IsMatch(v.Token.Trim()))) { return false; }
+        var compiled = CompileBody(localBody, vars).Text;
+        return string.Equals(NormalizeBody(compiled), NormalizeBody(providerBody), StringComparison.Ordinal);
+    }
+
+    private static string NormalizeBody(string? text)
+        => Whitespace.Replace((text ?? string.Empty).Normalize(System.Text.NormalizationForm.FormC), " ").Trim();
+
     /// <summary>Lee VariablesJson en orden. Tolera cualquier casing de las claves: la app lo guarda en
     /// PascalCase (<c>[{ "Token": "cliente", "Example": "Juan" }]</c>, System.Text.Json por defecto) y otras
     /// fuentes en minuscula (<c>[{ "token": ..., "example": ... }]</c>); ambos deben resolverse igual.</summary>

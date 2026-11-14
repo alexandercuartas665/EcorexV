@@ -283,6 +283,51 @@ public abstract class ScrapeCrearActividadTestsBase
         Assert.Empty(sender.Emails);
     }
 
+    [Fact]
+    public async Task Notificar_WhatsApp_ANumerosSueltos_SinRepetir()
+    {
+        var seed = await SeedAsync("Dron Notificar WA numeros");
+        var notificar = NotificarStep(new ScrapeNotificar.Config
+        {
+            Canal = ScrapeNotificar.Canal.WhatsApp,
+            Destino = ScrapeNotificar.Destino.Numeros,
+            LineaId = Guid.NewGuid(),
+            Plantilla = "aviso_nuevo_pedido",
+            Idioma = "es",
+            Telefonos = ["573217626882", "321 762 6882", "3001234567", "malo"],
+            Variables = new() { ["pedido"] = "{form.petof}", ["tarea"] = "{tarea.numero}" },
+        });
+
+        var (crear, aviso, sender) = await RunCrearYNotificarAsync(seed, notificar, responsable: true);
+
+        Assert.True(aviso.Ok, aviso.Detail);
+        Assert.Equal(2, aviso.Enviados);
+        Assert.Equal(["+573217626882", "+573001234567"], sender.WhatsApps.Select(w => w.Phone).ToArray());
+        var primero = sender.WhatsApps[0];
+        Assert.Equal("aviso_nuevo_pedido", primero.Template);
+        Assert.Equal(crear.TaskNumber, primero.Tokens["tarea"]);
+        Assert.Equal("1501899999", primero.Tokens["pedido"]);
+    }
+
+    [Fact]
+    public async Task Notificar_Numeros_SinNumerosValidos_EsErrorDeConfig()
+    {
+        var seed = await SeedAsync("Dron Notificar WA sin numeros");
+        var notificar = NotificarStep(new ScrapeNotificar.Config
+        {
+            Canal = ScrapeNotificar.Canal.WhatsApp,
+            Destino = ScrapeNotificar.Destino.Numeros,
+            LineaId = Guid.NewGuid(),
+            Plantilla = "aviso_nuevo_pedido",
+            Telefonos = ["123"],
+        });
+
+        var (_, aviso, sender) = await RunCrearYNotificarAsync(seed, notificar, responsable: false);
+
+        Assert.False(aviso.Ok);
+        Assert.Contains("numero", aviso.Detail);
+        Assert.Empty(sender.WhatsApps);
+    }
     private static ScrapeStep NotificarStep(ScrapeNotificar.Config cfg) => new()
     {
         Name = "Notificar",
@@ -329,6 +374,7 @@ public abstract class ScrapeCrearActividadTestsBase
     private sealed class FakeChannelSender : INotificationChannelSender
     {
         public List<(string To, string Subject, string Html)> Emails { get; } = new();
+        public List<(string Phone, string Template, IReadOnlyDictionary<string, string> Tokens)> WhatsApps { get; } = new();
 
         public Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
         {
@@ -341,7 +387,10 @@ public abstract class ScrapeCrearActividadTestsBase
             string? attachmentFileName = null, string? headerMediaTypeOverride = null, string? headerMediaUrlOverride = null,
             string? headerMediaFileNameOverride = null, IReadOnlyDictionary<string, string>? decisionLinksByButtonLabel = null,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new WhatsAppSendOutcome(true, null));
+        {
+            WhatsApps.Add((phone, templateName, tokens));
+            return Task.FromResult(new WhatsAppSendOutcome(true, null));
+        }
 
         public Task<bool> SendWhatsAppGroupAsync(Guid lineId, string groupJid, string text, Guid actorUserId, CancellationToken cancellationToken = default)
             => Task.FromResult(true);

@@ -44,3 +44,18 @@ Hallazgos:
   no duplica tareas ni avisos. Tests: SuperAdmin 224/224, integracion dual PG + SQL Server 12/12.
 - Para prod: el paso y la variable son config por tenant (no viajan con el codigo); WhatsApp exige una linea y una
   plantilla aprobada del tenant.
+
+## Addendum 2026-11-14 - Numeros de WhatsApp sueltos e import de plantillas
+
+- Notificar admite `Telefonos` (lista libre, un numero por linea en el editor) para el canal WhatsApp: se SUMAN a
+  los destinatarios del destino elegido sin repetir, o son los unicos con el destino nuevo `Destino.Numeros`
+  ("Solo numeros de WhatsApp"). Se normalizan a E.164 (10 digitos que empiezan por 3 -> +57). Sin migracion.
+- "Importar desde YCloud" (la unica reconciliacion del estado de aprobacion; SyncStatus sigue en stub y no hay
+  webhook de estado de plantillas) pisaba el cuerpo y las variables con NOMBRE de una plantilla creada en el sistema
+  por las posicionales de Meta ({{1}}..), y los emisores que arman los parametros por nombre quedaban vacios (el guard
+  de parametros vacios bloqueaba el envio). Ahora, si el cuerpo local compilado a posicionales coincide con el de Meta,
+  se conservan cuerpo y variables con nombre y solo se reconcilian estado, id, categoria, header y footer
+  (`WhatsAppTemplateComponents.HasFriendlyTokensFor`). Si el cuerpo cambio de verdad en Meta, gana el de Meta.
+- Config local: plantilla `aviso_nuevo_pedido_plataforma` (UTILITY, es; variables pedido/solicitud/tarea) sometida
+  en la linea YCloud de SOLDARCO; paso "Avisar nuevo pedido por WhatsApp" (order 102536) en el DRON real y 105559 en
+  la simulacion. Tests: SuperAdmin 233/233, Application 1386/1386, integracion dual 26/26.

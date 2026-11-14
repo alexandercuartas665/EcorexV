@@ -401,13 +401,20 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
             if (byKey.TryGetValue((name.ToLowerInvariant(), language.ToLowerInvariant()), out var existing))
             {
                 var before = Fingerprint(existing);
+                // Plantilla creada desde el sistema (tokens con nombre) cuyo cuerpo Meta devuelve en {{1}},{{2}}...:
+                // se conservan el cuerpo y las variables con NOMBRE (los emisores buscan por nombre); solo se
+                // reconcilian estado, id y demas. Si el cuerpo cambio de verdad, se toma el de Meta.
+                var keepFriendly = WhatsAppTemplateComponents.HasFriendlyTokensFor(existing.BodyText, existing.VariablesJson, body);
                 existing.Category = category;
                 existing.Status = status;
                 existing.HeaderType = headerType;
                 existing.HeaderText = headerText;
-                existing.BodyText = body;
+                if (!keepFriendly)
+                {
+                    existing.BodyText = body;
+                    existing.VariablesJson = variablesJson;
+                }
                 existing.FooterText = footerText;
-                existing.VariablesJson = variablesJson;
                 existing.ButtonsJson = buttonsJson;
                 existing.Provider = WhatsAppProvider.YCloud;
                 existing.WhatsAppLineId = line.Id;

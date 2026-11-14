@@ -35,7 +35,9 @@ public static class ScrapeNotificar
 
     public enum Canal { Campana = 0, Correo = 1, WhatsApp = 2, WhatsAppGrupo = 3, Telegram = 4 }
 
-    public enum Destino { Responsable = 0, Usuarios = 1, Concepto = 2 }
+    /// <summary>A quien: el responsable, usuarios elegidos, los del concepto o SOLO numeros de WhatsApp sueltos
+    /// (<see cref="Config.Telefonos"/>; no son usuarios del sistema).</summary>
+    public enum Destino { Responsable = 0, Usuarios = 1, Concepto = 2, Numeros = 3 }
 
     /// <summary>Config del paso, serializada en MappingJson (camelCase, enums como texto).</summary>
     public sealed record Config
@@ -48,6 +50,9 @@ public static class ScrapeNotificar
         public Destino Destino { get; init; } = Destino.Responsable;
         /// <summary>TenantUsers cuando Destino = Usuarios.</summary>
         public List<Guid>? UsuarioIds { get; init; }
+        /// <summary>Numeros de WhatsApp sueltos (canal WhatsApp): se SUMAN a los destinatarios del Destino elegido, o
+        /// son los unicos con Destino = Numeros. Se normalizan a E.164 (10 digitos que empiezan por 3 -> +57).</summary>
+        public List<string>? Telefonos { get; init; }
         /// <summary>Linea de WhatsApp (plantilla o grupo).</summary>
         public Guid? LineaId { get; init; }
         /// <summary>Nombre de la plantilla HSM aprobada (canal WhatsApp) y su idioma.</summary>
@@ -118,6 +123,8 @@ public static class ScrapeNotificar
             Canal.WhatsApp when cfg.LineaId is null || string.IsNullOrWhiteSpace(cfg.Plantilla) => "WhatsApp: elige la linea y la plantilla aprobada.",
             Canal.WhatsAppGrupo when cfg.LineaId is null || string.IsNullOrWhiteSpace(cfg.GrupoJid) => "Grupo de WhatsApp: elige la linea y el grupo (JID ...@g.us).",
             Canal.Telegram when string.IsNullOrWhiteSpace(cfg.ChatId) => "Telegram: indica el chat (id).",
+            _ when cfg.Destino == Destino.Numeros && cfg.Canal != Canal.WhatsApp => "Numeros sueltos: solo aplica al canal WhatsApp (plantilla).",
+            _ when cfg.Destino == Destino.Numeros && NormalizePhones(cfg.Telefonos).Count == 0 => "Numeros sueltos: indica al menos un numero de WhatsApp valido.",
             _ => null,
         };
         if (error is not null) { return Fail(error); }
@@ -210,6 +217,39 @@ public static class ScrapeNotificar
     private sealed record Recipient(Guid Id, string Nombre, string? Email, string? Phone);
 
     private static async Task<List<Recipient>> RecipientsAsync(IApplicationDbContext db, TaskItem task, Config cfg, CancellationToken ct)
+    {
+        var users = await UserRecipientsAsync(db, task, cfg, ct);
+        if (cfg.Canal != Canal.WhatsApp) { return users; }
+        // Numeros sueltos (solo WhatsApp): se suman sin repetir un numero que ya tenga un usuario destinatario.
+        var ya = users.Select(u => NormalizePhone(u.Phone)).Where(p => p is not null).ToHashSet(StringComparer.Ordinal);
+        foreach (var tel in NormalizePhones(cfg.Telefonos))
+        {
+            if (ya.Add(tel)) { users.Add(new Recipient(Guid.Empty, tel, null, tel)); }
+        }
+        return users;
+    }
+
+    /// <summary>Normaliza un telefono a E.164: deja solo digitos; 10 digitos que empiezan por 3 son celular de
+    /// Colombia (+57). Devuelve null si no parece un numero (menos de 8 o mas de 15 digitos).</summary>
+    public static string? NormalizePhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) { return null; }
+        var digits = new string(phone.Where(char.IsAsciiDigit).ToArray());
+        if (digits.StartsWith("00", StringComparison.Ordinal)) { digits = digits[2..]; }
+        if (digits.Length == 10 && digits[0] == '3') { digits = "57" + digits; }
+        return digits.Length is >= 8 and <= 15 && digits[0] != '0' ? "+" + digits : null;
+    }
+
+    /// <summary>Numeros validos y sin repetir de la lista (los invalidos se descartan).</summary>
+    public static List<string> NormalizePhones(IEnumerable<string>? phones)
+        => phones is null ? [] : phones.Select(NormalizePhone).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+
+    /// <summary>Parte el texto del editor (uno por linea, o separados por coma / punto y coma) en numeros.</summary>
+    public static List<string> SplitPhones(string? text)
+        => string.IsNullOrWhiteSpace(text) ? []
+            : text.Split(['\n', '\r', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private static async Task<List<Recipient>> UserRecipientsAsync(IApplicationDbContext db, TaskItem task, Config cfg, CancellationToken ct)
     {
         List<Guid> ids = cfg.Destino switch
         {

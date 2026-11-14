@@ -209,6 +209,38 @@ public abstract class McpWhatsAppTestsBase
     }
 
     [Fact]
+    public async Task PublishStatus_VideoGoesAsDataUri_AndTextHasNoNulls()
+    {
+        var seed = await SeedAsync("Wa Estado");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var (toolset, evo, _) = Build(ctx, seed);
+        var me = Owner(seed);
+        WhatsAppMcpToolset.ResetSendLimit(seed.LineId);
+
+        // Evolution 2.3.x arma { video: { url: content } }: el base64 suelto lo abre como ruta (ENAMETOOLONG).
+        var b64 = Convert.ToBase64String(new byte[] { 0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70 });
+        var video = await toolset.ExecuteAsync("publicar_estado", Args(new { tipo = "video", base64 = b64, para_todos = true }), me);
+        Assert.False(video.IsError, video.Json);
+        var texto = await toolset.ExecuteAsync("publicar_estado", Args(new { tipo = "texto", contenido = "Hola", para_todos = true }), me);
+        Assert.False(texto.IsError, texto.Json);
+
+        var calls = evo.Calls.Where(c => c.Path.StartsWith("/message/sendStatus/", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, calls.Count);
+        using var v = JsonDocument.Parse(calls[0].Body);
+        Assert.Equal("video", v.RootElement.GetProperty("type").GetString());
+        Assert.Equal("data:video/mp4;base64," + b64, v.RootElement.GetProperty("content").GetString());
+        using var t = JsonDocument.Parse(calls[1].Body);
+        Assert.Equal("Hola", t.RootElement.GetProperty("content").GetString());
+        Assert.Equal(string.Empty, t.RootElement.GetProperty("caption").GetString());
+        Assert.Equal(JsonValueKind.Array, t.RootElement.GetProperty("statusJidList").ValueKind);
+
+        Assert.Equal("data:image/png;base64,QQ==", WhatsAppMcpToolset.StatusMediaContent("imagen", "QQ==", "image/png"));
+        Assert.Equal("data:image/jpeg;base64,QQ==", WhatsAppMcpToolset.StatusMediaContent("imagen", "QQ==", null));
+        Assert.Equal("QQ==", WhatsAppMcpToolset.StatusMediaContent("audio", "QQ==", "audio/ogg"));
+        WhatsAppMcpToolset.ResetSendLimit(seed.LineId);
+    }
+
+    [Fact]
     public async Task DownloadMedia_GivesTheImageToTheModel_AndUrlsAreGuarded()
     {
         var seed = await SeedAsync("Wa Media");

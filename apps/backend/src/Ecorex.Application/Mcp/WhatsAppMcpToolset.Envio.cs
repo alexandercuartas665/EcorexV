@@ -267,7 +267,7 @@ public sealed partial class WhatsAppMcpToolset
         {
             var file = await LoadFileAsync(args, ct);
             if (file.Error is not null) { return Err(file.Error); }
-            content = file.Base64!;
+            content = StatusMediaContent(kind, file.Base64!, Str(args, "mime") ?? file.Mime);
         }
         if (!SendLimiter.TryAcquire(_lineId, _clock.GetUtcNow())) { return Err("Limite de envios de la linea alcanzado. Espera un momento."); }
 
@@ -283,6 +283,18 @@ public sealed partial class WhatsAppMcpToolset
             statusJidList = all ? new List<string>() : jids
         }, ct);
         return raw.Ok ? Ok(new { ok = true, estado = kind, para_todos = all, contactos = all ? (int?)null : jids.Count }) : EvoErr(raw, "No se pudo publicar el estado");
+    }
+
+    /// <summary>
+    /// Contenido de un estado con media para Evolution 2.3.x: en imagen y video arma { url: content } y Baileys solo
+    /// acepta ahi http(s), data: URI o una RUTA de archivo; el base64 suelto lo abre como ruta (ENAMETOOLONG). Por eso
+    /// imagen y video van como data: URI. El audio lo convierte Evolution con ffmpeg desde base64 crudo.
+    /// </summary>
+    internal static string StatusMediaContent(string kind, string base64, string? mime)
+    {
+        if (kind is not ("imagen" or "video")) { return base64; }
+        var tipo = !string.IsNullOrWhiteSpace(mime) && mime.Contains('/') ? mime.Trim() : kind == "video" ? "video/mp4" : "image/jpeg";
+        return $"data:{tipo};base64,{base64}";
     }
 
     private async Task<McpToolResult> ReactAsync(JsonElement args, CancellationToken ct)

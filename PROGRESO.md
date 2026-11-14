@@ -2,7 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-13 - MCP de WhatsApp: publicar_estado ya no manda null a Evolution (release v0.16.320)
+## 2026-11-13 - MCP de WhatsApp: estados de imagen/video como data: URI (release v0.16.321)
+
+- AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.mcp (fix #2 de publicar_estado).
+- CAUSA (verificada en el codigo de Evolution 2.3.7 de prod, solo lectura): formatStatusMessage arma { image|video: { url: content } } y el getStream de Baileys solo acepta ahi http(s), data: URI o una ruta de archivo; el base64 suelto lo abria como ruta -> HTTP 400 ENAMETOOLONG. El audio si acepta base64 crudo (ffmpeg).
+- HECHO: WhatsAppMcpToolset.StatusMediaContent manda imagen y video como data:{mime};base64,... (video/mp4 e image/jpeg por defecto); audio sin cambio. Test de integracion PublishStatus_VideoGoesAsDataUri_AndTextHasNoNulls.
+- VERIFICADO: McpWhatsAppTests 20/20; dotnet format limpio en lo tocado.
+- SIGUIENTE: deploy con OK del usuario; ECOREX.mcp valida publicando el video.
+
+## 2026-11-13 - MCP de WhatsApp: publicar_estado ya no manda null a Evolution (release v0.16.320, DESPLEGADO 2026-11-13)
 
 - AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.mcp (rama fix/publicar-estado-null, commit 005fe9f2).
 - HECHO: cherry-pick sobre el tronco. PublishStatusAsync (WhatsAppMcpToolset.Envio.cs) mandaba caption=null sin pie y statusJidList=null con para_todos=true; Evolution los rechaza con HTTP 400. Ahora caption = "" y statusJidList = lista vacia. AppVersion 0.16.320. v0.16.319 quedo desplegada en prod (footer verificado, migracion AddAgendaRecordatorios aplicada).

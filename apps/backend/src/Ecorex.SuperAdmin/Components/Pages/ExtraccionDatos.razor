@@ -731,6 +731,7 @@
                                                 <button class="xd-icon-btn" title="Ver valor" disabled="@_busy" @onclick="() => RevealSecretAsync(v.Id)">&#128065;</button>
                                             }
                                             @if (v.IsSecret) { <span class="xd-lock" title="Secreta (cifrada)">&#128274;</span> }
+                                            @if (v.AskOnRun) { <span class="xd-lock" title="@("Se pide al ejecutar desde un modulo" + (string.IsNullOrEmpty(v.Prompt) ? "" : ": " + v.Prompt))">&#10067;</span> }
                                             <button class="xd-icon-btn" title="Editar" @onclick="() => OpenVarEditorFor(v)">&#9998;</button>
                                             <button class="xd-icon-btn" title="Eliminar" @onclick="() => DeleteVariableAsync(v.Id)">&times;</button>
                                         </div>
@@ -757,6 +758,14 @@
                                             <input class="xd-input" type="@(_vSecret ? "password" : "text")" placeholder="@(_vEditId is null ? "" : "Dejar vacio para conservar el valor actual")" autocomplete="new-password" @bind="_vValue" />
                                         </div>
                                         <label class="xd-check"><input type="checkbox" @bind="_vSecret" /> Secreta (se cifra; el valor se consulta con el boton Ver)</label>
+                                        @if (!_vSecret)
+                                        {
+                                            <label class="xd-check"><input type="checkbox" @bind="_vAsk" /> Pedir al ejecutar (al disparar el flujo desde un modulo, p.ej. "Importar del bot", se pregunta mostrando este valor por defecto; lo que se escriba vale solo para esa corrida)</label>
+                                            @if (_vAsk)
+                                            {
+                                                <div class="xd-prop"><label>Pregunta</label><input class="xd-input" placeholder="Ej.: Empezar desde cuantos dias atras" autocomplete="off" maxlength="200" @bind="_vPrompt" /></div>
+                                            }
+                                        }
                                         @if (_vEditId is not null)
                                         {
                                             <div style="font-size:11.5px;color:var(--ink-3);margin:2px 0 0;">Si cambias el tipo (secreta/no), reingresa el valor.</div>
@@ -986,6 +995,8 @@
     private string _vName = "";
     private string _vValue = "";
     private bool _vSecret = true;
+    private bool _vAsk;
+    private string _vPrompt = "";
     // Valores de secretas revelados bajo demanda (por variable). Se limpia al cambiar de flujo.
     private readonly Dictionary<Guid, ScrapeSecretRevealDto> _revealed = new();
 
@@ -1737,7 +1748,7 @@
         _varError = null;
         _vEditId = null;
         _showVarEditor = true;
-        _vName = ""; _vValue = ""; _vSecret = true;
+        _vName = ""; _vValue = ""; _vSecret = true; _vAsk = false; _vPrompt = "";
     }
 
     private void OpenVarEditorFor(ScrapeVariableDto v)
@@ -1747,6 +1758,7 @@
         _showVarEditor = true;
         // No secreta: se prellena con su valor (texto plano). Secreta: vacio (se consulta/reescribe con Ver).
         _vName = v.Name; _vValue = v.IsSecret ? "" : (v.Value ?? ""); _vSecret = v.IsSecret;
+        _vAsk = v.AskOnRun; _vPrompt = v.Prompt ?? "";
     }
 
     private async Task RevealSecretAsync(Guid id)
@@ -1765,7 +1777,8 @@
         try
         {
             var saved = await FlowSvc.SaveVariableAsync(new SaveScrapeVariableRequest(
-                _vEditId, _selected.Id, _vName, NullIfBlank(_vValue), _vSecret), _actor);
+                _vEditId, _selected.Id, _vName, NullIfBlank(_vValue), _vSecret,
+                _vAsk && !_vSecret, NullIfBlank(_vPrompt)), _actor);
             if (saved is null) { _varError = "No se pudo guardar."; return; }
             _showVarEditor = false;
             await SelectFlowAsync(_selected.Id);

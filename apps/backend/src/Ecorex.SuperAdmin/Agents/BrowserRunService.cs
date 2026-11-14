@@ -20,6 +20,10 @@ namespace Ecorex.SuperAdmin.Agents;
 /// esperando al agente o fallo antes de salir.</summary>
 public sealed record BrowserRunResult(bool Dispatched, Guid? RunId, string? CorrelationId, bool Offline, string? Error);
 
+/// <summary>Una variable "Pedir al ejecutar" de un flujo: <see cref="Prompt"/> es la pregunta (o el nombre) y
+/// <see cref="DefaultValue"/> el valor guardado, que se muestra prellenado.</summary>
+public sealed record FlowAskVariable(Guid FlowId, string FlowName, string Name, string Prompt, string DefaultValue);
+
 /// <summary>Un tic de progreso de un flujo corrido paso a paso (para mostrar EN VIVO lo que hace la extraccion).
 /// <see cref="Done"/>=false lo reporta justo ANTES de correr el paso (el UI lo pinta "en curso"); =true DESPUES,
 /// con el resultado y la mini-captura. <see cref="FlowIndex"/>/<see cref="FlowCount"/> situan el flujo en la tanda;
@@ -60,7 +64,14 @@ public interface IBrowserRunService
     /// / <paramref name="flowCount"/> situan este flujo dentro de una tanda de varios. Nota: el paso de descarga del
     /// dron arranca descargas en 2do plano (sigue bajando tras cerrar el paso).</summary>
     Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
-        IProgress<FlowStepProgress>? progress, CancellationToken ct = default);
+        IProgress<FlowStepProgress>? progress, CancellationToken ct = default,
+        IReadOnlyDictionary<string, string>? overrides = null);
+
+    /// <summary>Variables marcadas "Pedir al ejecutar" (no secretas) de los flujos dados, en el orden de los
+    /// flujos, con su valor guardado como valor por defecto. El modulo que dispara los flujos las pregunta y
+    /// pasa las respuestas como <c>overrides</c> a <see cref="RunFlowStepwiseAsync"/>.</summary>
+    Task<IReadOnlyList<FlowAskVariable>> GetAskVariablesAsync(IReadOnlyList<Guid> flowIds, Guid tenantId,
+        CancellationToken ct = default);
 
     /// <summary>Ejecuta UN solo paso del flujo contra la SESION VIVA del agente (modo "paso a paso"), de forma
     /// SINCRONA: despacha el paso con la clave de sesion del flujo (el agente mantiene el navegador abierto y
@@ -106,6 +117,18 @@ public sealed class BrowserRunService(
     /// <summary>Una corrida Running mas vieja que esto se da por colgada (el canal ya habria fallado sus
     /// acciones; esto solo limpia lo que quedo tras un reinicio del proceso).</summary>
     private static readonly TimeSpan StaleRunAge = TimeSpan.FromMinutes(20);
+
+    /// <summary>Corridas VIVAS en este proceso (correlationId -> anidamiento). El barrido de colgadas las
+    /// salta: un flujo largo (DRON DIAN: espera de 19 min + procesar) supera StaleRunAge sin estar colgado.
+    /// Tras un reinicio el set nace vacio, asi que las que de verdad quedaron huerfanas si se cierran.</summary>
+    private readonly ConcurrentDictionary<string, int> _activeRuns = new(StringComparer.Ordinal);
+
+    private void TrackRun(string runCorr) => _activeRuns.AddOrUpdate(runCorr, 1, (_, n) => n + 1);
+
+    private void UntrackRun(string runCorr)
+    {
+        if (_activeRuns.AddOrUpdate(runCorr, 0, (_, n) => n - 1) <= 0) { _activeRuns.TryRemove(runCorr, out _); }
+    }
 
     /// <summary>Variables de SESION del modo paso a paso, por flujo: valores efimeros producidos durante el
     /// stepping (p.ej. el token que leyo un paso OTP) que se superponen a las variables del flujo para los
@@ -241,7 +264,7 @@ public sealed class BrowserRunService(
     /// <summary>Eventos del banner del motor de descarga que explican un corte (los "OK"/"intento" no).</summary>
     private static bool EsEventoCriticoDron(string ban) =>
         System.Text.RegularExpressions.Regex.IsMatch(ban,
-            "SIN SESION|RE-LOGIN|re-login|RECHAZO|RE-BUSCAR|re-Buscar agotado|agotada|vacia|TIMEOUT|token NO regenera|fetch-err|tope MAX|FIN ",
+            "SIN SESION|RE-LOGIN|re-login|RECHAZO|RE-BUSCAR|re-Buscar agotado|agotada|vacia|TIMEOUT|token NO regenera|fetch-err|tope MAX|PARTE VENTANA|iniciando|FIN ",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>Resumen por ventana + eventos criticos, para el detalle del paso (la traza del navegador se
@@ -346,9 +369,32 @@ public sealed class BrowserRunService(
     }
 
     public Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
-        IProgress<FlowStepProgress>? progress, CancellationToken ct = default)
+        IProgress<FlowStepProgress>? progress, CancellationToken ct = default,
+        IReadOnlyDictionary<string, string>? overrides = null)
         => RunStepwiseCoreAsync(flowId, tenantId, flowIndex, flowCount, progress, ImportRunTrigger.Manual, NewCorr(),
-            freshSession: false, ct);
+            freshSession: false, ct, overrides);
+
+    public async Task<IReadOnlyList<FlowAskVariable>> GetAskVariablesAsync(IReadOnlyList<Guid> flowIds, Guid tenantId,
+        CancellationToken ct = default)
+    {
+        if (flowIds.Count == 0) { return Array.Empty<FlowAskVariable>(); }
+        using var scope = scopeFactory.CreateScope();
+        using (AmbientTenantContext.Begin(tenantId))
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+            var ids = flowIds.Distinct().ToList();
+            var rows = await db.ScrapeVariables.AsNoTracking()
+                .Where(v => ids.Contains(v.FlowId) && v.AskOnRun && !v.IsSecret)
+                .Select(v => new { v.FlowId, FlowName = v.Flow!.Name, v.Name, v.Prompt, v.ValueEncrypted })
+                .ToListAsync(ct);
+            // En el orden de los flujos (como se ejecutan) y por nombre dentro de cada flujo.
+            return rows
+                .OrderBy(r => ids.IndexOf(r.FlowId)).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(r => new FlowAskVariable(r.FlowId, r.FlowName, r.Name,
+                    string.IsNullOrWhiteSpace(r.Prompt) ? r.Name : r.Prompt!, r.ValueEncrypted ?? ""))
+                .ToList();
+        }
+    }
 
     /// <summary>
     /// true si el flujo necesita la corrida POR PASOS (no la compilada lineal): tiene bucles (LoopOverVar) o
@@ -399,12 +445,48 @@ public sealed class BrowserRunService(
 
     private async Task<BrowserRunResult> RunStepwiseCoreAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
         IProgress<FlowStepProgress>? progress, ImportRunTrigger trigger, string runCorr, bool freshSession,
-        CancellationToken ct)
+        CancellationToken ct, IReadOnlyDictionary<string, string>? overrides = null)
     {
-        var firedAt = _clock.GetUtcNow();
+        TrackRun(runCorr);
         // Corrida completa nueva (Ejecutar ahora / programacion): sin salidas capturadas de corridas anteriores,
         // para que un bucle nunca consuma un LISTADO viejo si el paso que lo lee falla.
         if (freshSession) { _stepSessionVars.TryRemove(flowId, out _); }
+        // Valores SOLO de esta corrida (variables "Pedir al ejecutar" que el usuario respondio, o datos que
+        // inyecta el modulo que dispara el flujo): van a la capa de sesion -la que ya se superpone a las
+        // variables del flujo en cada paso- y se retiran al terminar, para no contaminar corridas/pasos
+        // posteriores. Nunca se persisten en BD.
+        var applied = new List<string>();
+        if (overrides is { Count: > 0 })
+        {
+            var session = _stepSessionVars.GetOrAdd(flowId, _ => new ConcurrentDictionary<string, string>(StringComparer.Ordinal));
+            foreach (var (k, v) in overrides)
+            {
+                if (string.IsNullOrWhiteSpace(k)) { continue; }
+                session[k] = v ?? "";
+                applied.Add(k);
+            }
+        }
+        try
+        {
+            return await RunStepwiseCoreTrackedAsync(flowId, tenantId, flowIndex, flowCount, progress, trigger,
+                runCorr, freshSession, ct);
+        }
+        finally
+        {
+            UntrackRun(runCorr);
+            if (applied.Count > 0 && _stepSessionVars.TryGetValue(flowId, out var s))
+            {
+                foreach (var k in applied) { s.TryRemove(k, out _); }
+            }
+        }
+    }
+
+    private async Task<BrowserRunResult> RunStepwiseCoreTrackedAsync(Guid flowId, Guid tenantId, int flowIndex,
+        int flowCount, IProgress<FlowStepProgress>? progress, ImportRunTrigger trigger, string runCorr,
+        bool freshSession, CancellationToken ct)
+    {
+        var firedAt = _clock.GetUtcNow();
+        // (La limpieza de la sesion en corridas nuevas y los overrides se aplican en RunStepwiseCoreAsync.)
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -2216,6 +2298,14 @@ public sealed class BrowserRunService(
     private async Task ExecuteFlowAsync(Guid flowId, Guid tenantId, string runCorr, string clientId,
         string? secret, IReadOnlyDictionary<string, string> variables)
     {
+        TrackRun(runCorr);
+        try { await ExecuteFlowTrackedAsync(flowId, tenantId, runCorr, clientId, secret, variables); }
+        finally { UntrackRun(runCorr); }
+    }
+
+    private async Task ExecuteFlowTrackedAsync(Guid flowId, Guid tenantId, string runCorr, string clientId,
+        string? secret, IReadOnlyDictionary<string, string> variables)
+    {
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -2390,6 +2480,8 @@ public sealed class BrowserRunService(
         var stale = await db.ScrapeFlowRuns.IgnoreQueryFilters()
             .Where(r => r.Result == ImportRunResult.Running && r.FiredAt < cutoff)
             .ToListAsync(ct);
+        // Las que siguen vivas en este proceso NO estan colgadas (flujo largo): no se tocan.
+        stale = stale.Where(r => r.CorrelationId is null || !_activeRuns.ContainsKey(r.CorrelationId)).ToList();
         if (stale.Count == 0) { return; }
         foreach (var run in stale)
         {

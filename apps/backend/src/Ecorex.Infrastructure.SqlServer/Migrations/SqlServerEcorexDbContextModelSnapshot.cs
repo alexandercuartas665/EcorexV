@@ -15251,6 +15251,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AskOnRun")
+                        .HasColumnType("bit")
+                        .HasColumnName("ask_on_run");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -15272,6 +15276,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)")
                         .HasColumnName("name");
+
+                    b.Property<string>("Prompt")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("prompt");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")

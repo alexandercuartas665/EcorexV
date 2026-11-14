@@ -211,6 +211,14 @@ public class ScrapeVariable : TenantEntity
 
     /// <summary>Si es sensible: se pinta con candado y no se puede consultar (solo reescribir/rotar).</summary>
     public bool IsSecret { get; set; }
+
+    /// <summary>"Pedir al ejecutar": cuando el flujo se dispara desde un modulo (p.ej. "Importar del bot"
+    /// del conciliador DIAN) se le pregunta al usuario, mostrando el valor guardado como valor por defecto.
+    /// Lo que escriba vale SOLO para esa corrida (no se persiste). No aplica a las secretas.</summary>
+    public bool AskOnRun { get; set; }
+
+    /// <summary>Texto de la pregunta que se muestra al pedirla (opcional; si falta se usa el nombre).</summary>
+    public string? Prompt { get; set; }
 }
 
 /// <summary>

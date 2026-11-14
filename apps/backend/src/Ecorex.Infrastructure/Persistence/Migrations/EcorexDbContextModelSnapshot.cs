@@ -15247,6 +15247,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AskOnRun")
+                        .HasColumnType("boolean")
+                        .HasColumnName("ask_on_run");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -15268,6 +15272,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
                         .HasColumnName("name");
+
+                    b.Property<string>("Prompt")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("prompt");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")

@@ -34,6 +34,10 @@ public interface IConciliacionDianService
     /// <summary>Importa del bot DIAN (dummy en Fase 1) las facturas del periodo que falten (idempotente por CUFE).
     /// Devuelve cuantas se insertaron.</summary>
     Task<int> ImportarDesdeBotAsync(Guid documentoId, CancellationToken ct = default);
+    /// <summary>CUFE de las facturas que el bot DIAN YA proceso (fuente Bot) con fecha del documento entre
+    /// <paramref name="desdeUtc"/> y <paramref name="hastaUtc"/>. El dron los recibe para saltarse lo que ya
+    /// esta cargado y bajar solo lo nuevo.</summary>
+    Task<IReadOnlyList<string>> CufesDelBotAsync(DateTimeOffset desdeUtc, DateTimeOffset hastaUtc, CancellationToken ct = default);
     /// <summary>Cruza los renglones contra el ERP (dummy): llena NumFacturaSoldarco, marca Inconsistencia!, auto-aprueba
     /// y recalcula PlataformaProveedor desde NEWTON (dummy).</summary>
     Task<ConciliacionCruceResult> CruzarAsync(Guid documentoId, CancellationToken ct = default);

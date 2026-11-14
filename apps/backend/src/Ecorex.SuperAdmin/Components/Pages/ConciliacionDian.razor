@@ -1818,6 +1818,45 @@ else
         </div>
     }
 
+    @* "Importar del bot": antes de correr, pide las variables marcadas "Pedir al ejecutar" en los flujos
+       (Extraccion de datos), prellenadas con su valor por defecto. Lo escrito vale solo para esta corrida. *@
+    @if (_askOpen)
+    {
+        <div class="cd-doc-backdrop"></div>
+        <div class="cd-rules-modal cd-extrun-modal cd-ask-modal" @onclick:stopPropagation="true">
+            <div class="cd-doc-head">
+                <div class="cd-doc-title">
+                    <div class="cd-doc-title-main">Parametros de la extraccion</div>
+                    <div class="cd-doc-title-sub">Revisa los valores antes de lanzar el bot. Lo que cambies vale solo para esta corrida.</div>
+                </div>
+                <button class="cd-doc-close" title="Cancelar" @onclick="() => _askOpen = false">&times;</button>
+            </div>
+            <div class="cd-ask-body">
+                @foreach (var grp in _askVars.GroupBy(a => a.FlowName))
+                {
+                    <div class="cd-ask-flow">@grp.Key</div>
+                    @foreach (var a in grp)
+                    {
+                        <label class="cd-ask-row">
+                            <span class="cd-ask-label">@a.Prompt</span>
+                            <input class="form-control form-control-sm cd-ask-input" @bind="a.Value" @bind:event="oninput" />
+                            <span class="cd-ask-def">Por defecto: @(string.IsNullOrEmpty(a.Default) ? "(vacio)" : a.Default)</span>
+                        </label>
+                    }
+                }
+                <label class="cd-ask-check">
+                    <input type="checkbox" @bind="_askRebajar" />
+                    Volver a bajar tambien las facturas que ya estan cargadas (mas lento; por defecto el bot se las salta)
+                </label>
+            </div>
+            <div class="cd-rules-foot">
+                <div style="flex:1"></div>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _askOpen = false">Cancelar</button>
+                <button class="btn btn-primary btn-sm" @onclick="ConfirmarAskAsync" disabled="@_busy">Ejecutar</button>
+            </div>
+        </div>
+    }
+
     @* Panel EN VIVO del "Importar del bot": muestra que flujo/paso corre la extraccion + mini-captura. *@
     @if (_extRunOpen)
     {
@@ -3735,7 +3774,79 @@ else
         finally { _busy = false; }
     }
 
+    // ---- "Pedir al ejecutar": variables de los flujos que se preguntan antes de lanzar el bot ----
+    private sealed class AskVarView
+    {
+        public Guid FlowId { get; init; }
+        public string FlowName { get; init; } = "";
+        public string Name { get; init; } = "";
+        public string Prompt { get; init; } = "";
+        public string Default { get; init; } = "";
+        public string Value { get; set; } = "";
+    }
+    private bool _askOpen;
+    private bool _askRebajar;
+    private List<AskVarView> _askVars = new();
+
+    /// <summary>Nombre de la variable con la que el conciliador le pasa al dron los CUFE ya cargados (prefijos
+    /// de 12 hex separados por coma) para que se los salte. Solo vive en la corrida (no se persiste).</summary>
+    private const string VarCufesConocidos = "CUFES_CONOCIDOS";
+    private const int CufePrefijo = 12;
+
     private async Task ImportarAsync()
+    {
+        _msg = null;
+        var eventos = await TaskCfg.GetExtraccionAsync();
+        if (eventos.Count > 0 && Tenant.TenantId is Guid tid)
+        {
+            IReadOnlyList<Ecorex.SuperAdmin.Agents.FlowAskVariable> ask;
+            try { ask = await BrowserRun.GetAskVariablesAsync(eventos.Select(e => e.FlowId).ToList(), tid); }
+            catch (Exception ex) { _msg = "No se pudieron leer los parametros de la extraccion: " + ex.Message; return; }
+            if (ask.Count > 0)
+            {
+                _askVars = ask.Select(a => new AskVarView
+                {
+                    FlowId = a.FlowId, FlowName = a.FlowName, Name = a.Name, Prompt = a.Prompt,
+                    Default = a.DefaultValue, Value = a.DefaultValue,
+                }).ToList();
+                _askRebajar = false;
+                _askOpen = true;
+                return;
+            }
+        }
+        await EjecutarImportacionAsync(new List<AskVarView>(), rebajar: false);
+    }
+
+    private async Task ConfirmarAskAsync()
+    {
+        _askOpen = false;
+        await EjecutarImportacionAsync(_askVars, _askRebajar);
+    }
+
+    // Overrides de UNA corrida para un flujo: sus respuestas "Pedir" + los CUFE ya cargados (para saltarlos).
+    private async Task<Dictionary<string, string>> OverridesParaAsync(Guid flowId, List<AskVarView> answers, bool rebajar)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var a in answers.Where(a => a.FlowId == flowId)) { map[a.Name] = (a.Value ?? "").Trim(); }
+        if (rebajar) { map[VarCufesConocidos] = ""; return map; }
+
+        // Rango a consultar = el que va a buscar el dron (DIAS_DESDE..DIAS_DESDE+DIAS_ATRAS) con holgura de una
+        // semana a cada lado (la DIAN filtra por su propia fecha). Sin respuestas, se asume el maximo historico.
+        static int Num(Dictionary<string, string> m, string k, int def)
+            => m.TryGetValue(k, out var s) && int.TryParse(s, out var n) && n >= 0 ? n : def;
+        var desde = Num(map, "DIAS_DESDE", 0);
+        var atras = Num(map, "DIAS_ATRAS", 180);
+        var hoy = DateTimeOffset.UtcNow;
+        var cufes = await Svc.CufesDelBotAsync(hoy.AddDays(-(desde + atras + 7)), hoy.AddDays(-desde + 7));
+        map[VarCufesConocidos] = string.Join(",", cufes
+            .Select(c => c.Trim().ToLowerInvariant())
+            .Where(c => c.Length >= CufePrefijo)
+            .Select(c => c[..CufePrefijo])
+            .Distinct());
+        return map;
+    }
+
+    private async Task EjecutarImportacionAsync(List<AskVarView> answers, bool rebajar)
     {
         _busy = true; _msg = null;
         try
@@ -3786,7 +3897,12 @@ else
                         var ev = eventos[fi];
                         _extRunFlows[fi].Status = "run"; StateHasChanged();
                         Ecorex.SuperAdmin.Agents.BrowserRunResult r;
-                        try { r = await BrowserRun.RunFlowStepwiseAsync(ev.FlowId, tid, fi, eventos.Count, progress); }
+                        try
+                        {
+                            var ov = await OverridesParaAsync(ev.FlowId, answers, rebajar);
+                            r = await BrowserRun.RunFlowStepwiseAsync(ev.FlowId, tid, fi, eventos.Count, progress,
+                                default, ov);
+                        }
                         catch (Exception ex) { r = new Ecorex.SuperAdmin.Agents.BrowserRunResult(false, null, null, false, ex.Message); }
 
                         if (r.Offline)

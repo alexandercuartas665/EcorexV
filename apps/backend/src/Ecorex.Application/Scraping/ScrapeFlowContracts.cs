@@ -119,7 +119,9 @@ public sealed record ScrapeVariableDto(
     string Name,
     bool HasValue,
     bool IsSecret,
-    string? Value);
+    string? Value,
+    bool AskOnRun = false,
+    string? Prompt = null);
 
 /// <summary>Resultado de pedir el valor en claro de una variable secreta (bajo demanda). Si
 /// <paramref name="Ok"/> es false, <paramref name="Error"/> explica por que (p.ej. cifrada con la
@@ -230,7 +232,9 @@ public sealed record SaveScrapeVariableRequest(
     Guid FlowId,
     string Name,
     string? Value,
-    bool IsSecret);
+    bool IsSecret,
+    bool AskOnRun = false,
+    string? Prompt = null);
 
 /// <summary>
 /// CRUD de la configuracion de flujos de extraccion. Tenant-scoped por el filtro global. Solo

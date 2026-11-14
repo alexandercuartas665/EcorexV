@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-14 - Aviso de nuevo pedido por WhatsApp: validado de punta a punta y llevado a PROD (config, sin codigo)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas), rama feat/agentes-sistema @ v0.16.324. Peticion y OK del usuario para escribir en la BD de prod.
+- VALIDADO EN LOCAL (app 5263, v0.16.324): Meta aprobo aviso_nuevo_pedido_plataforma; "Importar desde YCloud" la marco Approved y conservo {{pedido}}/{{solicitud}}/{{tarea}}. La SIMULACION (tope temporal 3, devuelto a 2) creo T00060 y T00061 y envio 2 WhatsApp al +573217626882 (YCloud 200); el usuario confirmo que llegaron. El pedido que ya tenia tarea (T00054) no repitio aviso.
+- PROD (transaccion unica, ON_ERROR_STOP): la linea "Ana" de prod (01a1d6d5-...) es la MISMA WABA 3880978752032716 que la local, asi que la plantilla ya aprobada se copio tal cual (status Approved, sin re-someter a Meta) y se agrego el paso Notificar 102536 "Avisar nuevo pedido por WhatsApp" al flujo DRON PLATAFORMAS INGENIOS (B0005, 7e834d75-...) con lineaId de prod. Huellas md5 de cuerpo/variables/header/footer/mapping iguales a local. Script: scratchpad prod_aviso_whatsapp.sql (solo INSERT, nada pisado).
+- SIGUIENTE: confirmar el primer aviso real en prod cuando entre un pedido nuevo. Ojo: el flujo B0005 figura en estado Error en prod (corrida anterior), revisar en la proxima ejecucion.
+
 ## 2026-11-14 - Release v0.16.324: integra feat/agentes-sistema @ cef94cd5 (Notificar a numeros de WhatsApp + import YCloud, ADR-0168)
 
 - AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.plataformas. Fast-forward sobre v0.16.323, sin migraciones.

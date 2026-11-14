@@ -2,7 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-13 - Agendas: recordatorio de turnos por LLAMADA con agente de voz (ADR-0167 etapa 2, release v0.16.319, SIN deploy)
+## 2026-11-13 - MCP de WhatsApp: publicar_estado ya no manda null a Evolution (release v0.16.320)
+
+- AGENTE: Claude Opus 5.5 (dev principal), a pedido de la sesion ECOREX.mcp (rama fix/publicar-estado-null, commit 005fe9f2).
+- HECHO: cherry-pick sobre el tronco. PublishStatusAsync (WhatsAppMcpToolset.Envio.cs) mandaba caption=null sin pie y statusJidList=null con para_todos=true; Evolution los rechaza con HTTP 400. Ahora caption = "" y statusJidList = lista vacia. AppVersion 0.16.320. v0.16.319 quedo desplegada en prod (footer verificado, migracion AddAgendaRecordatorios aplicada).
+- VERIFICADO: build verde.
+- SIGUIENTE: deploy de v0.16.320 con OK del usuario; la sesion ECOREX.mcp valida publicando un estado.
+
+## 2026-11-13 - Agendas: recordatorio de turnos por LLAMADA con agente de voz (ADR-0167 etapa 2, release v0.16.319, DESPLEGADO 2026-11-13)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Peticion del usuario: "sigue con la etapa 2" (llamada que actualiza el turno).
 - HECHO: canal Llamada en las reglas de recordatorio (linea de voz Retell lista + agente opcional + instruccion). Guion constante por regla con variables dinamicas del turno (Retell reutiliza el agente); el agente compuesto se crea con post_call_analysis_data (resultado_turno + nota_turno; RetellCreateAgentRequest.PostCallAnalysis, VoicePlaceCallRequest.AnalysisFields/Source; la firma de los campos entra en el hash). Envio EnLlamada con el call_id; en cada pasada se lee la VoiceCall (webhook o sondeo) y se aplica: confirma -> Confirmado, cancela -> Cancelado con motivo, reprogramar -> nota "Pendiente de reprogramar", no contesto -> Fallido, sin resultado en 3 h -> Fallido. Solo si el turno sigue en el mismo horario. Pantalla /agendas/recordatorios: selector WhatsApp/Llamada, linea de voz, agente, instruccion, guion visible y aviso para lineas en modo simple. SIN migracion (estado nuevo como texto; has-pending-model-changes limpio).

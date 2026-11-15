@@ -1025,7 +1025,10 @@
                 _fEntrega, _fDespacho, _fPago,
                 _fVigencia is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null,
                 _fNotas, contactoId,
-                _fFechaCotiz is { } fc ? new DateTimeOffset(fc, TimeSpan.Zero) : null,
+                // new DateTimeOffset(fc) nunca lanza (Local/Unspecified -> offset local, Utc -> cero) y
+                // conserva el reloj de pared al leer con .LocalDateTime. Con TimeSpan.Zero y fc Kind=Local
+                // (viene de DateTime.Now) reventaba: "The UTC Offset ... does not match the offset argument".
+                _fFechaCotiz is { } fc ? new DateTimeOffset(fc) : null,
                 RequerimientoCotizacionFuente.Manual,
                 _fFleteMonto, _fFletePorUnidad);
             _ofertas = (await Svc.GuardarCotizacionAsync(req, Cantidad)).ToList();

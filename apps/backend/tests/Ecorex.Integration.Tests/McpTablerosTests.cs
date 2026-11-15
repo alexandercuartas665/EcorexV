@@ -158,6 +158,64 @@ public abstract class McpTablerosTestsBase
     }
 
     [Fact]
+    public async Task TerminarTarea_LlevaUnaTareaPendienteAHecho_PorLaMaquinaDeEstados()
+    {
+        var seed = await SeedTenantAsync("Mcp Terminar");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (boards, _, toolset) = Build(ctx, tenantCtx);
+
+        await boards.CreateBoardAsync(new CreateActivityBoardRequest("Soporte"), seed.OwnerPlatformId, "Owner");
+        var member = Actor(seed, owner: false);
+
+        var created = Payload(await toolset.ExecuteAsync("crear_tarea",
+            Args(new { tablero = "Soporte", titulo = "Ajuste de facturacion" }), member));
+        var numero = created.GetProperty("numero").GetString()!;
+        Assert.Equal("Por hacer", created.GetProperty("columna").GetString());
+
+        // Mover a la columna de cierre NO basta: la maquina no permite Pending -> Done, la tarjeta se mueve con aviso.
+        var movedOnly = Payload(await toolset.ExecuteAsync("mover_tarea", Args(new { numero, columna = "Completado" }), member));
+        Assert.Equal("Completado", movedOnly.GetProperty("columna").GetString());
+        Assert.Equal("pendiente", movedOnly.GetProperty("estado").GetString());
+
+        // terminar_tarea SI la deja en Hecho, caminando por InProgress.
+        var done = Payload(await toolset.ExecuteAsync("terminar_tarea", Args(new { numero }), member));
+        Assert.Equal("terminada", done.GetProperty("estado").GetString());
+        var task = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Number == numero);
+        Assert.Equal(TaskItemStatus.Done, task.Status);
+
+        // Idempotente: repetir no falla y avisa que ya estaba terminada.
+        var again = Payload(await toolset.ExecuteAsync("terminar_tarea", Args(new { numero }), member));
+        Assert.Equal("terminada", again.GetProperty("estado").GetString());
+        Assert.Contains("ya estaba", again.GetProperty("aviso").GetString() ?? "");
+    }
+
+    [Fact]
+    public async Task TerminarTarea_TareaConFlujoEnCurso_SeRechaza()
+    {
+        var seed = await SeedTenantAsync("Mcp Terminar Flujo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (boards, engine, toolset) = Build(ctx, tenantCtx);
+
+        var imported = (await engine.ImportBpmnAsync(new ImportBpmnRequest("MCP-FIN", "Flujo Fin", FlowXml))).Value!;
+        Assert.True((await engine.PublishAsync(imported.Id)).IsOk);
+        var type = await ctx.ActivityTypes.SingleAsync(t => t.Id == seed.ActivityTypeId);
+        type.WorkflowDefinitionId = imported.Id;
+        await ctx.SaveChangesAsync();
+
+        await boards.CreateBoardAsync(new CreateActivityBoardRequest("Procesos"), seed.OwnerPlatformId, "Owner");
+        var owner = Actor(seed, owner: true);
+        var created = Payload(await toolset.ExecuteAsync("crear_tarea", Args(new { tablero = "Procesos", titulo = "Con flujo" }), owner));
+        Assert.True(created.GetProperty("flujo_iniciado").GetBoolean());
+        var numero = created.GetProperty("numero").GetString()!;
+
+        var res = await toolset.ExecuteAsync("terminar_tarea", Args(new { numero }), owner);
+        Assert.True(res.IsError);
+        Assert.Contains("completar_paso", res.Json);
+    }
+
+    [Fact]
     public async Task TaskWithRunningFlow_CannotBeMovedByHand_AndAdvancesWithCompletarPaso()
     {
         var seed = await SeedTenantAsync("Mcp Flujo");
@@ -607,7 +665,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(15 + 12 + 16 + 3, specs.Count); // nucleo + directorio + flujos + formularios permitidos del doble
+        Assert.Equal(16 + 12 + 16 + 3, specs.Count); // nucleo + directorio + flujos + formularios permitidos del doble
 
         foreach (var s in specs)
         {

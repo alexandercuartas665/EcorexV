@@ -1675,12 +1675,16 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
 
         modelBuilder.Entity<WorkflowStepHistory>(b =>
         {
-            b.Property(x => x.ApprovalResult).HasMaxLength(20);
+            // En una compuerta exclusiva el resultado del paso es el NOMBRE de la salida elegida
+            // (WorkflowEdge.Name, max 300), no un enum corto. Debe caber el nombre completo o el
+            // avance falla en BD (22001 value too long). Se alinea con el largo de la arista (300).
+            b.Property(x => x.ApprovalResult).HasMaxLength(300);
             b.Property(x => x.ApprovalComment).HasMaxLength(2000);
             // Agentes de IA en nodos (ola 2). Todo aditivo y nullable: los pasos ya existentes
             // quedan con null (los atendio gente). ExecutedByAiAgentId NO lleva FK a AiAgent: el
             // historial es append-only y no puede depender de que el agente siga configurado.
-            b.Property(x => x.AgentProposalResult).HasMaxLength(20);
+            // El agente tambien puede proponer una salida por NOMBRE: mismo largo que ApprovalResult.
+            b.Property(x => x.AgentProposalResult).HasMaxLength(300);
             b.Property(x => x.AgentProposalComment).HasMaxLength(2000);
             b.Property(x => x.AgentFailureReason).HasMaxLength(500);
             b.Property(x => x.AgentAttemptCount).HasDefaultValue(0);

@@ -20563,8 +20563,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnName("agent_proposal_comment");
 
                     b.Property<string>("AgentProposalResult")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
                         .HasColumnName("agent_proposal_result");
 
                     b.Property<string>("AgentRunLog")
@@ -20581,8 +20581,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnName("approval_comment");
 
                     b.Property<string>("ApprovalResult")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
                         .HasColumnName("approval_result");
 
                     b.Property<Guid?>("AssignedToTenantUserId")

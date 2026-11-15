@@ -20568,8 +20568,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnName("agent_proposal_comment");
 
                     b.Property<string>("AgentProposalResult")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
                         .HasColumnName("agent_proposal_result");
 
                     b.Property<string>("AgentRunLog")
@@ -20586,8 +20586,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnName("approval_comment");
 
                     b.Property<string>("ApprovalResult")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
                         .HasColumnName("approval_result");
 
                     b.Property<Guid?>("AssignedToTenantUserId")

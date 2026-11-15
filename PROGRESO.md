@@ -18531,3 +18531,28 @@ AddRequerimientoRfq (PG+SQL, 2 tablas aditivas, aplicada a dev al arrancar); ser
 (agrupa por proveedor, crea 1 RFQ/proveedor con su tarea portadora que dispara el flujo, idempotente) +
 ListRfqAsync; UI boton "Cotizar por proveedor (RFQ)" en Planificar. 10 fakes de tests + 2 DbSets.
 Validado E2E 5265/SKY: RFQ-0001 (Produvarios, 1 linea, tarea T00216). Siguientes: Olas B-F.
+
+## 2026-11-14 - Fix H-09: salida de compuerta >20 chars rompia el avance (approval_result varchar(20))
+
+Rama `fase-0/clon-backbone`. SIN deploy. Detectado durante la simulacion "Solicitudes de pedido ->
+Orden de compra" (tenant demo INDUSTRIAS ANDINAS, sim en 5270).
+- Sintoma: al cerrar un paso en una compuerta exclusiva eligiendo una salida cuyo NOMBRE supera 20
+  caracteres (ej. "Devolver al solicitante", 23), el avance abortaba con
+  `Npgsql.PostgresException 22001: value too long for type character varying(20)` en
+  `WorkflowEngine.CompleteStepAsync` al escribir `workflow_step_histories.approval_result`.
+- Causa raiz: en una compuerta el resultado del paso es el NOMBRE de la salida elegida
+  (`WorkflowEdge.Name`, varchar(300)), no un enum corto; pero `WorkflowStepHistory.ApprovalResult`
+  (y `AgentProposalResult`) estaban mapeados a `HasMaxLength(20)`. Cualquier salida con nombre largo
+  no cabia.
+- Fix: alinear ambos campos al largo de la arista (300) en `EcorexDbContext` (unico modelo compartido
+  de la DAL dual) + comentario que documenta la invariante. Migracion dual aditiva
+  `WidenWorkflowApprovalResultTo300` (PG: character varying(300); SQL Server: nvarchar(300)), solo
+  `AlterColumn` de approval_result y agent_proposal_result, con Down reversible a 20.
+- Archivos: `EcorexDbContext.cs` (lineas ~1678-1687); `Persistence/Migrations/...WidenWorkflowApprovalResultTo300.cs`
+  (+ Designer + ModelSnapshot) y su gemela en `Ecorex.Infrastructure.SqlServer/Migrations`.
+- Verificacion E2E (sim 5270, BD ecorex@5442): `dotnet build` verde (0 errores); columna confirmada
+  character varying(300); reproducido el caso exacto -> en la compuerta "La solicitud esta completa?"
+  se eligio "Devolver al solicitante" (23) -> SIN 22001, el historial guardo approval_result con len 23
+  en n_rev y gw, el flujo volvio a n_sol (loop de devolucion) y preview_logs sin errores.
+- Pendiente a senal del usuario: commit + (si aplica) integracion/deploy. La migracion SQL Server
+  queda generada; se aplica al arrancar/actualizar ese proveedor.

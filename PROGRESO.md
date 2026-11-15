@@ -9,7 +9,7 @@
 - PROD (transaccion unica, ON_ERROR_STOP): la linea "Ana" de prod (01a1d6d5-...) es la MISMA WABA 3880978752032716 que la local, asi que la plantilla ya aprobada se copio tal cual (status Approved, sin re-someter a Meta) y se agrego el paso Notificar 102536 "Avisar nuevo pedido por WhatsApp" al flujo DRON PLATAFORMAS INGENIOS (B0005, 7e834d75-...) con lineaId de prod. Huellas md5 de cuerpo/variables/header/footer/mapping iguales a local. Script: scratchpad prod_aviso_whatsapp.sql (solo INSERT, nada pisado).
 - SIGUIENTE: confirmar el primer aviso real en prod cuando entre un pedido nuevo. Ojo: el flujo B0005 figura en estado Error en prod (corrida anterior), revisar en la proxima ejecucion.
 
-## 2026-11-15 - Release v0.16.329: comparador de compras, "Guardar oferta" con la fecha cotizado precargada (SIN deploy)
+## 2026-11-15 - Release v0.16.329: comparador de compras, "Guardar oferta" con la fecha cotizado precargada (DESPLEGADO 2026-11-15)
 
 - AGENTE: Claude Opus 5.5 (dev principal), integra fix/comparador-fecha-cotizado-offset @ 76a91683 (merge) + complemento propio.
 - CAUSA: CotizacionesComparador armaba new DateTimeOffset(fc, TimeSpan.Zero) con fc = DateTime.Now (Kind=Local): en maquinas con offset != 0 lanzaba "The UTC Offset of the local dateTime parameter does not match the offset argument". La rama lo cambio a new DateTimeOffset(fc); en el smoke local (offset -05:00) el guardado seguia fallando en BD: Npgsql solo escribe timestamptz con offset 0 ("Cannot write DateTimeOffset with Offset=-05:00"). Complemento: .ToUniversalTime().
@@ -17,7 +17,7 @@
 - NOTA: en prod el contenedor corre en UTC (offset 0), por eso alla no fallaba; el fix aplica a cualquier servidor con zona distinta.
 - SIGUIENTE: deploy con OK del usuario.
 
-## 2026-11-15 - Release v0.16.328: MCP de tableros terminar_tarea (SIN deploy)
+## 2026-11-15 - Release v0.16.328: MCP de tableros terminar_tarea (DESPLEGADO 2026-11-15 con v0.16.329)
 
 - AGENTE: Claude Opus 5.5 (dev principal), integra feat/mcp-terminar-tarea @ 37cc3a1a (merge, base v0.16.326). Incluye tambien el fix de /lineas de v0.16.327 (no desplegado).
 - QUE: nuevo tool terminar_tarea(numero, motivo_cierre?, nota?) en el MCP de tableros (nucleo 15->16, inventario 84): lleva una tarea SIN flujo a InProgress y la cierra moviendola a la columna de cierre (estado Done; exige concepto de cierre si el tablero lo pide); idempotente; rechaza tareas con flujo en curso (usar completar_paso). Sin migracion.
@@ -25,7 +25,7 @@
 - VERIFICADO: build Release 0 errores; McpTablerosTests dual PG + SQL Server 24/24; Application.Tests 1392/1392.
 - SIGUIENTE: deploy con OK del usuario.
 
-## 2026-11-15 - Lineas WhatsApp: la tabla se salia de la pantalla en tableta (release v0.16.327, SIN deploy)
+## 2026-11-15 - Lineas WhatsApp: la tabla se salia de la pantalla en tableta (release v0.16.327, DESPLEGADO 2026-11-15 con v0.16.329)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Reporte del usuario con foto de la tableta: en /lineas la columna Acciones (hasta 6 botones en white-space:nowrap) empujaba la tabla fuera de la tarjeta y de la pagina.
 - HECHO: Lineas.razor: los botones de Acciones van en un flex con wrap (bajan de renglon) y la tarjeta tiene overflow-x:auto (en celular la tabla se desplaza dentro de la tarjeta, la pagina no se rompe). Solo UI, sin migracion.

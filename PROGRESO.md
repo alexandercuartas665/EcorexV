@@ -9,7 +9,14 @@
 - PROD (transaccion unica, ON_ERROR_STOP): la linea "Ana" de prod (01a1d6d5-...) es la MISMA WABA 3880978752032716 que la local, asi que la plantilla ya aprobada se copio tal cual (status Approved, sin re-someter a Meta) y se agrego el paso Notificar 102536 "Avisar nuevo pedido por WhatsApp" al flujo DRON PLATAFORMAS INGENIOS (B0005, 7e834d75-...) con lineaId de prod. Huellas md5 de cuerpo/variables/header/footer/mapping iguales a local. Script: scratchpad prod_aviso_whatsapp.sql (solo INSERT, nada pisado).
 - SIGUIENTE: confirmar el primer aviso real en prod cuando entre un pedido nuevo. Ojo: el flujo B0005 figura en estado Error en prod (corrida anterior), revisar en la proxima ejecucion.
 
-## 2026-11-15 - Release v0.16.326: fix H-09, la salida de compuerta no cabia en approval_result (SIN deploy)
+## 2026-11-15 - Lineas WhatsApp: la tabla se salia de la pantalla en tableta (release v0.16.327, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Reporte del usuario con foto de la tableta: en /lineas la columna Acciones (hasta 6 botones en white-space:nowrap) empujaba la tabla fuera de la tarjeta y de la pagina.
+- HECHO: Lineas.razor: los botones de Acciones van en un flex con wrap (bajan de renglon) y la tarjeta tiene overflow-x:auto (en celular la tabla se desplaza dentro de la tarjeta, la pagina no se rompe). Solo UI, sin migracion.
+- VERIFICADO: build 0 errores; en local 5234 a 800 px (tableta) la tabla cabe completa con todos los botones visibles y la pagina no tiene desplazamiento horizontal; a 375 px (celular) desplaza dentro de la tarjeta.
+- SIGUIENTE: deploy con OK del usuario.
+
+## 2026-11-15 - Release v0.16.326: fix H-09, la salida de compuerta no cabia en approval_result (DESPLEGADO 2026-11-15, migracion aplicada)
 
 - AGENTE: Claude Opus 5.5 (dev principal), integra fix/compuerta-approval-result-300 @ 756fd1da (fast-forward; detalle en la entrada H-09 al final del archivo).
 - QUE: WorkflowStepHistory.ApprovalResult y AgentProposalResult de varchar(20) a 300 (largo de WorkflowEdge.Name); una salida como "Devolver al solicitante" abortaba CompleteStepAsync con 22001. Migracion dual aditiva WidenWorkflowApprovalResultTo300 (solo AlterColumn, Down a 20), se aplica al arrancar.

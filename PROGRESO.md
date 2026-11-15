@@ -9,7 +9,14 @@
 - PROD (transaccion unica, ON_ERROR_STOP): la linea "Ana" de prod (01a1d6d5-...) es la MISMA WABA 3880978752032716 que la local, asi que la plantilla ya aprobada se copio tal cual (status Approved, sin re-someter a Meta) y se agrego el paso Notificar 102536 "Avisar nuevo pedido por WhatsApp" al flujo DRON PLATAFORMAS INGENIOS (B0005, 7e834d75-...) con lineaId de prod. Huellas md5 de cuerpo/variables/header/footer/mapping iguales a local. Script: scratchpad prod_aviso_whatsapp.sql (solo INSERT, nada pisado).
 - SIGUIENTE: confirmar el primer aviso real en prod cuando entre un pedido nuevo. Ojo: el flujo B0005 figura en estado Error en prod (corrida anterior), revisar en la proxima ejecucion.
 
-## 2026-11-14 - WhatsApp YCloud: la linea guardada con "+" no recibia mensajes (release v0.16.325, SIN deploy)
+## 2026-11-15 - Release v0.16.326: fix H-09, la salida de compuerta no cabia en approval_result (SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal), integra fix/compuerta-approval-result-300 @ 756fd1da (fast-forward; detalle en la entrada H-09 al final del archivo).
+- QUE: WorkflowStepHistory.ApprovalResult y AgentProposalResult de varchar(20) a 300 (largo de WorkflowEdge.Name); una salida como "Devolver al solicitante" abortaba CompleteStepAsync con 22001. Migracion dual aditiva WidenWorkflowApprovalResultTo300 (solo AlterColumn, Down a 20), se aplica al arrancar.
+- VERIFICADO: build Release 0 errores; Integration dual PG + SQL Server filtro Workflow/TenantIsolation/Migration 114/114.
+- SIGUIENTE: deploy con OK del usuario.
+
+## 2026-11-14 - WhatsApp YCloud: la linea guardada con "+" no recibia mensajes (release v0.16.325, DESPLEGADO 2026-11-14, validado: Ana de SOLDARCO recibe y responde)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Reporte del usuario: el agente de SOLDARCO no escucha a YCloud con el webhook https://app2.bitcode.com.co/webhooks/ycloud.
 - CAUSA (prod, solo lectura): la URL unica es correcta (multi-tenant: la linea se resuelve por el numero de negocio "to"). La linea "Ana" de SOLDARCO quedo con y_cloud_phone_number_id = "+573126892065" y el parser del webhook entrega "to" solo con digitos ("573126892065"): no habia match y el entrante se descartaba ("no corresponde a ninguna linea YCloud registrada"). AGRO y EPRING estan sin "+" y si ingieren. No hace falta secret (el endpoint no valida firma).

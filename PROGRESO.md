@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-15 - Release v0.16.330: motor de acciones por filtro entrega de verdad (correo MailKit, paso WhatsApp, reintentos, ejecuciones) (SIN deploy)
+## 2026-11-15 - Release v0.16.330: motor de acciones por filtro entrega de verdad (correo MailKit, paso WhatsApp, reintentos, ejecuciones) (DESPLEGADO 2026-11-15, migracion aplicada)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Origen: hallazgos de la prueba E2E del 2026-11-15 en SOLDARCO (filtro GERENTES): el motor disparaba pero ningun canal entregaba. ADR-0170.
 - CORREO: SmtpEmailSender pasa a MailKit; TLS por puerto (465 = SslOnConnect, 587 = StartTls, otro = Auto, sin SSL = StartTlsWhenAvailable). El error trae la cadena real de excepciones (sin clave) y la pista de SendGrid (usuario = apikey). Pistas en Servidor de correo y Mi cuenta.

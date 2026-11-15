@@ -188,6 +188,12 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
             "Mueve una tarea SIN flujo a otra columna de su tablero. Si la tarea esta gobernada por un flujo en curso NO se " +
             "mueve a mano: usa completar_paso. Si la columna destino es de cierre y el tablero exige motivo, envia 'motivo_cierre'.",
             """{"type":"object","properties":{"numero":{"type":"string"},"columna":{"type":"string","description":"Nombre de la columna destino"},"motivo_cierre":{"type":"string"},"nota":{"type":"string"}},"required":["numero","columna"],"additionalProperties":false}"""),
+        new("terminar_tarea",
+            "Marca una tarea como TERMINADA (estado Hecho). La lleva por los estados validos de la maquina (pendiente -> en " +
+            "progreso -> hecho) y, si el tablero tiene columna de cierre, deja la tarjeta alli. Es idempotente: si ya estaba " +
+            "terminada no hace nada. Si la gobierna un flujo EN CURSO no se cierra a mano: avanzalo con completar_paso. Si el " +
+            "tablero exige concepto de cierre, pasalo en 'motivo_cierre'.",
+            """{"type":"object","properties":{"numero":{"type":"string","description":"Numero de la tarea, ej. T00123"},"motivo_cierre":{"type":"string","description":"Concepto de cierre si el tablero lo exige"},"nota":{"type":"string","description":"Nota opcional para la bitacora"}},"required":["numero"],"additionalProperties":false}"""),
         new("comentar",
             "Agrega un comentario a la bitacora de la tarea (queda a nombre del usuario, marcado 'via IA').",
             """{"type":"object","properties":{"numero":{"type":"string"},"texto":{"type":"string"}},"required":["numero","texto"],"additionalProperties":false}"""),
@@ -234,6 +240,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 "listar_usuarios" => await ListUsersAsync(args, cancellationToken),
                 "crear_tarea" => await CreateAsync(args, actor, cancellationToken),
                 "mover_tarea" => await MoveAsync(args, actor, cancellationToken),
+                "terminar_tarea" => await CompleteTaskAsync(args, actor, cancellationToken),
                 "comentar" => await CommentAsync(args, actor, cancellationToken),
                 "asignar_tarea" => await AssignAsync(args, actor, cancellationToken),
                 "checklist" => await ChecklistAsync(args, actor, cancellationToken),
@@ -627,6 +634,71 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         if (!res.IsOk || res.Value is null) { return Err(res.Error ?? "No se pudo mover la tarea."); }
         return Ok(new { ok = true, numero = task.Number, columna = column.Name, estado = StatusEs(res.Value.Status), nota = res.Value.StatusNote });
     }
+
+    /// <summary>
+    /// Termina una tarea SIN flujo dejandola en estado Hecho (Done). La maquina de estados no permite
+    /// Pending -> Done directo, asi que primero la lleva a InProgress y luego cierra moviendo la tarjeta a
+    /// la columna de cierre del tablero (lo que dispara la transicion a Done, exige el concepto de cierre si
+    /// el tablero lo pide y libera la linea de WhatsApp apartada por un flujo). Si el tablero no tiene columna
+    /// de cierre, cierra por estado. Idempotente si ya estaba terminada; una tarea con flujo en curso se
+    /// avanza con completar_paso, no por aqui.
+    /// </summary>
+    private async Task<McpToolResult> CompleteTaskAsync(JsonElement args, McpActor actor, CancellationToken ct)
+    {
+        var (task, error) = await ResolveVisibleTaskAsync(Str(args, "numero"), actor, ct);
+        if (task is null) { return Err(error!); }
+
+        if (await HasRunningFlowAsync(task, ct))
+        {
+            return Err($"La tarea {task.Number} la gobierna un flujo en curso: no se termina a mano. " +
+                       "Avanza el flujo con completar_paso hasta su paso de cierre.");
+        }
+
+        if (task.Status is TaskItemStatus.Done or TaskItemStatus.Closed)
+        {
+            return Ok(new { ok = true, numero = task.Number, estado = StatusEs(task.Status), aviso = "La tarea ya estaba terminada." });
+        }
+
+        var reason = Str(args, "motivo_cierre");
+        var note = Str(args, "nota");
+
+        // Columna de cierre del tablero (la primera marcada IsDone), si existe.
+        TaskBoardColumn? doneColumn = null;
+        if (task.BoardId is Guid boardId)
+        {
+            doneColumn = await _db.TaskBoardColumns.AsNoTracking()
+                .Where(c => c.BoardId == boardId && c.IsDone)
+                .OrderBy(c => c.SortOrder).FirstOrDefaultAsync(ct);
+        }
+
+        // Deja el estado en uno desde el que Done es valido (InProgress/Active).
+        foreach (var step in StepsTowardDoneCapable(task.Status))
+        {
+            var ch = await _tasks.ChangeStatusAsync(task.Id, step, note, actor.PlatformUserId, ActorName(actor), ct);
+            if (!ch.IsOk) { return Err(ch.Error ?? $"No se pudo pasar la tarea a {StatusEs(step)}."); }
+        }
+
+        if (doneColumn is not null)
+        {
+            var sort = await _db.TaskItems.AsNoTracking().Where(t => t.ColumnId == doneColumn.Id)
+                .Select(t => (int?)t.BoardSortOrder).MaxAsync(ct) ?? 0;
+            var mv = await _boards.MoveTaskAsync(task.Id, doneColumn.Id, sort + 1, actor.PlatformUserId, ActorName(actor), reason, note, ct);
+            if (!mv.IsOk || mv.Value is null) { return Err(mv.Error ?? "No se pudo cerrar la tarea."); }
+            return Ok(new { ok = true, numero = task.Number, columna = doneColumn.Name, estado = StatusEs(mv.Value.Status), nota = mv.Value.StatusNote });
+        }
+
+        // Sin columna de cierre (o sin tablero): cierra por estado directamente.
+        var fin = await _tasks.ChangeStatusAsync(task.Id, TaskItemStatus.Done, note, actor.PlatformUserId, ActorName(actor), ct);
+        if (!fin.IsOk) { return Err(fin.Error ?? "No se pudo terminar la tarea."); }
+        return Ok(new { ok = true, numero = task.Number, estado = StatusEs(TaskItemStatus.Done) });
+    }
+
+    /// <summary>Pasos para dejar la tarea en un estado desde el que Done es valido (InProgress/Active).</summary>
+    private static IEnumerable<TaskItemStatus> StepsTowardDoneCapable(TaskItemStatus from) => from switch
+    {
+        TaskItemStatus.Pending or TaskItemStatus.Suspended => new[] { TaskItemStatus.InProgress },
+        _ => Array.Empty<TaskItemStatus>()
+    };
 
     private async Task<McpToolResult> CommentAsync(JsonElement args, McpActor actor, CancellationToken ct)
     {

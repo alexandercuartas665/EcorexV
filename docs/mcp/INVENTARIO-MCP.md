@@ -12,7 +12,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **83** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **84** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -41,7 +41,7 @@ ADRs: ADR-0159 (MCP personal + addenda), ADR-0067 (MCP de administracion / autor
 
 Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). Permiso = modulo/accion exigidos.
 
-### 2.1 Nucleo - tareas, tableros y pasos de flujo (15) - `TableroMcpToolset.cs`
+### 2.1 Nucleo - tareas, tableros y pasos de flujo (16) - `TableroMcpToolset.cs`
 
 | Herramienta | Tipo | Que hace |
 |---|---|---|
@@ -54,6 +54,7 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | listar_usuarios | R | Usuarios activos (para asignar) |
 | crear_tarea | W | Crea tarea; con concepto arranca su flujo |
 | mover_tarea | W | Mueve de columna (NO si la gobierna un flujo en curso) |
+| terminar_tarea | W | Marca la tarea como Hecho: camina la maquina (pendiente -> en progreso -> hecho) y la deja en la columna de cierre. Idempotente; flujo en curso -> completar_paso |
 | comentar | W | Comentario en la bitacora "(via IA)" |
 | asignar_tarea | W | Cambia/quita el encargado |
 | checklist | W | Agregar/marcar/desmarcar items |
@@ -238,7 +239,7 @@ Brechas priorizadas (propuesta):
 | ADR-0159 (personal) | Completo, con addenda por fase; conteo corregido en esta revision |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 83/83 con descripcion >= 25 caracteres y JSON-Schema valido (verificado en vivo y por prueba) |
+| Descripciones y esquemas | 84/84 con descripcion >= 25 caracteres y JSON-Schema valido (verificado en vivo y por prueba) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

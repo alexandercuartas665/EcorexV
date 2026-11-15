@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-15 - Release v0.16.330: motor de acciones por filtro entrega de verdad (correo MailKit, paso WhatsApp, reintentos, ejecuciones) (SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Origen: hallazgos de la prueba E2E del 2026-11-15 en SOLDARCO (filtro GERENTES): el motor disparaba pero ningun canal entregaba. ADR-0170.
+- CORREO: SmtpEmailSender pasa a MailKit; TLS por puerto (465 = SslOnConnect, 587 = StartTls, otro = Auto, sin SSL = StartTlsWhenAvailable). El error trae la cadena real de excepciones (sin clave) y la pista de SendGrid (usuario = apikey). Pistas en Servidor de correo y Mi cuenta.
+- PROD (solo lectura por SSH): email_configs global = smtp.sendgrid.net:465, usuario distinto de "apikey" (10 caracteres); 1 tenant con SMTP propio en 587. NO se cambio: con MailKit el 465 ya no cuelga, pero la autenticacion seguira fallando hasta poner usuario "apikey" (decision del usuario).
+- WHATSAPP: el paso del disenador tiene linea + contenido segun proveedor (Evolution/Emulator texto libre con variables y vista previa; YCloud/Cloud plantilla APROBADA + mapeo de variables a campos del contacto o texto fijo, enviada por SendTemplateAsync). Se guarda en ParamsJson del paso; compatibilidad con ventanas viejas (texto en TemplateId). Telefono a E.164 con PhoneNumber.ToE164 (57 por defecto), tambien en la llamada IA.
+- REINTENTOS: ContactWorkflowRetryPolicy: Sent nunca se repite; Failed hasta 3 intentos separados 15 min; Skipped se reevalua cada 15 min. Reintento sobre la MISMA fila (Attempts++), con Attempts como token de concurrencia. Migracion dual AddContactWorkflowRunAttempts (PG + SQL Server; solo agrega columna con default 1).
+- BUG EXTRA CORREGIDO: guardar el disenador borraba y recreaba pasos/ventanas; por la cascada se borraba el historial de ejecuciones y se reiniciaba el dedupe (re-guardar reenviaba a todo el segmento). Ahora upsert por Id.
+- VISIBILIDAD: panel "Ultimas ejecuciones" en el disenador (fecha en zona del tenant, contacto, paso/canal, estado, intentos, error).
+- VERIFICADO: build Release 0 errores; tests Application 1419, Domain 35, SuperAdmin 241 verdes (nuevos: E.164, regla de reintento, mapeo puerto->SecureSocketOptions, cadena de error, reintento de punta a punta en el dispatcher); dotnet format limpio. Smoke local 5234 (AGRO, workers apagados): paso WhatsApp con linea Emulator + texto y vista previa; validacion sin linea; dos guardados conservan los Id de paso/ventana y una ejecucion de prueba sigue en el panel. Instancia temporal 5236 (SOLDARCO): linea YCloud -> plantilla aprobada + variables {{pedido}} {{solicitud}} {{tarea}}, validacion de variable sin asignar, panel con las ejecuciones reales de la prueba E2E (sin guardar). Correo de prueba en Mi cuenta: error real en segundos "Authentication failed: Bad username / password (SendGrid exige usuario = apikey...)". Datos de prueba locales borrados.
+- SIGUIENTE: deploy con OK del usuario; luego, con su OK, cambiar el usuario SMTP global de prod a "apikey" y configurar el paso WhatsApp de GERENTES con la linea y una plantilla aprobada.
+
 ## 2026-11-14 - Aviso de nuevo pedido por WhatsApp: validado de punta a punta y llevado a PROD (config, sin codigo)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas), rama feat/agentes-sistema @ v0.16.324. Peticion y OK del usuario para escribir en la BD de prod.

@@ -59,10 +59,18 @@ public class ContactWorkflowDispatcherTests
     private sealed class FakeWhatsApp : IWhatsAppConnectorService
     {
         public int Sends { get; private set; }
+        // Cuando es true el proveedor "falla" (para probar el reintento sobre la misma fila).
+        public bool Fail { get; set; }
+        public string? LastPhone { get; private set; }
+        public string? LastText { get; private set; }
         public Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default)
         {
             Sends++;
-            return Task.FromResult(new LineSendResult(true, null, $"wamid-{Sends}"));
+            LastPhone = phone;
+            LastText = text;
+            return Task.FromResult(Fail
+                ? new LineSendResult(false, "proveedor caido")
+                : new LineSendResult(true, null, $"wamid-{Sends}"));
         }
         public Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<EvolutionServerSettingDto?> SetServerAsync(SetEvolutionServerRequest request, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
@@ -505,6 +513,76 @@ public class ContactWorkflowDispatcherTests
         Assert.Equal(0, written);
         Assert.Equal(0, whatsapp.Sends);
         Assert.Equal(0, await inner.ContactWorkflowRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task Failed_se_reintenta_en_la_misma_fila_y_Sent_no_se_repite()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, whatsapp, _, inner) = Build(now, AllDays, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        // 1er intento: el proveedor falla -> 2 filas Failed, Attempts = 1.
+        whatsapp.Fail = true;
+        await dispatcher.RunDueForTenantAsync(now);
+        var runs = await inner.ContactWorkflowRuns.AsNoTracking().ToListAsync();
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRunStatus.Failed, r.Status));
+        Assert.All(runs, r => Assert.Equal(1, r.Attempts));
+
+        // Antes de la espera minima no reintenta.
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(5));
+        Assert.Equal(2, whatsapp.Sends);
+
+        // Pasada la espera: reintenta sobre la MISMA fila (sin insertar otra) y ahora entrega.
+        whatsapp.Fail = false;
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(16));
+        runs = await inner.ContactWorkflowRuns.AsNoTracking().ToListAsync();
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRunStatus.Sent, r.Status));
+        Assert.All(runs, r => Assert.Equal(2, r.Attempts));
+        Assert.Equal(4, whatsapp.Sends);
+
+        // Sent nunca se repite, por mucho que pase el tiempo dentro del dia.
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(60));
+        Assert.Equal(4, whatsapp.Sends);
+        Assert.Equal(2, await inner.ContactWorkflowRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task Failed_se_detiene_al_llegar_al_tope_de_intentos()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 8, 0, 0, TimeSpan.Zero);
+        var (dispatcher, whatsapp, _, inner) = Build(now, AllDays, new TimeOnly(0, 0), new TimeOnly(23, 59));
+        whatsapp.Fail = true;
+
+        for (var i = 0; i < 6; i++)
+        {
+            await dispatcher.RunDueForTenantAsync(now.AddMinutes(20 * i));
+        }
+
+        var runs = await inner.ContactWorkflowRuns.AsNoTracking().ToListAsync();
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRetryPolicy.MaxFailedAttempts, r.Attempts));
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRunStatus.Failed, r.Status));
+        Assert.Equal(2 * ContactWorkflowRetryPolicy.MaxFailedAttempts, whatsapp.Sends);
+    }
+
+    [Fact]
+    public async Task Telefono_de_10_digitos_se_envia_en_E164_y_el_texto_lleva_las_variables()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, whatsapp, _, inner) = Build(now, AllDays, new TimeOnly(0, 0), new TimeOnly(23, 59));
+        inner.Terceros.RemoveRange(inner.Terceros);
+        inner.Terceros.Add(new Tercero { TenantId = TenantId, Nombre = "Carla", Tipo = TerceroTipo.Persona, Estado = TerceroEstado.Activo, Telefono = "300 111 2233" });
+        var step = await inner.ContactWorkflowSteps.FirstAsync();
+        step.ParamsJson = "{\"texto\":\"Hola {nombre}, te escribimos.\"}";
+        await inner.SaveChangesAsync();
+
+        await dispatcher.RunDueForTenantAsync(now);
+
+        Assert.Equal(1, whatsapp.Sends);
+        Assert.Equal("+573001112233", whatsapp.LastPhone);
+        Assert.Equal("Hola Carla, te escribimos.", whatsapp.LastText);
     }
 
     [Fact]

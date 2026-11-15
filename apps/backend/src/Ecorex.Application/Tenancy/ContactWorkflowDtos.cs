@@ -20,7 +20,88 @@ public sealed record ContactWorkflowStepDto(
     string Label,
     int Orden,
     ContactWorkflowCallParams? Call,
-    IReadOnlyList<ContactWorkflowScheduleDto> Schedules);
+    IReadOnlyList<ContactWorkflowScheduleDto> Schedules,
+    // Paso WhatsApp: linea + contenido (texto libre o plantilla aprobada). Null en otros tipos.
+    ContactWorkflowWhatsAppParams? WhatsApp = null);
+
+/// <summary>
+/// Parametros del paso WhatsApp (contenido de ParamsJson, 2026-11-15). El contenido depende del proveedor
+/// de la linea: Evolution/Emulator envian <see cref="Texto"/> libre con variables {nombre} {empresa} {cargo}
+/// {ciudad} {correo}; YCloud/Cloud exigen una plantilla APROBADA (<see cref="PlantillaId"/>), porque fuera de
+/// la ventana de 24 h Meta rechaza el texto libre. <see cref="Variables"/> mapea cada token de la plantilla a
+/// un campo del contacto (<see cref="ContactWorkflowWhatsAppFields"/>) o a un texto fijo ("txt:...").
+/// </summary>
+public sealed record ContactWorkflowWhatsAppParams(
+    Guid? LineaId = null,
+    string? Texto = null,
+    Guid? PlantillaId = null,
+    IReadOnlyDictionary<string, string>? Variables = null);
+
+/// <summary>Campos del contacto que alimentan las variables de una plantilla de WhatsApp.</summary>
+public static class ContactWorkflowWhatsAppFields
+{
+    /// <summary>Prefijo de un valor FIJO en el mapeo (ej. "txt:Promocion de noviembre").</summary>
+    public const string FixedPrefix = "txt:";
+
+    public static readonly IReadOnlyList<(string Key, string Label)> All = new[]
+    {
+        ("nombre", "Nombre del contacto"),
+        ("empresa", "Empresa"),
+        ("cargo", "Cargo"),
+        ("ciudad", "Ciudad"),
+        ("correo", "Correo"),
+        ("telefono", "Telefono"),
+    };
+
+    /// <summary>Campo sugerido para un token de plantilla (por nombre; "cliente" = nombre). "" si no hay.</summary>
+    public static string DefaultFor(string? token)
+    {
+        var t = (token ?? "").Trim().ToLowerInvariant();
+        return t switch
+        {
+            "nombre" or "cliente" or "contacto" or "name" or "1" => "nombre",
+            "empresa" or "compania" or "company" => "empresa",
+            "cargo" => "cargo",
+            "ciudad" or "city" => "ciudad",
+            "correo" or "email" => "correo",
+            "telefono" or "celular" or "phone" => "telefono",
+            _ => ""
+        };
+    }
+
+    /// <summary>Valor de un origen del mapeo para el contacto (campo o texto fijo). Null si queda vacio.</summary>
+    public static string? Resolve(string? source, string? nombre, string? empresa, string? cargo,
+        string? ciudad, string? correo, string? telefono)
+    {
+        if (string.IsNullOrWhiteSpace(source)) { return null; }
+        if (source.StartsWith(FixedPrefix, StringComparison.Ordinal))
+        {
+            var fixedValue = source[FixedPrefix.Length..].Trim();
+            return fixedValue.Length == 0 ? null : fixedValue;
+        }
+        var value = source.Trim().ToLowerInvariant() switch
+        {
+            "nombre" => nombre,
+            "empresa" => empresa,
+            "cargo" => cargo,
+            "ciudad" => ciudad,
+            "correo" => correo,
+            "telefono" => telefono,
+            _ => null
+        };
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+}
+
+/// <summary>Una ejecucion del motor para el panel "Ultimas ejecuciones" del disenador (hora local del tenant).</summary>
+public sealed record ContactWorkflowRunDto(
+    DateTime FechaLocal,
+    string Contacto,
+    string Paso,
+    string Canal,
+    ContactWorkflowRunStatus Estado,
+    int Intentos,
+    string? Error);
 
 /// <summary>
 /// Parametros del paso Llamada (contenido de ParamsJson). Dos modos:
@@ -69,7 +150,11 @@ public sealed record SaveContactWorkflowStepRequest(
     ContactWorkflowStepType StepType,
     string? Label,
     ContactWorkflowCallParams? Call,
-    IReadOnlyList<SaveContactWorkflowScheduleRequest> Schedules);
+    IReadOnlyList<SaveContactWorkflowScheduleRequest> Schedules,
+    ContactWorkflowWhatsAppParams? WhatsApp = null,
+    // Id del paso existente: se ACTUALIZA en sitio (conserva su historial de ejecuciones y el dedupe del dia).
+    // Null = paso nuevo.
+    Guid? Id = null);
 
 public sealed record SaveContactWorkflowScheduleRequest(
     DateOnly? StartDate,
@@ -80,4 +165,6 @@ public sealed record SaveContactWorkflowScheduleRequest(
     string? TemplateId,
     Guid? AccountId,
     int? RepeatEvery,
-    int? PackageSize);
+    int? PackageSize,
+    // Id de la ventana existente (forma parte de la llave de dedupe). Null = ventana nueva.
+    Guid? Id = null);

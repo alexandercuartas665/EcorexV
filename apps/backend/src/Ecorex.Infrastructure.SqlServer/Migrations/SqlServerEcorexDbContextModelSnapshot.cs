@@ -4852,6 +4852,13 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<int>("Attempts")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1)
+                        .HasColumnName("attempts");
+
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(40)

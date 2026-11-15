@@ -131,3 +131,26 @@
 .cw-checklist { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .cw-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
 .cw-check input { width: auto; }
+
+/* ---- Paso WhatsApp: mensaje / mapeo de variables de la plantilla ---- */
+.cw-wa-text textarea { width: 100%; border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 9px; font-size: 12.5px; color: var(--ink); background: var(--surface); resize: vertical; min-height: 70px; font-family: inherit; }
+.cw-wa-text textarea:focus { outline: none; border-color: var(--brand); }
+.cw-wa-var { display: grid; grid-template-columns: 130px 1fr 1fr; gap: 8px; align-items: center; margin-bottom: 6px; }
+.cw-wa-token { font-size: 12px; font-weight: 700; color: var(--ink-2); font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
+.cw-wa-var select, .cw-wa-var input { width: 100%; border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px; font-size: 12.5px; color: var(--ink); background: var(--surface); }
+@media (max-width: 640px) { .cw-wa-var { grid-template-columns: 1fr; } }
+
+/* ---- Panel de ultimas ejecuciones ---- */
+.cw-runs { margin-top: 6px; }
+.cw-runs-wrap { overflow-x: auto; border: 1px solid var(--line-2); border-radius: 10px; }
+.cw-runs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cw-runs-table th { text-align: left; font-size: 10.5px; font-weight: 700; color: var(--ink-3); background: var(--surface-2); padding: 7px 9px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+.cw-runs-table td { padding: 7px 9px; border-bottom: 1px solid var(--line); color: var(--ink); vertical-align: top; }
+.cw-runs-table tr:last-child td { border-bottom: 0; }
+.cw-runs-table .nowrap { white-space: nowrap; color: var(--ink-2); }
+.cw-runs-ch { font-size: 10.5px; color: var(--ink-3); margin-left: 5px; }
+.cw-runs-err { color: var(--ink-2); min-width: 180px; }
+.cw-run-st { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.cw-run-st.ok { background: var(--t-green-bg); color: var(--ok); }
+.cw-run-st.err { background: var(--t-rose-bg); color: var(--danger); }
+.cw-run-st.warn { background: var(--t-amber-bg); color: var(--t-amber); }

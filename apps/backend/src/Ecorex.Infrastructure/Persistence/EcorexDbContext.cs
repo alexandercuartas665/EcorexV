@@ -3318,6 +3318,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Channel).HasMaxLength(40).IsRequired();
             b.Property(x => x.ExternalRef).HasMaxLength(200);
             b.Property(x => x.Error).HasMaxLength(600);
+            // Reintento sobre la misma fila: default 1 para las filas existentes; token de concurrencia para
+            // que dos instancias del worker no reintenten (ni envien) dos veces el mismo contacto.
+            b.Property(x => x.Attempts).HasDefaultValue(1).IsConcurrencyToken();
             // UNICA FK dura: al paso, con cascada. La ventana y el contacto se guardan como Guid planos
             // (sin navegacion) para no bloquear el reemplazo fisico de pasos/ventanas al re-guardar el
             // disenador, ni arrastrar cascadas multiples en SQL Server (misma filosofia que ScheduledJobRun).

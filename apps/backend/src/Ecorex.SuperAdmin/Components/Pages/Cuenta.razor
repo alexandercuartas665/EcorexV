@@ -299,6 +299,15 @@ else
             <div class="field">
                 <label class="form-label">Usuario SMTP</label>
                 <input class="form-control" @bind="_smtp.SmtpUser" autocomplete="off" placeholder="correo@tudominio.com" />
+                @if ((_smtp.SmtpHost ?? "").Contains("sendgrid", StringComparison.OrdinalIgnoreCase)
+                     && !string.Equals((_smtp.SmtpUser ?? "").Trim(), "apikey", StringComparison.Ordinal))
+                {
+                    <div class="text-danger" style="font-size:11px;margin-top:4px;">SendGrid: el usuario debe ser exactamente <b>apikey</b> y la clave, tu API key.</div>
+                }
+                else
+                {
+                    <div class="text-muted" style="font-size:11px;margin-top:4px;">SendGrid: usuario = apikey. Puertos: 587 (STARTTLS) o 465 (SSL).</div>
+                }
             </div>
             <div class="field">
                 <label class="form-label">Clave SMTP</label>

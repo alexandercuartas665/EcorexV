@@ -68,7 +68,8 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             s.StepType == ContactWorkflowStepType.Llamada ? DeserializeCall(s.ParamsJson) : null,
             s.Schedules.Select(h => new ContactWorkflowScheduleDto(
                 h.Id, h.StartDate, h.EndDate, h.StartTime, h.EndTime, h.ActiveDays,
-                h.TemplateId, h.AccountId, h.RepeatEvery, h.PackageSize)).ToList())).ToList();
+                h.TemplateId, h.AccountId, h.RepeatEvery, h.PackageSize)).ToList(),
+            s.StepType == ContactWorkflowStepType.WhatsApp ? DeserializeWhatsApp(s.ParamsJson) : null)).ToList();
 
         return new ContactWorkflowDto(wf.Id, wf.TerceroFiltroId, wf.Nombre, wf.Activo, steps);
     }
@@ -103,7 +104,7 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             : request.Nombre.Trim();
         nombre = SurrogateText.SafeTruncate(nombre, 150)!;
 
-        // Carga el workflow existente CON sus hijos para reemplazar por completo pasos+ventanas.
+        // Carga el workflow existente CON sus hijos para actualizarlos en sitio (upsert por Id).
         var workflow = await _db.ContactWorkflows
             .Include(w => w.Steps).ThenInclude(s => s.Schedules)
             .FirstOrDefaultAsync(w => w.TerceroFiltroId == filtroId, cancellationToken);
@@ -122,48 +123,72 @@ public sealed class ContactWorkflowService : IContactWorkflowService
         else
         {
             workflow.Nombre = nombre;
-            // Reemplazo total: los pasos/ventanas son DETALLE del workflow (no agregados), se
-            // borran fisicamente. Quitar las ventanas primero evita huerfanas si la cascada no aplica.
-            foreach (var oldStep in workflow.Steps)
-            {
-                _db.ContactWorkflowSchedules.RemoveRange(oldStep.Schedules);
-            }
-            _db.ContactWorkflowSteps.RemoveRange(workflow.Steps);
-            workflow.Steps.Clear();
         }
         workflow.Activo = request.Activo;
+
+        // Upsert por Id (2026-11-15): un paso/ventana que ya existe se ACTUALIZA en sitio. Antes se borraban y
+        // recreaban todos, y como ContactWorkflowRun cuelga del paso con cascada, cada guardado borraba el
+        // historial de ejecuciones Y reiniciaba el dedupe del dia (re-guardar volvia a enviar a todo el segmento).
+        // Solo se borran fisicamente los pasos/ventanas que el usuario quito (son detalle, no agregados).
+        var keptStepIds = steps.Where(s => s.Id is Guid).Select(s => s.Id!.Value).ToHashSet();
+        foreach (var oldStep in workflow.Steps.Where(x => !keptStepIds.Contains(x.Id)).ToList())
+        {
+            _db.ContactWorkflowSchedules.RemoveRange(oldStep.Schedules);
+            _db.ContactWorkflowSteps.Remove(oldStep);
+            workflow.Steps.Remove(oldStep);
+        }
 
         var orden = 0;
         foreach (var s in steps)
         {
-            var call = s.StepType == ContactWorkflowStepType.Llamada ? s.Call : null;
-            var step = new ContactWorkflowStep
+            var paramsJson = s.StepType switch
             {
-                TenantId = tenantId,
-                ContactWorkflowId = workflow.Id,
-                StepType = s.StepType,
-                Label = string.IsNullOrWhiteSpace(s.Label) ? DefaultLabel(s.StepType) : s.Label.Trim(),
-                Orden = orden++,
-                ParamsJson = SerializeCall(call)
+                ContactWorkflowStepType.Llamada => SerializeCall(s.Call),
+                ContactWorkflowStepType.WhatsApp => SerializeWhatsApp(s.WhatsApp),
+                _ => null
             };
-            foreach (var h in s.Schedules ?? Array.Empty<SaveContactWorkflowScheduleRequest>())
+            var label = string.IsNullOrWhiteSpace(s.Label) ? DefaultLabel(s.StepType) : s.Label.Trim();
+
+            var step = s.Id is Guid sid ? workflow.Steps.FirstOrDefault(x => x.Id == sid) : null;
+            if (step is null)
             {
-                step.Schedules.Add(new ContactWorkflowSchedule
-                {
-                    TenantId = tenantId,
-                    ContactWorkflowStepId = step.Id,
-                    StartDate = h.StartDate,
-                    EndDate = h.EndDate,
-                    StartTime = h.StartTime,
-                    EndTime = h.EndTime,
-                    ActiveDays = string.IsNullOrWhiteSpace(h.ActiveDays) ? "1,2,3,4,5" : h.ActiveDays.Trim(),
-                    TemplateId = string.IsNullOrWhiteSpace(h.TemplateId) ? null : h.TemplateId.Trim(),
-                    AccountId = h.AccountId,
-                    RepeatEvery = h.RepeatEvery,
-                    PackageSize = h.PackageSize
-                });
+                step = new ContactWorkflowStep { TenantId = tenantId, ContactWorkflowId = workflow.Id };
+                // Add explicito: con Id (Guid v7) ya asignado, descubrirlo solo por la navegacion podria
+                // tomarlo como existente (UPDATE de 0 filas).
+                _db.ContactWorkflowSteps.Add(step);
+                workflow.Steps.Add(step);
             }
-            workflow.Steps.Add(step);
+            step.StepType = s.StepType;
+            step.Label = label;
+            step.Orden = orden++;
+            step.ParamsJson = paramsJson;
+
+            var schedules = s.Schedules ?? Array.Empty<SaveContactWorkflowScheduleRequest>();
+            var keptSchedIds = schedules.Where(h => h.Id is Guid).Select(h => h.Id!.Value).ToHashSet();
+            foreach (var oldSched in step.Schedules.Where(x => !keptSchedIds.Contains(x.Id)).ToList())
+            {
+                _db.ContactWorkflowSchedules.Remove(oldSched);
+                step.Schedules.Remove(oldSched);
+            }
+            foreach (var h in schedules)
+            {
+                var sched = h.Id is Guid hid ? step.Schedules.FirstOrDefault(x => x.Id == hid) : null;
+                if (sched is null)
+                {
+                    sched = new ContactWorkflowSchedule { TenantId = tenantId, ContactWorkflowStepId = step.Id };
+                    _db.ContactWorkflowSchedules.Add(sched);
+                    step.Schedules.Add(sched);
+                }
+                sched.StartDate = h.StartDate;
+                sched.EndDate = h.EndDate;
+                sched.StartTime = h.StartTime;
+                sched.EndTime = h.EndTime;
+                sched.ActiveDays = string.IsNullOrWhiteSpace(h.ActiveDays) ? "1,2,3,4,5" : h.ActiveDays.Trim();
+                sched.TemplateId = string.IsNullOrWhiteSpace(h.TemplateId) ? null : h.TemplateId.Trim();
+                sched.AccountId = h.AccountId;
+                sched.RepeatEvery = h.RepeatEvery;
+                sched.PackageSize = h.PackageSize;
+            }
         }
 
         // Auditoria dentro de la MISMA transaccion (un SaveChanges): CLAUDE.md regla 5.
@@ -182,6 +207,51 @@ public sealed class ContactWorkflowService : IContactWorkflowService
         return dto is null
             ? ContactWorkflowResult<ContactWorkflowDto>.Invalid("No se pudo guardar el workflow.")
             : ContactWorkflowResult<ContactWorkflowDto>.Ok(dto);
+    }
+
+    public async Task<IReadOnlyList<ContactWorkflowRunDto>> ListRecentRunsAsync(
+        Guid filtroId, int take = 50, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return Array.Empty<ContactWorkflowRunDto>(); }
+        take = Math.Clamp(take, 1, 200);
+
+        // Filtro global por tenant en ambas tablas; el contacto se resuelve por Guid plano (sin navegacion).
+        var runs = await _db.ContactWorkflowRuns.AsNoTracking()
+            .Where(r => r.ContactWorkflowStep!.ContactWorkflow!.TerceroFiltroId == filtroId)
+            .OrderByDescending(r => r.DispatchedAtUtc)
+            .Take(take)
+            .Select(r => new
+            {
+                r.DispatchedAtUtc,
+                r.TerceroId,
+                Paso = r.ContactWorkflowStep!.Label,
+                r.Channel,
+                r.Status,
+                r.Attempts,
+                r.Error
+            })
+            .ToListAsync(cancellationToken);
+        if (runs.Count == 0) { return Array.Empty<ContactWorkflowRunDto>(); }
+
+        var ids = runs.Select(r => r.TerceroId).Distinct().ToList();
+        var nombres = await _db.Terceros.AsNoTracking()
+            .Where(t => ids.Contains(t.Id))
+            .Select(t => new { t.Id, t.Nombre })
+            .ToDictionaryAsync(t => t.Id, t => t.Nombre, cancellationToken);
+
+        var tz = Scheduling.ScheduledJobRecurrence.ResolveTimeZone(await _db.Tenants
+            .Where(t => t.Id == tenantId)
+            .Select(t => t.TimeZoneId)
+            .FirstOrDefaultAsync(cancellationToken));
+
+        return runs.Select(r => new ContactWorkflowRunDto(
+            TimeZoneInfo.ConvertTime(r.DispatchedAtUtc, tz).DateTime,
+            nombres.TryGetValue(r.TerceroId, out var n) ? n : "(contacto eliminado)",
+            r.Paso,
+            r.Channel,
+            r.Status,
+            r.Attempts,
+            r.Error)).ToList();
     }
 
     private static string DefaultLabel(ContactWorkflowStepType type) => type switch
@@ -209,6 +279,34 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             return null;
         }
         return JsonSerializer.Serialize(call, JsonOpts);
+    }
+
+    private static string? SerializeWhatsApp(ContactWorkflowWhatsAppParams? wa)
+    {
+        if (wa is null) { return null; }
+        var texto = string.IsNullOrWhiteSpace(wa.Texto) ? null : wa.Texto.Trim();
+        var vars = wa.Variables?
+            .Where(kv => !string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+            .ToDictionary(kv => kv.Key.Trim(), kv => kv.Value.Trim());
+        if (wa.LineaId is null && texto is null && wa.PlantillaId is null && (vars is null || vars.Count == 0))
+        {
+            return null;
+        }
+        return JsonSerializer.Serialize(
+            new ContactWorkflowWhatsAppParams(wa.LineaId, texto, wa.PlantillaId, vars is { Count: > 0 } ? vars : null), JsonOpts);
+    }
+
+    private static ContactWorkflowWhatsAppParams? DeserializeWhatsApp(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+        try
+        {
+            return JsonSerializer.Deserialize<ContactWorkflowWhatsAppParams>(json, JsonOpts);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static ContactWorkflowCallParams? DeserializeCall(string? json)

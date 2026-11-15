@@ -48,4 +48,11 @@ public class ContactWorkflowRun : TenantEntity
 
     /// <summary>Motivo del fallo o del skip (sin secretos). Null si Sent.</summary>
     public string? Error { get; set; }
+
+    /// <summary>
+    /// Intentos hechos sobre esta MISMA fila (1 = el primero). Un Failed/Skipped se reintenta actualizando
+    /// la fila (Attempts++), nunca insertando otra; un Sent nunca se repite. Es token de concurrencia: si
+    /// dos instancias del worker toman el mismo reintento, solo una gana el UPDATE (ADR-0056, 2026-11-15).
+    /// </summary>
+    public int Attempts { get; set; } = 1;
 }

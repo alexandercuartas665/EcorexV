@@ -43,6 +43,15 @@ else
         <div class="auth-field" style="margin-top:14px;">
             <label>Usuario SMTP</label>
             <input class="form-control" @bind="_user" placeholder="apikey (en SendGrid) o tu usuario" />
+            @if ((_host ?? "").Contains("sendgrid", StringComparison.OrdinalIgnoreCase)
+                 && !string.Equals((_user ?? "").Trim(), "apikey", StringComparison.Ordinal))
+            {
+                <div class="text-danger" style="font-size:.8rem;margin-top:4px;">SendGrid: el usuario debe ser exactamente <b>apikey</b> y la clave, tu API key. Con otro usuario SendGrid cierra la conexion.</div>
+            }
+            else
+            {
+                <div class="text-muted" style="font-size:.8rem;margin-top:4px;">SendGrid: usuario = apikey. Puertos: 587 (STARTTLS) o 465 (SSL).</div>
+            }
         </div>
         <div class="auth-field" style="margin-top:14px;">
             <label>Clave SMTP @(_hasPassword ? "(guardada; deja vacio para conservarla)" : "")</label>

@@ -9,6 +9,14 @@
 - PROD (transaccion unica, ON_ERROR_STOP): la linea "Ana" de prod (01a1d6d5-...) es la MISMA WABA 3880978752032716 que la local, asi que la plantilla ya aprobada se copio tal cual (status Approved, sin re-someter a Meta) y se agrego el paso Notificar 102536 "Avisar nuevo pedido por WhatsApp" al flujo DRON PLATAFORMAS INGENIOS (B0005, 7e834d75-...) con lineaId de prod. Huellas md5 de cuerpo/variables/header/footer/mapping iguales a local. Script: scratchpad prod_aviso_whatsapp.sql (solo INSERT, nada pisado).
 - SIGUIENTE: confirmar el primer aviso real en prod cuando entre un pedido nuevo. Ojo: el flujo B0005 figura en estado Error en prod (corrida anterior), revisar en la proxima ejecucion.
 
+## 2026-11-15 - Release v0.16.329: comparador de compras, "Guardar oferta" con la fecha cotizado precargada (SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal), integra fix/comparador-fecha-cotizado-offset @ 76a91683 (merge) + complemento propio.
+- CAUSA: CotizacionesComparador armaba new DateTimeOffset(fc, TimeSpan.Zero) con fc = DateTime.Now (Kind=Local): en maquinas con offset != 0 lanzaba "The UTC Offset of the local dateTime parameter does not match the offset argument". La rama lo cambio a new DateTimeOffset(fc); en el smoke local (offset -05:00) el guardado seguia fallando en BD: Npgsql solo escribe timestamptz con offset 0 ("Cannot write DateTimeOffset with Offset=-05:00"). Complemento: .ToUniversalTime().
+- VERIFICADO: build 0 errores; smoke local 5234 AGRO en /requerimientos-compra (Planificar grupo -> Cotizacion -> Agregar oferta con fecha precargada -> Guardar oferta) sin error; la tarjeta muestra Cotizado 15/11/26 11:36, al reabrir (Editar) la fecha es 2026-11-15T11:36 y en BD quedo 16:36 UTC. Para el smoke se marco en la BD LOCAL al tercero "360 Investments S.A.S" de AGRO como Proveedor (no habia ninguno).
+- NOTA: en prod el contenedor corre en UTC (offset 0), por eso alla no fallaba; el fix aplica a cualquier servidor con zona distinta.
+- SIGUIENTE: deploy con OK del usuario.
+
 ## 2026-11-15 - Release v0.16.328: MCP de tableros terminar_tarea (SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (dev principal), integra feat/mcp-terminar-tarea @ 37cc3a1a (merge, base v0.16.326). Incluye tambien el fix de /lineas de v0.16.327 (no desplegado).

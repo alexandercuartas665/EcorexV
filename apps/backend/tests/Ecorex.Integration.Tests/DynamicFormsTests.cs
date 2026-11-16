@@ -80,7 +80,7 @@ public abstract class DynamicFormsTestsBase
         Assert.Equal("Number", read.Data["cantidad"].Type);
         Assert.Equal("MultiCheck", read.Data["canales"].Type);
 
-        // GetOrCreateDraft con la misma referencia REABRE la respuesta ya ENVIADA (ADR-0132:
+        // GetOrCreateDraft con la misma referencia REABRE la respuesta ya ENVIADA (ADR-0173:
         // la enviada tiene prioridad), en vez de crear un draft nuevo VACIO que la tape. Esto es
         // el guard anti-reemplazo que arreglo el caso T00521 (una cotizacion enviada quedaba
         // tapada por un draft en blanco al reabrir la tarea). Candado anti-regresion de esa ADR.

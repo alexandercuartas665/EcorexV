@@ -1,6 +1,7 @@
-# ADR-0132: Integridad de respuestas de formulario (soft-delete + auditoria + guards)
+# ADR-0173: Integridad de respuestas de formulario (soft-delete + auditoria + guards)
 
 Fecha: 2026-10-26
+Nota: renumerada el 2026-11-16 (antes ADR-0132, numero duplicado con el export/import de contenedor). Los commits de v0.16.225 la citan como ADR-0132.
 Estado: Aceptada
 
 ## Contexto

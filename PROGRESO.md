@@ -2,6 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - Docs: ADR-0132 duplicado renumerado
+
+- AGENTE: Claude Opus 5.5 (dev principal). Habia dos ADR-0132 del 2026-10-26. Se conserva ADR-0132 = exportar/importar la definicion de un contenedor a JSON (referenciado en codigo, ADR-0158 y memoria); el de integridad de respuestas de formulario (soft-delete + auditoria + guards, v0.16.225) pasa a ADR-0173. Se actualizo el comentario de DynamicFormsTests. Los commits historicos siguen diciendo ADR-0132. Sin cambios de comportamiento ni version.
+
 ## 2026-11-16 - Release v0.16.333: integra feat/flujo-secuencia-tramos (programador estilo Windows + secuencia de tramos) (DESPLEGADO 2026-11-16)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge de origin/feat/flujo-secuencia-tramos (e2ef0c4d, base v0.16.326; trabajo de la sesion ECOREX.agentes, ADR-0171) sobre main v0.16.332.

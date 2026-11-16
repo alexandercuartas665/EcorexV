@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-16 - Release v0.16.333: integra feat/flujo-secuencia-tramos (programador estilo Windows + secuencia de tramos) (SIN deploy)
+## 2026-11-16 - Release v0.16.333: integra feat/flujo-secuencia-tramos (programador estilo Windows + secuencia de tramos) (DESPLEGADO 2026-11-16)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Merge de origin/feat/flujo-secuencia-tramos (e2ef0c4d, base v0.16.326; trabajo de la sesion ECOREX.agentes, ADR-0171) sobre main v0.16.332.
 - CONFLICTO: solo PROGRESO.md (ambas ramas agregaron entradas arriba); se conservaron las dos. ADR: el 0171 queda para esta rama; el del freno de IA sin cupo (v0.16.332) se renumero a ADR-0172.

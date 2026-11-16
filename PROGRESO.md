@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-16 - Release v0.16.334: corrida paso a paso ya no queda "Ok" con pasos bloqueados (SIN deploy)
+## 2026-11-16 - Release v0.16.334: corrida paso a paso ya no queda "Ok" con pasos bloqueados (DESPLEGADO 2026-11-16)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Hand-off de ECOREX.plataformas (solo diagnostico), pedido por el usuario.
 - CASO: prod, SOLDARCO, 2026-11-16 13:30. Programacion "Consulta de pedidos (lun-sab cada 2 h)" del DRON PLATAFORMAS INGENIOS B0005: los 8 pasos que abren/leen el portal fallaron ("Dominio no permitido por la allow-list local: apps.pdpartner.com", "Inyeccion de JS no permitida en este dominio") y la corrida cerro result=Ok, "sin filas en: ...". La causa operativa (allow-list del agente en SERVER06) la arregla el usuario.

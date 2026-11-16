@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - Release v0.16.331: rol del usuario simplificado a Administrador / Usuario (SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Pedido del usuario: en Administracion de usuarios (000073) el "Rol" solo debe ofrecer Administrador y Usuario; el "Rol de permisos" queda igual.
+- HECHO: helper puro TenantRoleKind (Application/Tenancy): Owner/Admin = Administrador (acceso total, no aplica el rol de permisos); Supervisor/Advisor = Usuario (ve lo que diga su rol de permisos). AdmUsuarios: selector de 2 opciones en crear/editar con ayuda, insignia de 2 colores.
+- SIN MIGRACION: el enum TenantRole no cambia. Usuario nuevo -> Admin o Advisor. Al editar, si no cambia de grupo se conserva el valor original (el Propietario sigue Owner; un Supervisor sigue Supervisor y conserva sus extras del embudo comercial); solo al cambiar de grupo se escribe Admin o Advisor.
+- VERIFICADO: build Release 0 errores; tests Application 1432 verdes (13 nuevos en TenantRoleKindTests); dotnet format limpio. Smoke local 5234 (AGRO): la columna muestra Administrador/Usuario, el formulario solo ofrece las 2 opciones, editar y guardar al Propietario sin cambios lo deja Owner en BD.
+- OJO (dato local, copia de prod): la mayoria de usuarios estan como Owner/Admin (BITCODE 13 Owner, SOLDARCO 18 Owner + 1 Advisor, AGRO 1 Owner + 11 Admin), asi que para ellos el rol de permisos no aplica: hay que pasarlos a Usuario para que la matriz los recorte.
+- PENDIENTE (fuera de alcance): el disenador de formularios ("Ocultar/Solo lectura para roles") sigue mostrando los 4 codigos Owner/Admin/Supervisor/Advisor.
+- SIGUIENTE: deploy con OK del usuario.
+
 ## 2026-11-15 - Release v0.16.330: motor de acciones por filtro entrega de verdad (correo MailKit, paso WhatsApp, reintentos, ejecuciones) (DESPLEGADO 2026-11-15, migracion aplicada)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Origen: hallazgos de la prueba E2E del 2026-11-15 en SOLDARCO (filtro GERENTES): el motor disparaba pero ningun canal entregaba. ADR-0170.

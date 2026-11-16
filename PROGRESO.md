@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - Release v0.16.334: corrida paso a paso ya no queda "Ok" con pasos bloqueados (SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Hand-off de ECOREX.plataformas (solo diagnostico), pedido por el usuario.
+- CASO: prod, SOLDARCO, 2026-11-16 13:30. Programacion "Consulta de pedidos (lun-sab cada 2 h)" del DRON PLATAFORMAS INGENIOS B0005: los 8 pasos que abren/leen el portal fallaron ("Dominio no permitido por la allow-list local: apps.pdpartner.com", "Inyeccion de JS no permitida en este dominio") y la corrida cerro result=Ok, "sin filas en: ...". La causa operativa (allow-list del agente en SERVER06) la arregla el usuario.
+- FIX: FlowStepOutcome (SuperAdmin/Agents) clasifica cada Ok=false. DURO: Navigate fallido, rechazo por politica del agente (allow-list / JS bloqueado) o excepcion del runtime. BENIGNO (sigue como "sin filas"): guardas/drivers sin filas, esperas agotadas (p.ej. "Esperar fin de descargas" del DRON DIAN, que sigue bajando en 2do plano). Con errores duros la corrida cierra ok=false con "N paso(s) con error: paso: error; ... (flujo de N pasos; sin filas en: ...)" y el flujo queda en Error; FlowSequenceRunner lo cuenta como tramo fallido (aplica su reintento) y el conciliador lo muestra como aviso. Aplica a la corrida completa (Ejecutar ahora / programacion) y al camino paso a paso de flujos con OTP. No se aborta al primer fallo: se siguen corriendo los pasos como antes (el aborto sigue solo para OTP y offline).
+- OJO DRON DIAN: un Navigate que no responde en 60 s (visto 5 veces en la BD local en "IR A BUSCADOR"/"ENTRAR CON ENLACE DIAN") ahora deja la corrida en Error en vez de Ok; es correcto (la pagina no cargo).
+- VERIFICADO: build Release 0 errores; SuperAdmin.Tests 263 verdes (nuevos FlowStepOutcomeTests 14, con los textos reales de prod y los benignos del DRON DIAN); dotnet format limpio en los archivos tocados.
+- SIGUIENTE: deploy con OK del usuario (no en domingo 01:00-13:00 ni lun-sab 06:00-09:00 Bogota por las secuencias del DRON DIAN).
+
 ## 2026-11-16 - DRON DIAN SOLDARCO: programaciones por tramos activas en PROD (config, sin codigo, v0.16.333)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes), con OK del usuario para escribir en la BD de prod.

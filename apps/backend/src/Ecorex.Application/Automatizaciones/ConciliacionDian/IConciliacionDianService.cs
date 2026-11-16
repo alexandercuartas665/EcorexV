@@ -38,6 +38,12 @@ public interface IConciliacionDianService
     /// <paramref name="desdeUtc"/> y <paramref name="hastaUtc"/>. El dron los recibe para saltarse lo que ya
     /// esta cargado y bajar solo lo nuevo.</summary>
     Task<IReadOnlyList<string>> CufesDelBotAsync(DateTimeOffset desdeUtc, DateTimeOffset hastaUtc, CancellationToken ct = default);
+    /// <summary>Valor de la variable CUFES_CONOCIDOS para una corrida del dron que busca
+    /// <paramref name="diasDesde"/>..<paramref name="diasDesde"/>+<paramref name="diasAtras"/> dias atras: prefijos
+    /// de 12 hex (minusculas, sin repetir, separados por coma) de los CUFE que la fuente Bot ya proceso en ese
+    /// rango con una semana de holgura a cada lado (la DIAN filtra por su propia fecha). Lo usan el boton
+    /// "Importar del bot" y la secuencia de tramos programada (ADR-0169/0171), para que hagan lo mismo.</summary>
+    Task<string> CufesConocidosAsync(int diasDesde, int diasAtras, CancellationToken ct = default);
     /// <summary>Cruza los renglones contra el ERP (dummy): llena NumFacturaSoldarco, marca Inconsistencia!, auto-aprueba
     /// y recalcula PlataformaProveedor desde NEWTON (dummy).</summary>
     Task<ConciliacionCruceResult> CruzarAsync(Guid documentoId, CancellationToken ct = default);

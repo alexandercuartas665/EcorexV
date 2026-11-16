@@ -14,7 +14,10 @@ public enum ImportScheduleProblem
     /// <summary>No es automatica (Manual) o esta inactiva. Normal.</summary>
     NotScheduled,
     /// <summary>La configuracion no permite calcular nada (intervalo vacio, cron invalido...).</summary>
-    Invalid
+    Invalid,
+    /// <summary>El desencadenador ya no vuelve a ocurrir (una vez que ya corrio, o caducado). Normal:
+    /// se apaga con el motivo a la vista, sin alarma.</summary>
+    Finished
 }
 
 public sealed record NextRunResult(DateTimeOffset? NextRunAt, ImportScheduleProblem Problem, string? Reason);
@@ -38,6 +41,16 @@ public static class ImportRecurrence
         if (!process.IsActive)
         {
             return new(null, ImportScheduleProblem.NotScheduled, null);
+        }
+
+        // Desencadenador estilo Windows (ADR-0171): si esta, manda sobre el cron/intervalo.
+        if (process.ScheduleKind != ImportScheduleKind.Manual && ScheduleTrigger.Parse(process.TriggerJson) is { } trigger)
+        {
+            if (trigger.Validate() is { } err) { return new(null, ImportScheduleProblem.Invalid, err); }
+            var nextT = trigger.NextAfter(afterUtc, timeZone);
+            return nextT is null
+                ? new(null, ImportScheduleProblem.Finished, trigger.Tipo == TriggerTipo.UnaVez ? "Ya corrio (era de una sola vez)." : "Caduco: ya no tiene mas ejecuciones.")
+                : new(nextT.Value, ImportScheduleProblem.None, null);
         }
 
         switch (process.ScheduleKind)

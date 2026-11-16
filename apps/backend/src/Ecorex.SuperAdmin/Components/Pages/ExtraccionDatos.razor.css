@@ -531,3 +531,104 @@
     padding: 16px 18px;
     overflow-y: auto;
 }
+
+/* ---- Programaciones (varias por flujo) + secuencia de tramos (ADR-0171). Mismos tokens del prototipo. ---- */
+.xd-pill.run { background: var(--brand-soft); color: var(--brand-2); }
+.xd-sch-row {
+    display: flex; gap: 10px; align-items: flex-start; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.xd-sch-row.sel { background: var(--brand-soft); margin: 0 -18px; padding: 10px 18px; }
+.xd-sch-main { min-width: 0; flex: 1; }
+.xd-sch-name { font-size: 13px; font-weight: 600; color: var(--ink); display: flex; gap: 6px; align-items: center; }
+.xd-sch-meta { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; margin-top: 2px; }
+.xd-sch-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.xd-sch-editor { border: 1px solid var(--line-2); border-radius: 8px; padding: 12px; margin-top: 10px; }
+.xd-seq-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+@media (max-width: 640px) { .xd-seq-grid { grid-template-columns: 1fr; } .xd-sch-row { flex-direction: column; } }
+.xd-seq-box { border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.xd-seq-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink); }
+.xd-seq-est { color: var(--ink-2); font-size: 12px; text-align: right; }
+.xd-seq-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+.xd-seq-tramos { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.xd-seq-chip {
+    font-size: 10.5px; font-variant-numeric: tabular-nums; padding: 1px 6px; border-radius: 999px;
+    border: 1px solid var(--line-2); color: var(--ink-3);
+}
+.xd-seq-chip.ok { background: var(--t-green-bg); color: var(--t-green); border-color: transparent; }
+.xd-seq-chip.bad { background: var(--t-rose-bg); color: var(--t-rose); border-color: transparent; }
+.xd-seq-chip.run { background: var(--brand-soft); color: var(--brand-2); border-color: transparent; }
+.xd-sch-presets { margin-top: 12px; display: grid; gap: 8px; }
+.xd-sch-presets-t { font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+.xd-sch-preset {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+    padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface);
+    cursor: pointer; font: inherit; color: var(--ink);
+}
+.xd-sch-preset:hover { border-color: var(--brand); background: var(--brand-soft); }
+.xd-sch-preset b { font-size: 13px; font-weight: 600; }
+.xd-sch-preset span { font-size: 11.5px; color: var(--ink-3); }
+.xd-sch-step { font-size: 12px; font-weight: 600; color: var(--ink); margin: 14px 0 6px; }
+.xd-sch-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
+.xd-sch-inline label { display: inline-flex; align-items: center; gap: 6px; }
+.xd-sch-inline .xd-num { width: 72px; }
+.xd-sch-inline .xd-time { width: 120px; }
+.xd-sch-inline .xd-unit { width: 110px; }
+.xd-sch-sum { font-size: 12px; color: var(--ink-2); background: var(--surface-2); border-radius: 6px; padding: 6px 10px; margin-top: 8px; line-height: 1.5; }
+.xd-sch-adv { margin-top: 10px; font-size: 12px; }
+.xd-sch-adv summary { cursor: pointer; color: var(--ink-2); }
+.xd-day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.xd-day-chip {
+    min-width: 38px; padding: 5px 8px; border-radius: 999px; border: 1px solid var(--line-2);
+    background: var(--surface); color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer;
+}
+.xd-day-chip.on { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.xd-linkbtn { border: 0; background: none; color: var(--brand); cursor: pointer; font: inherit; font-size: 12px; padding: 0 0 0 6px; text-decoration: underline; }
+
+/* ---- Biblioteca + asistente "Crear tarea" estilo Programador de tareas de Windows (ADR-0171) ---- */
+.xd-lib-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.xd-lib-tpl { font-size: 11.5px; color: var(--ink-3); margin-left: 6px; }
+.xd-modal.xd-wz { max-width: 820px; }
+.xd-wz-wrap { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 380px; overflow: hidden; flex: 1; }
+.xd-wz-steps { display: flex; flex-direction: column; gap: 2px; padding: 12px 8px; background: var(--surface-2); border-right: 1px solid var(--line); }
+.xd-wz-step { display: flex; align-items: center; gap: 8px; border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12.5px; color: var(--ink-2); }
+.xd-wz-step .n { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; background: var(--surface-3); color: var(--ink-3); flex: none; }
+.xd-wz-step:hover { background: var(--surface-3); }
+.xd-wz-step.on { background: var(--brand-soft); color: var(--brand-2); font-weight: 600; }
+.xd-wz-step.on .n { background: var(--brand); color: var(--on-brand); }
+.xd-wz-step.done .n { background: var(--t-green-bg); color: var(--t-green); }
+.xd-wz-body { padding: 16px 18px; overflow-y: auto; }
+.xd-wz-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.xd-wz-help { font-size: 12.5px; color: var(--ink-3); margin: 2px 0 12px; }
+.xd-wz-ro { font-size: 13px; color: var(--ink-2); padding: 6px 0; }
+.xd-wz-radios { display: grid; gap: 6px; }
+.xd-wz-radio { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.xd-wz-radio input { margin-top: 3px; width: auto; }
+.xd-wz-radio b { display: block; font-size: 13px; font-weight: 600; color: var(--ink); }
+.xd-wz-radio small { display: block; font-size: 11.5px; color: var(--ink-3); }
+.xd-wz-radio.on { border-color: var(--brand); background: var(--brand-soft); }
+.xd-wz-sec { border: 1px solid var(--line-2); border-radius: 8px; padding: 4px 12px 12px; margin-top: 12px; }
+.xd-wz-lbl { font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 4px; }
+.xd-wz-mt { margin-top: 10px; }
+.xd-wz-dom { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 6px 0 0 22px; max-width: 320px; }
+.xd-wz-dom .xd-day-chip { padding: 4px 0; text-align: center; }
+.xd-wz-dom .xd-day-chip.wide { grid-column: span 3; }
+.xd-wz-warn { font-size: 12px; color: var(--t-amber); background: var(--t-amber-bg); border-radius: 6px; padding: 6px 10px; margin-top: 10px; }
+.xd-wz-info { font-size: 12px; color: var(--ink-2); margin: 12px 0 0; padding-left: 18px; line-height: 1.7; }
+.xd-wz-sum { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 12px; font-size: 12.5px; margin: 0; }
+.xd-wz-sum dt { color: var(--ink-3); }
+.xd-wz-sum dd { margin: 0; color: var(--ink); line-height: 1.5; }
+.xd-wz-next { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--ink); line-height: 1.8; }
+.xd-wz-foot { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.xd-wz-foot .sp { flex: 1; }
+.xd-sch-inline .xd-date { width: 150px; }
+@media (max-width: 640px) {
+    .xd-modal-backdrop:has(.xd-wz) { padding: 0; }
+    .xd-modal.xd-wz { max-height: 100vh; height: 100vh; border-radius: 0; }
+    .xd-wz-wrap { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+    .xd-wz-steps { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
+    .xd-wz-step { flex: none; padding: 6px 8px; }
+    .xd-wz-step:not(.on) .t { display: none; }
+    .xd-wz-sum { grid-template-columns: 1fr; }
+    .xd-wz-sum dt { margin-top: 6px; }
+}

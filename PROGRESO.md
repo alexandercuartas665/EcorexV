@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - Extraccion de datos: programador estilo "Programador de tareas de Windows" + secuencia de tramos (ADR-0171, rama feat/flujo-secuencia-tramos, SIN release)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes), rama feat/flujo-secuencia-tramos (base v0.16.326). Peticion del usuario: que el modulo programe solo los barridos del DRON DIAN por tramos y que lo configure un usuario no avanzado (sin cron).
+- HECHO: varias programaciones por flujo (ImportProcess.SequenceJson = FlowSequenceSpec: N dias hacia atras en tramos de P, pausa, reintentos, "detener si dura mas de N h"); FlowSequenceRunner (singleton) corre los tramos en 2do plano con candado por flujo (IsFlowRunning / IsBusy) y CUFES_CONOCIDOS via IFlowRunOverrideProvider (ConciliacionDianFlowOverrides; el boton "Importar del bot" usa la misma regla CufesConocidosAsync). Desencadenador ScheduleTrigger (ImportProcess.TriggerJson): una vez, diaria cada N, semanal cada N con dias, mensual por dias, ultimo dia u ordinal (primer lunes, ultimo viernes), repeticion en el dia y caducidad, en la zona del tenant; si existe manda sobre cron e intervalo (se guarda un cron aproximado para lectores viejos). ImportScheduleProblem.Finished: una programacion de una sola vez ya corrida o caducada se deshabilita sin alarma. UI: tarjeta Programacion como biblioteca (Crear tarea, plantillas Diaria y Barrido semanal, Ejecutar, Propiedades, Habilitar, Eliminar) + asistente de 5 pasos (General, Desencadenador, Accion, Configuracion, Finalizar con las 5 proximas ejecuciones reales); responsive en celular.
+- MIGRACIONES duales aditivas: AddImportProcessSequenceJson y AddImportProcessTriggerJson (columnas nullable, se aplican al arrancar).
+- VERIFICADO: Application.Tests filtro ScheduleTrigger, FlowSequenceSpec, ImportRecurrence, FriendlySchedule 85/85; asistente probado en local (5264, BD local) y por el usuario desde el celular via tunel Cloudflare. ADR renumerado 0170 -> 0171 (main ya tenia ADR-0170 de SMTP y motor de acciones).
+- CONFIG SOLO LOCAL: item "Extraccion de datos" agregado al perfil de menu "Soldarco Standart" (BD local); en prod se agrega desde el Administrador de menu si se quiere.
+- SIGUIENTE: dev principal integra a main con bump de version; deploy solo con OK; luego configurar en prod las programaciones del DRON DIAN (con OK). La programacion de prueba "Barrido semanal" de la BD local queda deshabilitada.
+
 ## 2026-11-14 - Aviso de nuevo pedido por WhatsApp: validado de punta a punta y llevado a PROD (config, sin codigo)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas), rama feat/agentes-sistema @ v0.16.324. Peticion y OK del usuario para escribir en la BD de prod.

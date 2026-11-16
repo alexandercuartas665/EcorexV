@@ -134,6 +134,20 @@ public class ImportProcess : TenantEntity
     /// </summary>
     public Guid? FlowId { get; set; }
 
+    /// <summary>
+    /// Solo procesos de FLUJO (ADR-0171): secuencia de tramos en JSON (<c>FlowSequenceSpec</c>). Si esta
+    /// puesta, el disparo no corre el flujo una vez sino N veces seguidas, cada una con un desplazamiento
+    /// distinto (p.ej. DIAS_DESDE=0,3,6...), con pausa entre tramos y reintento. null = una sola corrida.
+    /// </summary>
+    public string? SequenceJson { get; set; }
+
+    /// <summary>
+    /// Desencadenador al estilo del Programador de tareas de Windows (ADR-0171) en JSON (<c>ScheduleTrigger</c>):
+    /// inicio, una vez / cada N dias / cada N semanas / meses, repeticion en el dia y caducidad. Si esta puesto,
+    /// manda sobre el cron/intervalo al calcular la proxima corrida. null = horario clasico (cron/intervalo).
+    /// </summary>
+    public string? TriggerJson { get; set; }
+
     public string Name { get; set; } = null!;
 
     public ImportScheduleKind ScheduleKind { get; set; } = ImportScheduleKind.Manual;

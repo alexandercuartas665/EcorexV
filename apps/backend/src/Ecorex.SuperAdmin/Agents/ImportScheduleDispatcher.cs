@@ -1,6 +1,7 @@
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Application.Scheduling;
+using Ecorex.Application.Scraping;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,7 +28,8 @@ public sealed class ImportScheduleDispatcher(
     IProcessRunner runner,
     IBrowserRunService browserRuns,
     IAgentRegistry registry,
-    ILogger<ImportScheduleDispatcher> log) : IImportScheduleDispatcher
+    ILogger<ImportScheduleDispatcher> log,
+    IFlowSequenceRunner? sequences = null) : IImportScheduleDispatcher
 {
     /// <summary>Techo por pasada: un backlog gigante no debe monopolizar el ciclo.</summary>
     private const int MaxPerCycle = 200;
@@ -151,12 +153,7 @@ public sealed class ImportScheduleDispatcher(
             // PendingOffline cada minuto).
             if (process.FlowId is Guid flowId)
             {
-                var clientRow = await db.ScrapeFlows.AsNoTracking()
-                    .Where(f => f.Id == flowId).Select(f => f.ClientId).FirstOrDefaultAsync(ct);
-                if (clientRow is not Guid cid) { continue; }
-                var pub = await db.DataClients.AsNoTracking()
-                    .Where(c => c.Id == cid).Select(c => c.ClientId).FirstOrDefaultAsync(ct);
-                if (pub is null || !registry.IsOnline(pub)) { continue; } // aun no ha vuelto.
+                if (!await IsFlowAgentOnlineAsync(flowId, ct)) { continue; } // aun no ha vuelto.
                 try
                 {
                     var res = await FireFlowAsync(process, flowId, nowUtc, ct);
@@ -200,6 +197,37 @@ public sealed class ImportScheduleDispatcher(
     private async Task<bool> FireFlowAsync(Domain.Entities.ImportProcess process, Guid flowId, DateTimeOffset window, CancellationToken ct)
     {
         if (tenantContext.TenantId is not Guid tenantId) { return false; }
+
+        // Candado por flujo (ADR-0171): si el flujo ya tiene una corrida viva (manual, otra programacion o una
+        // secuencia de tramos), esta ventana se salta (se anota) en vez de montarse encima: compartirian la
+        // sesion del agente y las variables de corrida. La siguiente ventana la vuelve a intentar.
+        if (browserRuns.IsFlowRunning(flowId) || (sequences?.IsBusy(flowId) ?? false))
+        {
+            log.LogInformation("[HORARIO] flujo {Flow} ocupado (corrida en curso); se salta la ventana {Window:o} de '{Name}'",
+                flowId, window, process.Name);
+            process.LastRunAt = window;
+            return false;
+        }
+
+        // Secuencia de tramos (ADR-0171): el flujo corre N veces seguidas con desplazamientos distintos.
+        if (sequences is not null && FlowSequenceSpec.Parse(process.SequenceJson) is { } spec)
+        {
+            process.LastRunAt = window;
+            if (!await IsFlowAgentOnlineAsync(flowId, ct))
+            {
+                process.PendingSince ??= window;
+                log.LogInformation("[HORARIO] flujo {Flow} offline; la secuencia se reintentara cuando el agente vuelva", flowId);
+                return false;
+            }
+            process.PendingSince = null;
+            if (!sequences.TryStart(tenantId, flowId, process.Id, process.Name, spec, ImportRunTrigger.Scheduled, out var err))
+            {
+                log.LogWarning("[HORARIO] flujo {Flow}: no se pudo iniciar la secuencia '{Name}': {Err}", flowId, process.Name, err);
+                return false;
+            }
+            return true;
+        }
+
         var result = await browserRuns.RunFlowNowAsync(flowId, tenantId, ImportRunTrigger.Scheduled, ct);
         process.LastRunAt = window;
         if (result.Offline)
@@ -210,6 +238,17 @@ public sealed class ImportScheduleDispatcher(
         }
         process.PendingSince = null;
         return result.Dispatched;
+    }
+
+    /// <summary>true si el agente asignado al flujo esta en linea.</summary>
+    private async Task<bool> IsFlowAgentOnlineAsync(Guid flowId, CancellationToken ct)
+    {
+        var clientRow = await db.ScrapeFlows.AsNoTracking()
+            .Where(f => f.Id == flowId).Select(f => f.ClientId).FirstOrDefaultAsync(ct);
+        if (clientRow is not Guid cid) { return false; }
+        var pub = await db.DataClients.AsNoTracking()
+            .Where(c => c.Id == cid).Select(c => c.ClientId).FirstOrDefaultAsync(ct);
+        return pub is not null && registry.IsOnline(pub);
     }
 
     private void Reschedule(Domain.Entities.ImportProcess process, DateTimeOffset nowUtc, TimeZoneInfo tz)
@@ -225,6 +264,13 @@ public sealed class ImportScheduleDispatcher(
             process.IsActive = false;
             process.DisabledReason = next.Reason;
             log.LogWarning("[HORARIO] proceso {Process} desactivado: {Reason}", process.Id, next.Reason);
+        }
+        else if (next.Problem == ImportScheduleProblem.Finished)
+        {
+            // Una vez que ya corrio o caducada: se apaga sin alarma (como Windows la deja "Deshabilitada").
+            process.IsActive = false;
+            process.DisabledReason = next.Reason;
+            log.LogInformation("[HORARIO] proceso {Process} terminado: {Reason}", process.Id, next.Reason);
         }
         else if (next.Problem == ImportScheduleProblem.None)
         {

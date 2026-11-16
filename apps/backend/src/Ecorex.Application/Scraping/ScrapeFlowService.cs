@@ -102,13 +102,47 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             .ToListAsync(ct);
     }
 
-    public async Task<ScrapeScheduleDto?> GetScheduleAsync(Guid flowId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ScrapeScheduleDto>> ListSchedulesAsync(Guid flowId, CancellationToken ct = default)
     {
-        // Un flujo tiene a lo sumo un ImportProcess (su programacion). Si no hay, no esta programado.
-        var p = await _db.ImportProcesses.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.FlowId == flowId, ct);
-        if (p is null) { return null; }
-        return new ScrapeScheduleDto(p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.NextRunAt, p.DisabledReason);
+        // ADR-0171: un flujo puede tener VARIAS programaciones (p.ej. diaria corta + barrido semanal).
+        var rows = await _db.ImportProcesses.AsNoTracking()
+            .Where(x => x.FlowId == flowId)
+            .OrderBy(x => x.Id) // Guid v7: orden de creacion
+            .ToListAsync(ct);
+        return rows.Select(ToScheduleDto).ToList();
+    }
+
+    private static ScrapeScheduleDto ToScheduleDto(ImportProcess p) => new(
+        p.Id, p.Name, p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.NextRunAt,
+        p.DisabledReason, FlowSequenceSpec.Parse(p.SequenceJson), p.LastRunAt, ScheduleTrigger.Parse(p.TriggerJson));
+
+    public async Task<bool> DeleteScheduleAsync(Guid scheduleId, Guid actorUserId, CancellationToken ct = default)
+    {
+        var p = await _db.ImportProcesses.FirstOrDefaultAsync(x => x.Id == scheduleId && x.FlowId != null, ct);
+        if (p is null) { return false; }
+        // Igual que al borrar el flujo: la programacion es configuracion (sin historia propia; sus corridas
+        // viven en ScrapeFlowRun, que no cuelga de ella), se quita la fila.
+        _db.ImportProcesses.Remove(p);
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<DateTime>> PreviewTriggerAsync(ScheduleTrigger trigger, int count, CancellationToken ct = default)
+    {
+        if (trigger.Validate() is not null) { return Array.Empty<DateTime>(); }
+        var tz = await TenantTzAsync(ct);
+        return trigger.NextLocal(DateTimeOffset.UtcNow, tz, Math.Clamp(count, 1, 20));
+    }
+
+    public async Task<DateTime> TenantNowAsync(CancellationToken ct = default)
+        => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, await TenantTzAsync(ct)).DateTime;
+
+    private async Task<TimeZoneInfo> TenantTzAsync(CancellationToken ct)
+    {
+        var tid = _tenantContext.TenantId;
+        return ScheduledJobRecurrence.ResolveTimeZone(tid is Guid g
+            ? await _db.Tenants.Where(t => t.Id == g).Select(t => t.TimeZoneId).FirstOrDefaultAsync(ct)
+            : null);
     }
 
     public async Task<ScrapeScheduleDto> SaveScheduleAsync(SaveScrapeScheduleRequest req, Guid actorUserId, CancellationToken ct = default)
@@ -120,18 +154,49 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         var flow = await _db.ScrapeFlows.FirstOrDefaultAsync(f => f.Id == req.FlowId, ct)
             ?? throw new InvalidOperationException("El flujo no existe.");
 
-        // Un proceso por flujo: se reusa el existente o se crea. Un proceso de flujo NO tiene modelo ni
-        // conector (esos son del Contenedor); solo FlowId + la regla de tiempo.
-        var entity = await _db.ImportProcesses.FirstOrDefaultAsync(x => x.FlowId == req.FlowId, ct);
+        if (req.Sequence is { } seq && seq.Validate() is { } seqErr)
+        {
+            throw new InvalidOperationException(seqErr);
+        }
+        if (req.Trigger is { } trg && trg.Validate() is { } trgErr)
+        {
+            throw new InvalidOperationException(trgErr);
+        }
+
+        // Alta o edicion por Id (ADR-0171: varias por flujo). Un proceso de flujo NO tiene modelo ni conector
+        // (esos son del Contenedor); solo FlowId + la regla de tiempo (+ secuencia de tramos opcional).
+        ImportProcess? entity = null;
+        if (req.Id is Guid sid)
+        {
+            entity = await _db.ImportProcesses.FirstOrDefaultAsync(x => x.Id == sid && x.FlowId == req.FlowId, ct)
+                ?? throw new InvalidOperationException("La programacion no existe.");
+        }
         if (entity is null)
         {
             entity = new ImportProcess { TenantId = tenantId, FlowId = req.FlowId };
             _db.ImportProcesses.Add(entity);
         }
-        entity.Name = $"Flujo: {flow.Name}";
-        entity.ScheduleKind = req.Kind;
-        entity.IntervalMinutes = req.IntervalMinutes;
-        entity.CronExpression = string.IsNullOrWhiteSpace(req.CronExpression) ? null : req.CronExpression!.Trim();
+        var nombre = string.IsNullOrWhiteSpace(req.Name) ? $"Flujo: {flow.Name}" : req.Name.Trim();
+        entity.Name = nombre.Length > 150 ? nombre[..150] : nombre;
+        entity.SequenceJson = req.Sequence is { } s2
+            ? (s2 with { VarDesde = s2.VarDesde.Trim(), VarLargo = s2.VarLargo.Trim() }).ToJson()
+            : null;
+        if (req.Trigger is { } trig)
+        {
+            // Desencadenador estilo Windows: manda sobre el cron. Se guarda tambien un cron aproximado para que
+            // un lector que no conoce el desencadenador muestre algo sensato (y Kind != Manual para el barrido).
+            entity.TriggerJson = trig.ToJson();
+            entity.ScheduleKind = ImportScheduleKind.Cron;
+            entity.IntervalMinutes = null;
+            entity.CronExpression = trig.ToCronApprox();
+        }
+        else
+        {
+            entity.TriggerJson = null;
+            entity.ScheduleKind = req.Kind;
+            entity.IntervalMinutes = req.IntervalMinutes;
+            entity.CronExpression = string.IsNullOrWhiteSpace(req.CronExpression) ? null : req.CronExpression!.Trim();
+        }
         entity.IsActive = req.IsActive;
 
         // La proxima ventana se calcula AL GUARDAR (el operador ve cuando corre) y un cron invalido se
@@ -143,12 +208,15 @@ public sealed class ScrapeFlowService : IScrapeFlowService
         {
             throw new InvalidOperationException(next.Reason ?? "El horario no es valido.");
         }
+        if (next.Problem == ImportScheduleProblem.Finished && entity.IsActive)
+        {
+            throw new InvalidOperationException("Con esa fecha de inicio/caducidad la programacion ya no correria nunca. Revisa las fechas.");
+        }
         entity.NextRunAt = next.NextRunAt;
         entity.DisabledReason = null;
 
         await _db.SaveChangesAsync(ct);
-        return new ScrapeScheduleDto(entity.ScheduleKind, entity.IntervalMinutes, entity.CronExpression,
-            entity.IsActive, entity.NextRunAt, entity.DisabledReason);
+        return ToScheduleDto(entity);
     }
 
     public async Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default)

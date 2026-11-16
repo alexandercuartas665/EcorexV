@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - DRON DIAN SOLDARCO: programaciones por tramos activas en PROD (config, sin codigo, v0.16.333)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes), con OK del usuario para escribir en la BD de prod.
+- HECHO: dos filas nuevas en import_processes para el flujo DRON GESTION DE COMPRAS DIAN
+  (77c34dea-605a-ad1a-9254-67f02f9c18d3), en una transaccion, solo INSERT idempotente por nombre:
+  "Diaria (lunes a sabado)" 06:00 Bogota lun-sab, dias 0..6 en tramos de 3, pausa 5 min, 1 reintento a 20 min, tope 3 h;
+  "Barrido semanal (60 dias)" domingo 01:00, dias 0..60 en tramos de 3 (20 tramos), pausa 10 min, 1 reintento, tope 12 h.
+- VERIFICADO: el despachador de prod las lee sin deshabilitarlas (proximas 17-nov 06:00 y 22-nov 01:00 Bogota); sin errores en el log.
+- OJO: no desplegar prod el domingo entre 01:00 y ~13:00 Bogota (corta el barrido). El agente Colmena del DRON debe estar encendido a esas horas.
+
 ## 2026-11-16 - Docs: ADR-0132 duplicado renumerado
 
 - AGENTE: Claude Opus 5.5 (dev principal). Habia dos ADR-0132 del 2026-10-26. Se conserva ADR-0132 = exportar/importar la definicion de un contenedor a JSON (referenciado en codigo, ADR-0158 y memoria); el de integridad de respuestas de formulario (soft-delete + auditoria + guards, v0.16.225) pasa a ADR-0173. Se actualizo el comentario de DynamicFormsTests. Los commits historicos siguen diciendo ADR-0132. Sin cambios de comportamiento ni version.

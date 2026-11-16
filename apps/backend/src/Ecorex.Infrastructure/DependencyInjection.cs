@@ -129,6 +129,8 @@ public static class DependencyInjection
         // Timeout por LLAMADA al proveedor de IA: sin el, el HttpClient usa 100s por defecto y, con la
         // cadena de reintentos, una corrida del agente podia colgarse minutos. 60s acota cada llamada; el
         // tope de reloj de la corrida completa (RunTimeoutMinutes) y el reaper de esperas cubren el resto.
+        // Freno por cupo/saldo agotado del proveedor de IA (estado del proceso, compartido por todas las llamadas).
+        services.AddSingleton<Ecorex.Application.Tenancy.IAiProviderQuotaGuard, Ecorex.Application.Tenancy.AiProviderQuotaGuard>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>(
                 static client => client.Timeout = TimeSpan.FromSeconds(60));
         services.AddHttpClient<Ecorex.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();

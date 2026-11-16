@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Enums;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Ecorex.Infrastructure.Ai;
 
@@ -14,11 +16,66 @@ namespace Ecorex.Infrastructure.Ai;
 public sealed class AiProviderClient : IAiProviderClient
 {
     private readonly HttpClient _http;
+    private readonly IAiProviderQuotaGuard _quota;
+    private readonly ILogger<AiProviderClient> _logger;
 
-    public AiProviderClient(HttpClient http) => _http = http;
+    public AiProviderClient(HttpClient http, IAiProviderQuotaGuard? quota = null, ILogger<AiProviderClient>? logger = null)
+    {
+        _http = http;
+        // Sin guard inyectado (tests) cada cliente tiene el suyo: el freno no se comparte pero tampoco estorba.
+        _quota = quota ?? new AiProviderQuotaGuard();
+        _logger = logger ?? NullLogger<AiProviderClient>.Instance;
+    }
+
+    // ===== Freno por cupo/saldo agotado (IAiProviderQuotaGuard, 2026-11-16) =====
+    // Si el proveedor esta pausado, se responde de una vez SIN llamar a la API. Tras cada llamada: si el error es
+    // de cupo/saldo se pausa el proveedor (y se avisa UNA vez por caida); si respondio bien, se cierra la caida.
+
+    private string? PausedMessage(AiProvider provider) =>
+        _quota.IsPaused(provider, out var until)
+            ? $"El proveedor {provider} no tiene cupo o saldo (tope de gasto agotado). Llamadas pausadas hasta {until:yyyy-MM-dd HH:mm} UTC; revisa el saldo/tope en la consola del proveedor."
+            : null;
+
+    private void Observe(AiProvider provider, bool ok, string? error)
+    {
+        if (ok) { _quota.MarkHealthy(provider); return; }
+        if (!AiQuotaErrors.IsQuotaExhaustedError(error)) { return; }
+        if (_quota.Trip(provider, error!.Length > 300 ? error[..300] : error))
+        {
+            _logger.LogError("Proveedor de IA {Provider} SIN CUPO/SALDO: se pausan sus llamadas {Minutes} min (se sondea al vencer). Detalle: {Detail}",
+                provider, (int)AiProviderQuotaGuard.PauseFor.TotalMinutes, error);
+        }
+    }
 
     public async Task<AiChatResult> CompleteAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
         string systemPrompt, IReadOnlyList<AiChatTurn> turns, CancellationToken cancellationToken = default)
+    {
+        if (PausedMessage(provider) is { } paused) { return new AiChatResult(false, null, paused); }
+        var r = await CompleteCoreAsync(provider, apiKey, baseUrl, model, systemPrompt, turns, cancellationToken);
+        Observe(provider, r.Ok, r.Error);
+        return r;
+    }
+
+    public async Task<AiChatResult> CompleteVisionAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
+        string systemPrompt, IReadOnlyList<AiVisionPart> content, CancellationToken cancellationToken = default)
+    {
+        if (PausedMessage(provider) is { } paused) { return new AiChatResult(false, null, paused); }
+        var r = await CompleteVisionCoreAsync(provider, apiKey, baseUrl, model, systemPrompt, content, cancellationToken);
+        Observe(provider, r.Ok, r.Error);
+        return r;
+    }
+
+    public async Task<AiCompletion> CompleteWithToolsAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
+        string systemPrompt, IReadOnlyList<AiToolMessage> messages, IReadOnlyList<AiToolSpec> tools, CancellationToken cancellationToken = default)
+    {
+        if (PausedMessage(provider) is { } paused) { return new AiCompletion(false, null, paused, 0, 0, Array.Empty<AiToolCall>()); }
+        var r = await CompleteWithToolsCoreAsync(provider, apiKey, baseUrl, model, systemPrompt, messages, tools, cancellationToken);
+        Observe(provider, r.Ok, r.Error);
+        return r;
+    }
+
+    private async Task<AiChatResult> CompleteCoreAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
+        string systemPrompt, IReadOnlyList<AiChatTurn> turns, CancellationToken cancellationToken)
     {
         try
         {
@@ -35,8 +92,8 @@ public sealed class AiProviderClient : IAiProviderClient
         }
     }
 
-    public async Task<AiChatResult> CompleteVisionAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
-        string systemPrompt, IReadOnlyList<AiVisionPart> content, CancellationToken cancellationToken = default)
+    private async Task<AiChatResult> CompleteVisionCoreAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
+        string systemPrompt, IReadOnlyList<AiVisionPart> content, CancellationToken cancellationToken)
     {
         try
         {
@@ -325,6 +382,13 @@ public sealed class AiProviderClient : IAiProviderClient
             {
                 return resp;
             }
+            // 429 por cupo/saldo agotado (tope de gasto): NO es saturacion, reintentar no lo arregla. Leer el cuerpo
+            // lo deja en buffer, asi que el llamador lo puede volver a leer.
+            if ((int)resp.StatusCode == 429
+                && AiQuotaErrors.IsQuotaExhausted(429, await resp.Content.ReadAsStringAsync(ct)))
+            {
+                return resp;
+            }
             resp.Dispose(); // respuesta transitoria: la descartamos y reintentamos tras el backoff
             await Task.Delay(RetryDelaysMs[attempt], ct);
         }
@@ -338,8 +402,8 @@ public sealed class AiProviderClient : IAiProviderClient
 
     // ===================== Function calling =====================
 
-    public async Task<AiCompletion> CompleteWithToolsAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
-        string systemPrompt, IReadOnlyList<AiToolMessage> messages, IReadOnlyList<AiToolSpec> tools, CancellationToken cancellationToken = default)
+    private async Task<AiCompletion> CompleteWithToolsCoreAsync(AiProvider provider, string apiKey, string? baseUrl, string model,
+        string systemPrompt, IReadOnlyList<AiToolMessage> messages, IReadOnlyList<AiToolSpec> tools, CancellationToken cancellationToken)
     {
         try
         {

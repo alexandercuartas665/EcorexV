@@ -5,6 +5,7 @@
 @using Ecorex.Application.Admin
 @using Ecorex.Domain.Enums
 @inject IAiServerConfigService AiSvc
+@inject Ecorex.Application.Tenancy.IAiProviderQuotaGuard QuotaGuard
 
 <PageTitle>Servidores de IA - ECOREX.tareas</PageTitle>
 
@@ -20,6 +21,17 @@
         <p class="page-sub" style="margin-bottom:0;">Cuentas de proveedores de IA de la plataforma. Las empresas usan los proveedores habilitados aqui en sus agentes. Las API keys se guardan cifradas.</p>
     </div>
 </div>
+
+@* Proveedor SIN CUPO/SALDO (tope de gasto): sus llamadas estan pausadas y se sondea al vencer la pausa. *@
+@foreach (var q in QuotaGuard.ActivePauses())
+{
+    <div class="alert alert-danger" style="margin:14px 0 0;font-size:.9rem;">
+        <strong>@q.Provider sin cupo o saldo</strong> desde @q.Since.ToString("yyyy-MM-dd HH:mm") UTC.
+        Las llamadas a este proveedor estan pausadas hasta @q.Until.ToString("HH:mm") UTC y se reintenta solo una vez al vencer.
+        Recarga el saldo o sube el tope de gasto en la consola del proveedor.
+        <div style="font-size:.78rem;opacity:.8;margin-top:4px;word-break:break-word;">@q.Detail</div>
+    </div>
+}
 
 @if (_loading)
 {

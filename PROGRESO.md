@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - Release v0.16.332: {form.*} en avisos y freno ante IA sin cupo (SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Hand-off con 2 bugs vistos en prod el 2026-11-16. ADR-0171.
+- BUG 1 ({form.*} vacios en avisos): NotifyTokenResolver filtraba las respuestas de formulario por IsActive, que NO es "vigente" sino la marca opcional de "formulario principal" (ADR-0065), casi nunca puesta (518 de 534 respuestas de 30 dias en prod). Caso: SOLDARCO, ANA, T00084, plantilla aviso_lead_registrado sin [ciudad] aunque T00084-1 tenia ubicacion. Fix: toma todas las respuestas ancladas a la tarea, ordenadas IsActive desc y luego CreatedAt (mismo criterio que NodeNotifyService); borradas fuera por el filtro global. Query y volcado extraidos (AnchoredToTask/AddFormTokens) con 4 tests.
+- BUG 2 (bucle ante 429 "monthly spending cap" de Gemini, 3.634 errores en 16 conversaciones de EPRING): diagnostico en prod (solo lectura): el barrido de respaldo de AgentReplyDispatcher (cada 2 min) reencolaba cada conversacion sin respuesta y cada vuelta dejaba Inbound+Prompt+Error. Fix: (a) IAiProviderQuotaGuard: el cliente de IA detecta cupo/saldo agotado (spending cap, insufficient_quota, credit balance, billing; NO el limite por minuto) y pausa el proveedor 30 min sin llamar la API, sondea al vencer; el 429 de cupo ya no se reintenta 4 veces. (b) RunAsync del agente sale en silencio mientras su proveedor esta pausado. (c) el barrido no reencola conversaciones con 3 Error posteriores al ultimo entrante. (d) un solo LogError por caida + banner rojo en Servidores de IA.
+- VERIFICADO: build Release 0 errores; tests Application 1436, Domain 35, SuperAdmin 249 verdes (nuevos: NotifyTokenResolverFormTests 4, AiProviderQuotaGuardTests 9: clasificacion, sin reintento + pausa sin HTTP, sondeo y recuperacion, aviso solo al inicio de la caida); dotnet format limpio. SQL del barrido revisado con ToQueryString contra la BD local (subconsulta count con filtro de tenant).
+- SIGUIENTE: deploy con OK del usuario. Tras desplegar, ops (sesion data-ops) vuelve el binding de ANA a ciudad -> {form.ubicacion} y cliente -> {form.nombre} - {form.empresa}.
+
 ## 2026-11-16 - Release v0.16.331: rol del usuario simplificado a Administrador / Usuario (SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (dev principal). Pedido del usuario: en Administracion de usuarios (000073) el "Rol" solo debe ofrecer Administrador y Usuario; el "Rol de permisos" queda igual.

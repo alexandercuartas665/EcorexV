@@ -36,6 +36,11 @@ public sealed class AgentReplyDispatcher : BackgroundService, IAgentReplyQueue
     // las conversaciones con un ENTRANTE sin responder (en lineas con agente conectado) y se reencolan, para que
     // nada quede en silencio por haberse perdido la cola. El primero corre poco despues del arranque (tras deploy).
     private static readonly TimeSpan SweepPeriod = TimeSpan.FromMinutes(2);
+    // Tope por conversacion del barrido (2026-11-16): si el agente YA fallo esta cantidad de veces desde el ultimo
+    // entrante (Error en la bitacora posterior al mensaje), el barrido deja de reencolarla; queda visible en
+    // /bitacora-agente y se reactiva sola cuando el cliente escriba de nuevo. Antes un error permanente se
+    // reintentaba cada 2 min durante 3 dias (~227 reintentos por conversacion en la caida de Gemini).
+    internal const int MaxSweepErrorsPerInbound = 3;
     private DateTimeOffset _nextSweepAt = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
 
     private readonly IServiceScopeFactory _scopes;
@@ -154,6 +159,8 @@ public sealed class AgentReplyDispatcher : BackgroundService, IAgentReplyQueue
                     .Where(c => c.WhatsAppLineId != null && c.ArchivedAt == null
                         && c.LastMessageAt != null && c.LastMessageAt < settledBefore && c.LastMessageAt > notOlderThan
                         && db.AiAgentLineBindings.Any(b => b.WhatsAppLineId == c.WhatsAppLineId && b.IsConnected)
+                        && db.AiAgentRunLogs.Count(l => l.ConversationId == c.Id && l.Kind == AiAgentRunLogKind.Error
+                            && l.OccurredAt > c.LastMessageAt) < MaxSweepErrorsPerInbound
                         && db.Messages.Where(m => m.ConversationId == c.Id)
                             .OrderByDescending(m => m.SentAt).Select(m => m.Direction).FirstOrDefault() == MessageDirection.Inbound)
                     .Select(c => c.Id)

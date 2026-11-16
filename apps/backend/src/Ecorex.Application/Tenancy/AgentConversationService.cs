@@ -20,6 +20,7 @@ public interface IAgentConversationService
 public sealed class AgentConversationService : IAgentConversationService
 {
     private readonly IApplicationDbContext _db;
+    private readonly IAiProviderQuotaGuard? _quotaGuard;
     private readonly IAiInferenceService _inference;
     private readonly IChatService _chat;
     private readonly IAgentAssetReader _assets;
@@ -37,8 +38,10 @@ public sealed class AgentConversationService : IAgentConversationService
     // procesa las conversaciones en un bucle secuencial, asi que un delay grande frenaria a las demas.
     private const int InterAttachmentDelayMs = 1500;
 
-    public AgentConversationService(IApplicationDbContext db, IAiInferenceService inference, IChatService chat, IAgentAssetReader assets, IWhatsAppConnectorService connector)
+    public AgentConversationService(IApplicationDbContext db, IAiInferenceService inference, IChatService chat, IAgentAssetReader assets, IWhatsAppConnectorService connector,
+        IAiProviderQuotaGuard? quotaGuard = null)
     {
+        _quotaGuard = quotaGuard;
         _db = db;
         _inference = inference;
         _chat = chat;
@@ -59,6 +62,11 @@ public sealed class AgentConversationService : IAgentConversationService
 
         var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == binding.AgentId && a.IsActive, cancellationToken);
         if (agent is null) { return; }
+
+        // PROVEEDOR SIN CUPO/SALDO (2026-11-16): mientras su llamada esta pausada no se intenta ni se escribe nada en
+        // la bitacora (antes cada barrido de 2 min dejaba Inbound+Prompt+Error por conversacion: 3.634 errores en una
+        // noche). La conversacion sigue pendiente y el barrido la atiende cuando el proveedor vuelve a tener cupo.
+        if (_quotaGuard?.IsPaused(agent.Provider, out _) == true) { return; }
 
         // LISTA NEGRA: si el numero del contacto esta bloqueado por el tenant, ningun agente lo atiende.
         var blockedPhones = await _db.TenantBlockedNumbers.AsNoTracking()

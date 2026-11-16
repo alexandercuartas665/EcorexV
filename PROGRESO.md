@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - DRON PLATAFORMAS INGENIOS (B0005) programado en PROD: consulta de pedidos lun-sab cada 2 h (config, sin codigo, v0.16.333)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas). Pedido del usuario: "programa la consulta a plataformas".
+- HECHO: una fila nueva en import_processes (54ca6207-...) para el flujo 7e834d75-... en transaccion, INSERT idempotente por nombre: "Consulta de pedidos (lun-sab cada 2 h)", desencadenador Semanal lun-sab, 09:30 Bogota repitiendo cada 120 min durante 9 h (09:30, 11:30, 13:30, 15:30, 17:30), sin secuencia (una corrida por ventana). Mismo agente que el DRON DIAN (AGENTE.soldarco_server6, SERVER06, Colmena 1.9.8, en linea): las ventanas evitan la Diaria DIAN (06:00-09:00 lun-sab) y el barrido del domingo; no hay candado por agente, solo por flujo.
+- VERIFICADO: el despachador de prod la tomo sin deshabilitarla (proxima 2026-11-16 13:30 Bogota). Pasos de B0005 en prod iguales a local salvo lineaId del Notificar. Corrida local previa: 0 pedidos pendientes, 17 concluidas.
+- OJO: la ultima corrida de B0005 en prod fue el 2026-10-06 (Error en ENSAMBLADO con codigo viejo); en local v0.16.324+ el flujo corre completo. Confirmar la corrida de las 13:30.
+- RAMA: feat/agentes-sistema avanzada a main c4398c8c sin checkout (el worktree ECOREX.agentes estaba en feat/flujo-secuencia-tramos, en uso por otra sesion).
+
 ## 2026-11-16 - DRON DIAN SOLDARCO: programaciones por tramos activas en PROD (config, sin codigo, v0.16.333)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes), con OK del usuario para escribir en la BD de prod.

@@ -29,6 +29,7 @@
 @inject IAutorizacionComprasConfigService TaskCfg
 @inject IConciliacionAsignacionHistorialService Hist
 @inject Ecorex.SuperAdmin.Agents.IBrowserRunService BrowserRun
+@inject Ecorex.SuperAdmin.Agents.IFlowSequenceRunner Sequences
 @inject Ecorex.Application.Common.ITenantContext Tenant
 @inject IAiAgentService AiAgents
 @inject IAiInferenceService AiInfer
@@ -3790,13 +3791,20 @@ else
 
     /// <summary>Nombre de la variable con la que el conciliador le pasa al dron los CUFE ya cargados (prefijos
     /// de 12 hex separados por coma) para que se los salte. Solo vive en la corrida (no se persiste).</summary>
-    private const string VarCufesConocidos = "CUFES_CONOCIDOS";
-    private const int CufePrefijo = 12;
+    private const string VarCufesConocidos = Ecorex.SuperAdmin.Agents.ConciliacionDianFlowOverrides.VarCufesConocidos;
 
     private async Task ImportarAsync()
     {
         _msg = null;
         var eventos = await TaskCfg.GetExtraccionAsync();
+        // Candado por flujo (ADR-0171): si una secuencia programada (o cualquier corrida) ya esta usando uno de
+        // estos flujos, no se lanza otra encima (compartirian la sesion del agente y las variables de corrida).
+        var ocupado = eventos.FirstOrDefault(e => BrowserRun.IsFlowRunning(e.FlowId) || Sequences.IsBusy(e.FlowId));
+        if (ocupado is not null)
+        {
+            _msg = $"El flujo \"{ocupado.FlowName}\" ya tiene una corrida en curso (manual o programada). Espera a que termine.";
+            return;
+        }
         if (eventos.Count > 0 && Tenant.TenantId is Guid tid)
         {
             IReadOnlyList<Ecorex.SuperAdmin.Agents.FlowAskVariable> ask;
@@ -3830,19 +3838,11 @@ else
         foreach (var a in answers.Where(a => a.FlowId == flowId)) { map[a.Name] = (a.Value ?? "").Trim(); }
         if (rebajar) { map[VarCufesConocidos] = ""; return map; }
 
-        // Rango a consultar = el que va a buscar el dron (DIAS_DESDE..DIAS_DESDE+DIAS_ATRAS) con holgura de una
-        // semana a cada lado (la DIAN filtra por su propia fecha). Sin respuestas, se asume el maximo historico.
+        // Rango a consultar = el que va a buscar el dron (DIAS_DESDE..DIAS_DESDE+DIAS_ATRAS); el servicio le suma la
+        // holgura. Sin respuestas, se asume el maximo historico. Misma regla que la secuencia programada (ADR-0171).
         static int Num(Dictionary<string, string> m, string k, int def)
             => m.TryGetValue(k, out var s) && int.TryParse(s, out var n) && n >= 0 ? n : def;
-        var desde = Num(map, "DIAS_DESDE", 0);
-        var atras = Num(map, "DIAS_ATRAS", 180);
-        var hoy = DateTimeOffset.UtcNow;
-        var cufes = await Svc.CufesDelBotAsync(hoy.AddDays(-(desde + atras + 7)), hoy.AddDays(-desde + 7));
-        map[VarCufesConocidos] = string.Join(",", cufes
-            .Select(c => c.Trim().ToLowerInvariant())
-            .Where(c => c.Length >= CufePrefijo)
-            .Select(c => c[..CufePrefijo])
-            .Distinct());
+        map[VarCufesConocidos] = await Svc.CufesConocidosAsync(Num(map, "DIAS_DESDE", 0), Num(map, "DIAS_ATRAS", 180));
         return map;
     }
 

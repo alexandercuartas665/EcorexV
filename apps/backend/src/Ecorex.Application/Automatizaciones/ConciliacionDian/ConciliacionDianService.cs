@@ -186,6 +186,22 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             .ToListAsync(ct);
     }
 
+    /// <summary>Largo del prefijo de CUFE que viaja en CUFES_CONOCIDOS (12 hex = 48 bits bastan, ADR-0169).</summary>
+    public const int CufePrefijo = 12;
+
+    public async Task<string> CufesConocidosAsync(int diasDesde, int diasAtras, CancellationToken ct = default)
+    {
+        diasDesde = Math.Max(0, diasDesde);
+        diasAtras = Math.Max(0, diasAtras);
+        var hoy = DateTimeOffset.UtcNow;
+        var cufes = await CufesDelBotAsync(hoy.AddDays(-(diasDesde + diasAtras + 7)), hoy.AddDays(-diasDesde + 7), ct);
+        return string.Join(",", cufes
+            .Select(c => c.Trim().ToLowerInvariant())
+            .Where(c => c.Length >= CufePrefijo)
+            .Select(c => c[..CufePrefijo])
+            .Distinct());
+    }
+
     public async Task<int> ImportarDesdeBotAsync(Guid documentoId, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tenantId) { return 0; }

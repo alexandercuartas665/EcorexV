@@ -1,4 +1,4 @@
-# ADR-0171: Freno por proveedor de IA sin cupo y tope por conversacion en el barrido del agente
+# ADR-0172: Freno por proveedor de IA sin cupo y tope por conversacion en el barrido del agente
 
 **Estado:** Aceptado (v0.16.332; pendiente de deploy con OK del usuario)
 **Fecha:** 2026-11-16

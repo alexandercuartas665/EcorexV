@@ -65,7 +65,13 @@ public interface IBrowserRunService
     /// dron arranca descargas en 2do plano (sigue bajando tras cerrar el paso).</summary>
     Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
         IProgress<FlowStepProgress>? progress, CancellationToken ct = default,
-        IReadOnlyDictionary<string, string>? overrides = null);
+        IReadOnlyDictionary<string, string>? overrides = null,
+        ImportRunTrigger trigger = ImportRunTrigger.Manual);
+
+    /// <summary>true si el flujo tiene una corrida VIVA en este proceso (completa o por pasos, manual o
+    /// programada). Candado por flujo (ADR-0171): dos corridas del mismo flujo a la vez compartirian la sesion
+    /// del agente y la capa de variables de corrida.</summary>
+    bool IsFlowRunning(Guid flowId);
 
     /// <summary>Variables marcadas "Pedir al ejecutar" (no secretas) de los flujos dados, en el orden de los
     /// flujos, con su valor guardado como valor por defecto. El modulo que dispara los flujos las pregunta y
@@ -129,6 +135,18 @@ public sealed class BrowserRunService(
     {
         if (_activeRuns.AddOrUpdate(runCorr, 0, (_, n) => n - 1) <= 0) { _activeRuns.TryRemove(runCorr, out _); }
     }
+
+    /// <summary>Flujos con corrida VIVA (flowId -> anidamiento), para el candado por flujo (ADR-0171).</summary>
+    private readonly ConcurrentDictionary<Guid, int> _activeFlows = new();
+
+    private void TrackFlow(Guid flowId) => _activeFlows.AddOrUpdate(flowId, 1, (_, n) => n + 1);
+
+    private void UntrackFlow(Guid flowId)
+    {
+        if (_activeFlows.AddOrUpdate(flowId, 0, (_, n) => n - 1) <= 0) { _activeFlows.TryRemove(flowId, out _); }
+    }
+
+    public bool IsFlowRunning(Guid flowId) => _activeFlows.ContainsKey(flowId);
 
     /// <summary>Variables de SESION del modo paso a paso, por flujo: valores efimeros producidos durante el
     /// stepping (p.ej. el token que leyo un paso OTP) que se superponen a las variables del flujo para los
@@ -370,8 +388,9 @@ public sealed class BrowserRunService(
 
     public Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
         IProgress<FlowStepProgress>? progress, CancellationToken ct = default,
-        IReadOnlyDictionary<string, string>? overrides = null)
-        => RunStepwiseCoreAsync(flowId, tenantId, flowIndex, flowCount, progress, ImportRunTrigger.Manual, NewCorr(),
+        IReadOnlyDictionary<string, string>? overrides = null,
+        ImportRunTrigger trigger = ImportRunTrigger.Manual)
+        => RunStepwiseCoreAsync(flowId, tenantId, flowIndex, flowCount, progress, trigger, NewCorr(),
             freshSession: false, ct, overrides);
 
     public async Task<IReadOnlyList<FlowAskVariable>> GetAskVariablesAsync(IReadOnlyList<Guid> flowIds, Guid tenantId,
@@ -448,6 +467,7 @@ public sealed class BrowserRunService(
         CancellationToken ct, IReadOnlyDictionary<string, string>? overrides = null)
     {
         TrackRun(runCorr);
+        TrackFlow(flowId);
         // Corrida completa nueva (Ejecutar ahora / programacion): sin salidas capturadas de corridas anteriores,
         // para que un bucle nunca consuma un LISTADO viejo si el paso que lo lee falla.
         if (freshSession) { _stepSessionVars.TryRemove(flowId, out _); }
@@ -474,6 +494,7 @@ public sealed class BrowserRunService(
         finally
         {
             UntrackRun(runCorr);
+            UntrackFlow(flowId);
             if (applied.Count > 0 && _stepSessionVars.TryGetValue(flowId, out var s))
             {
                 foreach (var k in applied) { s.TryRemove(k, out _); }
@@ -2299,8 +2320,9 @@ public sealed class BrowserRunService(
         string? secret, IReadOnlyDictionary<string, string> variables)
     {
         TrackRun(runCorr);
+        TrackFlow(flowId);
         try { await ExecuteFlowTrackedAsync(flowId, tenantId, runCorr, clientId, secret, variables); }
-        finally { UntrackRun(runCorr); }
+        finally { UntrackRun(runCorr); UntrackFlow(flowId); }
     }
 
     private async Task ExecuteFlowTrackedAsync(Guid flowId, Guid tenantId, string runCorr, string clientId,

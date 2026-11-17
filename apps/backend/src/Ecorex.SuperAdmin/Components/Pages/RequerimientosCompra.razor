@@ -784,6 +784,10 @@ else
                     @if (!string.IsNullOrWhiteSpace(PlanUnidad)) { <span>Unidad: <strong>@PlanUnidad</strong></span> }
                     <span>Cantidad total: <strong>@Fmt(TotalPlan)</strong>@_uSuf</span>
                     <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong>@_uSuf</span>
+                    @if (ComprometidoActual > 0)
+                    {
+                        <span style="color:#b45309;" title="Cantidad ya enviada a orden de compra o gestionada: queda reservada y no se puede re-pedir (liberala para volver a editarla).">Comprometido (OC): <strong>@Fmt(ComprometidoActual)</strong>@_uSuf</span>
+                    }
                     <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong>@_uSuf</span>
                     <span style="color:var(--brand,#4f46e5);" title="Total con descuento e IVA incluidos">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => FiscalHi(h).Total))</strong></span>
                 </div>
@@ -1302,8 +1306,9 @@ else
                         <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
                         <button class="btn btn-primary btn-sm" title="Agrupa las lineas marcadas POR PROVEEDOR y crea una Solicitud de Cotizacion (RFQ) por proveedor, con su tarea de flujo. Idempotente." @onclick="CotizarPorProveedorAsync" disabled="@(_busy || SelCount == 0)">Cotizar por proveedor (RFQ)@(SelCount > 0 ? $" ({SelCount})" : "")</button>
                     }
-                    <button class="btn btn-outline-primary btn-sm" @onclick='() => _planTab = "oc"' disabled="@_busy" title="Ver la orden de compra consolidada por proveedor">Orden de compra &rarr;</button>
-                    <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                    <button class="btn btn-outline-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick='() => _planTab = "oc"' disabled="@_busy" title="Ver la orden de compra consolidada por proveedor">Ver orden de compra &rarr;</button>
+                    <button class="btn btn-primary btn-sm" @onclick="EnviarTodoOcAsync" disabled="@(_busy || ListasParaOc == 0)" title="Guarda, envia a orden de compra todas las lineas con proveedor y abre la pestana Orden de compra para gestionarla.">Generar orden de compra@(ListasParaOc > 0 ? $" ({ListasParaOc})" : "")</button>
                 }
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlan = false" disabled="@_busy">Cancelar</button>
             </div>
@@ -2137,6 +2142,12 @@ else
     private decimal TotalPlan => _planIsGroup ? _planRegs.Sum(r => r.Cantidad) : _planCantidadPadre;
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
     private decimal RestanteActual => TotalPlan - PlanificadaActual;
+    // Bolsa del producto (Ola B): cantidad ya COMPROMETIDA en orden de compra (enviada o gestionada). Esta
+    // cantidad queda reservada: no se puede re-pedir ni editar hasta liberarla (si aun no se gestiono).
+    private decimal ComprometidoActual => _pHijos.Where(HiComprometido).Sum(h => h.Cantidad);
+    private static bool HiComprometido(HijoEdit h) => h.TaskItemId is not null || h.Estado == RequerimientoEstado.EnOrdenCompra;
+    // Lineas listas para enviar a orden de compra: con cantidad y proveedor, aun editables (no comprometidas).
+    private int ListasParaOc => _pHijos.Count(h => h.Cantidad > 0 && !string.IsNullOrWhiteSpace(h.Prov) && !HiComprometido(h));
     // Unidad de medida del producto que se planifica (primera no vacia entre las necesidades; mismo producto = misma unidad).
     private string PlanUnidad => _planRegs.Select(r => r.UnidadMedida).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u))?.Trim() ?? "";
 
@@ -4012,6 +4023,62 @@ else
             var res = await Svc.EnviarAOrdenCompraAsync(hid);
             if (!res.Ok) { _planError = res.Error ?? "No se pudo enviar a orden de compra."; }
             else { _msg = "Linea enviada a orden de compra (bloqueada)."; await RefreshPlanTrasMutacionAsync(); }
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Generar orden de compra en UN paso: guarda el plan (para que toda linea tenga Id), envia a orden de compra
+    // todas las lineas con proveedor aun editables y abre la pestana Orden de compra para gestionarlas.
+    private async Task EnviarTodoOcAsync()
+    {
+        _planError = null; _busy = true;
+        try
+        {
+            // 1) Guardar primero: asigna Id a las lineas nuevas y aplica el guard de la bolsa (comprometido inmutable).
+            if (_planIsGroup)
+            {
+                var conCantidad = _pHijos.Where(h => h.Cantidad > 0).ToList();
+                if (conCantidad.Count == 0) { _planError = "Indica al menos una cantidad a planificar."; return; }
+                foreach (var g in conCantidad.GroupBy(h => h.ReqId))
+                {
+                    var rq = new GuardarHijosRequest(g.Key, g.Select(ToHijoInput).ToList());
+                    var pl = await Svc.GuardarHijosAsync(rq);
+                    if (pl is null) { _planError = "No se pudo guardar una de las necesidades."; return; }
+                }
+                await BuildGroupHijosAsync(_planRegs);
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+            else
+            {
+                var rq = new GuardarHijosRequest(_planReqId, _pHijos.Select(ToHijoInput).ToList());
+                var pl = await Svc.GuardarHijosAsync(rq);
+                if (pl is null) { _planError = "No se pudo guardar."; return; }
+                _pHijos = pl.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+
+            // 2) Enviar a orden de compra toda linea lista: guardada, con proveedor, editable (no comprometida).
+            var listas = _pHijos.Where(h => h.Id is Guid && !string.IsNullOrWhiteSpace(h.Prov) && !HiComprometido(h)).ToList();
+            var enviadas = 0; string? primerError = null;
+            foreach (var h in listas)
+            {
+                var res = await Svc.EnviarAOrdenCompraAsync(h.Id!.Value);
+                if (res.Ok) { enviadas++; } else { primerError ??= res.Error; }
+            }
+
+            await RefreshPlanTrasMutacionAsync();
+            _planTab = "oc";
+            if (enviadas > 0)
+            {
+                _msg = $"{enviadas} linea(s) en orden de compra. Revisa por proveedor y pulsa \"Gestionar compra\" para emitirla.";
+            }
+            else
+            {
+                _planError = primerError ?? "No hay lineas listas: asigna un proveedor (y cantidad) a cada linea que quieras ordenar.";
+            }
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }

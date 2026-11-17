@@ -221,23 +221,34 @@ public sealed class RequerimientoService : IRequerimientoService
 
         var inputs = req.Hijos ?? Array.Empty<HijoInput>();
         if (inputs.Any(h => h.Cantidad <= 0)) { throw new InvalidOperationException("Cada registro hijo debe tener cantidad mayor que cero."); }
-        var suma = inputs.Sum(h => h.Cantidad);
+
+        var existentes = await _db.RequerimientoCompraHijos
+            .Where(h => h.RequerimientoId == req.RequerimientoId).ToListAsync(ct);
+        // Bolsa del producto (Ola B): una linea COMPROMETIDA (enviada a orden de compra o ya gestionada) es
+        // inmutable. Su cantidad queda reservada y no se puede liberar, re-pedir ni editar por esta via; solo se
+        // libera con LiberarOrdenCompra (si aun no se gestiono). Defensa en profundidad: la UI ya la bloquea.
+        static bool EsComprometido(RequerimientoCompraHijo e) =>
+            e.TaskItemId is not null || e.Estado == RequerimientoEstado.EnOrdenCompra;
+        var comprometidos = existentes.Where(EsComprometido).ToDictionary(e => e.Id, e => e.Cantidad);
+
+        // La suma efectiva usa la cantidad REAL de las lineas comprometidas (no la que llegue en el input, por si
+        // viniera manipulada): asi lo comprometido no puede duplicarse contra el tope del padre.
+        var suma = inputs.Sum(h => h.Id is Guid iq && comprometidos.TryGetValue(iq, out var cq) ? cq : h.Cantidad);
         // Decision: la suma de los hijos NO puede exceder al padre (se permite dejar restante).
         if (suma > padre.Cantidad)
         {
             throw new InvalidOperationException($"La suma de los hijos ({suma:#,##0.##}) excede la cantidad del padre ({padre.Cantidad:#,##0.##}).");
         }
 
-        var existentes = await _db.RequerimientoCompraHijos
-            .Where(h => h.RequerimientoId == req.RequerimientoId).ToListAsync(ct);
         var mantenidos = inputs.Where(i => i.Id is not null).Select(i => i.Id!.Value).ToHashSet();
 
-        // Borra los que ya no estan (salvo que esten ejecutados: tienen TaskItemId).
+        // Borra los que ya no estan (salvo comprometidos: ejecutados -TaskItemId- o en orden de compra).
         foreach (var ex in existentes)
         {
             if (!mantenidos.Contains(ex.Id))
             {
                 if (ex.TaskItemId is not null) { throw new InvalidOperationException("No se puede quitar un hijo ya ejecutado (tiene actividad)."); }
+                if (ex.Estado == RequerimientoEstado.EnOrdenCompra) { throw new InvalidOperationException("No se puede quitar un hijo en orden de compra; liberalo primero."); }
                 _db.RequerimientoCompraHijos.Remove(ex);
             }
         }
@@ -248,6 +259,8 @@ public sealed class RequerimientoService : IRequerimientoService
             RequerimientoCompraHijo h;
             if (inp.Id is Guid id && existentes.FirstOrDefault(e => e.Id == id) is { } found) { h = found; }
             else { h = new RequerimientoCompraHijo { TenantId = tenantId, RequerimientoId = padre.Id, Estado = RequerimientoEstado.Planificado }; _db.RequerimientoCompraHijos.Add(h); }
+            // Linea comprometida: inmutable. Se conserva tal cual (cantidad/proveedor/precio/fiscal bloqueados).
+            if (EsComprometido(h)) { continue; }
             h.Cantidad = inp.Cantidad;
             h.FechaProgramadaCompra = inp.FechaProgramadaCompra;
             h.CaracteristicasDespacho = (inp.CaracteristicasDespacho ?? "").Trim();

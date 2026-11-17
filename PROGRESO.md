@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-16 - Release v0.16.335: agentes en DeepSeek entienden imagenes, PDF y notas de voz (SIN deploy)
+## 2026-11-16 - Release v0.16.335: agentes en DeepSeek entienden imagenes, PDF y notas de voz (DESPLEGADA 2026-11-17)
+
+- DEPLOY: 2026-11-17 04:30 Bogota con OK del usuario (via rapida GHCR). Footer /login = v0.16.335; migracion 20261117023912_AddAgentMediaReaderAndTranscriber aplicada; media_reader_prompt sembrado SOLO en "Agente Comercial" (EPRING); sin errores en logs.
 
 - AGENTE: Claude Opus 5.5 (dev principal). Hand-off de la sesion data-ops (diagnostico en prod). ADR-0174.
 - PROBLEMA: con DeepSeek el agente respondia sin entender los adjuntos: (1) el lector de imagen/PDF usaba una plantilla FIJA de EPRING (factura de energia/techo/motobomba) para todos los agentes y descartaba lo demas (caso ANA: "Electrodo E7018 1/8 - 10 cajas" se perdio); (2) el modelo principal solo recibia imagenes en Gemini; (3) PDF solo en Gemini/Claude; (4) audio solo en Gemini.

@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-17 - v0.16.337: diseno profesional por defecto en el agente de plantillas de correo (SIN deploy)
+## 2026-11-17 - v0.16.337: diseno profesional por defecto en el agente de plantillas de correo (DESPLEGADA 2026-11-17)
+
+- DEPLOY: 2026-11-17 13:10 Bogota con OK del usuario (dev principal ECOREX.desarrollo; fast-forward de feat/plantillas-prompt-profesional al tronco, TemplateAgent 18/18). Footer /login = v0.16.337; sin migracion; arranque sin errores. Gemini ya marcado como "IA gestion de plantillas" (UI, auditado).
 
 - AGENTE: Claude Opus 4.8. ADR-0175 (nota). Rama feat/plantillas-prompt-profesional.
 - MOTIVO: probando en prod (SOLDARCO, v0.16.336) el agente de correo redactaba HTML correcto pero PLANO (parrafos

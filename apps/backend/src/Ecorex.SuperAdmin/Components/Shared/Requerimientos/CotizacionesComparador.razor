@@ -207,18 +207,20 @@
                     }
 
                     <div class="rqc-price">
+                        @{ var fz = Fiscal(oc); }
                         <span class="rqc-unit">@Money(o.PrecioUnitario)<small>/u</small></span>
-                        @if (o.FleteMonto > 0m)
-                        {
-                            <span class="rqc-total">Total con flete <strong>@Money(TotalLanded(oc))</strong></span>
-                            <span class="rqc-flete" title="@FleteTip(oc)">
-                                +flete @Money(FleteTotal(oc))@(oc.FleteEsPorUnidad ? " (por u)" : "")
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
-                        }
+                        <span class="rqc-total" title="@($"Subtotal {Money(fz.Subtotal)}{(fz.DescuentoMonto > 0m ? $" - desc {Money(fz.DescuentoMonto)}" : "")} + IVA {fz.IvaPct.ToString("0.##", Inv)}% ({Money(fz.IvaMonto)}){(fz.Flete > 0m ? $" + flete {Money(fz.Flete)}" : "")}")">Total <strong>@Money(fz.Total)</strong></span>
+                        <span class="rqc-fiscal">
+                            @if (fz.DescuentoMonto > 0m)
+                            {
+                                <span class="rqc-desc" title="Descuento aplicado al subtotal">-desc @Money(fz.DescuentoMonto)</span>
+                            }
+                            <span class="rqc-ivamark" title="IVA sobre la base gravable">IVA @fz.IvaPct.ToString("0.##", Inv)% @Money(fz.IvaMonto)</span>
+                            @if (fz.Flete > 0m)
+                            {
+                                <span class="rqc-flete" title="@FleteTip(oc)">+flete @Money(fz.Flete)@(oc.FleteEsPorUnidad ? " (por u)" : "")</span>
+                            }
+                        </span>
                         @if (_oppRate > 0m && Efectivo(oc) is { } ef)
                         {
                             <span class="rqc-efectivo @(EsMejorEfectivo(oc) ? "best" : "")"
@@ -443,6 +445,19 @@
                         <option value="true">por unidad</option>
                     </select>
                 </label>
+                <label class="rqc-f">IVA %
+                    <input type="number" step="any" min="0" max="100" class="form-control form-control-sm" @bind="_fIva" title="IVA de la oferta. Inicia con el del producto (Inventario) o 19% si no esta definido." />
+                </label>
+                <label class="rqc-f">Descuento
+                    <select class="form-select form-select-sm" @bind="_fDescTipo">
+                        <option value="">sin descuento</option>
+                        <option value="pct">porcentaje (%)</option>
+                        <option value="val">valor ($)</option>
+                    </select>
+                </label>
+                <label class="rqc-f">@(_fDescTipo == "val" ? "Descuento ($)" : "Descuento (%)")
+                    <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fDescNum" disabled="@(string.IsNullOrEmpty(_fDescTipo))" placeholder="@(string.IsNullOrEmpty(_fDescTipo) ? "elige un tipo" : "0")" />
+                </label>
                 <label class="rqc-f">Fecha/hora cotizado
                     <input type="datetime-local" class="form-control form-control-sm" @bind="_fFechaCotiz" />
                 </label>
@@ -550,6 +565,9 @@
     private decimal _fPrecio;
     private decimal _fFleteMonto;        // punto #4: flete de la oferta
     private bool _fFletePorUnidad;       // true = por unidad (x cantidad); false = fijo por orden
+    private decimal _fIva = ComprasFiscal.IvaDefault;   // Ola A: IVA % de la oferta
+    private string _fDescTipo = "";      // "" | "pct" | "val"
+    private decimal? _fDescNum;          // monto del descuento segun el tipo
     private string _fEntrega = "";
     private string _fDespacho = "";
     private string _fPago = "";
@@ -904,9 +922,13 @@
         RecalcEfectivo();
     }
 
-    // ---- Punto #4: landed cost (total con flete) ----
+    // ---- Punto #4 + Ola A: landed cost con descuento + IVA + flete ----
     private decimal FleteTotal(CotizacionDto o) => o.FleteEsPorUnidad ? o.FleteMonto * Cantidad : o.FleteMonto;
-    private decimal TotalLanded(CotizacionDto o) => o.PrecioUnitario * Cantidad + FleteTotal(o);
+    /// <summary>Desglose fiscal de la oferta (subtotal, descuento, base, IVA, flete, total). Fuente unica.</summary>
+    private LineaFiscal Fiscal(CotizacionDto o)
+        => ComprasFiscal.Calcular(o.PrecioUnitario, Cantidad, o.IvaPct, o.DescuentoPct, o.DescuentoValor, o.FleteMonto, o.FleteEsPorUnidad);
+    /// <summary>Total real de la oferta: base gravable (subtotal - descuento) + IVA + flete.</summary>
+    private decimal TotalLanded(CotizacionDto o) => Fiscal(o).Total;
     private bool EsMejorLanded(CotizacionDto o)
         => _anyFlete && _minLanded is { } mn && o.PrecioUnitario > 0m && TotalLanded(o) == mn;
 
@@ -1093,6 +1115,9 @@
     {
         _editId = null; _fProv = ""; _fProvNombre = ""; _fPrecio = 0m;
         _fFleteMonto = 0m; _fFletePorUnidad = false;
+        // IVA por defecto: el de las ofertas ya cargadas del mismo producto (que arrastran el del item), si no 19%.
+        _fIva = _ofertas.Select(x => (decimal?)x.IvaPct).FirstOrDefault() ?? ComprasFiscal.IvaDefault;
+        _fDescTipo = ""; _fDescNum = null;
         _fEntrega = ""; _fDespacho = ""; _fPago = ""; _fVigencia = null; _fNotas = "";
         _fFechaCotiz = DateTime.Now; _fContactoId = ""; _fNewContNombre = ""; _fNewContTel = ""; _fNewContMail = "";
         _contactos = new();
@@ -1106,6 +1131,10 @@
         _fProvNombre = o.ProveedorNombre ?? "";
         _fPrecio = o.PrecioUnitario;
         _fFleteMonto = o.FleteMonto; _fFletePorUnidad = o.FleteEsPorUnidad;
+        _fIva = o.IvaPct;
+        if (o.DescuentoValor is > 0m) { _fDescTipo = "val"; _fDescNum = o.DescuentoValor; }
+        else if (o.DescuentoPct is > 0m) { _fDescTipo = "pct"; _fDescNum = o.DescuentoPct; }
+        else { _fDescTipo = ""; _fDescNum = null; }
         _fEntrega = o.TiempoEntrega;
         _fDespacho = o.CaracteristicasDespacho;
         _fPago = o.CondicionesPago;
@@ -1168,7 +1197,10 @@
                 // guardado fallaba en BD ("Cannot write DateTimeOffset with Offset=-05:00").
                 _fFechaCotiz is { } fc ? new DateTimeOffset(fc).ToUniversalTime() : null,
                 RequerimientoCotizacionFuente.Manual,
-                _fFleteMonto, _fFletePorUnidad);
+                _fFleteMonto, _fFletePorUnidad,
+                _fIva,
+                _fDescTipo == "pct" ? _fDescNum : null,
+                _fDescTipo == "val" ? _fDescNum : null);
             _ofertas = (await Svc.GuardarCotizacionAsync(req, Cantidad)).ToList();
             RecalcMin();
             _evaluado = false; _ganador = null; _rank = new();

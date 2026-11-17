@@ -106,7 +106,9 @@ public sealed record ItemDetailDto(
     int TotalStock,
     IReadOnlyList<string> AvailableAt,
     // Datos tienda: pares etiqueta/valor ad-hoc del propio item (ya parseados del JSON).
-    IReadOnlyList<DatoTiendaDto> DatosTienda);
+    IReadOnlyList<DatoTiendaDto> DatosTienda,
+    // IVA del producto en % (Colombia). Null = usar el default del modulo de compras (19%).
+    decimal? IvaRate = null);
 
 /// <summary>
 /// Alta/edicion de un item. StockByWarehouse es un mapa WarehouseId -> cantidad; el servicio
@@ -127,7 +129,9 @@ public sealed record SaveItemRequest(
     // Si es true, el servicio asigna un SKU consecutivo (prefijo "ITM") cuando el SKU viene vacio.
     bool GenerateSku = false,
     // Datos tienda: pares etiqueta/valor ad-hoc; el servicio serializa a DatosTiendaJson.
-    IReadOnlyList<DatoTiendaDto>? DatosTienda = null);
+    IReadOnlyList<DatoTiendaDto>? DatosTienda = null,
+    // IVA del producto en % (Colombia). Null = usar el default del modulo de compras (19%).
+    decimal? IvaRate = null);
 
 /// <summary>Filtros y paginado del grid de items.</summary>
 public sealed record ItemQuery(

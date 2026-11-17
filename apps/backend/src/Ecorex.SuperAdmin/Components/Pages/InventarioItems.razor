@@ -305,6 +305,10 @@ else
                         <input type="number" step="0.01" class="form-control" @bind="_fPrice" />
                     </div>
                     <div class="col-md-3 field">
+                        <label class="form-label">IVA %</label>
+                        <input type="number" step="0.01" min="0" max="100" class="form-control" @bind="_fIva" placeholder="19 por defecto" title="IVA del producto en %. Se arrastra a las compras (editable). Vacio = 19%." />
+                    </div>
+                    <div class="col-md-3 field">
                         <label class="form-label">Marca</label>
                         <select class="form-control" @bind="_fBrand">
                             <option value="">(Ninguna)</option>
@@ -1048,6 +1052,7 @@ else
     private string? _fSku;
     private bool _generateSku = true;
     private decimal? _fPrice;
+    private decimal? _fIva;      // Ola A: IVA % del producto (vacio = 19% por defecto)
     private string _fBrand = "";
     private string _fGroup = "";
     private string _fSubgroup = "";
@@ -1454,6 +1459,7 @@ else
             _fSku = detail.Sku;
             _generateSku = false;
             _fPrice = detail.Price;
+            _fIva = detail.IvaRate;
             _fBrand = detail.BrandId?.ToString() ?? "";
             _fGroup = detail.GroupId?.ToString() ?? "";
             _fSubgroup = detail.SubgroupId?.ToString() ?? "";
@@ -1480,6 +1486,7 @@ else
             _fSku = null;
             _generateSku = true;
             _fPrice = null;
+            _fIva = null;
             _fBrand = _fGroup = _fSubgroup = _fType = "";
             _fDescription = null;
             _fSpecifications = null;
@@ -1572,7 +1579,8 @@ else
                 new Dictionary<Guid, int>(_stock),
                 _generateSku,
                 _datos.Where(d => !string.IsNullOrWhiteSpace(d.Etiqueta))
-                    .Select(d => new DatoTiendaDto(d.Etiqueta, d.Valor ?? "")).ToList());
+                    .Select(d => new DatoTiendaDto(d.Etiqueta, d.Valor ?? "")).ToList(),
+                _fIva);
             var result = _editingId is null
                 ? await ItemSvc.CreateAsync(request)
                 : await ItemSvc.UpdateAsync(_editingId.Value, request);

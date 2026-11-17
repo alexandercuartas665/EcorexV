@@ -227,7 +227,7 @@ public sealed class ItemService : IItemService
             item.Id, item.Sku, item.Name, item.Description, item.Specifications, item.Price,
             item.BrandId, item.GroupId, item.SubgroupId, item.ItemTypeId, item.IsActive,
             item.FieldValuesJson, images, stock, stock.Sum(s => s.Stock), availableAt,
-            DatosTiendaJson.Parse(item.DatosTiendaJson));
+            DatosTiendaJson.Parse(item.DatosTiendaJson), item.IvaRate);
     }
 
     public async Task<InventoryResult<ItemDetailDto>> CreateAsync(
@@ -563,6 +563,7 @@ public sealed class ItemService : IItemService
         item.Description = Normalize(request.Description);
         item.Specifications = Normalize(request.Specifications);
         item.Price = request.Price;
+        item.IvaRate = request.IvaRate;
         item.BrandId = request.BrandId;
         item.GroupId = request.GroupId;
         item.SubgroupId = request.SubgroupId;
@@ -578,6 +579,7 @@ public sealed class ItemService : IItemService
         if (request.Sku is { } sku && sku.Trim().Length > 80) { return "El SKU no puede superar 80 caracteres."; }
         if (request.Description is { } d && d.Trim().Length > 2000) { return "La descripcion no puede superar 2000 caracteres."; }
         if (request.Price is < 0) { return "El precio no puede ser negativo."; }
+        if (request.IvaRate is < 0 or > 100) { return "El IVA debe estar entre 0 y 100."; }
         return null;
     }
 

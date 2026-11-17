@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.DataProtection;
 namespace Ecorex.Infrastructure.Security;
 
 /// <summary>
-/// Token del {enlace_baja} (ADR-0174) con Data Protection y un PROPOSITO PROPIO ("Ecorex.EmailUnsubscribe.v1"):
+/// Token del {enlace_baja} (ADR-0175) con Data Protection y un PROPOSITO PROPIO ("Ecorex.EmailUnsubscribe.v1"):
 /// un token de baja no sirve para descifrar secretos ni al reves. La salida de IDataProtector.Protect(string)
 /// ya es base64url (apta para la ruta /baja/{token}). Sin caducidad: un correo viejo debe seguir permitiendo
 /// darse de baja. Las llaves de Data Protection se conservan al rotar, asi que los enlaces viejos siguen validos.

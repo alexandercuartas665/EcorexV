@@ -5,7 +5,7 @@ using Xunit;
 namespace Ecorex.Integration.Tests;
 
 /// <summary>
-/// Token del {enlace_baja} (ADR-0174): ida y vuelta (tenant + correo normalizado), rechazo de tokens
+/// Token del {enlace_baja} (ADR-0175): ida y vuelta (tenant + correo normalizado), rechazo de tokens
 /// alterados y aislamiento de proposito (un token de baja no se descifra con el protector de secretos).
 /// No requiere Docker.
 /// </summary>

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Gestor;
 
 /// <summary>
-/// Firma de correo del usuario actual en el tenant activo (ADR-0174). Se edita en Mi cuenta y alimenta la
+/// Firma de correo del usuario actual en el tenant activo (ADR-0175). Se edita en Mi cuenta y alimenta la
 /// variable {firma} de las plantillas cuando el usuario es el asesor asignado del contacto.
 /// </summary>
 public interface IUserSignatureService

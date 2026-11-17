@@ -158,7 +158,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<FormBuilderConversation> FormBuilderConversations => Set<FormBuilderConversation>();
     public DbSet<FormBuilderMessage> FormBuilderMessages => Set<FormBuilderMessage>();
     public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => Set<FormBuilderSnapshot>();
-    // Agente editor de plantillas de correo/WhatsApp (ADR-0174) + bajas de correo.
+    // Agente editor de plantillas de correo/WhatsApp (ADR-0175) + bajas de correo.
     public DbSet<TemplateAgentConversation> TemplateAgentConversations => Set<TemplateAgentConversation>();
     public DbSet<TemplateAgentMessage> TemplateAgentMessages => Set<TemplateAgentMessage>();
     public DbSet<TemplateSnapshot> TemplateSnapshots => Set<TemplateSnapshot>();
@@ -1116,11 +1116,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Asunto).HasMaxLength(300).IsRequired();
             b.Property(x => x.CuerpoHtml).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.Activa });
-            // Soft-delete (ADR-0174): nunca DELETE fisico. El filtro global excluye IsDeleted.
+            // Soft-delete (ADR-0175): nunca DELETE fisico. El filtro global excluye IsDeleted.
             b.Property(x => x.IsDeleted).HasDefaultValue(false);
         });
 
-        // Agente editor de plantillas (ADR-0174): conversacion + mensajes + versiones + bajas de correo.
+        // Agente editor de plantillas (ADR-0175): conversacion + mensajes + versiones + bajas de correo.
         modelBuilder.Entity<TemplateAgentConversation>(b =>
         {
             b.Property(x => x.Title).HasMaxLength(200).IsRequired();

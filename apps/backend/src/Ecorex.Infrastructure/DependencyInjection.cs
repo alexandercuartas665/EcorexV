@@ -120,7 +120,7 @@ public static class DependencyInjection
         services.AddScoped<Ecorex.Application.Admin.ISqlConsoleService, Sql.SqlConsoleService>();
         // Store del asistente de creacion de formularios por chat (sobre EcorexDbContext).
         services.AddScoped<Ecorex.Application.Forms.Builder.IFormBuilderChatStore, Forms.FormBuilderChatStore>();
-        // Agente editor de plantillas (ADR-0174): persistencia del chat + token del enlace de baja.
+        // Agente editor de plantillas (ADR-0175): persistencia del chat + token del enlace de baja.
         services.AddScoped<Ecorex.Application.Gestor.TemplateAgent.ITemplateAgentStore, Forms.TemplateAgentStore>();
         services.AddSingleton<Ecorex.Application.Gestor.IUnsubscribeTokenProtector, Security.DataProtectionUnsubscribeTokenProtector>();
         services.AddHttpClient<Ecorex.Application.Admin.IWompiApiClient, Wompi.WompiApiClient>();

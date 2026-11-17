@@ -66,7 +66,7 @@ public sealed class AiServerConfigService : IAiServerConfigService
             foreach (var o in others) { o.UseForFormBuilder = false; }
         }
 
-        // "IA gestion de plantillas" (ADR-0174): mismo single-select, requiere habilitado.
+        // "IA gestion de plantillas" (ADR-0175): mismo single-select, requiere habilitado.
         var wantsTemplateBuilder = request.UseForTemplateBuilder && config.IsEnabled;
         config.UseForTemplateBuilder = wantsTemplateBuilder;
         if (wantsTemplateBuilder)

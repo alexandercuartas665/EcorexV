@@ -7,7 +7,7 @@ using Xunit;
 namespace Ecorex.Application.Tests;
 
 /// <summary>
-/// Agente editor de plantillas de WhatsApp (ADR-0174, fase 2): verificador determinista de las reglas de Meta
+/// Agente editor de plantillas de WhatsApp (ADR-0175, fase 2): verificador determinista de las reglas de Meta
 /// (dorados) y lectura del borrador que propone el agente.
 /// </summary>
 public class WhatsAppTemplateAgentTests

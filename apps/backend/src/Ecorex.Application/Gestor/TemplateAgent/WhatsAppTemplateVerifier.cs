@@ -11,7 +11,7 @@ public sealed record WhatsAppDraft(
     string? Cuerpo, string? Pie, IReadOnlyList<WhatsAppTemplateVariable> Variables);
 
 /// <summary>
-/// Verificador DETERMINISTA de plantillas HSM de WhatsApp (ADR-0174, fase 2): anticipa los rechazos tipicos de
+/// Verificador DETERMINISTA de plantillas HSM de WhatsApp (ADR-0175, fase 2): anticipa los rechazos tipicos de
 /// Meta antes de someter (que es irreversible). Errores: nombre no snake_case/largo, idioma invalido, cuerpo vacio o
 /// &gt; 1024, encabezado/pie &gt; 60 o con variables, variable sin ejemplo, cuerpo que empieza/termina en variable,
 /// variables pegadas, demasiadas variables para el texto ("Params Words Ratio"), categoria Authentication (requiere

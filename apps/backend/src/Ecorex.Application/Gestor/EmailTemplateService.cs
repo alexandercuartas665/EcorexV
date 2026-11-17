@@ -14,7 +14,7 @@ public sealed record EmailTemplateDto(
 public sealed record SaveEmailTemplateRequest(string Nombre, string Asunto, string CuerpoHtml, bool Activa = true);
 
 /// <summary>Valores de merge de un contacto para renderizar una plantilla de correo. Los ultimos cinco
-/// (ADR-0174) son opcionales: {vendedor} = asesor asignado, {telefono}, {sector}, {firma} = firma HTML del
+/// (ADR-0175) son opcionales: {vendedor} = asesor asignado, {telefono}, {sector}, {firma} = firma HTML del
 /// asesor (Mi cuenta) y {enlace_baja} = URL publica para darse de baja de los correos.</summary>
 public sealed record EmailMergeFields(
     string? Nombre, string? Empresa, string? Cargo, string? Ciudad, string? Correo,
@@ -102,7 +102,7 @@ public sealed class EmailTemplateService : IEmailTemplateService
     {
         var entity = await _db.EmailTemplates.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
         if (entity is null) { return false; }
-        // Soft-delete (regla 5, ADR-0174): nunca DELETE fisico. La fila queda marcada y el filtro global la
+        // Soft-delete (regla 5, ADR-0175): nunca DELETE fisico. La fila queda marcada y el filtro global la
         // oculta; ademas se desactiva para que el motor no la use aunque alguien la consulte sin filtro.
         entity.IsDeleted = true;
         entity.DeletedAt = DateTimeOffset.UtcNow;

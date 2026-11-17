@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Gestor.TemplateAgent;
 
 /// <summary>
-/// Herramientas del agente para PLANTILLAS DE WHATSAPP (HSM) (ADR-0174, fase 2):
+/// Herramientas del agente para PLANTILLAS DE WHATSAPP (HSM) (ADR-0175, fase 2):
 ///  - get_whatsapp_template / list_whatsapp_context / verify_whatsapp: solo lectura (sin gate);
 ///  - save_whatsapp_draft: crea o actualiza el BORRADOR via IWhatsAppTemplateService (validacion, unicidad,
 ///    auditoria) -> gate + version previa;

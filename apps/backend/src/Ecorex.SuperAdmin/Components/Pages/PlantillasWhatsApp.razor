@@ -141,7 +141,7 @@ else
     }
 }
 
-@* ===== Agente editor de plantillas (ADR-0174, fase 2): vista previa + verificacion + versiones + chat ===== *@
+@* ===== Agente editor de plantillas (ADR-0175, fase 2): vista previa + verificacion + versiones + chat ===== *@
 @if (_agentOpen)
 {
     <div class="modal-overlay">
@@ -593,7 +593,7 @@ else
     private string? _editorError;
     private IReadOnlyList<WhatsAppTemplateVariable> _fVariables = new List<WhatsAppTemplateVariable>();
 
-    // ===== Agente editor de plantillas (ADR-0174, fase 2) =====
+    // ===== Agente editor de plantillas (ADR-0175, fase 2) =====
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private bool _agentOpen;
     private Guid _agentKey = Guid.NewGuid();

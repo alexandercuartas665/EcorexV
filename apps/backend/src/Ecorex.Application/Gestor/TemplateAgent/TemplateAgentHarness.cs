@@ -3,7 +3,7 @@ using System.Text;
 namespace Ecorex.Application.Gestor.TemplateAgent;
 
 /// <summary>
-/// Arneses (system prompts) del agente editor de plantillas (ADR-0174). Texto estable por conversacion para
+/// Arneses (system prompts) del agente editor de plantillas (ADR-0175). Texto estable por conversacion para
 /// aprovechar el prompt caching del proveedor. Solo ASCII (convencion del repo).
 /// </summary>
 public static class TemplateAgentHarness

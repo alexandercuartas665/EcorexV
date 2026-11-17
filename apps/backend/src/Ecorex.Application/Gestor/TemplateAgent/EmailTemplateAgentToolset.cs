@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Gestor.TemplateAgent;
 
 /// <summary>
-/// Herramientas del agente para PLANTILLAS DE CORREO (ADR-0174):
+/// Herramientas del agente para PLANTILLAS DE CORREO (ADR-0175):
 ///  - get_template / list_variables / verify_email: solo lectura (sin gate);
 ///  - save_template: guarda asunto + cuerpo completos (crea la plantilla si es nueva) -> gate + version previa;
 ///  - send_test: envia la plantilla con datos de ejemplo AL CORREO DEL USUARIO ACTUAL -> gate.

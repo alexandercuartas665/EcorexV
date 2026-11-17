@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Infrastructure.Forms;
 
 /// <summary>
-/// Persistencia del agente editor de plantillas (ADR-0174) sobre EcorexDbContext. Mismo patron que
+/// Persistencia del agente editor de plantillas (ADR-0175) sobre EcorexDbContext. Mismo patron que
 /// FormBuilderChatStore: lecturas AsNoTracking y escrituras que destrackean (el DbContext scoped vive todo el
 /// circuito Blazor). TenantId lo sella el interceptor; el filtro global aisla por tenant.
 /// </summary>

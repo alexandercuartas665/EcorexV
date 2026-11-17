@@ -379,7 +379,7 @@ else
         }
     </div>
 
-    @* Firma de correo del usuario (ADR-0174): alimenta {firma} en las plantillas cuando es el asesor del contacto. *@
+    @* Firma de correo del usuario (ADR-0175): alimenta {firma} en las plantillas cuando es el asesor del contacto. *@
     <h2 style="font-size:1.05rem;font-weight:700;margin:26px 0 12px;">Mi firma de correo</h2>
     <div class="card" style="max-width:1040px;padding:18px 22px;">
         <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Se inserta en las plantillas de correo con la variable <b>{firma}</b> cuando eres el asesor asignado del contacto. Acepta HTML corto (nombre, cargo, telefono, logo).</div>
@@ -602,7 +602,7 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
-    // Firma de correo (ADR-0174).
+    // Firma de correo (ADR-0175).
     private string? _firma;
     private bool _firmaBusy;
     private string? _firmaMsg;

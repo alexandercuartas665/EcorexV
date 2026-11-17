@@ -2,9 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-16 - v0.16.335 (fase 2): agente de plantillas de WhatsApp (rama feat/agente-plantillas, SIN deploy)
+## 2026-11-16 - v0.16.336 (fase 2): agente de plantillas de WhatsApp (integrada al tronco 2026-11-17, SIN deploy)
 
-- AGENTE: Claude Opus 5.5. ADR-0174 (seccion Fase 2). Mismo nucleo de la fase 1, sin migraciones nuevas.
+- AGENTE: Claude Opus 5.5. ADR-0175 (seccion Fase 2). Mismo nucleo de la fase 1, sin migraciones nuevas.
 - HECHO: WhatsAppTemplateAgentToolset (leer, contexto de lineas, verify_whatsapp, save_whatsapp_draft, submit_to_meta
   IRREVERSIBLE con confirmacion aparte) + WhatsAppTemplateVerifier (reglas de Meta). /plantillas-whatsapp: "Agente IA"
   y "Agente" por fila -> panel con vista previa tipo WhatsApp, verificacion en vivo, versiones y chat. El editor manual
@@ -17,9 +17,11 @@
   correo solo a ese buzon).
 - PENDIENTE: someter una plantilla real a Meta solo con OK explicito (crea la plantilla en la WABA de la linea).
 
-## 2026-11-16 - v0.16.335: agente editor de plantillas de correo + bajas + firma (rama feat/agente-plantillas, SIN deploy)
+## 2026-11-16 - v0.16.336: agente editor de plantillas de correo + bajas + firma (integrada al tronco 2026-11-17, SIN deploy)
 
-- AGENTE: Claude Opus 5.5 (sesion del motor de acciones; el usuario pidio construirlo en esta sesion). ADR-0174.
+- INTEGRACION (2026-11-17, dev principal): rebase sobre 743f3f5d (lector de medios DeepSeek, que tomo ADR-0174 y v0.16.335). Este trabajo se renumero a ADR-0175 y v0.16.336. Conflictos resueltos conservando ambos lados: AiProviderConfig/AiProviderDtos/AiServerConfigService/ServidoresIa tienen UseForTemplateBuilder ("IA gestion de plantillas") Y TranscriptionModel (transcriptor de plataforma). La migracion AddTemplateAgentAndEmailUnsubscribe conserva su timestamp (PG 20261117011732 / SQL 20261117011718, ya aplicada en la BD local) y queda antes de AddAgentMediaReaderAndTranscriber.
+
+- AGENTE: Claude Opus 5.5 (sesion del motor de acciones; el usuario pidio construirlo en esta sesion). ADR-0175.
 - HECHO (fase 1, correo): nucleo generico de chat con gate humano (TemplateAgentChatService + ITemplateAgentToolset),
   conversacion persistente, versiones (TemplateSnapshot) con Restaurar, verificador determinista obligatorio
   (EmailTemplateVerifier), toolset de correo (get_template/list_variables/verify_email/save_template/send_test).

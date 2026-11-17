@@ -75,7 +75,7 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IQuoteTemplateService, Tenancy.QuoteTemplateService>();
         // Plantillas de correo del motor de acciones por filtro (ADR-0056, paso E-mail).
         services.AddScoped<Gestor.IEmailTemplateService, Gestor.EmailTemplateService>();
-        // Agente editor de plantillas + bajas de correo + firma por usuario (ADR-0174).
+        // Agente editor de plantillas + bajas de correo + firma por usuario (ADR-0175).
         services.AddScoped<Gestor.IEmailUnsubscribeService, Gestor.EmailUnsubscribeService>();
         services.AddScoped<Gestor.IUserSignatureService, Gestor.UserSignatureService>();
         services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.EmailTemplateAgentToolset>();

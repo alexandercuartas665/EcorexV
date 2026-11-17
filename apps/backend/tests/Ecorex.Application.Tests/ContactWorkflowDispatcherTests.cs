@@ -102,7 +102,7 @@ public class ContactWorkflowDispatcherTests
         }
     }
 
-    // Doble de bajas de correo (ADR-0174): conjunto fijo + enlace determinista.
+    // Doble de bajas de correo (ADR-0175): conjunto fijo + enlace determinista.
     private sealed class FakeUnsubscribes(params string[] emails) : IEmailUnsubscribeService
     {
         public string? BuildLink(Guid tenantId, string email) => "https://app.test/baja/" + email;
@@ -497,7 +497,7 @@ public class ContactWorkflowDispatcherTests
         return (dispatcher, whatsapp, db, inner);
     }
 
-    // Escenario E-mail (ADR-0174): 2 contactos con correo, uno con asesor vinculado a un usuario con firma.
+    // Escenario E-mail (ADR-0175): 2 contactos con correo, uno con asesor vinculado a un usuario con firma.
     private static (ContactWorkflowDispatcher, FakeEmail, InnerDb) BuildEmail(params string[] unsubscribed)
     {
         var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>()

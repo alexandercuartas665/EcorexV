@@ -22,7 +22,7 @@ public sealed record TemplateVerifyResult(int Errors, int Warnings, IReadOnlyLis
 }
 
 /// <summary>
-/// Verificador DETERMINISTA de plantillas de correo (ADR-0174). Lo usa la herramienta verify_email del agente
+/// Verificador DETERMINISTA de plantillas de correo (ADR-0175). Lo usa la herramienta verify_email del agente
 /// y el cierre obligatorio del turno (el sistema lo corre aunque el modelo no lo llame), y tambien el boton
 /// "Verificar" del editor. Reglas: variables conocidas, HTML apto para correo (sin JS/formularios/iframes),
 /// enlaces validos y seguros, imagenes con alt, tamano bajo el recorte de Gmail, asunto razonable y

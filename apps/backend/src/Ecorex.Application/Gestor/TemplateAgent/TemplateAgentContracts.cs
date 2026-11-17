@@ -45,7 +45,7 @@ public sealed class TemplateAgentToolContext
 }
 
 /// <summary>
-/// Herramientas de un tipo de plantilla (correo o WhatsApp) para el nucleo del agente (ADR-0174). El nucleo
+/// Herramientas de un tipo de plantilla (correo o WhatsApp) para el nucleo del agente (ADR-0175). El nucleo
 /// es generico: conversacion, gate humano, versiones, proveedor, cupo y verificacion obligatoria; cada
 /// toolset aporta el arnes (system prompt), las herramientas, el verificador y la foto para versionar.
 /// </summary>
@@ -107,7 +107,7 @@ public interface ITemplateAgentStore
 /// <summary>Version guardada de una plantilla (lista del editor).</summary>
 public sealed record TemplateSnapshotDto(Guid Id, string Label, DateTimeOffset CreatedAt);
 
-/// <summary>Versiones (snapshots) de plantillas: tomar, listar y restaurar in-place (ADR-0174).</summary>
+/// <summary>Versiones (snapshots) de plantillas: tomar, listar y restaurar in-place (ADR-0175).</summary>
 public interface ITemplateSnapshotService
 {
     Task SnapshotAsync(TemplateAgentKind kind, Guid templateId, string label, Guid? conversationId, Guid? actorUserId, CancellationToken cancellationToken = default);

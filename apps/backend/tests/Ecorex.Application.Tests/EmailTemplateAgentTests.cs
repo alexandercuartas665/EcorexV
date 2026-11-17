@@ -11,7 +11,7 @@ using Xunit;
 namespace Ecorex.Application.Tests;
 
 /// <summary>
-/// Agente editor de plantillas de correo (ADR-0174): verificador determinista (dorados), merge de las variables
+/// Agente editor de plantillas de correo (ADR-0175): verificador determinista (dorados), merge de las variables
 /// nuevas (incluye escape HTML y firma) y GATE humano del nucleo (una mutacion se PROPONE y no corre hasta
 /// Confirmar; una irreversible exige la confirmacion explicita).
 /// </summary>

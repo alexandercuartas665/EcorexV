@@ -1,7 +1,12 @@
-# ADR-0174: Agente editor de plantillas de correo y WhatsApp (nucleo generico de chat + bajas + firma)
+# ADR-0175: Agente editor de plantillas de correo y WhatsApp (nucleo generico de chat + bajas + firma)
 
 Fecha: 2026-11-16
 Estado: Aceptada (fase 1: correo; fase 2: WhatsApp)
+Version: v0.16.336
+
+> Nota de renumeracion (2026-11-17): este ADR nacio como ADR-0174 en la rama feat/agente-plantillas. Al
+> integrarlo al tronco, ADR-0174 ya estaba tomado por el lector de medios de los agentes (DeepSeek, v0.16.335),
+> asi que paso a ADR-0175 y la version a v0.16.336.
 
 ## Contexto
 

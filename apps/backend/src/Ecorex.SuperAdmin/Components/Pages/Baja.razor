@@ -6,7 +6,7 @@
 @using Ecorex.SuperAdmin.Auth
 @inject IEmailUnsubscribeService BajasSvc
 
-@* Pagina PUBLICA de baja de correos (ADR-0174), destino del {enlace_baja} de las plantillas. Sin login: el
+@* Pagina PUBLICA de baja de correos (ADR-0175), destino del {enlace_baja} de las plantillas. Sin login: el
    acceso lo gobierna el token opaco (Data Protection, proposito propio) que lleva (tenant, correo). Validar
    es el UNICO punto cross-tenant (solo lectura); la baja se registra con el tenant del token fijado como
    ambient. Mensajes neutros ante tokens invalidos; el correo se muestra enmascarado. *@

@@ -4,7 +4,7 @@ using Ecorex.Domain.Enums;
 namespace Ecorex.Domain.Entities;
 
 /// <summary>
-/// Conversacion del AGENTE EDITOR DE PLANTILLAS (ADR-0174): chat que crea/edita una plantilla de correo
+/// Conversacion del AGENTE EDITOR DE PLANTILLAS (ADR-0175): chat que crea/edita una plantilla de correo
 /// (<see cref="TemplateAgentKind.Email"/>) o de WhatsApp (<see cref="TemplateAgentKind.WhatsApp"/>).
 /// Entidad TENANT-SCOPED. <see cref="TemplateId"/> apunta a la EmailTemplate / WhatsAppTemplate que se
 /// edita (null hasta que el agente crea una nueva). Persiste para retomar el chat y auditar.
@@ -60,7 +60,7 @@ public class TemplateAgentMessage : TenantEntity
 
 /// <summary>
 /// Version guardada de una plantilla (correo o WhatsApp) ANTES de un cambio del agente o de una
-/// restauracion (ADR-0174). Append-only. <see cref="PayloadJson"/> guarda el contenido completo para
+/// restauracion (ADR-0175). Append-only. <see cref="PayloadJson"/> guarda el contenido completo para
 /// poder "Restaurar" in-place.
 /// </summary>
 public class TemplateSnapshot : TenantEntity
@@ -81,7 +81,7 @@ public class TemplateSnapshot : TenantEntity
 }
 
 /// <summary>
-/// Baja de correos de un contacto (ADR-0174): quien abre el {enlace_baja} de un correo queda registrado aqui
+/// Baja de correos de un contacto (ADR-0175): quien abre el {enlace_baja} de un correo queda registrado aqui
 /// por (tenant, correo) y el motor de acciones deja de enviarle correos. La Lista negra existente es de
 /// TELEFONOS; esta es la equivalente para correo. Unico por (TenantId, Email).
 /// </summary>

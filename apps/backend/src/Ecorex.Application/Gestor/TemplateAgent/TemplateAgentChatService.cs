@@ -10,7 +10,7 @@ using Ecorex.Domain.Enums;
 namespace Ecorex.Application.Gestor.TemplateAgent;
 
 /// <summary>
-/// NUCLEO GENERICO del agente editor de plantillas (ADR-0174). Mismo patron que el constructor de formularios
+/// NUCLEO GENERICO del agente editor de plantillas (ADR-0175). Mismo patron que el constructor de formularios
 /// (FormBuilderChatService, ADR-0067) pero independiente del tipo de plantilla: el toolset de cada tipo
 /// (correo / WhatsApp) aporta arnes, herramientas, verificador y version. El nucleo aporta:
 ///  - conversacion persistente (se retoma al reabrir la plantilla);

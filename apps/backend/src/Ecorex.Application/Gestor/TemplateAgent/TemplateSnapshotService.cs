@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Gestor.TemplateAgent;
 
 /// <summary>
-/// Versiones de plantillas (ADR-0174). Append-only: cada cambio del agente toma antes una foto del contenido
+/// Versiones de plantillas (ADR-0175). Append-only: cada cambio del agente toma antes una foto del contenido
 /// (via el toolset del tipo) y "Restaurar" vuelve a ese contenido in-place, guardando antes la version actual
 /// para poder deshacer la restauracion.
 /// </summary>

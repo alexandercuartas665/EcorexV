@@ -35,7 +35,7 @@ public interface IApplicationDbContext
     DbSet<FormBuilderMessage> FormBuilderMessages { get; }
     DbSet<EmailTemplate> EmailTemplates { get; }
 
-    // Agente editor de plantillas (ADR-0174). Miembros con implementacion por defecto para no obligar a los
+    // Agente editor de plantillas (ADR-0175). Miembros con implementacion por defecto para no obligar a los
     // dobles de prueba (FakeAppDb) a declararlos; EcorexDbContext los implementa con sus DbSet reales.
     DbSet<EmailUnsubscribe> EmailUnsubscribes => throw new NotSupportedException();
     DbSet<TemplateSnapshot> TemplateSnapshots => throw new NotSupportedException();

@@ -59,7 +59,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     private readonly Voice.IRetellVoiceService _voice;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ContactWorkflowDispatcher> _logger;
-    // Bajas de correo + {enlace_baja} (ADR-0174). Opcional para no romper los dobles de prueba existentes.
+    // Bajas de correo + {enlace_baja} (ADR-0175). Opcional para no romper los dobles de prueba existentes.
     private readonly IEmailUnsubscribeService? _unsubscribes;
     private HashSet<string>? _unsubscribedCache;
 
@@ -482,7 +482,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             return (ContactWorkflowRunStatus.Skipped, channel, null, "La plantilla de correo no existe o esta inactiva.");
         }
 
-        // Baja de correos (ADR-0174): quien abrio su {enlace_baja} no vuelve a recibir correos del motor.
+        // Baja de correos (ADR-0175): quien abrio su {enlace_baja} no vuelve a recibir correos del motor.
         if (await IsUnsubscribedAsync(to, cancellationToken))
         {
             return (ContactWorkflowRunStatus.Skipped, channel, null, "El contacto se dio de baja de los correos.");
@@ -518,7 +518,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
 
     private sealed record EmailTemplateRow(string Nombre, string Asunto, string CuerpoHtml);
 
-    // Valores de merge del contacto (ADR-0174 suma vendedor/telefono/sector/firma/enlace_baja).
+    // Valores de merge del contacto (ADR-0175 suma vendedor/telefono/sector/firma/enlace_baja).
     private EmailMergeFields MergeFieldsFor(SegmentContact contact)
     {
         string? enlace = null;
@@ -626,7 +626,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 t.Email,
                 t.Telefono,
                 EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null,
-                // {vendedor}/{firma} (ADR-0174): asesor vinculado (o el texto legado) y la firma de su usuario.
+                // {vendedor}/{firma} (ADR-0175): asesor vinculado (o el texto legado) y la firma de su usuario.
                 AsesorNombre = t.VendedorAsesor != null ? t.VendedorAsesor.Nombre : null,
                 AsesorFirma = t.VendedorAsesor != null && t.VendedorAsesor.TenantUser != null
                     ? t.VendedorAsesor.TenantUser.FirmaHtml : null

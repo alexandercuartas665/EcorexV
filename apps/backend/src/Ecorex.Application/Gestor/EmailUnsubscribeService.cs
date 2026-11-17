@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Gestor;
 
 /// <summary>
-/// Cifra/descifra el token del {enlace_baja} (ADR-0174). Implementado en Infrastructure con Data Protection
+/// Cifra/descifra el token del {enlace_baja} (ADR-0175). Implementado en Infrastructure con Data Protection
 /// (proposito propio, distinto del de secretos). El token es opaco y lleva (tenant, correo): no hay que
 /// guardar nada por contacto antes de enviar.
 /// </summary>
@@ -25,7 +25,7 @@ public sealed record UnsubscribeLinkInfo(bool IsValid, Guid? TenantId, string? E
 public sealed record EmailUnsubscribeDto(Guid Id, string Email, string Origen, string? Motivo, DateTimeOffset CreatedAt);
 
 /// <summary>
-/// Bajas de correo por tenant (ADR-0174). El motor de acciones consulta <see cref="GetUnsubscribedSetAsync"/>
+/// Bajas de correo por tenant (ADR-0175). El motor de acciones consulta <see cref="GetUnsubscribedSetAsync"/>
 /// y omite a esos contactos; la pagina publica /baja/{token} registra la baja.
 /// </summary>
 public interface IEmailUnsubscribeService

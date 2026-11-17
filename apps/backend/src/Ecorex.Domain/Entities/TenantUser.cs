@@ -23,7 +23,7 @@ public class TenantUser : TenantEntity
     public string? Phone { get; set; }
 
     /// <summary>Firma de correo del usuario (HTML corto, editable en Mi cuenta). Alimenta la variable
-    /// {firma} de las plantillas de correo cuando este usuario es el asesor del contacto (ADR-0174).</summary>
+    /// {firma} de las plantillas de correo cuando este usuario es el asesor del contacto (ADR-0175).</summary>
     public string? FirmaHtml { get; set; }
 
     /// <summary>Alcance de leads del asesor (los admin/owner/supervisor ven todo por rol).</summary>

@@ -22,7 +22,7 @@ public class EmailTemplate : TenantEntity, ISoftDeletable
     /// <summary>Solo las plantillas activas se ofrecen en el disenador y las usa el motor.</summary>
     public bool Activa { get; set; } = true;
 
-    // --- ISoftDeletable (ADR-0174): "Eliminar" marca la fila; el filtro global la oculta. ---
+    // --- ISoftDeletable (ADR-0175): "Eliminar" marca la fila; el filtro global la oculta. ---
     public bool IsDeleted { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }
     public Guid? DeletedByTenantUserId { get; set; }

@@ -28,4 +28,9 @@ public class AiProviderConfig : BaseEntity
     /// formularios"). Solo UNO deberia tenerlo activo; el servicio lo garantiza al guardar (lo apaga en los
     /// demas). Si ninguno lo tiene, el asistente cae a Gemini por defecto. Requiere IsEnabled + API key.</summary>
     public bool UseForFormBuilder { get; set; }
+
+    /// <summary>TRANSCRIPTOR DE PLATAFORMA (ADR-0174), solo aplica a la fila de Gemini: modelo con que se
+    /// transcriben las notas de voz de los agentes cuyo proveedor no oye audio (DeepSeek, ChatGPT, Claude).
+    /// Null = gemini-2.5-flash. El consumo se carga al tenant del agente.</summary>
+    public string? TranscriptionModel { get; set; }
 }

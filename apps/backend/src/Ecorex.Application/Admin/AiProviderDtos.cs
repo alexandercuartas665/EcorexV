@@ -13,7 +13,9 @@ public sealed record AiProviderDto(
     string DefaultModel,
     IReadOnlyList<string> SuggestedModels,
     // Este proveedor es el que usa el asistente de creacion de formularios ("IA gestion de formularios").
-    bool UseForFormBuilder = false);
+    bool UseForFormBuilder = false,
+    // Solo Gemini: modelo del transcriptor de plataforma (ADR-0174); null = gemini-2.5-flash.
+    string? TranscriptionModel = null);
 
 public sealed record SaveAiProviderRequest(
     AiProvider Provider,
@@ -22,7 +24,9 @@ public sealed record SaveAiProviderRequest(
     string? BaseUrl,
     bool IsEnabled,
     // Marca este proveedor como el del asistente de formularios (el servicio lo apaga en los demas).
-    bool UseForFormBuilder = false);
+    bool UseForFormBuilder = false,
+    // Solo Gemini: modelo del transcriptor de plataforma (ADR-0174); vacio = gemini-2.5-flash.
+    string? TranscriptionModel = null);
 
 /// <summary>Proveedor disponible para que una agencia lo use en sus agentes (sin datos sensibles).
 /// <paramref name="ConfigId"/> es el Id de la fila del Super Admin: sirve como referencia estable cuando

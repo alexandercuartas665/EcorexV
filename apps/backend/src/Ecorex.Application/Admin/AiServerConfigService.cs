@@ -49,6 +49,10 @@ public sealed class AiServerConfigService : IAiServerConfigService
         config.Model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim();
         config.BaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? null : request.BaseUrl.Trim();
         config.IsEnabled = request.IsEnabled && config.ApiKeyEncrypted is not null;
+        // Transcriptor de plataforma (ADR-0174): solo tiene sentido en Gemini (el unico que oye audio).
+        config.TranscriptionModel = request.Provider == AiProvider.Gemini && !string.IsNullOrWhiteSpace(request.TranscriptionModel)
+            ? request.TranscriptionModel.Trim()
+            : null;
 
         // "IA gestion de formularios": solo un proveedor puede serlo, y debe estar habilitado (con key). Al
         // marcarlo aqui se apaga en los demas (single-select); no se puede marcar uno deshabilitado.
@@ -65,7 +69,7 @@ public sealed class AiServerConfigService : IAiServerConfigService
         // Auditoria SIN la API key.
         _audit.Write(actorUserId, isNew ? "ai.provider.create" : "ai.provider.update",
             nameof(AiProviderConfig), config.Id,
-            previousValue: null, newValue: new { config.Provider, config.Model, config.IsEnabled });
+            previousValue: null, newValue: new { config.Provider, config.Model, config.IsEnabled, config.TranscriptionModel });
 
         await _db.SaveChangesAsync(cancellationToken);
         return Map(config.Provider, config);
@@ -100,7 +104,8 @@ public sealed class AiServerConfigService : IAiServerConfigService
             c?.IsEnabled ?? false,
             meta.DefaultModel,
             meta.Models,
-            c?.UseForFormBuilder ?? false);
+            c?.UseForFormBuilder ?? false,
+            c?.TranscriptionModel);
     }
 
     private string Mask(string encrypted)

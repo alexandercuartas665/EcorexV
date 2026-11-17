@@ -106,6 +106,14 @@ else
                     <span>IA gestion de formularios</span>
                 </label>
                 <div class="text-muted" style="font-size:11px;">El asistente de creacion de formularios usara ESTE proveedor. Solo uno puede serlo (al marcarlo se apaga en los demas) y debe estar habilitado.</div>
+                @if (_editing.Provider == AiProvider.Gemini)
+                {
+                    <div class="field" style="margin-top:12px;">
+                        <label class="form-label">Modelo del transcriptor de notas de voz</label>
+                        <input class="form-control" list="ai-models-@_editing.Provider" @bind="_form.TranscriptionModel" placeholder="@Ecorex.Application.Tenancy.AgentMediaReader.DefaultTranscriptionModel" autocomplete="off" />
+                        <div class="text-muted" style="font-size:11px;margin-top:4px;">Transcribe los audios de los agentes cuyo proveedor no oye audio (DeepSeek, ChatGPT, Claude). Usa un modelo barato; el consumo se carga a la empresa del agente. Vacio = @Ecorex.Application.Tenancy.AgentMediaReader.DefaultTranscriptionModel.</div>
+                    </div>
+                }
                 @if (_modalError is not null)
                 {
                     <div class="text-danger small" style="margin-top:8px;">@_modalError</div>
@@ -144,6 +152,7 @@ else
         _form.BaseUrl = p.BaseUrl;
         _form.IsEnabled = p.IsEnabled;
         _form.UseForFormBuilder = p.UseForFormBuilder;
+        _form.TranscriptionModel = p.TranscriptionModel;
     }
 
     private async Task SaveAsync()
@@ -154,7 +163,7 @@ else
         try
         {
             var actor = await ActorAsync();
-            var req = new SaveAiProviderRequest(_editing.Provider, _form.ApiKey, _form.Model, _form.BaseUrl, _form.IsEnabled, _form.UseForFormBuilder);
+            var req = new SaveAiProviderRequest(_editing.Provider, _form.ApiKey, _form.Model, _form.BaseUrl, _form.IsEnabled, _form.UseForFormBuilder, _form.TranscriptionModel);
             await AiSvc.SaveAsync(req, actor);
             _providers = (await AiSvc.ListAsync()).ToList();
             _editing = null;
@@ -195,5 +204,6 @@ else
         public string? BaseUrl { get; set; }
         public bool IsEnabled { get; set; }
         public bool UseForFormBuilder { get; set; }
+        public string? TranscriptionModel { get; set; }
     }
 }

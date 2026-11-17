@@ -1970,6 +1970,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
 
+                    b.Property<string>("MediaReaderPrompt")
+                        .HasColumnType("text")
+                        .HasColumnName("media_reader_prompt");
+
                     b.Property<string>("Model")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -2488,6 +2492,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("provider");
+
+                    b.Property<string>("TranscriptionModel")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("transcription_model");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")

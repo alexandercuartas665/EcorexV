@@ -739,6 +739,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         {
             b.Property(x => x.Model).HasMaxLength(120);
             b.Property(x => x.BaseUrl).HasMaxLength(500);
+            b.Property(x => x.TranscriptionModel).HasMaxLength(120);
             b.HasIndex(x => x.Provider).IsUnique();
         });
 
@@ -1124,6 +1125,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Role).HasMaxLength(100);
             b.Property(x => x.Model).HasMaxLength(100);
             b.Property(x => x.SystemPrompt).HasColumnType(longTextColumnType);
+            b.Property(x => x.MediaReaderPrompt).HasColumnType(longTextColumnType);
             b.Property(x => x.DisabledToolsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.AllowedBoardIdsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);

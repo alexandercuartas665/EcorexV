@@ -316,6 +316,37 @@ else
                         }
                     </div>
 
+                    @* ===== Lector de archivos (imagenes / PDF) - acordeon, ADR-0174 ===== *@
+                    <hr style="border-color:var(--border);margin:14px 0;" />
+                    <div class="ag-accordion">
+                        <div class="ag-accordion-head" role="button" tabindex="0" @onclick="() => _mediaReaderOpen = !_mediaReaderOpen">
+                            <span class="ag-accordion-chev @(_mediaReaderOpen ? "open" : "")">&#9656;</span>
+                            <span class="pl-stagegroup-title" style="margin:0;">Lector de archivos</span>
+                            <span class="ag-accordion-spacer"></span>
+                            <span class="small text-muted">@(string.IsNullOrWhiteSpace(_fMediaReaderPrompt) ? "Generico" : "Personalizado")</span>
+                        </div>
+                        @if (_mediaReaderOpen)
+                        {
+                            <div class="ag-accordion-body">
+                                <div class="text-muted" style="font-size:12px;margin-bottom:10px;">
+                                    Cada imagen o PDF que manda el cliente se lee ANTES de responder y su lectura se agrega al mensaje como texto
+                                    ("[Lectura automatica ...]"): la usan el agente y los datos cache. Vacio = lector generico (describe el archivo y
+                                    transcribe todo el texto legible: productos, cantidades, valores, nombres, ciudades, fechas). Escribe aqui tus
+                                    propias instrucciones si necesitas campos fijos (p. ej. VALOR_TOTAL_COP de una factura).
+                                </div>
+                                <textarea class="form-control" rows="8" style="font-family:var(--bs-font-monospace);font-size:12px;" @bind="_fMediaReaderPrompt"
+                                          placeholder="Vacio = lector generico" disabled="@_busy"></textarea>
+                                <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@_busy"
+                                            @onclick="() => _fMediaReaderPrompt = Ecorex.Application.Tenancy.AgentMediaReader.GenericReaderPrompt">Partir del generico</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(_busy || string.IsNullOrWhiteSpace(_fMediaReaderPrompt))"
+                                            @onclick="() => _fMediaReaderPrompt = null">Volver al generico</button>
+                                </div>
+                                <div class="text-muted" style="font-size:11.5px;margin-top:10px;">Las notas de voz no usan este lector: se transcriben (con Gemini si el agente usa otro proveedor). Se guarda con <strong>Guardar cambios</strong>.</div>
+                            </div>
+                        }
+                    </div>
+
                     @* ===== Notificacion de cierre: olvidar + mensaje al comercial + resumen (acordeon unico, ADR-0161) ===== *@
                     <hr style="border-color:var(--border);margin:14px 0;" />
                     <div class="ag-accordion">
@@ -1542,6 +1573,8 @@ else
 
     // Reacciones automaticas (emoji) a los mensajes del cliente, sin pasar por el LLM (cero tokens).
     private bool _reactionsOpen;
+    private bool _mediaReaderOpen;
+    private string? _fMediaReaderPrompt;
     private bool _fReactionsEnabled;
     private int _fReactionN = 3;
     private int _fReactionM = 4;
@@ -1711,6 +1744,7 @@ else
         _fReactionN = 3;
         _fReactionM = 4;
         _fReactionEmojis = null;
+        _fMediaReaderPrompt = null;
         _resources = new();
         _prompts = new();
         _versions = new();
@@ -1774,6 +1808,7 @@ else
         _fReactionN = detail.Agent.ReactionRatioN;
         _fReactionM = detail.Agent.ReactionRatioM <= 0 ? 4 : detail.Agent.ReactionRatioM;
         _fReactionEmojis = detail.Agent.ReactionEmojis;
+        _fMediaReaderPrompt = detail.Agent.MediaReaderPrompt;
         _reactionsOpen = false;
         await LoadCierreAsync(id);
         _cierreOpen = false;
@@ -2626,11 +2661,13 @@ else
                 var created = await AgentsSvc.CreateAsync(new CreateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis), actor);
                 if (created is null) { _editorError = "No se pudo crear el agente."; return; }
                 _editId = created.Id;
+                if (!string.IsNullOrWhiteSpace(_fMediaReaderPrompt)) { await AgentsSvc.SetMediaReaderPromptAsync(_editId.Value, _fMediaReaderPrompt, actor); }
                 await ReloadCacheAsync(_editId.Value);
             }
             else
             {
                 await AgentsSvc.UpdateAsync(_editId.Value, new UpdateAiAgentRequest(_fName, _fRole, _fProvider, model, _fPrompt, _disabledTools.ToList(), _fReactionsEnabled, _fReactionN, _fReactionM, _fReactionEmojis, _fAllowedBoardIds.ToList(), _fAssigneeUserIds.ToList(), _fDefaultSubcatId), actor);
+                await AgentsSvc.SetMediaReaderPromptAsync(_editId.Value, _fMediaReaderPrompt, actor);
                 await ReloadVersionsAsync(_editId.Value);
             }
             await ReloadAsync();

@@ -1970,6 +1970,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_active");
 
+                    b.Property<string>("MediaReaderPrompt")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("media_reader_prompt");
+
                     b.Property<string>("Model")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
@@ -2488,6 +2492,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("provider");
+
+                    b.Property<string>("TranscriptionModel")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("transcription_model");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")

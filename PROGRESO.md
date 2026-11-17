@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-17 - v0.16.337: diseno profesional por defecto en el agente de plantillas de correo (SIN deploy)
+
+- AGENTE: Claude Opus 4.8. ADR-0175 (nota). Rama feat/plantillas-prompt-profesional.
+- MOTIVO: probando en prod (SOLDARCO, v0.16.336) el agente de correo redactaba HTML correcto pero PLANO (parrafos
+  negros sobre blanco). El modelo SI produce correos de agencia cuando se le describe el diseno, pero no lo hacia por
+  defecto: el arnes (EmailSystemPrompt) solo exigia reglas de entregabilidad, no estetica.
+- HECHO: TemplateAgentHarness.EmailSystemPrompt gana una seccion "DISENO PROFESIONAL (REGLA POR DEFECTO)": lienzo tipo
+  tarjeta 600px sobre fondo gris, banda de encabezado con color de marca (logo si hay, si no el nombre como wordmark),
+  titulo hero, cuerpo con jerarquia, razones como mini-tarjetas con icono, CTA bulletproof en color de acento,
+  separadores, pie gris con contacto + enlace de baja discreto, y paleta coherente de 2-3 colores. Se conservan las
+  reglas de HTML apto para correo (tablas, inline, sin JS).
+- VERIFICADO: build Application 0 errores; dotnet format del archivo limpio; Application.Tests TemplateAgent 18/18.
+  E2E en prod: el agente rehizo la plantilla plana a una version de 8.7 KB con encabezado de marca, tarjetas y boton
+  naranja, verificacion en orden. Plantilla de prueba `presentacion_comercial` dejada INACTIVA en SOLDARCO.
+- PENDIENTE: merge por dev al tronco + espejo main y deploy SOLO con OK del usuario. Opcional: configurar logo/color de
+  marca de SOLDARCO para que el encabezado use el logo real.
+
 ## 2026-11-16 - v0.16.336 (fase 2): agente de plantillas de WhatsApp (DESPLEGADA 2026-11-17)
 
 - AGENTE: Claude Opus 5.5. ADR-0175 (seccion Fase 2). Mismo nucleo de la fase 1, sin migraciones nuevas.

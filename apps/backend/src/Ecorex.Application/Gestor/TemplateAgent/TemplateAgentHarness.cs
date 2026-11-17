@@ -41,9 +41,25 @@ public static class TemplateAgentHarness
         sb.AppendLine("- Prohibido: JavaScript, formularios, iframes, video, atributos on*. Imagenes con URL https absoluta, width explicito y alt.");
         sb.AppendLine("- Botones como enlace <a> con fondo de color y padding (botones a prueba de balas), enlaces siempre https://.");
         sb.AppendLine("- Mantener el HTML por debajo de ~100 KB (Gmail recorta por encima). Asunto de menos de 80 caracteres.");
+        sb.AppendLine();
+        sb.AppendLine("DISENO PROFESIONAL (REGLA POR DEFECTO, aunque el usuario no lo pida de forma explicita):");
+        sb.AppendLine("Todo correo debe verse como de agencia: pulido, con marca y jerarquia visual clara. NUNCA entregues parrafos planos de texto negro sobre fondo blanco: eso se considera un resultado incompleto.");
+        sb.AppendLine("- Lienzo: una tarjeta central de 600px centrada sobre un fondo exterior gris claro (p.ej. #f4f5f7), con esquinas redondeadas (8-12px) y una sombra muy sutil. El contenido vive dentro de esa tarjeta blanca.");
+        sb.AppendLine("- Encabezado: una banda a todo el ancho de la tarjeta con el color de marca; dentro el logo (si hay) o, si no, el nombre de la empresa como wordmark grande en blanco. Debajo, un titulo tipo hero (22-28px, bold).");
+        sb.AppendLine("- Cuerpo: padding amplio (28-40px), line-height 1.5-1.6, texto 15-16px en gris oscuro (#333). Separa ideas con subtitulos en negrita; frases cortas, con aire.");
+        sb.AppendLine("- Razones / listas / beneficios: presentalos como items o mini-tarjetas, cada uno con un icono (emoji sirve) + un subtitulo en negrita + una linea de apoyo. NUNCA como un parrafo corrido.");
+        sb.AppendLine("- CTA: un boton a prueba de balas y destacado (<a> con fondo del color de ACENTO, texto blanco, padding 14x28px, border-radius 6-8px, texto en bold), centrado y con espacio en blanco alrededor.");
+        sb.AppendLine("- Ritmo: usa separadores finos (p.ej. borde #eaeaea) entre secciones; no amontones el contenido.");
+        sb.AppendLine("- Pie: una banda con fondo gris claro con el bloque de contacto de la empresa (incluye {firma}; si falta un dato como direccion o telefono, deja un marcador claro para completar) y, en texto pequeno y discreto (11-12px, gris), el enlace de baja.");
+        sb.AppendLine("PALETA: aplica una paleta coherente de 2-3 colores (un color de MARCA oscuro para el encabezado + un color de ACENTO para el CTA + neutros). Si el usuario no indica colores, derivalos del logo o elige una combinacion sobria y profesional; cuida siempre el contraste (texto oscuro sobre claro, blanco sobre el color de marca). Evita colores chillones o saturados sin criterio.");
+        sb.AppendLine("Adapta el tono visual al proposito: una presentacion comercial puede ser mas rica; un correo de seguimiento, mas limpio y breve. Pero incluso el mas simple lleva encabezado de marca, buena tipografia y pie cuidado.");
         if (!string.IsNullOrWhiteSpace(logoUrl))
         {
-            sb.AppendLine($"- Logo de la empresa (usalo en el encabezado si no se indica otro): {logoUrl}");
+            sb.AppendLine($"- Logo de la empresa (usalo en la banda del encabezado): {logoUrl}");
+        }
+        else
+        {
+            sb.AppendLine($"- No hay logo configurado: usa el nombre \"{tenantName}\" como wordmark en la banda del encabezado (tipografia grande, en blanco sobre el color de marca).");
         }
         return sb.ToString();
     }

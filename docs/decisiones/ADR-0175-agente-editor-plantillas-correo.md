@@ -76,3 +76,13 @@ Migracion dual aditiva `AddTemplateAgentAndEmailUnsubscribe` (4 tablas + 5 colum
   manual ahora CONSERVA los ejemplos de las variables al guardar (antes los pisaba con el catalogo).
 - Arnes: el agente no afirma haber hecho una accion que solo propuso (visto en el E2E: "Listo, ya envie" antes de
   confirmar).
+
+## Nota (v0.16.337): diseno profesional por defecto
+
+Al probar en prod, el agente de correo entregaba HTML correcto pero visualmente plano (parrafos negros sobre blanco)
+cuando el usuario no detallaba el diseno. El modelo sabe hacer correos de agencia, pero el arnes solo le pedia reglas de
+entregabilidad. `EmailSystemPrompt` gana una seccion "DISENO PROFESIONAL (REGLA POR DEFECTO)" que exige, aunque no se
+pida: lienzo tipo tarjeta de 600px sobre fondo gris, banda de encabezado con color de marca (logo si existe, si no el
+nombre del tenant como wordmark), titulo hero, razones como mini-tarjetas con icono, CTA bulletproof en color de acento,
+separadores, pie gris con contacto + enlace de baja discreto, y una paleta coherente de 2-3 colores. No cambia la
+resolucion de proveedor ni las reglas de HTML apto para correo; es solo guia de estilo en el system prompt.

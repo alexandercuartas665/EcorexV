@@ -1,0 +1,316 @@
+@* Panel de chat del AGENTE EDITOR DE PLANTILLAS (ADR-0174), generico para correo y WhatsApp. Gate humano:
+   las acciones que guardan/envian llegan como PROPUESTAS con Confirmar/Rechazar; las IRREVERSIBLES (someter a
+   Meta) muestran una tarjeta roja con su propio boton. Al aplicar un cambio avisa al editor (OnTemplateChanged)
+   para recargar la plantilla en vivo. *@
+@using System.Text.Json
+@using Ecorex.Application.Gestor.TemplateAgent
+@using Ecorex.Domain.Enums
+@using Microsoft.AspNetCore.Components.Authorization
+@inject ITemplateAgentChatService Chat
+@inject IJSRuntime JS
+
+<div class="tac">
+    <div class="tac-head">
+        <div>
+            <div class="tac-title">Agente de plantillas</div>
+            <div class="tac-sub">@Subtitle</div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="ResetAsync" disabled="@(_busy || _conversationId is null)" title="Empezar un chat nuevo para esta plantilla">Nuevo chat</button>
+    </div>
+
+    <div class="tac-msgs">
+        @foreach (var m in _messages)
+        {
+            <div class="tac-bubble @m.Css">@m.Text</div>
+        }
+        @if (_awaiting && _proposals.Count > 0)
+        {
+            var irreversible = _proposals.Any(p => p.Irreversible);
+            <div class="tac-proposal @(irreversible ? "danger" : "")">
+                <div class="tac-proposal-h">@(irreversible ? "Accion IRREVERSIBLE: revisa antes de confirmar" : "El agente quiere:")</div>
+                <ul class="tac-proposal-list">
+                    @foreach (var p in _proposals)
+                    {
+                        <li>@Describe(p)</li>
+                    }
+                </ul>
+                @if (irreversible)
+                {
+                    @foreach (var p in _proposals.Where(x => x.Irreversible))
+                    {
+                        <pre class="tac-final">@FinalText(p)</pre>
+                    }
+                    <label class="tac-ack"><input type="checkbox" @bind="_ack" /> Entiendo que se enviara a Meta y no se puede deshacer.</label>
+                    <div class="tac-proposal-actions">
+                        <button class="btn btn-danger btn-sm" @onclick="ConfirmIrreversibleAsync" disabled="@(_busy || !_ack)">Someter a Meta</button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="RejectAsync" disabled="@_busy">Rechazar</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="tac-proposal-actions">
+                        <button class="btn btn-primary btn-sm" @onclick="ConfirmAsync" disabled="@_busy">Confirmar</button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="RejectAsync" disabled="@_busy">Rechazar</button>
+                    </div>
+                }
+                <div class="tac-proposal-hint">O escribe abajo para cambiar el rumbo (se descarta lo propuesto).</div>
+            </div>
+        }
+        @if (_busy)
+        {
+            <div class="tac-bubble bot tac-typing">Pensando...</div>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="tac-error">@_error</div>
+    }
+
+    @if (_attachments.Count > 0)
+    {
+        <div class="tac-chips">
+            @foreach (var a in _attachments)
+            {
+                <span class="tac-chip">@a.FileName <button type="button" @onclick="@(() => _attachments.Remove(a))">&times;</button></span>
+            }
+        </div>
+    }
+
+    @if (_tokIn > 0 || _tokOut > 0)
+    {
+        <div class="tac-usage" title="Consumo de este chat (estimado).">
+            <span>Consumo: <strong>@Fmt(_tokIn + _tokOut) tokens</strong></span>
+            <span>~$@_costUsd.ToString("0.0000")</span>
+        </div>
+    }
+
+    <div class="tac-input">
+        <label class="tac-attach" title="Adjuntar imagen / PDF / HTML de referencia">
+            <InputFile OnChange="OnAttachAsync" accept="image/*,application/pdf,text/html,.html,.htm,.txt" style="display:none;" />
+            +
+        </label>
+        <textarea class="form-control tac-textarea" @bind="_input" @bind:event="oninput"
+                  placeholder="@(_awaiting ? "Escribe para cambiar el rumbo..." : Placeholder)" disabled="@_busy"
+                  @onkeydown="OnKeyDown"></textarea>
+        <button class="btn btn-primary btn-sm" @onclick="SendAsync"
+                disabled="@(_busy || (string.IsNullOrWhiteSpace(_input) && _attachments.Count == 0))">Enviar</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public TemplateAgentKind Kind { get; set; } = TemplateAgentKind.Email;
+
+    /// <summary>Plantilla abierta al montar el panel (null = nueva). El panel conserva su conversacion aunque
+    /// el agente cree la plantilla despues; para cambiar de plantilla el editor re-monta el panel (@key).</summary>
+    [Parameter] public Guid? TemplateId { get; set; }
+
+    /// <summary>Se invoca cuando un cambio confirmado toco la plantilla (con su id, por si se acaba de crear).</summary>
+    [Parameter] public EventCallback<Guid?> OnTemplateChanged { get; set; }
+
+    [Parameter] public string Subtitle { get; set; } = "Describe el correo, adjunta una imagen/PDF/HTML para replicarlo o pide cambios.";
+    [Parameter] public string Placeholder { get; set; } = "Ej. Un correo de bienvenida para prospectos con boton a nuestro catalogo...";
+    [Parameter] public string Greeting { get; set; } = "Hola. Cuentame que correo necesitas, o adjunta una captura/PDF/HTML de un correo y lo replico. Tambien puedo mejorar la plantilla abierta.";
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private sealed record Bubble(string Css, string Text);
+
+    private Guid? _conversationId;
+    private Guid? _templateId;
+    private readonly List<Bubble> _messages = new();
+    private readonly List<TemplateAgentAttachment> _attachments = new();
+    private List<TemplateAgentProposalDto> _proposals = new();
+    private string _input = string.Empty;
+    private bool _busy;
+    private bool _awaiting;
+    private bool _ack;
+    private string? _error;
+    private int _tokIn;
+    private int _tokOut;
+    private decimal _costUsd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _templateId = TemplateId;
+        await StartAsync(reset: false);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try { await JS.InvokeVoidAsync("tacChatScrollBottom"); }
+        catch { /* interop no listo: no es critico */ }
+    }
+
+    private async Task StartAsync(bool reset)
+    {
+        var actor = await ActorAsync();
+        TemplateAgentStartResult r;
+        if (reset && _conversationId is Guid cid) { r = await Chat.ResetAsync(cid, actor); }
+        else { r = await Chat.StartAsync(Kind, _templateId, actor); }
+        _messages.Clear(); _proposals = new(); _awaiting = false; _ack = false;
+        if (!r.Ok) { _error = r.Error; _conversationId = null; return; }
+        _error = null;
+        _conversationId = r.ConversationId;
+
+        var transcript = await Chat.GetTranscriptAsync(r.ConversationId);
+        foreach (var msg in transcript)
+        {
+            if (string.IsNullOrWhiteSpace(msg.Content)) { continue; }
+            if (msg.Role == FormBuilderMessageRole.User
+                && !msg.Content!.StartsWith("(No confirme", StringComparison.Ordinal)
+                && !msg.Content.StartsWith("El usuario rechazo", StringComparison.Ordinal)
+                && !msg.Content.StartsWith(TemplateAgentNotes.Prefix, StringComparison.Ordinal))
+            {
+                _messages.Add(new Bubble("me", msg.Content!));
+            }
+            else if (msg.Role == FormBuilderMessageRole.Assistant) { _messages.Add(new Bubble("bot", msg.Content!)); }
+        }
+        var pend = transcript
+            .Where(m => m.Role == FormBuilderMessageRole.Proposal && m.ProposalState == FormBuilderProposalState.Pending)
+            .Select(m => new TemplateAgentProposalDto(m.Id, m.ToolName ?? string.Empty, m.ToolArgsJson ?? "{}", IsIrreversible(m.ToolName)))
+            .ToList();
+        if (pend.Count > 0) { _proposals = pend; _awaiting = true; }
+        if (_messages.Count == 0) { _messages.Add(new Bubble("bot", Greeting)); }
+    }
+
+    private static bool IsIrreversible(string? tool) => tool is "submit_to_meta";
+
+    private async Task ResetAsync()
+    {
+        if (_busy) { return; }
+        _busy = true; StateHasChanged();
+        try { await StartAsync(reset: true); }
+        finally { _busy = false; }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey) { await SendAsync(); }
+    }
+
+    private async Task OnAttachAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var f = e.File;
+            if (f is null) { return; }
+            using var ms = new MemoryStream();
+            await f.OpenReadStream(15 * 1024 * 1024).CopyToAsync(ms);
+            _attachments.Add(new TemplateAgentAttachment(f.Name, f.ContentType ?? string.Empty, Convert.ToBase64String(ms.ToArray())));
+            _error = null;
+        }
+        catch (Exception ex) { _error = "No se pudo leer el archivo: " + ex.Message; }
+    }
+
+    private async Task SendAsync()
+    {
+        if (_busy || _conversationId is null) { return; }
+        var text = _input?.Trim();
+        if (string.IsNullOrWhiteSpace(text) && _attachments.Count == 0) { return; }
+        var shown = string.IsNullOrWhiteSpace(text) ? "(archivo adjunto)" : text!;
+        if (_attachments.Count > 0) { shown += "  [" + string.Join(", ", _attachments.Select(a => a.FileName)) + "]"; }
+        _messages.Add(new Bubble("me", shown));
+        var atts = _attachments.ToList();
+        _input = string.Empty; _attachments.Clear();
+        _awaiting = false; _proposals = new(); _ack = false;
+        _busy = true; _error = null;
+        StateHasChanged();
+        var actor = await ActorAsync();
+        TemplateAgentTurnResult r;
+        try { r = await Chat.SendAsync(_conversationId.Value, text, atts, actor); }
+        catch (Exception ex) { r = TemplateAgentTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false;
+        await ApplyAsync(r);
+    }
+
+    private Task ConfirmAsync() => DoConfirmAsync(false);
+    private Task ConfirmIrreversibleAsync() => DoConfirmAsync(true);
+
+    private async Task DoConfirmAsync(bool irreversible)
+    {
+        if (_conversationId is null || _busy) { return; }
+        _busy = true; _error = null; StateHasChanged();
+        var actor = await ActorAsync();
+        TemplateAgentTurnResult r;
+        try { r = await Chat.ConfirmAsync(_conversationId.Value, actor, irreversible); }
+        catch (Exception ex) { r = TemplateAgentTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false; _ack = false;
+        await ApplyAsync(r);
+    }
+
+    private async Task RejectAsync()
+    {
+        if (_conversationId is null || _busy) { return; }
+        _busy = true; _error = null; StateHasChanged();
+        var actor = await ActorAsync();
+        TemplateAgentTurnResult r;
+        try { r = await Chat.RejectAsync(_conversationId.Value, null, actor); }
+        catch (Exception ex) { r = TemplateAgentTurnResult.Fail(_conversationId.Value, ex.Message); }
+        _busy = false; _ack = false;
+        await ApplyAsync(r);
+    }
+
+    private async Task ApplyAsync(TemplateAgentTurnResult r)
+    {
+        _tokIn += r.TurnInputTokens;
+        _tokOut += r.TurnOutputTokens;
+        _costUsd += r.TurnCostUsd;
+        if (!r.Ok)
+        {
+            _error = r.Error;
+            _awaiting = false; _proposals = new();
+            StateHasChanged();
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(r.AssistantText)) { _messages.Add(new Bubble("bot", r.AssistantText!)); }
+        _proposals = r.Proposals?.ToList() ?? new();
+        _awaiting = r.AwaitingConfirmation;
+        var idChanged = r.TemplateId != _templateId;
+        _templateId = r.TemplateId;
+        StateHasChanged();
+        if (r.TemplateChanged || idChanged) { await OnTemplateChanged.InvokeAsync(r.TemplateId); }
+    }
+
+    // Descripcion humana de la propuesta (sin volcar el HTML completo).
+    private static string Describe(TemplateAgentProposalDto p)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(p.ArgumentsJson) ? "{}" : p.ArgumentsJson);
+            var r = doc.RootElement;
+            string S(string k) => r.ValueKind == JsonValueKind.Object && r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+            return p.ToolName switch
+            {
+                "save_template" => $"Guardar la plantilla{(S("nombre").Length > 0 ? " \"" + S("nombre") + "\"" : "")} - asunto: \"{S("asunto")}\" ({System.Text.Encoding.UTF8.GetByteCount(S("cuerpo_html")) / 1024.0:0.0} KB de HTML)",
+                "send_test" => "Enviarte un correo de prueba (con datos de ejemplo) a tu correo de usuario",
+                "save_whatsapp_draft" => $"Guardar el borrador de WhatsApp \"{S("nombre")}\" ({S("categoria")})",
+                "submit_to_meta" => "Someter la plantilla a Meta (via YCloud) para aprobacion",
+                _ => p.ToolName,
+            };
+        }
+        catch { return p.ToolName; }
+    }
+
+    // Texto final que se sometera (tarjeta de confirmacion irreversible).
+    private static string FinalText(TemplateAgentProposalDto p)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(p.ArgumentsJson) ? "{}" : p.ArgumentsJson);
+            return doc.RootElement.TryGetProperty("preview", out var v) && v.ValueKind == JsonValueKind.String
+                ? v.GetString() ?? string.Empty
+                : "Se sometera el borrador GUARDADO de la plantilla (ver vista previa a la izquierda).";
+        }
+        catch { return string.Empty; }
+    }
+
+    private static string Fmt(int n) => n >= 1000 ? (n / 1000d).ToString("0.0") + "k" : n.ToString();
+
+    private async Task<Guid> ActorAsync()
+    {
+        if (AuthState is null) { return Guid.Empty; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+}

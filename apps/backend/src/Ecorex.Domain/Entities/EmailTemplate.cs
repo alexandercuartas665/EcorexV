@@ -8,7 +8,7 @@ namespace Ecorex.Domain.Entities;
 /// {nombre}, {empresa}, {cargo}, {ciudad}, {correo} que se reemplazan con los datos del contacto
 /// (Tercero) al enviar; el cuerpo escapa las variables (HTML) para evitar inyeccion.
 /// </summary>
-public class EmailTemplate : TenantEntity
+public class EmailTemplate : TenantEntity, ISoftDeletable
 {
     /// <summary>Nombre visible de la plantilla (ej. "Bienvenida prospectos").</summary>
     public string Nombre { get; set; } = null!;
@@ -21,4 +21,9 @@ public class EmailTemplate : TenantEntity
 
     /// <summary>Solo las plantillas activas se ofrecen en el disenador y las usa el motor.</summary>
     public bool Activa { get; set; } = true;
+
+    // --- ISoftDeletable (ADR-0174): "Eliminar" marca la fila; el filtro global la oculta. ---
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? DeletedByTenantUserId { get; set; }
 }

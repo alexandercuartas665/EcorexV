@@ -33,4 +33,9 @@ public class AiProviderConfig : BaseEntity
     /// transcriben las notas de voz de los agentes cuyo proveedor no oye audio (DeepSeek, ChatGPT, Claude).
     /// Null = gemini-2.5-flash. El consumo se carga al tenant del agente.</summary>
     public string? TranscriptionModel { get; set; }
+
+    /// <summary>Marca este proveedor como el del AGENTE EDITOR DE PLANTILLAS (correo y WhatsApp, ADR-0174):
+    /// "IA gestion de plantillas". Single-select igual que <see cref="UseForFormBuilder"/>. Si ninguno lo
+    /// tiene, el agente cae al proveedor de formularios y luego a Gemini.</summary>
+    public bool UseForTemplateBuilder { get; set; }
 }

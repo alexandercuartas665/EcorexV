@@ -90,8 +90,28 @@ public class ContactWorkflowDispatcherTests
 
     private sealed class FakeEmail : IEmailSender
     {
+        public int Sends { get; private set; }
+        public string? LastHtml { get; private set; }
+        public string? LastTo { get; private set; }
         public Task<EmailSendResult> SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
-            => Task.FromResult(new EmailSendResult(true, null));
+        {
+            Sends++;
+            LastTo = toEmail;
+            LastHtml = htmlBody;
+            return Task.FromResult(new EmailSendResult(true, null));
+        }
+    }
+
+    // Doble de bajas de correo (ADR-0174): conjunto fijo + enlace determinista.
+    private sealed class FakeUnsubscribes(params string[] emails) : IEmailUnsubscribeService
+    {
+        public string? BuildLink(Guid tenantId, string email) => "https://app.test/baja/" + email;
+        public Task<UnsubscribeLinkInfo> ValidateAsync(string token, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> UnsubscribeAsync(string token, string? motivo, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<HashSet<string>> GetUnsubscribedSetAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new HashSet<string>(emails, StringComparer.OrdinalIgnoreCase));
+        public Task<IReadOnlyList<EmailUnsubscribeDto>> ListAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> RemoveAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Doble de voz IA: estos tests no ejercitan el paso Llamada IA; basta para construir el dispatcher.
@@ -475,6 +495,73 @@ public class ContactWorkflowDispatcherTests
             db, new FakeTenantContext(TenantId), whatsapp, new FakeEmail(), new FakeTasks(), new FakeVoice(),
             TimeProvider.System, NullLogger<ContactWorkflowDispatcher>.Instance);
         return (dispatcher, whatsapp, db, inner);
+    }
+
+    // Escenario E-mail (ADR-0174): 2 contactos con correo, uno con asesor vinculado a un usuario con firma.
+    private static (ContactWorkflowDispatcher, FakeEmail, InnerDb) BuildEmail(params string[] unsubscribed)
+    {
+        var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>()
+            .UseInMemoryDatabase("cwd-email-" + Guid.NewGuid()).Options);
+        inner.Tenants.Add(new Tenant { Id = TenantId, Name = "Tenant", TimeZoneId = "UTC" });
+        var filtro = new TerceroFiltro { TenantId = TenantId, Nombre = "Todos", CriteriosJson = "[]" };
+        inner.TerceroFiltros.Add(filtro);
+
+        var user = new TenantUser { TenantId = TenantId, PlatformUserId = Guid.NewGuid(), Email = "maria@acme.test", FirmaHtml = "<b>Maria Gomez</b>" };
+        var asesor = new Asesor { TenantId = TenantId, Nombre = "Maria Gomez", TenantUserId = user.Id, TenantUser = user };
+        inner.Terceros.Add(new Tercero { TenantId = TenantId, Nombre = "Ana", Tipo = TerceroTipo.Persona, Estado = TerceroEstado.Activo, Email = "ana@cliente.test", Telefono = "3001112233", Sector = "Construccion", VendedorAsesor = asesor, VendedorAsesorId = asesor.Id });
+        inner.Terceros.Add(new Tercero { TenantId = TenantId, Nombre = "Beto", Tipo = TerceroTipo.Persona, Estado = TerceroEstado.Activo, Email = "BETO@cliente.test" });
+
+        var tpl = new EmailTemplate
+        {
+            TenantId = TenantId,
+            Nombre = "Promo",
+            Asunto = "Hola {nombre}",
+            Activa = true,
+            CuerpoHtml = "<p>{nombre} | {vendedor} | {telefono} | {sector}</p>{firma}<a href=\"{enlace_baja}\">baja</a>"
+        };
+        inner.EmailTemplates.Add(tpl);
+
+        var wf = new ContactWorkflow { TenantId = TenantId, TerceroFiltroId = filtro.Id, Nombre = "Acciones", Activo = true };
+        inner.ContactWorkflows.Add(wf);
+        var step = new ContactWorkflowStep { TenantId = TenantId, ContactWorkflowId = wf.Id, StepType = ContactWorkflowStepType.Email, Label = "Correo", Orden = 0 };
+        inner.ContactWorkflowSteps.Add(step);
+        inner.ContactWorkflowSchedules.Add(new ContactWorkflowSchedule
+        {
+            TenantId = TenantId,
+            ContactWorkflowStepId = step.Id,
+            StartTime = new TimeOnly(0, 0),
+            EndTime = new TimeOnly(23, 59),
+            ActiveDays = AllDays,
+            TemplateId = tpl.Id.ToString()
+        });
+        inner.SaveChanges();
+
+        var email = new FakeEmail();
+        var dispatcher = new ContactWorkflowDispatcher(
+            new FakeAppDb(inner), new FakeTenantContext(TenantId), new FakeWhatsApp(), email, new FakeTasks(), new FakeVoice(),
+            TimeProvider.System, NullLogger<ContactWorkflowDispatcher>.Instance, new FakeUnsubscribes(unsubscribed));
+        return (dispatcher, email, inner);
+    }
+
+    [Fact]
+    public async Task Email_lleva_vendedor_firma_telefono_sector_y_enlace_de_baja()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, email, inner) = BuildEmail("beto@cliente.test");
+
+        await dispatcher.RunDueForTenantAsync(now);
+
+        // Solo Ana recibe: Beto se dio de baja (comparacion sin importar mayusculas).
+        Assert.Equal(1, email.Sends);
+        Assert.Equal("ana@cliente.test", email.LastTo);
+        Assert.Contains("Ana | Maria Gomez | 3001112233 | Construccion", email.LastHtml);
+        Assert.Contains("<b>Maria Gomez</b>", email.LastHtml); // firma HTML sin escapar
+        Assert.Contains("https://app.test/baja/ana@cliente.test", email.LastHtml);
+
+        var runs = await inner.ContactWorkflowRuns.ToListAsync();
+        Assert.Equal(2, runs.Count);
+        var skipped = Assert.Single(runs, r => r.Status == ContactWorkflowRunStatus.Skipped);
+        Assert.Contains("baja", skipped.Error ?? string.Empty);
     }
 
     /// <summary>Todos los dias ISO como CSV (para que la ventana no dependa del dia en que corre el test).</summary>

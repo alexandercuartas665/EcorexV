@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - v0.16.335: agente editor de plantillas de correo + bajas + firma (rama feat/agente-plantillas, SIN deploy)
+
+- AGENTE: Claude Opus 5.5 (sesion del motor de acciones; el usuario pidio construirlo en esta sesion). ADR-0174.
+- HECHO (fase 1, correo): nucleo generico de chat con gate humano (TemplateAgentChatService + ITemplateAgentToolset),
+  conversacion persistente, versiones (TemplateSnapshot) con Restaurar, verificador determinista obligatorio
+  (EmailTemplateVerifier), toolset de correo (get_template/list_variables/verify_email/save_template/send_test).
+  /plantillas-correo pasa a editor de 3 columnas (campos | vista previa en iframe sandbox | chat del agente) con
+  verificacion en vivo, selector de versiones y lista de bajas. Variables nuevas {telefono} {sector} {vendedor} {firma}
+  {enlace_baja}; firma por usuario en Mi cuenta (TenantUser.FirmaHtml); pagina publica /baja/{token} (token Data
+  Protection de proposito propio) + EmailUnsubscribe; el motor omite a los dados de baja. Flag "IA gestion de
+  plantillas" en Servidores de IA. EmailTemplate a soft-delete; vista previa del disenador de acciones en iframe sandbox.
+- MIGRACION dual aditiva AddTemplateAgentAndEmailUnsubscribe (20261117011732 PG / 20261117011718 SQL): 4 tablas + 5 columnas.
+- VERIFICADO: build 0 errores; Application.Tests 1478 (11 nuevos: verificador, merge, preheader, gate e irreversible; +1
+  dispatcher con baja/firma/vendedor), Domain.Tests 35, Integration: TenantIsolation dual 6/6 y token de baja 3/3.
+  E2E local :5271 (SOLDARCO, BD 5442, Gemini): crear desde un brief, replicar desde imagen (canvas), editar, version +
+  restaurar, gate (Pending sin escritura hasta Confirmar), soft-delete, firma, /baja con token valido e invalido, quitar baja.
+  Ajustes tras el E2E: el agente ya no pide permiso ni pega el borrador (va directo a la tarjeta) y recibe una nota del
+  sistema al restaurar/guardar a mano (antes reaplicaba el asunto viejo de su historial).
+- NO PROBADO: send_test (enviaria a un buzon real de SOLDARCO).
+- OJO: deepseek-v4-flash (marcado para formularios en la BD) da 400 en la 2a vuelta con herramientas (reasoning_content);
+  en prod marcar Gemini como "IA gestion de plantillas" antes de usar el agente.
+- SIGUIENTE: fase 2 (WhatsApp: redactar + someter a Meta con confirmacion irreversible); merge al tronco y deploy con OK.
+
 ## 2026-11-16 - Release v0.16.335: agentes en DeepSeek entienden imagenes, PDF y notas de voz (DESPLEGADA 2026-11-17)
 
 - DEPLOY: 2026-11-17 04:30 Bogota con OK del usuario (via rapida GHCR). Footer /login = v0.16.335; migracion 20261117023912_AddAgentMediaReaderAndTranscriber aplicada; media_reader_prompt sembrado SOLO en "Agente Comercial" (EPRING); sin errores en logs.

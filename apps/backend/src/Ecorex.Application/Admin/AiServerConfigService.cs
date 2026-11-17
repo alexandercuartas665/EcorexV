@@ -66,6 +66,17 @@ public sealed class AiServerConfigService : IAiServerConfigService
             foreach (var o in others) { o.UseForFormBuilder = false; }
         }
 
+        // "IA gestion de plantillas" (ADR-0174): mismo single-select, requiere habilitado.
+        var wantsTemplateBuilder = request.UseForTemplateBuilder && config.IsEnabled;
+        config.UseForTemplateBuilder = wantsTemplateBuilder;
+        if (wantsTemplateBuilder)
+        {
+            var others = await _db.AiProviderConfigs
+                .Where(c => c.Provider != request.Provider && c.UseForTemplateBuilder)
+                .ToListAsync(cancellationToken);
+            foreach (var o in others) { o.UseForTemplateBuilder = false; }
+        }
+
         // Auditoria SIN la API key.
         _audit.Write(actorUserId, isNew ? "ai.provider.create" : "ai.provider.update",
             nameof(AiProviderConfig), config.Id,
@@ -105,6 +116,7 @@ public sealed class AiServerConfigService : IAiServerConfigService
             meta.DefaultModel,
             meta.Models,
             c?.UseForFormBuilder ?? false,
+            c?.UseForTemplateBuilder ?? false,
             c?.TranscriptionModel);
     }
 

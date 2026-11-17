@@ -16,4 +16,12 @@ public interface INotifyLinkBuilder
 
     /// <summary>Enlace absoluto de firma por link (p.ej. https://app.../firmar/{token}); null si no hay URL base.</summary>
     string? BuildSignatureLink(string token);
+
+    /// <summary>Enlace absoluto de baja de correos (p.ej. https://app.../baja/{token}, ADR-0174); null si no hay
+    /// URL base. Implementacion por defecto null para no romper dobles de prueba.</summary>
+    string? BuildUnsubscribeLink(string token) => null;
+
+    /// <summary>Convierte una ruta relativa de la app (p.ej. /uploads/logo.png) en URL absoluta con la URL base
+    /// publica; devuelve la misma URL si ya es absoluta y null si no hay URL base (ADR-0174: logos en correos).</summary>
+    string? ToAbsoluteUrl(string? pathOrUrl) => pathOrUrl is not null && pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? pathOrUrl : null;
 }

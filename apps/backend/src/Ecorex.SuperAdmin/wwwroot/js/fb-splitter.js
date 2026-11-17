@@ -9,6 +9,12 @@ window.fbChatScrollBottom = function () {
     if (el) { el.scrollTop = el.scrollHeight; }
 };
 
+// Igual para el chat del agente editor de plantillas (ADR-0174): contenedor .tac-msgs.
+window.tacChatScrollBottom = function () {
+    var el = document.querySelector('.tac-msgs');
+    if (el) { el.scrollTop = el.scrollHeight; }
+};
+
 (function () {
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 

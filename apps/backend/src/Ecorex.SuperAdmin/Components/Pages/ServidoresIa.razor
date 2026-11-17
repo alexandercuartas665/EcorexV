@@ -58,6 +58,10 @@ else
                     {
                         <div><span>Formularios</span><strong style="color:var(--bs-success, #198754);">&#10003; IA gestion de formularios</strong></div>
                     }
+                    @if (p.UseForTemplateBuilder)
+                    {
+                        <div><span>Plantillas</span><strong style="color:var(--bs-success, #198754);">&#10003; IA gestion de plantillas</strong></div>
+                    }
                 </div>
                 <button class="btn @(p.HasApiKey ? "btn-outline-secondary" : "btn-primary") btn-sm" style="margin-top:12px;width:100%;" @onclick="() => OpenEdit(p)">
                     @(p.HasApiKey ? "Editar configuracion" : "Configurar")
@@ -106,6 +110,11 @@ else
                     <span>IA gestion de formularios</span>
                 </label>
                 <div class="text-muted" style="font-size:11px;">El asistente de creacion de formularios usara ESTE proveedor. Solo uno puede serlo (al marcarlo se apaga en los demas) y debe estar habilitado.</div>
+                <label class="ai-toggle" style="margin-top:10px;">
+                    <input type="checkbox" checked="@_form.UseForTemplateBuilder" @onchange="e => _form.UseForTemplateBuilder = (bool)e.Value!" />
+                    <span>IA gestion de plantillas</span>
+                </label>
+                <div class="text-muted" style="font-size:11px;">El agente editor de plantillas de correo y WhatsApp usara ESTE proveedor. Solo uno puede serlo; si ninguno lo esta, usa el de formularios.</div>
                 @if (_editing.Provider == AiProvider.Gemini)
                 {
                     <div class="field" style="margin-top:12px;">
@@ -153,6 +162,7 @@ else
         _form.IsEnabled = p.IsEnabled;
         _form.UseForFormBuilder = p.UseForFormBuilder;
         _form.TranscriptionModel = p.TranscriptionModel;
+        _form.UseForTemplateBuilder = p.UseForTemplateBuilder;
     }
 
     private async Task SaveAsync()
@@ -163,7 +173,7 @@ else
         try
         {
             var actor = await ActorAsync();
-            var req = new SaveAiProviderRequest(_editing.Provider, _form.ApiKey, _form.Model, _form.BaseUrl, _form.IsEnabled, _form.UseForFormBuilder, _form.TranscriptionModel);
+            var req = new SaveAiProviderRequest(_editing.Provider, _form.ApiKey, _form.Model, _form.BaseUrl, _form.IsEnabled, _form.UseForFormBuilder, _form.UseForTemplateBuilder, TranscriptionModel: _form.TranscriptionModel);
             await AiSvc.SaveAsync(req, actor);
             _providers = (await AiSvc.ListAsync()).ToList();
             _editing = null;
@@ -205,5 +215,6 @@ else
         public bool IsEnabled { get; set; }
         public bool UseForFormBuilder { get; set; }
         public string? TranscriptionModel { get; set; }
+        public bool UseForTemplateBuilder { get; set; }
     }
 }

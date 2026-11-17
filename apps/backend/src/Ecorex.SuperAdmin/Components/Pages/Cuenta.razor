@@ -16,6 +16,7 @@
 @inject Ecorex.Application.Auth.IAuthService AuthSvc
 @inject Ecorex.Application.Tenancy.ITenantApiService TenantApiSvc
 @inject Ecorex.Application.Tenancy.ITenantEmailConfigService TenantEmailSvc
+@inject Ecorex.Application.Gestor.IUserSignatureService FirmaSvc
 
 <PageTitle>Mi cuenta - ECOREX.tareas</PageTitle>
 
@@ -378,6 +379,22 @@ else
         }
     </div>
 
+    @* Firma de correo del usuario (ADR-0174): alimenta {firma} en las plantillas cuando es el asesor del contacto. *@
+    <h2 style="font-size:1.05rem;font-weight:700;margin:26px 0 12px;">Mi firma de correo</h2>
+    <div class="card" style="max-width:1040px;padding:18px 22px;">
+        <div class="text-muted" style="font-size:12px;margin-bottom:8px;">Se inserta en las plantillas de correo con la variable <b>{firma}</b> cuando eres el asesor asignado del contacto. Acepta HTML corto (nombre, cargo, telefono, logo).</div>
+        <div style="display:grid;grid-template-columns:minmax(260px,1fr) minmax(260px,1fr);gap:14px;">
+            <textarea class="form-control" rows="6" style="font-family:ui-monospace,Consolas,monospace;font-size:12px;" maxlength="4000"
+                      @bind="_firma" @bind:event="oninput" placeholder="&lt;p&gt;Maria Gomez&lt;br/&gt;Asesora comercial &#183; 300 123 4567&lt;/p&gt;"></textarea>
+            <iframe sandbox="" title="Vista previa de la firma" style="width:100%;min-height:140px;border:1px solid var(--line);border-radius:8px;background:#fff;"
+                    srcdoc="@FirmaDoc()"></iframe>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+            <button class="btn btn-primary btn-sm" @onclick="SaveFirmaAsync" disabled="@_firmaBusy">Guardar firma</button>
+            @if (_firmaMsg is not null) { <span class="text-muted" style="font-size:12px;">@_firmaMsg</span> }
+        </div>
+    </div>
+
     <h2 style="font-size:1.05rem;font-weight:700;margin:26px 0 12px;">Acceso y seguridad</h2>
     <div class="card" style="max-width:1040px;padding:18px 22px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
@@ -585,6 +602,27 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    // Firma de correo (ADR-0174).
+    private string? _firma;
+    private bool _firmaBusy;
+    private string? _firmaMsg;
+
+    private string FirmaDoc()
+        => "<!doctype html><html><body style=\"margin:8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;\">" + (_firma ?? string.Empty) + "</body></html>";
+
+    private async Task SaveFirmaAsync()
+    {
+        _firmaBusy = true; _firmaMsg = null;
+        try
+        {
+            _firmaMsg = await FirmaSvc.SaveMineAsync(_firma)
+                ? "Firma guardada."
+                : "No se pudo guardar: tu usuario no pertenece a esta empresa.";
+        }
+        catch (Exception ex) { _firmaMsg = "No se pudo guardar: " + ex.Message; }
+        finally { _firmaBusy = false; }
+    }
+
     private List<TenantListItem> _tenants = new();
     private List<PlanDetail> _plans = new();
     private Guid _tenantId;
@@ -623,6 +661,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         _plans = (await PlansSvc.ListAsync()).ToList();
+        try { _firma = await FirmaSvc.GetMineAsync(); } catch { _firma = null; }
 
         if (AuthState is not null)
         {

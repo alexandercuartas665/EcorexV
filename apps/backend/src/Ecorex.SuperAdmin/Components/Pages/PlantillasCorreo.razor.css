@@ -18,3 +18,44 @@
 .pc-prev-lbl { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: var(--ink-3); text-transform: uppercase; margin-bottom: 8px; }
 .pc-prev-subj { font-size: 13px; color: var(--ink); margin-bottom: 8px; }
 .pc-prev-body { font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 240px; overflow: auto; }
+
+/* ===== Bajas de correo (ADR-0174) ===== */
+.pc-bajas { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 12px; }
+.pc-bajas-toggle { border: 0; background: transparent; font-size: 13px; font-weight: 700; color: var(--ink-2); display: flex; align-items: center; gap: 8px; padding: 0; cursor: pointer; }
+.pc-baja-row { display: flex; align-items: center; gap: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; background: var(--surface); }
+.pc-baja-mail { font-size: 13px; font-weight: 600; color: var(--ink); min-width: 220px; }
+.pc-baja-row .btn { margin-left: auto; }
+
+/* ===== Editor con agente (ADR-0174): campos | vista previa | chat ===== */
+.pe-top { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; flex-wrap: wrap; }
+.pe-title { font-size: 18px; font-weight: 800; color: var(--ink); }
+.pe-dirty { font-size: 11px; font-weight: 700; color: #b45309; background: #fef3c7; padding: 2px 8px; border-radius: 999px; }
+.pe-top-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.pe-versions { max-width: 260px; }
+
+.pe-grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr) minmax(300px, 380px); gap: 14px; height: calc(100vh - 190px); min-height: 520px; }
+.pe-col { min-width: 0; min-height: 0; }
+.pe-fields { display: flex; flex-direction: column; overflow: auto; padding-right: 2px; }
+.pe-html { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 220px; }
+.pe-code { flex: 1 1 auto; font-family: ui-monospace, Consolas, monospace; font-size: 12px; resize: none; min-height: 200px; }
+.pe-vars { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.pe-vars .pc-prev-lbl { width: 100%; margin-bottom: 2px; }
+.pe-var { font-family: ui-monospace, Consolas, monospace; font-size: 11px; background: var(--t-slate-bg); color: var(--t-slate); padding: 1px 7px; border-radius: 6px; }
+
+.pe-preview { display: flex; flex-direction: column; border: 1px dashed var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface-2, rgba(0,0,0,.02)); overflow: hidden; }
+.pe-frame { flex: 1 1 auto; width: 100%; min-height: 240px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.pe-verify { margin-top: 8px; font-size: 12px; max-height: 32%; overflow: auto; border-radius: 8px; padding: 6px 9px; flex: 0 0 auto; }
+.pe-verify.ok { background: var(--t-green-bg); color: var(--t-green); }
+.pe-verify.warn { background: #fffbeb; color: #92400e; }
+.pe-verify.bad { background: #fef2f2; color: #991b1b; }
+.pe-verify-h { font-weight: 700; margin-bottom: 3px; }
+.pe-issue { margin-top: 3px; line-height: 1.4; }
+
+.pe-chat { display: flex; min-height: 0; }
+.pe-chat ::deep .tac { flex: 1 1 auto; }
+
+@media (max-width: 1100px) {
+    .pe-grid { grid-template-columns: 1fr; height: auto; }
+    .pe-frame { min-height: 420px; }
+    .pe-chat { height: 560px; }
+}

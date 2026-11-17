@@ -158,6 +158,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<FormBuilderConversation> FormBuilderConversations => Set<FormBuilderConversation>();
     public DbSet<FormBuilderMessage> FormBuilderMessages => Set<FormBuilderMessage>();
     public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => Set<FormBuilderSnapshot>();
+    // Agente editor de plantillas de correo/WhatsApp (ADR-0174) + bajas de correo.
+    public DbSet<TemplateAgentConversation> TemplateAgentConversations => Set<TemplateAgentConversation>();
+    public DbSet<TemplateAgentMessage> TemplateAgentMessages => Set<TemplateAgentMessage>();
+    public DbSet<TemplateSnapshot> TemplateSnapshots => Set<TemplateSnapshot>();
+    public DbSet<EmailUnsubscribe> EmailUnsubscribes => Set<EmailUnsubscribe>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
     public DbSet<FormSignatureToken> FormSignatureTokens => Set<FormSignatureToken>();
@@ -395,6 +400,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         configurationBuilder.Properties<FormBuilderMessageRole>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormSnapshotTrigger>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormBuilderProposalState>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TemplateAgentKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<LimitEnforcementMode>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AuditActorType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TenantRole>().HaveConversion<string>().HaveMaxLength(40);
@@ -760,6 +766,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.InvitationToken).HasMaxLength(128);
             b.Property(x => x.DocumentCode).HasMaxLength(60);
             b.Property(x => x.Phone).HasMaxLength(40);
+            b.Property(x => x.FirmaHtml).HasMaxLength(4000);
             b.HasOne(x => x.PlatformUser).WithMany().HasForeignKey(x => x.PlatformUserId).OnDelete(DeleteBehavior.Restrict);
             // Asignacion usuario->vista del menu (Ola 1). NO ACTION: borrar una vista no arrastra
             // al usuario por cascada (la app deja MenuViewId en null antes de borrar la vista).
@@ -1109,6 +1116,44 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Asunto).HasMaxLength(300).IsRequired();
             b.Property(x => x.CuerpoHtml).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.Activa });
+            // Soft-delete (ADR-0174): nunca DELETE fisico. El filtro global excluye IsDeleted.
+            b.Property(x => x.IsDeleted).HasDefaultValue(false);
+        });
+
+        // Agente editor de plantillas (ADR-0174): conversacion + mensajes + versiones + bajas de correo.
+        modelBuilder.Entity<TemplateAgentConversation>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Model).HasMaxLength(100);
+            b.HasIndex(x => new { x.TenantId, x.Kind, x.TemplateId });
+        });
+
+        modelBuilder.Entity<TemplateAgentMessage>(b =>
+        {
+            b.Property(x => x.Content).HasColumnType(longTextColumnType);
+            b.Property(x => x.AttachmentsJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.ToolCallId).HasMaxLength(100);
+            b.Property(x => x.ToolName).HasMaxLength(100);
+            b.Property(x => x.ToolArgsJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.ToolResultJson).HasColumnType(longTextColumnType);
+            b.HasOne(x => x.Conversation).WithMany(x => x.Messages)
+                .HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ConversationId, x.Sequence });
+        });
+
+        modelBuilder.Entity<TemplateSnapshot>(b =>
+        {
+            b.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            b.Property(x => x.PayloadJson).HasColumnType(longTextColumnType).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Kind, x.TemplateId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<EmailUnsubscribe>(b =>
+        {
+            b.Property(x => x.Email).HasMaxLength(320).IsRequired();
+            b.Property(x => x.Origen).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Motivo).HasMaxLength(500);
+            b.HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
         });
 
         modelBuilder.Entity<TemplateAsset>(b =>

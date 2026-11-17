@@ -55,6 +55,17 @@ correos (el lector no esta logueado).
 Migracion dual aditiva `AddEmailBrandGalleryStyles` (tabla `email_brands` + 7 columnas en `template_assets` + 1 en
 `email_templates`).
 
+7. **Editor en modal + tarjetas** (pedido del usuario, misma version): la lista de plantillas pasa a TARJETAS con
+   miniatura del correo renderizado (iframe sandbox escalado) y una tarjeta "+ Nueva plantilla"; el editor abre en
+   un MODAL de 2 columnas: izquierda con pestanas Vista previa | HTML | Galeria | Versiones, derecha el selector de
+   estilo + chat. Al terminar el agente, la tarjeta aparece/actualiza en la lista de fondo. La galeria se extrajo a
+   `TemplateGalleryPanel` (pestana del editor, modal de la lista y selector de logo).
+8. **Versiones visibles**: pestana con la lista (etiquetas legibles), "Ver" (pinta la version en la vista previa con
+   un aviso, sin tocar la actual), "Restaurar" (la actual queda guardada: se puede deshacer) y "Guardar version
+   ahora". `ITemplateSnapshotService.GetPayloadAsync` (miembro por defecto) y la foto de correo incluye `Estilo`.
+9. **Idioma**: regla de espanol al FINAL de ambos arneses (en el E2E, tras el JSON de una herramienta, Gemini
+   respondio en frances).
+
 ## Consecuencias
 
 - Las imagenes solo se ven en el correo si la app tiene URL publica (`ECOREX_PUBLIC_BASE_URL`); en local el

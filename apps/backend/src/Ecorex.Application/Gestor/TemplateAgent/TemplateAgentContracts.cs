@@ -114,6 +114,10 @@ public interface ITemplateSnapshotService
     Task<IReadOnlyList<TemplateSnapshotDto>> ListAsync(TemplateAgentKind kind, Guid templateId, int take = 30, CancellationToken cancellationToken = default);
     /// <summary>Restaura la version (antes guarda la actual como "Antes de restaurar", asi se puede deshacer).</summary>
     Task<bool> RestoreAsync(Guid snapshotId, Guid? actorUserId, CancellationToken cancellationToken = default);
+
+    /// <summary>Contenido JSON de una version (para verla ANTES de restaurarla). Null si no existe.</summary>
+    Task<string?> GetPayloadAsync(Guid snapshotId, CancellationToken cancellationToken = default)
+        => Task.FromResult<string?>(null);
 }
 
 /// <summary>

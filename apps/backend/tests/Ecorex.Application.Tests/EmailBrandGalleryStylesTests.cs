@@ -138,6 +138,8 @@ public class EmailBrandGalleryStylesTests
         Assert.All(EmailDesignStyles.All, s => Assert.Contains("* " + s.Key + " (", p));
         Assert.Contains("list_images", p);
         Assert.DoesNotContain("deja un marcador claro", p);
+        // Regla de idioma al FINAL (recencia): visto en el E2E, tras un resultado JSON el modelo respondio en frances.
+        Assert.StartsWith("IDIOMA:", p.TrimEnd().Split('\n').Last().Trim());
     }
 
     [Fact]
@@ -162,6 +164,20 @@ public class EmailBrandGalleryStylesTests
     {
         var p = TemplateAgentHarness.EmailSystemPrompt("BITCODE", editingExisting: false, Brand());
         Assert.All(p, ch => Assert.True(ch < 128, $"Caracter no ASCII en el arnes: U+{(int)ch:X4}"));
+    }
+
+    // ---------- Versiones ----------
+
+    [Fact]
+    public void Version_de_correo_se_lee_con_y_sin_estilo()
+    {
+        var nueva = EmailTemplateAgentToolset.ParseSnapshot("{\"nombre\":\"N\",\"asunto\":\"A\",\"cuerpoHtml\":\"<p>x</p>\",\"estilo\":\"elegante\"}");
+        Assert.Equal("<p>x</p>", nueva!.CuerpoHtml);
+        Assert.Equal("elegante", nueva.Estilo);
+        // Versiones anteriores a ADR-0176 no traen estilo.
+        var vieja = EmailTemplateAgentToolset.ParseSnapshot("{\"nombre\":\"N\",\"asunto\":\"A\",\"cuerpoHtml\":\"<p>y</p>\"}");
+        Assert.Null(vieja!.Estilo);
+        Assert.Null(EmailTemplateAgentToolset.ParseSnapshot("no es json"));
     }
 
     // ---------- Verificador: imagenes ----------

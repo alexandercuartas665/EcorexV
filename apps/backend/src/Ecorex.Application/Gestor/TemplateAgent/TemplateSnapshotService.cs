@@ -49,6 +49,9 @@ public sealed class TemplateSnapshotService : ITemplateSnapshotService
             .Select(s => new TemplateSnapshotDto(s.Id, s.Label, s.CreatedAt))
             .ToListAsync(cancellationToken);
 
+    public async Task<string?> GetPayloadAsync(Guid snapshotId, CancellationToken cancellationToken = default)
+        => await _db.TemplateSnapshots.AsNoTracking().Where(s => s.Id == snapshotId).Select(s => s.PayloadJson).FirstOrDefaultAsync(cancellationToken);
+
     public async Task<bool> RestoreAsync(Guid snapshotId, Guid? actorUserId, CancellationToken cancellationToken = default)
     {
         var snap = await _db.TemplateSnapshots.AsNoTracking().FirstOrDefaultAsync(s => s.Id == snapshotId, cancellationToken);

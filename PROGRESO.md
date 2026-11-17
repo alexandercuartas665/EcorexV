@@ -24,6 +24,13 @@
   (Chrome MCP): subir 2 PNG (1200x500 y 480x120 leidos), /i/ anonimo 200 y otro modulo 404, marca guardada, plantilla
   `presentacion_moderna_hero` creada en Moderno (hero de la galeria, colores exactos, pie real) y redisenada a Elegante
   con un clic (logo arriba, serif, fondo oscuro). Hallazgo corregido: con hero el agente omitia el logo -> obligatorio.
+- ITERACION 2 (mismo dia, pedido del usuario): lista en TARJETAS con miniatura renderizada; editor en MODAL de 2
+  columnas (pestanas Vista previa | HTML | Galeria | Versiones + chat con selector de estilo); galeria extraida a
+  `TemplateGalleryPanel`; pestana Versiones con Ver / Restaurar (deshacible) / Guardar version ahora
+  (`ITemplateSnapshotService.GetPayloadAsync`, la foto incluye Estilo). E2E local (Chrome MCP, por JS): tarjetas con
+  miniatura y badge de estilo; modal 2 columnas; ver version Moderno sin tocar la actual; restaurar y deshacer;
+  plantilla nueva `seguimiento_demo_minimal` (Minimalista) aparece como tarjeta al confirmar. Hallazgo: tras confirmar,
+  Gemini respondio en frances -> regla de idioma al final de los arneses.
 - PENDIENTE: merge por dev (tronco + espejo main) y deploy SOLO con OK del usuario (lleva migracion). Tras el deploy,
   configurar la marca real de cada tenant y probar send_test (en local las imagenes son http://localhost).
 - NOTA: en el nucleo, cuando el modelo llama verify_email y save_template en la misma vuelta, la tarjeta de propuesta

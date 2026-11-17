@@ -9,6 +9,9 @@ namespace Ecorex.Application.Gestor.TemplateAgent;
 public static class TemplateAgentHarness
 {
     // Al PROPONER una accion (guardar, enviar prueba, someter) todavia no ocurrio: el usuario la confirma despues.
+    // Al final del arnes (recencia): visto en el E2E, tras el resultado JSON de una herramienta Gemini respondio en frances.
+    private const string Language = "IDIOMA: responde SIEMPRE en espanol (Colombia), en TODOS los mensajes, tambien despues de recibir resultados de herramientas (que vienen en JSON con claves en ingles). Nunca cambies de idioma salvo que el usuario lo pida.";
+
     private const string Honesty = "- Cuando propones una accion, NO digas que ya la hiciste (nada de 'listo, ya envie/guarde', 'acabo de enviar'), ni siquiera en el texto que acompana la propuesta: di que la propones y que queda a la espera de su confirmacion. Solo despues del resultado de la herramienta confirma lo hecho.";
 
     public static string EmailSystemPrompt(string tenantName, bool editingExisting, EmailBrandInfo brand, string? templateStyle = null)
@@ -60,6 +63,8 @@ public static class TemplateAgentHarness
         AppendBrand(sb, tenantName, brand, logoUrl);
         AppendStyles(sb, brand.EstiloPorDefecto, templateStyle);
         AppendImages(sb);
+        sb.AppendLine();
+        sb.AppendLine(Language);
         return sb.ToString();
     }
 
@@ -162,6 +167,8 @@ public static class TemplateAgentHarness
         sb.AppendLine("- variables con nombre: {{cliente}}, {{empresa}}... cada una con un EJEMPLO realista. Nunca al inicio ni al final del cuerpo, nunca dos seguidas, y bastante texto fijo por variable (minimo 3 palabras por variable).");
         sb.AppendLine("- Usa nombre/cliente, empresa, cargo, ciudad, correo, telefono cuando apliquen: el motor de acciones las llena solas desde el contacto.");
         sb.AppendLine("- Formato de WhatsApp: *negrita*, _cursiva_, saltos de linea; emojis con moderacion. Sin enlaces acortados; sin pedir datos sensibles.");
+        sb.AppendLine();
+        sb.AppendLine(Language);
         return sb.ToString();
     }
 }

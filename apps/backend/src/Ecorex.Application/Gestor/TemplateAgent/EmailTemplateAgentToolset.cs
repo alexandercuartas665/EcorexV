@@ -215,7 +215,7 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
     public async Task<string?> SnapshotPayloadAsync(Guid templateId, CancellationToken cancellationToken = default)
     {
         var t = await _db.EmailTemplates.AsNoTracking().Where(x => x.Id == templateId)
-            .Select(x => new EmailSnapshot(x.Nombre, x.Asunto, x.CuerpoHtml)).FirstOrDefaultAsync(cancellationToken);
+            .Select(x => new EmailSnapshot(x.Nombre, x.Asunto, x.CuerpoHtml, x.Estilo)).FirstOrDefaultAsync(cancellationToken);
         return t is null ? null : JsonSerializer.Serialize(t, Json);
     }
 
@@ -230,6 +230,7 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
         if (!string.IsNullOrWhiteSpace(snap.Nombre)) { t.Nombre = snap.Nombre; }
         t.Asunto = snap.Asunto ?? string.Empty;
         t.CuerpoHtml = snap.CuerpoHtml ?? string.Empty;
+        if (EmailDesignStyles.Normalize(snap.Estilo) is { } estilo) { t.Estilo = estilo; }
         await _db.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -249,7 +250,16 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
         return TemplateAgentHarness.EmailSystemPrompt(tenantName, editingExisting: templateId is not null, brand, EmailDesignStyles.Normalize(templateStyle));
     }
 
-    private sealed record EmailSnapshot(string? Nombre, string? Asunto, string? CuerpoHtml);
+    /// <summary>Foto de una plantilla de correo (versiones). Publica para que el editor muestre una version antes de restaurarla.</summary>
+    public sealed record EmailSnapshot(string? Nombre, string? Asunto, string? CuerpoHtml, string? Estilo = null);
+
+    /// <summary>Lee el JSON de una version de correo (null si no es valido).</summary>
+    public static EmailSnapshot? ParseSnapshot(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+        try { return JsonSerializer.Deserialize<EmailSnapshot>(json, Json); }
+        catch (JsonException) { return null; }
+    }
 
     // Preheader: texto oculto al inicio del cuerpo que los clientes muestran junto al asunto.
     internal static string WithPreheader(string html, string? preheader)

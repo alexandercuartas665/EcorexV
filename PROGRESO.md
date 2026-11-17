@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-16 - v0.16.336 (fase 2): agente de plantillas de WhatsApp (integrada al tronco 2026-11-17, SIN deploy)
+## 2026-11-16 - v0.16.336 (fase 2): agente de plantillas de WhatsApp (DESPLEGADA 2026-11-17)
 
 - AGENTE: Claude Opus 5.5. ADR-0175 (seccion Fase 2). Mismo nucleo de la fase 1, sin migraciones nuevas.
 - HECHO: WhatsAppTemplateAgentToolset (leer, contexto de lineas, verify_whatsapp, save_whatsapp_draft, submit_to_meta
@@ -17,7 +17,9 @@
   correo solo a ese buzon).
 - PENDIENTE: someter una plantilla real a Meta solo con OK explicito (crea la plantilla en la WABA de la linea).
 
-## 2026-11-16 - v0.16.336: agente editor de plantillas de correo + bajas + firma (integrada al tronco 2026-11-17, SIN deploy)
+## 2026-11-16 - v0.16.336: agente editor de plantillas de correo + bajas + firma (DESPLEGADA 2026-11-17)
+
+- DEPLOY: 2026-11-17 ~06:40 Bogota con OK del usuario, dentro de la ventana del DRON DIAN (el usuario corre el DRON manualmente). Footer /login = v0.16.336; migracion 20261117011732_AddTemplateAgentAndEmailUnsubscribe aplicada; sin errores en el arranque. ECOREX_PUBLIC_BASE_URL definida en prod. PENDIENTE: marcar Gemini como "IA gestion de plantillas" en Servidores de IA (hoy ninguno lo esta y el de formularios es DeepSeek, que da 400 en la 2a vuelta con tools).
 
 - INTEGRACION (2026-11-17, dev principal): rebase sobre 743f3f5d (lector de medios DeepSeek, que tomo ADR-0174 y v0.16.335). Este trabajo se renumero a ADR-0175 y v0.16.336. Conflictos resueltos conservando ambos lados: AiProviderConfig/AiProviderDtos/AiServerConfigService/ServidoresIa tienen UseForTemplateBuilder ("IA gestion de plantillas") Y TranscriptionModel (transcriptor de plataforma). La migracion AddTemplateAgentAndEmailUnsubscribe conserva su timestamp (PG 20261117011732 / SQL 20261117011718, ya aplicada en la BD local) y queda antes de AddAgentMediaReaderAndTranscriber.
 

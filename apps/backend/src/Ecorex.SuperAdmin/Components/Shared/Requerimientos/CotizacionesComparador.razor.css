@@ -282,3 +282,44 @@
     font-size: 10.5px; font-weight: 700; color: #7c3aed; font-variant-numeric: tabular-nums;
     padding: 1px 6px; border-radius: 6px; background: rgba(124, 58, 237, .1);
 }
+
+/* Punto #5 (UX): banner de recomendacion a primer plano */
+.rqc-reco {
+    border: 1px solid rgba(79, 70, 229, .35); border-radius: 10px; padding: 10px 12px; margin: 2px 0 12px;
+    background: linear-gradient(180deg, rgba(79, 70, 229, .07), var(--surface, #fff));
+    display: flex; flex-direction: column; gap: 8px;
+}
+.rqc-reco-main { display: flex; align-items: flex-start; gap: 10px; }
+.rqc-reco-ic { font-size: 18px; line-height: 1.1; }
+.rqc-reco-body { flex: 1 1 auto; min-width: 0; }
+.rqc-reco-lbl { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--brand, #4f46e5); }
+.rqc-reco-prov { font-size: 15px; font-weight: 800; line-height: 1.2; }
+.rqc-reco-price { text-align: right; white-space: nowrap; }
+.rqc-reco-total { font-size: 13px; font-weight: 800; color: #0f7a58; font-variant-numeric: tabular-nums; display: block; }
+.rqc-reco-price small { font-size: 9.5px; color: var(--ink-3, #9ca3af); }
+.rqc-reco-reasons { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.rqc-reco-reasons li { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--ink-1, #1f2937); line-height: 1.4; }
+.rqc-reco-tick {
+    flex: 0 0 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 800; margin-top: 1px;
+}
+.rqc-reco-reasons li.ok .rqc-reco-tick { color: #0f7a58; background: rgba(15, 122, 88, .14); }
+.rqc-reco-reasons li.warn .rqc-reco-tick { color: #b45309; background: rgba(217, 119, 6, .16); }
+.rqc-reco-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Punto #1 (UX): resumen de la canasta a primer plano */
+.rqc-basket-top {
+    border: 1px solid var(--line-2, #e5e7eb); border-radius: 10px; padding: 10px 12px; margin: 2px 0 12px;
+    background: var(--surface, #fff);
+}
+.rqc-basket-top-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.rqc-basket-top-head > strong { font-size: 12.5px; }
+.rqc-basket-top-meta { font-size: 11.5px; color: var(--ink-2, #4b5563); }
+.rqc-basket-top-meta strong { font-variant-numeric: tabular-nums; }
+.rqc-basket-top-btn { margin-left: auto; }
+.rqc-basket-top-bars { display: flex; flex-direction: column; gap: 5px; }
+.rqc-basket-top-row { display: flex; align-items: center; gap: 8px; }
+.rqc-basket-top-lbl {
+    flex: 0 0 150px; width: 150px; font-size: 11.5px; display: flex; align-items: center; gap: 5px; overflow: hidden;
+}
+.rqc-basket-top-lbl > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

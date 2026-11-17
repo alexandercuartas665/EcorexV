@@ -343,7 +343,10 @@ else
                                     @switch (c.Key)
                                     {
                                         case "producto":
-                                            <strong>@(grp[0].ItemNombre ?? grp[0].Descripcion)@(string.IsNullOrWhiteSpace(grp[0].ItemSku) ? "" : $" ({grp[0].ItemSku})")</strong>
+                                            <span class="req-openable" @onclick="() => OpenPlanificarGrupoAsync(grp)" title="Abrir la planificacion de este producto">
+                                                <span class="req-open-chev">&rsaquo;</span>
+                                                <strong>@(grp[0].ItemNombre ?? grp[0].Descripcion)@(string.IsNullOrWhiteSpace(grp[0].ItemSku) ? "" : $" ({grp[0].ItemSku})")</strong>
+                                            </span>
                                             <span class="req-consol-n" title="@it.Count necesidades consolidadas en esta linea">×@it.Count</span>
                                             break;
                                         case "cantidad": <strong>@Fmt(it.Sums!["cantidad"])</strong> break;
@@ -441,7 +444,12 @@ else
                                 <td class="@(c.Num ? "num" : null) @(c.Key == "acciones" ? "req-acts" : null)">
                                     @switch (c.Key)
                                     {
-                                        case "producto": <text>@(ppr.ItemNombre ?? ppr.Descripcion)@(string.IsNullOrWhiteSpace(ppr.ItemSku) ? "" : $" ({ppr.ItemSku})")</text> break;
+                                        case "producto":
+                                            <span class="req-openable" @onclick="() => OpenPlanificarAsync(ppr)" title="Abrir la planificacion de esta necesidad">
+                                                <span class="req-open-chev">&rsaquo;</span>
+                                                <span>@(ppr.ItemNombre ?? ppr.Descripcion)@(string.IsNullOrWhiteSpace(ppr.ItemSku) ? "" : $" ({ppr.ItemSku})")</span>
+                                            </span>
+                                            break;
                                         case "area": <text>@ppr.Area</text> break;
                                         case "origen": <text>@ppr.OrigenNombre</text> break;
                                         case "unidad": <text>@ppr.UnidadMedida</text> break;
@@ -469,7 +477,7 @@ else
                     }
                     else if (it.R is { } r)
                     {
-                        <tr>
+                        <tr class="req-row">
                             <td class="cd-exp-cell">
                                 @if (r.CantidadHijos > 0)
                                 {
@@ -485,7 +493,10 @@ else
                                     @switch (c.Key)
                                     {
                                         case "producto":
-                                            <text>@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</text>
+                                            <span class="req-openable" @onclick="() => OpenPlanificarAsync(r)" title="Abrir la planificacion de esta necesidad">
+                                                <span class="req-open-chev">&rsaquo;</span>
+                                                <span>@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</span>
+                                            </span>
                                             @if (r.ForzarDividir)
                                             {
                                                 <span class="req-dividido" title="Este registro no se consolida con los del mismo producto (se planifica aparte)">dividido</span>

@@ -9,10 +9,11 @@ namespace Ecorex.Application.Gestor.TemplateAgent;
 public static class TemplateAgentHarness
 {
     // Al PROPONER una accion (guardar, enviar prueba, someter) todavia no ocurrio: el usuario la confirma despues.
-    private const string Honesty = "- Cuando propones una accion, NO digas que ya la hiciste (nada de 'listo, ya envie/guarde'): di que la propones y que queda a la espera de su confirmacion. Solo despues del resultado de la herramienta confirma lo hecho.";
+    private const string Honesty = "- Cuando propones una accion, NO digas que ya la hiciste (nada de 'listo, ya envie/guarde', 'acabo de enviar'), ni siquiera en el texto que acompana la propuesta: di que la propones y que queda a la espera de su confirmacion. Solo despues del resultado de la herramienta confirma lo hecho.";
 
-    public static string EmailSystemPrompt(string tenantName, bool editingExisting, string? logoUrl)
+    public static string EmailSystemPrompt(string tenantName, bool editingExisting, EmailBrandInfo brand, string? templateStyle = null)
     {
+        var logoUrl = brand.LogoUrl;
         var vars = string.Join(", ", EmailTemplateService.Variables.Select(v => "{" + v.Token + "} (" + v.Descripcion + ")"));
         var sb = new StringBuilder();
         sb.AppendLine($"Eres el agente EDITOR DE PLANTILLAS DE CORREO de {tenantName}, dentro de ECOREX.");
@@ -50,19 +51,93 @@ public static class TemplateAgentHarness
         sb.AppendLine("- Razones / listas / beneficios: presentalos como items o mini-tarjetas, cada uno con un icono (emoji sirve) + un subtitulo en negrita + una linea de apoyo. NUNCA como un parrafo corrido.");
         sb.AppendLine("- CTA: un boton a prueba de balas y destacado (<a> con fondo del color de ACENTO, texto blanco, padding 14x28px, border-radius 6-8px, texto en bold), centrado y con espacio en blanco alrededor.");
         sb.AppendLine("- Ritmo: usa separadores finos (p.ej. borde #eaeaea) entre secciones; no amontones el contenido.");
-        sb.AppendLine("- Pie: una banda con fondo gris claro con el bloque de contacto de la empresa (incluye {firma}; si falta un dato como direccion o telefono, deja un marcador claro para completar) y, en texto pequeno y discreto (11-12px, gris), el enlace de baja.");
+        sb.AppendLine("- Pie: una banda con fondo gris claro con el bloque de contacto de la empresa (incluye {firma} y los datos reales de la seccion MARCA; si un dato no esta configurado, omitelo en vez de dejar un marcador) y, en texto pequeno y discreto (11-12px, gris), el enlace de baja.");
         sb.AppendLine("PALETA: aplica una paleta coherente de 2-3 colores (un color de MARCA oscuro para el encabezado + un color de ACENTO para el CTA + neutros). Si el usuario no indica colores, derivalos del logo o elige una combinacion sobria y profesional; cuida siempre el contraste (texto oscuro sobre claro, blanco sobre el color de marca). Evita colores chillones o saturados sin criterio.");
         sb.AppendLine("Adapta el tono visual al proposito: una presentacion comercial puede ser mas rica; un correo de seguimiento, mas limpio y breve. Pero incluso el mas simple lleva encabezado de marca, buena tipografia y pie cuidado.");
+        sb.AppendLine("Las reglas de esta seccion son el punto de partida; el ESTILO elegido (abajo) manda sobre ellas cuando las contradice.");
+        sb.AppendLine();
+
+        AppendBrand(sb, tenantName, brand, logoUrl);
+        AppendStyles(sb, brand.EstiloPorDefecto, templateStyle);
+        AppendImages(sb);
+        return sb.ToString();
+    }
+
+    // MARCA del tenant (ADR-0176): logo, colores y datos REALES del pie (asi no quedan marcadores "[Direccion]").
+    private static void AppendBrand(StringBuilder sb, string tenantName, EmailBrandInfo brand, string? logoUrl)
+    {
+        sb.AppendLine("MARCA DE LA EMPRESA (configurada por el usuario; respetala en TODOS los correos):");
         if (!string.IsNullOrWhiteSpace(logoUrl))
         {
-            sb.AppendLine($"- Logo de la empresa (usalo en la banda del encabezado): {logoUrl}");
+            sb.AppendLine($"- Logo: {logoUrl}");
+            sb.AppendLine($"  El logo es OBLIGATORIO en la parte superior del correo (banda/encabezado), aunque haya una imagen hero: <img> con alt=\"{Safe(tenantName)}\", height 36-48px y width proporcional, sin deformarlo. Unica excepcion: en el estilo 'personal' va pequeno dentro de la firma.");
         }
         else
         {
-            sb.AppendLine($"- No hay logo configurado: usa el nombre \"{tenantName}\" como wordmark en la banda del encabezado (tipografia grande, en blanco sobre el color de marca).");
+            sb.AppendLine($"- No hay logo configurado: usa el nombre \"{Safe(tenantName)}\" como wordmark en el encabezado (tipografia grande y bold).");
         }
-        return sb.ToString();
+        if (!string.IsNullOrWhiteSpace(brand.ColorPrimario) || !string.IsNullOrWhiteSpace(brand.ColorAcento))
+        {
+            sb.AppendLine($"- Color PRINCIPAL: {brand.ColorPrimario ?? "(no definido: derivalo del acento, mas oscuro)"} | Color de ACENTO: {brand.ColorAcento ?? "(no definido: elige uno que contraste con el principal)"}.");
+            sb.AppendLine("  Usa EXACTAMENTE estos colores de marca (no inventes otra paleta); solo puedes derivar tintes mas claros/oscuros de ellos y neutros grises. Cuida el contraste del texto.");
+        }
+        else
+        {
+            sb.AppendLine("- No hay colores de marca configurados: si hay logo, deriva la paleta de el; si no, elige una combinacion sobria (principal oscuro + acento calido) y mantenla coherente.");
+        }
+        var contacto = new List<string>();
+        if (!string.IsNullOrWhiteSpace(brand.Direccion)) { contacto.Add("Direccion: " + Safe(brand.Direccion)); }
+        if (!string.IsNullOrWhiteSpace(brand.Ciudad)) { contacto.Add("Ciudad: " + Safe(brand.Ciudad)); }
+        if (!string.IsNullOrWhiteSpace(brand.Telefono)) { contacto.Add("Telefono: " + Safe(brand.Telefono)); }
+        if (!string.IsNullOrWhiteSpace(brand.Correo)) { contacto.Add("Correo: " + Safe(brand.Correo)); }
+        if (!string.IsNullOrWhiteSpace(brand.SitioWeb)) { contacto.Add("Sitio web: " + Safe(brand.SitioWeb)); }
+        if (contacto.Count > 0)
+        {
+            sb.AppendLine("- Datos REALES de contacto para el pie (usalos tal cual en vez de marcadores): " + string.Join(" | ", contacto) + ".");
+        }
+        else
+        {
+            sb.AppendLine("- No hay datos de contacto configurados: en el pie deja solo el nombre de la empresa y {firma} (sin marcadores como [Direccion]).");
+        }
+        if (!string.IsNullOrWhiteSpace(brand.SitioWeb))
+        {
+            sb.AppendLine($"- Si el usuario no da la URL de un boton, usa el sitio web ({Safe(brand.SitioWeb)}) en vez de preguntar.");
+        }
+        if (!string.IsNullOrWhiteSpace(brand.PieTexto))
+        {
+            sb.AppendLine("- Texto adicional del pie (incluyelo pequeno, tal cual): " + Safe(brand.PieTexto));
+        }
+        sb.AppendLine();
     }
+
+    // ESTILOS de diseno (ADR-0176): catalogo completo (texto estable para el cache) + como se elige.
+    private static void AppendStyles(StringBuilder sb, string brandDefault, string? templateStyle)
+    {
+        sb.AppendLine("ESTILOS DE DISENO (el usuario los elige en el selector del editor):");
+        sb.AppendLine("- El estilo elegido llega al INICIO del mensaje del usuario como [estilo: clave]. Aplica la guia de ese estilo con TODO su detalle (medidas, colores, componentes). Si un mensaje no trae etiqueta, sigue con el ultimo estilo usado en la conversacion.");
+        sb.AppendLine($"- Sin ninguna indicacion: {(templateStyle is not null ? $"la plantilla abierta se compuso con el estilo '{templateStyle}' (conservalo)" : $"usa el estilo por defecto de la marca: '{brandDefault}'")}.");
+        sb.AppendLine("- Si el estilo cambia respecto al de la plantilla, REDISENA el correo completo con el nuevo estilo conservando textos, variables, enlaces e imagenes (salvo que el usuario pida otra cosa).");
+        sb.AppendLine("- Al guardar, pasa en save_template el parametro estilo con la clave aplicada.");
+        foreach (var s in EmailDesignStyles.All)
+        {
+            sb.AppendLine($"* {s.Key} ({s.Nombre}): {s.Guia}");
+        }
+        sb.AppendLine();
+    }
+
+    // IMAGENES (ADR-0176): galeria del tenant con URL publica.
+    private static void AppendImages(StringBuilder sb)
+    {
+        sb.AppendLine("IMAGENES:");
+        sb.AppendLine("- La galeria del tenant tiene las imagenes subidas por el usuario (fotos, banners, productos). Consultala con list_images cuando el correo pueda llevar imagenes o el usuario las mencione.");
+        sb.AppendLine("- Usa SOLO URLs de la galeria, la del logo o las que el usuario escriba en el chat. NUNCA inventes URLs de imagenes ni uses bancos externos (unsplash, placeholder, etc.).");
+        sb.AppendLine("- Cada <img>: src con la URL tal cual, alt descriptivo (usa el alt de la galeria), width explicito en px (el ancho real si es menor que su contenedor; si no, el ancho del contenedor: 600 a todo el ancho, ~520 dentro del padding, ~260 en 2 columnas) y style=\"display:block;width:100%;max-width:{ancho}px;height:auto;border:0;\".");
+        sb.AppendLine("- Una imagen hero a todo el ancho va en su propia fila sin padding lateral. No pongas texto importante SOLO dentro de una imagen (muchos clientes bloquean imagenes): el mensaje debe entenderse sin ellas.");
+        sb.AppendLine("- Si el usuario pide fotos y la galeria no tiene una adecuada, dile que la suba con el boton Galeria del editor; mientras, no dejes huecos rotos.");
+    }
+
+    // Datos del usuario dentro del prompt: sin saltos de linea (no rompen la estructura del arnes).
+    private static string Safe(string? s) => (s ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ').Trim();
 
     public static string WhatsAppSystemPrompt(string tenantName, bool editingExisting)
     {

@@ -92,6 +92,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<QuoteTemplate> QuoteTemplates => Set<QuoteTemplate>();
     public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
     public DbSet<TemplateAsset> TemplateAssets => Set<TemplateAsset>();
+    public DbSet<EmailBrand> EmailBrands => Set<EmailBrand>();
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
     public DbSet<AiAgentResource> AiAgentResources => Set<AiAgentResource>();
     public DbSet<AiAgentPrompt> AiAgentPrompts => Set<AiAgentPrompt>();
@@ -1115,6 +1116,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
             b.Property(x => x.Asunto).HasMaxLength(300).IsRequired();
             b.Property(x => x.CuerpoHtml).HasColumnType(longTextColumnType);
+            b.Property(x => x.Estilo).HasMaxLength(40);
             b.HasIndex(x => new { x.TenantId, x.Activa });
             // Soft-delete (ADR-0175): nunca DELETE fisico. El filtro global excluye IsDeleted.
             b.Property(x => x.IsDeleted).HasDefaultValue(false);
@@ -1161,7 +1163,22 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
             b.Property(x => x.Url).HasMaxLength(500).IsRequired();
             b.Property(x => x.MimeType).HasMaxLength(120);
+            b.Property(x => x.Alt).HasMaxLength(200);
             b.HasIndex(x => new { x.TenantId, x.CreatedAt });
+            // Soft-delete (ADR-0176): el binario se sigue sirviendo para los correos ya enviados.
+            b.Property(x => x.IsDeleted).HasDefaultValue(false);
+        });
+
+        // Marca de correo del tenant (ADR-0176): una fila por tenant.
+        modelBuilder.Entity<EmailBrand>(b =>
+        {
+            b.Property(x => x.LogoUrl).HasMaxLength(500);
+            b.Property(x => x.ColorPrimario).HasMaxLength(9);
+            b.Property(x => x.ColorAcento).HasMaxLength(9);
+            b.Property(x => x.EstiloPorDefecto).HasMaxLength(40);
+            b.Property(x => x.SitioWeb).HasMaxLength(300);
+            b.Property(x => x.PieTexto).HasMaxLength(1000);
+            b.HasIndex(x => x.TenantId).IsUnique();
         });
 
         modelBuilder.Entity<AiAgent>(b =>

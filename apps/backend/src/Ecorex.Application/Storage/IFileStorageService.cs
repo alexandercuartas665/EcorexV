@@ -43,6 +43,14 @@ public interface IFileStorageService
     /// </summary>
     Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Lectura PUBLICA (sin sesion ni tenant) de un archivo, SOLO si pertenece al <paramref name="module"/> dado.
+    /// Para recursos hechos para verse fuera de la app (imagenes de la galeria de plantillas que van dentro de
+    /// los correos, ADR-0176). Ningun otro modulo se expone por aqui. Null si no existe o es de otro modulo.
+    /// </summary>
+    Task<FileStorageContent?> ReadPublicAsync(Guid fileId, string module, CancellationToken ct = default)
+        => Task.FromResult<FileStorageContent?>(null);
+
     /// <summary>Elimina el archivo (binario + registro). Devuelve true si existia.</summary>
     Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default);
 

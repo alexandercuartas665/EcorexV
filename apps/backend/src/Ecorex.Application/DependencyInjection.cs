@@ -77,6 +77,8 @@ public static class DependencyInjection
         services.AddScoped<Gestor.IEmailTemplateService, Gestor.EmailTemplateService>();
         // Agente editor de plantillas + bajas de correo + firma por usuario (ADR-0175).
         services.AddScoped<Gestor.IEmailUnsubscribeService, Gestor.EmailUnsubscribeService>();
+        // Marca de correo del tenant (ADR-0176): logo, colores, estilo por defecto y datos del pie.
+        services.AddScoped<Gestor.IEmailBrandService, Gestor.EmailBrandService>();
         services.AddScoped<Gestor.IUserSignatureService, Gestor.UserSignatureService>();
         services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.EmailTemplateAgentToolset>();
         services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.WhatsAppTemplateAgentToolset>();

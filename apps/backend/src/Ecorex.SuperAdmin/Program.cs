@@ -250,6 +250,8 @@ builder.Services.AddScoped<Ecorex.Application.Tenancy.IFormRecordBroadcaster, Ec
 builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.INewtonEventSender, Ecorex.SuperAdmin.Agents.NewtonEventSender>();
 // Gestor UNIFICADO de archivos (Azure Blob / disco), transversal a todos los modulos. Registra en StoredFile.
 builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
+// Galeria de imagenes de plantillas (ADR-0176): sube al gestor unificado (por eso se registra aqui, no en Application).
+builder.Services.AddScoped<Ecorex.Application.Gestor.ITemplateGalleryService, Ecorex.Application.Gestor.TemplateGalleryService>();
 // Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.
 builder.Services.AddScoped<Ecorex.Application.DocumentosAnalisis.IDocumentoAnalisisService, Ecorex.SuperAdmin.Services.DocumentoAnalisisService>();
 // Modulo de Analisis (ADR-0158): actor + compuerta unica de consultas por circuito (pagina, modal y embebidos).
@@ -1003,6 +1005,21 @@ app.MapGet("/archivo/{id:guid}", async (Guid id, HttpContext http, Ecorex.Applic
     }
     return Results.File(content.Content, content.ContentType);
 }).RequireAuthorization();
+
+// Imagen PUBLICA de la galeria de plantillas (ADR-0176): /i/{id-del-archivo}{ext}. Va dentro de los correos, que
+// se abren sin sesion (Gmail/Outlook descargan la imagen por su cuenta), por eso es anonima. Solo sirve archivos
+// del modulo de la galeria (ReadPublicAsync lo acota); el resto del gestor de archivos sigue exigiendo sesion.
+// El contenido de una llave nunca cambia -> cache larga e inmutable.
+app.MapGet("/i/{name}", async (string name, HttpContext http, Ecorex.Application.Storage.IFileStorageService files, CancellationToken ct) =>
+{
+    var stem = System.IO.Path.GetFileNameWithoutExtension(name ?? string.Empty);
+    if (stem.Length != 32 || !Guid.TryParseExact(stem, "N", out var fileId)) { return Results.NotFound(); }
+    var content = await files.ReadPublicAsync(fileId, Ecorex.Application.Gestor.TemplateGalleryService.Module, ct);
+    if (content is null) { return Results.NotFound(); }
+    http.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    http.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    return Results.File(content.Content, content.ContentType);
+}).AllowAnonymous();
 
 app.MapPost("/auth/login", async (
     HttpContext http,

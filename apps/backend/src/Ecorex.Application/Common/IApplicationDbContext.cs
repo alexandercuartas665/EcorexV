@@ -39,6 +39,8 @@ public interface IApplicationDbContext
     // dobles de prueba (FakeAppDb) a declararlos; EcorexDbContext los implementa con sus DbSet reales.
     DbSet<EmailUnsubscribe> EmailUnsubscribes => throw new NotSupportedException();
     DbSet<TemplateSnapshot> TemplateSnapshots => throw new NotSupportedException();
+    // Marca de correo (ADR-0176), mismo patron de implementacion por defecto.
+    DbSet<EmailBrand> EmailBrands => throw new NotSupportedException();
     DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }

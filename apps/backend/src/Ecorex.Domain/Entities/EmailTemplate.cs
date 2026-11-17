@@ -22,6 +22,10 @@ public class EmailTemplate : TenantEntity, ISoftDeletable
     /// <summary>Solo las plantillas activas se ofrecen en el disenador y las usa el motor.</summary>
     public bool Activa { get; set; } = true;
 
+    /// <summary>Clave del estilo de diseno con que se compuso (ver EmailDesignStyles, ADR-0176). Null = el
+    /// estilo por defecto de la marca. El editor lo preselecciona al reabrir la plantilla.</summary>
+    public string? Estilo { get; set; }
+
     // --- ISoftDeletable (ADR-0175): "Eliminar" marca la fila; el filtro global la oculta. ---
     public bool IsDeleted { get; set; }
     public DateTimeOffset? DeletedAt { get; set; }

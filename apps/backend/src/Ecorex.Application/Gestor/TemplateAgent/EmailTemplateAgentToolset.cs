@@ -19,21 +19,26 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal) { "get_template", "list_variables", "verify_email" };
+    private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal) { "get_template", "list_variables", "verify_email", "list_images" };
     private static readonly HashSet<string> Mutating = new(StringComparer.Ordinal) { "save_template" };
     private static readonly HashSet<string> Irreversible = new(StringComparer.Ordinal);
+
+    // Formatos que los clientes de correo muestran (los SVG legados de la galeria no se ofrecen al agente).
+    private static readonly HashSet<string> EmailImageMimes = new(StringComparer.OrdinalIgnoreCase) { "image/png", "image/jpeg", "image/gif" };
 
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly IEmailSender _email;
     private readonly INotifyLinkBuilder _links;
+    private readonly IEmailBrandService _brand;
 
-    public EmailTemplateAgentToolset(IApplicationDbContext db, ITenantContext tenant, IEmailSender email, INotifyLinkBuilder links)
+    public EmailTemplateAgentToolset(IApplicationDbContext db, ITenantContext tenant, IEmailSender email, INotifyLinkBuilder links, IEmailBrandService brand)
     {
         _db = db;
         _tenant = tenant;
         _email = email;
         _links = links;
+        _brand = brand;
     }
 
     public TemplateAgentKind Kind => TemplateAgentKind.Email;
@@ -47,14 +52,17 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
             "Lee la plantilla de correo que se esta editando (nombre, asunto, cuerpo HTML). Llamala ANTES de proponer cambios a una plantilla existente.",
             """{"type":"object","properties":{}}"""),
         new AiToolSpec("list_variables",
-            "Lista las variables de merge permitidas ({nombre}, {empresa}, ...) y la marca del tenant (nombre, URL del logo).",
+            "Lista las variables de merge permitidas ({nombre}, {empresa}, ...) y la marca del tenant (nombre, logo, colores, estilo por defecto, datos de contacto del pie).",
+            """{"type":"object","properties":{}}"""),
+        new AiToolSpec("list_images",
+            "Lista las imagenes de la GALERIA del tenant (url publica, descripcion/alt, ancho y alto en px). Usala cuando el correo lleve imagenes (hero, fotos, banners, iconos) o el usuario mencione una imagen de la galeria. Usa SOLO estas URLs, la del logo o las que el usuario escriba.",
             """{"type":"object","properties":{}}"""),
         new AiToolSpec("verify_email",
             "Verifica un borrador (o la plantilla guardada si no se pasan argumentos): variables desconocidas, HTML no apto para correo, enlaces, alt de imagenes, tamano, asunto y enlace de baja. Usala antes de save_template.",
             """{"type":"object","properties":{"asunto":{"type":"string"},"cuerpo_html":{"type":"string"}}}"""),
         new AiToolSpec("save_template",
             "Guarda la plantilla COMPLETA (reemplaza asunto y cuerpo). Si no hay plantilla abierta, la crea con el nombre dado. Requiere confirmacion del usuario.",
-            """{"type":"object","properties":{"nombre":{"type":"string","description":"Nombre interno de la plantilla (obligatorio si es nueva)"},"asunto":{"type":"string"},"preheader":{"type":"string","description":"Texto corto que se ve junto al asunto en la bandeja (opcional)"},"cuerpo_html":{"type":"string","description":"Documento HTML completo apto para correo"}},"required":["asunto","cuerpo_html"]}"""),
+            """{"type":"object","properties":{"nombre":{"type":"string","description":"Nombre interno de la plantilla (obligatorio si es nueva)"},"asunto":{"type":"string"},"preheader":{"type":"string","description":"Texto corto que se ve junto al asunto en la bandeja (opcional)"},"cuerpo_html":{"type":"string","description":"Documento HTML completo apto para correo"},"estilo":{"type":"string","description":"Clave del estilo de diseno aplicado (corporativo, moderno, minimalista, editorial, elegante, promocional, personal)"}},"required":["asunto","cuerpo_html"]}"""),
         new AiToolSpec("send_test",
             "Envia la plantilla GUARDADA, con datos de ejemplo, al correo del usuario actual para revisarla en su bandeja. Requiere confirmacion.",
             """{"type":"object","properties":{}}"""),
@@ -75,11 +83,42 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
                 }
             case "list_variables":
                 {
-                    var brand = await BrandAsync(cancellationToken);
+                    var brand = await _brand.GetForAgentAsync(cancellationToken);
                     return Ok(new
                     {
                         variables = EmailTemplateService.Variables.Select(v => new { token = "{" + v.Token + "}", descripcion = v.Descripcion, ejemplo = v.Ejemplo }),
-                        marca = new { empresa = brand.Name, logo_url = brand.LogoUrl },
+                        marca = new
+                        {
+                            empresa = brand.Empresa,
+                            logo_url = brand.LogoUrl,
+                            color_principal = brand.ColorPrimario,
+                            color_acento = brand.ColorAcento,
+                            estilo_por_defecto = brand.EstiloPorDefecto,
+                            sitio_web = brand.SitioWeb,
+                            direccion = brand.Direccion,
+                            ciudad = brand.Ciudad,
+                            telefono = brand.Telefono,
+                            correo = brand.Correo,
+                            pie_texto = brand.PieTexto,
+                        },
+                    });
+                }
+            case "list_images":
+                {
+                    var imgs = await _db.TemplateAssets.AsNoTracking()
+                        .OrderByDescending(a => a.CreatedAt)
+                        .Select(a => new { a.FileName, a.Url, a.Alt, a.Width, a.Height, a.MimeType })
+                        .Take(60)
+                        .ToListAsync(cancellationToken);
+                    var list = imgs
+                        .Where(a => a.MimeType is not null && EmailImageMimes.Contains(a.MimeType))
+                        .Select(a => new { nombre = a.FileName, url = _links.ToAbsoluteUrl(a.Url) ?? a.Url, alt = a.Alt ?? a.FileName, ancho = a.Width, alto = a.Height })
+                        .ToList();
+                    return Ok(new
+                    {
+                        count = list.Count,
+                        images = list,
+                        note = list.Count == 0 ? "La galeria esta vacia: si el correo necesita fotos, pide al usuario que las suba en el boton Galeria del editor." : null,
                     });
                 }
             case "verify_email":
@@ -134,6 +173,7 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
         }
         entity.Asunto = asunto;
         entity.CuerpoHtml = cuerpo;
+        if (EmailDesignStyles.Normalize(Str(root, "estilo")) is { } estilo) { entity.Estilo = estilo; }
         await _db.SaveChangesAsync(ct);
 
         context.TemplateId = entity.Id;
@@ -199,18 +239,17 @@ public sealed class EmailTemplateAgentToolset : ITemplateAgentToolset
 
     public async Task<string> SystemPromptAsync(string tenantName, Guid? templateId, CancellationToken cancellationToken = default)
     {
-        var brand = await BrandAsync(cancellationToken);
-        return TemplateAgentHarness.EmailSystemPrompt(tenantName, editingExisting: templateId is not null, brand.LogoUrl);
+        var brand = await _brand.GetForAgentAsync(cancellationToken);
+        // Estilo con que se compuso la plantilla abierta (si lo tiene): el agente lo conserva salvo que el usuario elija otro.
+        string? templateStyle = null;
+        if (templateId is Guid id)
+        {
+            templateStyle = await _db.EmailTemplates.AsNoTracking().Where(x => x.Id == id).Select(x => x.Estilo).FirstOrDefaultAsync(cancellationToken);
+        }
+        return TemplateAgentHarness.EmailSystemPrompt(tenantName, editingExisting: templateId is not null, brand, EmailDesignStyles.Normalize(templateStyle));
     }
 
     private sealed record EmailSnapshot(string? Nombre, string? Asunto, string? CuerpoHtml);
-
-    private async Task<(string Name, string? LogoUrl)> BrandAsync(CancellationToken ct)
-    {
-        if (_tenant.TenantId is not Guid tid) { return ("", null); }
-        var t = await _db.Tenants.AsNoTracking().Where(x => x.Id == tid).Select(x => new { x.Name, x.LogoUrl }).FirstOrDefaultAsync(ct);
-        return (t?.Name ?? string.Empty, _links.ToAbsoluteUrl(t?.LogoUrl));
-    }
 
     // Preheader: texto oculto al inicio del cuerpo que los clientes muestran junto al asunto.
     internal static string WithPreheader(string html, string? preheader)

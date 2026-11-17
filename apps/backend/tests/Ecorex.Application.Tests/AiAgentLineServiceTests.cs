@@ -268,6 +268,7 @@ public class AiAgentLineServiceTests
         public DbSet<Rol> Roles => throw new NotSupportedException();
         public DbSet<Ciudad> Ciudades => throw new NotSupportedException();
         public DbSet<TenantApiToken> TenantApiTokens => throw new NotSupportedException();
+        public DbSet<ExternalTaskLink> ExternalTaskLinks => throw new NotSupportedException();
         public DbSet<RolPermiso> RolPermisos => throw new NotSupportedException();
         public DbSet<TerceroContacto> TerceroContactos => throw new NotSupportedException();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => throw new NotSupportedException();

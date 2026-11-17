@@ -416,6 +416,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<Rol> Roles => NotUsed<Rol>();
         public DbSet<Ciudad> Ciudades => NotUsed<Ciudad>();
         public DbSet<TenantApiToken> TenantApiTokens => NotUsed<TenantApiToken>();
+        public DbSet<ExternalTaskLink> ExternalTaskLinks => NotUsed<ExternalTaskLink>();
         public DbSet<RolPermiso> RolPermisos => NotUsed<RolPermiso>();
         public DbSet<TerceroContacto> TerceroContactos => NotUsed<TerceroContacto>();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => NotUsed<TerceroFieldDefinition>();

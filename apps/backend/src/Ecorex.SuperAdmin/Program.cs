@@ -250,6 +250,8 @@ builder.Services.AddScoped<Ecorex.Application.Tenancy.IFormRecordBroadcaster, Ec
 builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.INewtonEventSender, Ecorex.SuperAdmin.Agents.NewtonEventSender>();
 // Gestor UNIFICADO de archivos (Azure Blob / disco), transversal a todos los modulos. Registra en StoredFile.
 builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
+// Integracion maqueta (ADR-0176): anotaciones del admin de la maqueta -> tarjetas (usa el gestor de archivos para la captura).
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMaquetaSolicitudService, Ecorex.Application.Integraciones.Maqueta.MaquetaSolicitudService>();
 // Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.
 builder.Services.AddScoped<Ecorex.Application.DocumentosAnalisis.IDocumentoAnalisisService, Ecorex.SuperAdmin.Services.DocumentoAnalisisService>();
 // Modulo de Analisis (ADR-0158): actor + compuerta unica de consultas por circuito (pagina, modal y embebidos).
@@ -2425,6 +2427,8 @@ Ecorex.SuperAdmin.Endpoints.ConfigApiEndpoints.MapConfigApiEndpoints(app);
 // Servidor MCP de TABLEROS para IAs externas (ADR-0159): token PERSONAL por usuario (emitido en /conectar-ia).
 Ecorex.SuperAdmin.Endpoints.McpTablerosEndpoints.MapMcpTablerosEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.MapMcpWhatsAppEndpoints(app);
+// Integracion maqueta (ADR-0176): POST /api/maqueta/solicitudes con token personal integ:maqueta + CORS propio.
+Ecorex.SuperAdmin.Endpoints.MaquetaSolicitudesEndpoints.MapMaquetaSolicitudesEndpoints(app);
 app.MapOpenApi();
 
 app.Run();

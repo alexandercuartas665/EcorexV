@@ -377,6 +377,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     // API REST de configuracion (FASE 1): tokens Bearer por-tenant (hash SHA-256, nunca el valor).
     public DbSet<TenantApiToken> TenantApiTokens => Set<TenantApiToken>();
 
+    // ADR-0176: vinculo tarea <-> registro de un sistema externo (idempotencia de integraciones).
+    public DbSet<ExternalTaskLink> ExternalTaskLinks => Set<ExternalTaskLink>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -3983,6 +3986,17 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasIndex(x => new { x.TenantId, x.RevokedAt });
             // ADR-0159: tokens personales (MCP) listados por su dueno.
             b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+        });
+
+        // ADR-0176: idempotencia de integraciones externas (un registro externo = una tarea).
+        modelBuilder.Entity<ExternalTaskLink>(b =>
+        {
+            b.Property(x => x.Source).HasMaxLength(60).IsRequired();
+            b.Property(x => x.ExternalKey).HasMaxLength(150).IsRequired();
+            b.Property(x => x.LastCaptureSha256).HasMaxLength(64);
+            b.HasIndex(x => new { x.TenantId, x.Source, x.ExternalKey }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.TaskItemId });
+            b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ImportProcess>(b =>

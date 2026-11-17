@@ -51,7 +51,12 @@ else
 
         <label class="form-label" style="font-size:12px;font-weight:700;">Nuevo conector</label>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input class="form-control" style="max-width:320px;" placeholder="Ej. Claude en mi portatil" maxlength="150" @bind="_newName" />
+            @* ADR-0176: el mismo token personal sirve tambien a la integracion de la maqueta (otro alcance). *@
+            <select class="form-select" style="max-width:240px;" @bind="_newScope">
+                <option value="@Ecorex.Domain.Entities.TenantApiToken.ScopeMcpTableros">IA (MCP de tableros)</option>
+                <option value="@Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta">Maqueta (anotaciones)</option>
+            </select>
+            <input class="form-control" style="max-width:320px;" placeholder="@(_newScope == Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta ? "Ej. Maqueta TRONOX" : "Ej. Claude en mi portatil")" maxlength="150" @bind="_newName" />
             <button class="btn btn-primary" disabled="@_busy" @onclick="IssueAsync">@(_busy ? "Generando..." : "Generar token")</button>
         </div>
         @if (_error is not null)
@@ -68,7 +73,14 @@ else
                     <button class="btn btn-outline-secondary btn-sm" @onclick="() => Copy(_plain!)">Copiar</button>
                 </div>
 
-                @foreach (var (title, snippet) in Snippets(_plain))
+                @if (_plainScope == Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta)
+                {
+                    <p style="font-size:12.5px;margin:0 0 10px;">
+                        En el admin de la maqueta, boton <b>ECOREX</b>: URL base <code>@Nav.BaseUri.TrimEnd('/')</code> y este token.
+                        Cada anotacion enviada cae como tarjeta en tus tableros (tablero "Maqueta TRONOX - Ajustes" si no indica otro).
+                    </p>
+                }
+                @foreach (var (title, snippet) in Snippets(_plain, _plainScope))
                 {
                     <label class="form-label" style="font-size:12px;font-weight:700;">@title</label>
                     <div style="position:relative;margin-bottom:12px;">
@@ -102,7 +114,7 @@ else
                         var tt = t;
                         <tr>
                             <td>@tt.Name</td>
-                            <td>@(tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMcpWhatsApp ? "WhatsApp (lineas)" : "Tableros")</td>
+                            <td>@(tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMcpWhatsApp ? "WhatsApp (lineas)" : tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta ? "Maqueta (anotaciones)" : "Tableros")</td>
                             <td>@tt.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")</td>
                             <td>@(tt.LastUsedAt is { } lu ? lu.LocalDateTime.ToString("dd MMM yyyy HH:mm") : "Nunca")</td>
                             <td><span class="badge bg-@(tt.IsActive ? "success" : "secondary")">@(tt.IsActive ? "Activo" : "Revocado")</span></td>
@@ -128,6 +140,8 @@ else
     private string? _error;
     private string? _plain;
     private string _newName = string.Empty;
+    private string _newScope = Ecorex.Domain.Entities.TenantApiToken.ScopeMcpTableros;
+    private string _plainScope = Ecorex.Domain.Entities.TenantApiToken.ScopeMcpTableros;
     private string _displayName = "Usuario";
     private Guid _tenantId;
     private Guid _actor;
@@ -175,8 +189,9 @@ else
             using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _actor);
             await using var scope = ScopeFactory.CreateAsyncScope();
             var svc = scope.ServiceProvider.GetRequiredService<IPersonalAccessTokenService>();
-            var issued = await svc.IssueAsync(me, _actor, _newName);
+            var issued = await svc.IssueAsync(me, _actor, _newName, _newScope);
             _plain = issued.PlainToken;
+            _plainScope = issued.Token.Scope;
             _newName = string.Empty;
             await LoadAsync(scope.ServiceProvider);
         }
@@ -200,8 +215,23 @@ else
     }
 
     /// <summary>Configuraciones listas para copiar, por cliente MCP (comunes con el MCP de WhatsApp de /lineas).</summary>
-    private IEnumerable<(string Title, string Snippet)> Snippets(string token)
-        => Ecorex.SuperAdmin.Endpoints.McpClientSnippets.Build("ecorex-tableros", ServerUrl, token);
+    private IEnumerable<(string Title, string Snippet)> Snippets(string token, string scope)
+    {
+        if (scope != Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta)
+        {
+            return Ecorex.SuperAdmin.Endpoints.McpClientSnippets.Build("ecorex-tableros", ServerUrl, token);
+        }
+        // ADR-0176: prueba rapida del endpoint de la maqueta (el mismo curl de aceptacion del contrato).
+        var url = Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.MaquetaSolicitudesEndpoints.Route;
+        var curl = string.Join(" \\\n", new[]
+            {
+                $"curl -i -X POST \"{url}\"",
+                $"  -H \"Authorization: Bearer {token}\"",
+                "  -H \"Content-Type: application/json\"",
+                "  --data '{\"origen\":\"maqueta-tronox\",\"idLocal\":\"an-test-1\",\"titulo\":\"Prueba de integracion\",\"descripcion\":\"cuerpo\",\"categoria\":\"Ajuste\",\"prioridad\":\"Media\",\"autor\":\"QA\",\"modulo\":\"RQ07\",\"captura\":null}'"
+            });
+        return new[] { ("Prueba con curl", curl) };
+    }
 
     private async Task Copy(string text)
     {

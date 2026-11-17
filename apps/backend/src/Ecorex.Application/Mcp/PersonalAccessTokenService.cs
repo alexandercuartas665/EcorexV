@@ -38,7 +38,7 @@ public interface IPersonalAccessTokenService
     Task<IReadOnlyList<PersonalTokenDto>> ListMineAsync(Guid tenantUserId, CancellationToken cancellationToken = default);
 
     /// <summary>Emite un token personal para el usuario. Devuelve el valor en claro UNA sola vez. scope:
-    /// mcp:tableros (por defecto) o mcp:whatsapp (ADR-0164); cualquier otro se rechaza.</summary>
+    /// mcp:tableros (por defecto), mcp:whatsapp (ADR-0164) o integ:maqueta (ADR-0176); cualquier otro se rechaza.</summary>
     Task<IssuedPersonalToken> IssueAsync(Guid tenantUserId, Guid actorPlatformUserId, string name,
         string scope = TenantApiToken.ScopeMcpTableros, CancellationToken cancellationToken = default);
 
@@ -82,7 +82,7 @@ public sealed class PersonalAccessTokenService : IPersonalAccessTokenService
         string scope = TenantApiToken.ScopeMcpTableros, CancellationToken cancellationToken = default)
     {
         // Solo alcances PERSONALES de MCP: nunca "admin" (ese token es de tenant y lo emite Owner/Admin aparte).
-        if (scope is not (TenantApiToken.ScopeMcpTableros or TenantApiToken.ScopeMcpWhatsApp))
+        if (scope is not (TenantApiToken.ScopeMcpTableros or TenantApiToken.ScopeMcpWhatsApp or TenantApiToken.ScopeMaqueta))
         {
             throw new InvalidOperationException("Alcance de token no permitido.");
         }

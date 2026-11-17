@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-17 - v0.16.338: integracion maqueta TRONOX -> tarjetas (POST /api/maqueta/solicitudes)
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0176. Rama feat/maqueta-solicitudes.
+- MOTIVO: el admin de anotaciones de la maqueta TRONOX (http://localhost:8096) ya llama a un contrato fijo
+  (tronox.maqueta/docs/INTEGRACION-ECOREX-ANOTACIONES.md); faltaba el endpoint. Las tarjetas deben caer en el
+  tenant cliente ACUARTAS.
+- HECHO: endpoint POST /api/maqueta/solicitudes (+ preflight OPTIONS con CORS propio, origenes en
+  MaquetaIntegration:AllowedOrigins, por defecto localhost/127.0.0.1:8096). Auth = token PERSONAL con alcance nuevo
+  `integ:maqueta`, emitido en /conectar-ia ("Maqueta (anotaciones)"): el tenant sale del usuario del token (para
+  ACUARTAS lo emite un usuario de ACUARTAS). MaquetaSolicitudService: tablero por nombre (crea "Maqueta TRONOX -
+  Ajustes" si no existe) -> primera columna; titulo/descripcion Markdown/prioridad; etiquetas modulo+categoria;
+  autor -> solicitante; captura -> gestor de archivos (modulo "maqueta") + adjunto; tipo de actividad de respaldo
+  si el tenant no tiene clasificacion. Idempotencia con entidad nueva ExternalTaskLink (unica por tenant+origen+
+  idLocal): el reenvio actualiza la MISMA tarjeta y no repite una captura igual (SHA-256). Respuesta 201/200
+  {id: numero de tarea, url: deep-link, estado}. Guia de prueba en docs/integraciones/maqueta-solicitudes.md.
+- MIGRACION: AddExternalTaskLink (PG 20261117203832, SQL Server 20261117203812), solo crea la tabla.
+- PENDIENTE: integrar al tronco + main y deploy SOLO con OK del usuario; luego, en prod, un usuario de ACUARTAS
+  emite el token en /conectar-ia y lo pega en el boton ECOREX del admin de la maqueta (URL base
+  https://app2.bitcode.com.co).
+
 ## 2026-11-17 - v0.16.337: diseno profesional por defecto en el agente de plantillas de correo (DESPLEGADA 2026-11-17)
 
 - DEPLOY: 2026-11-17 13:10 Bogota con OK del usuario (dev principal ECOREX.desarrollo; fast-forward de feat/plantillas-prompt-profesional al tronco, TemplateAgent 18/18). Footer /login = v0.16.337; sin migracion; arranque sin errores. Gemini ya marcado como "IA gestion de plantillas" (UI, auditado).

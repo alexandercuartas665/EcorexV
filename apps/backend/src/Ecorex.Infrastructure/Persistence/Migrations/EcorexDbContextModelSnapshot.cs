@@ -8211,6 +8211,78 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("external_data_source_grants", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalTaskLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ExternalKey")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("external_key");
+
+                    b.Property<string>("LastCaptureSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_capture_sha256");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("text")
+                        .HasColumnName("metadata_json");
+
+                    b.Property<int>("ReceivedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_count");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("source");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_task_links");
+
+                    b.HasIndex("TaskItemId")
+                        .HasDatabaseName("ix_external_task_links_task_item_id");
+
+                    b.HasIndex("TenantId", "TaskItemId")
+                        .HasDatabaseName("ix_external_task_links_tenant_id_task_item_id");
+
+                    b.HasIndex("TenantId", "Source", "ExternalKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_external_task_links_tenant_id_source_external_key");
+
+                    b.ToTable("external_task_links", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>
                 {
                     b.Property<Guid>("Id")
@@ -22042,6 +22114,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_external_data_source_grants_external_data_sources_external_");
 
                     b.Navigation("ExternalDataSource");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalTaskLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_task_links_task_items_task_item_id");
+
+                    b.Navigation("TaskItem");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>

@@ -70,7 +70,8 @@ public sealed class RequerimientoService : IRequerimientoService
                 h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
                 h.ProveedorId,
                 h.ProveedorId is Guid p && provs.TryGetValue(p, out var pn) ? pn : null,
-                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId, h.ProveedorContactoId)).ToList());
+                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId, h.ProveedorContactoId,
+                h.IvaPct ?? ComprasFiscal.IvaDefault, h.DescuentoPct, h.DescuentoValor)).ToList());
         var emptyHijos = (IReadOnlyList<RequerimientoHijoDto>)Array.Empty<RequerimientoHijoDto>();
 
         return rows.Select(r =>
@@ -213,6 +214,11 @@ public sealed class RequerimientoService : IRequerimientoService
         var padre = await _db.RequerimientosCompra.FirstOrDefaultAsync(x => x.Id == req.RequerimientoId, ct);
         if (padre is null) { return null; }
 
+        // Ola A fiscal: IVA del item (Inventario) como default a snapshotear en cada hijo (editable por linea).
+        var itemIva = padre.ItemId is Guid pIva
+            ? await _db.Items.AsNoTracking().Where(i => i.Id == pIva).Select(i => i.IvaRate).FirstOrDefaultAsync(ct)
+            : null;
+
         var inputs = req.Hijos ?? Array.Empty<HijoInput>();
         if (inputs.Any(h => h.Cantidad <= 0)) { throw new InvalidOperationException("Cada registro hijo debe tener cantidad mayor que cero."); }
         var suma = inputs.Sum(h => h.Cantidad);
@@ -250,6 +256,10 @@ public sealed class RequerimientoService : IRequerimientoService
             // El contacto elegido solo aplica si hay proveedor; si se quita el proveedor, se limpia.
             h.ProveedorContactoId = inp.ProveedorId is null ? null : inp.ProveedorContactoId;
             h.PrecioUnitario = inp.PrecioUnitario < 0 ? 0 : inp.PrecioUnitario;
+            // Ola A fiscal: IVA snapshoteado (linea > item > 19%). Descuento por % o valor (saneados).
+            h.IvaPct = ComprasFiscal.ResolverIva(inp.IvaPct, itemIva);
+            h.DescuentoPct = inp.DescuentoPct is > 0m ? Math.Min(inp.DescuentoPct.Value, 100m) : null;
+            h.DescuentoValor = inp.DescuentoValor is > 0m ? inp.DescuentoValor.Value : null;
             // El hijo pasa a 'Con proveedor' si se le asigno uno (no se pisa si ya esta ejecutado).
             if (h.TaskItemId is null)
             {
@@ -279,6 +289,13 @@ public sealed class RequerimientoService : IRequerimientoService
         var padres = await _db.RequerimientosCompra.Where(x => ids.Contains(x.Id)).ToListAsync(ct);
         var existentes = (await _db.RequerimientoCompraHijos.Where(h => ids.Contains(h.RequerimientoId)).ToListAsync(ct))
             .GroupBy(h => h.RequerimientoId).ToDictionary(g => g.Key, g => g.Sum(h => h.Cantidad));
+
+        // Ola A fiscal: IVA del item por necesidad (default a snapshotear en cada hijo del plan de grupo).
+        var padreItemIds = padres.Where(p => p.ItemId != null).Select(p => p.ItemId!.Value).Distinct().ToList();
+        var padreItemIva = padreItemIds.Count == 0
+            ? new Dictionary<Guid, decimal?>()
+            : await _db.Items.AsNoTracking().Where(i => padreItemIds.Contains(i.Id))
+                .ToDictionaryAsync(i => i.Id, i => i.IvaRate, ct);
 
         // 1) Validar TODO antes de tocar nada (transaccional: todo o nada).
         foreach (var l in lineas)
@@ -312,6 +329,10 @@ public sealed class RequerimientoService : IRequerimientoService
                 ProveedorId = req.ProveedorId,
                 ProveedorContactoId = req.ProveedorId is null ? null : req.ProveedorContactoId,
                 PrecioUnitario = precio,
+                IvaPct = ComprasFiscal.ResolverIva(req.IvaPct,
+                    padre.ItemId is Guid pit && padreItemIva.TryGetValue(pit, out var iv) ? iv : null),
+                DescuentoPct = req.DescuentoPct is > 0m ? Math.Min(req.DescuentoPct.Value, 100m) : null,
+                DescuentoValor = req.DescuentoValor is > 0m ? req.DescuentoValor.Value : null,
                 Estado = req.ProveedorId is not null ? RequerimientoEstado.ConProveedor : RequerimientoEstado.Planificado,
             });
             if (padre.Estado is RequerimientoEstado.Recibido or RequerimientoEstado.Agrupado or RequerimientoEstado.Planificado)
@@ -339,7 +360,8 @@ public sealed class RequerimientoService : IRequerimientoService
                 h.Id, h.Cantidad, h.FechaProgramadaCompra, h.CaracteristicasDespacho, h.TiempoEntrega,
                 h.ProveedorId,
                 h.ProveedorId is Guid p && proveedores.TryGetValue(p, out var pn) ? pn : null,
-                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId, h.ProveedorContactoId)).ToList());
+                h.Estado, h.TaskItemId, h.PrecioUnitario, h.CotizacionTaskItemId, h.ProveedorContactoId,
+                h.IvaPct ?? ComprasFiscal.IvaDefault, h.DescuentoPct, h.DescuentoValor)).ToList());
     }
 
     public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListProveedoresAsync(CancellationToken ct = default)
@@ -1417,7 +1439,8 @@ public sealed class RequerimientoService : IRequerimientoService
                 rq?.SourceTaskItemId is Guid st && taskNums.TryGetValue(st, out var tn) ? tn : null,
                 rq?.UnidadMedida,
                 h.Cantidad, h.PrecioUnitario, h.FechaProgramadaCompra,
-                h.CaracteristicasDespacho, h.TiempoEntrega, h.Estado, h.TaskItemId, h.CotizacionTaskItemId);
+                h.CaracteristicasDespacho, h.TiempoEntrega, h.Estado, h.TaskItemId, h.CotizacionTaskItemId,
+                h.IvaPct ?? ComprasFiscal.IvaDefault, h.DescuentoPct, h.DescuentoValor);
         }).ToList();
     }
 
@@ -1615,7 +1638,7 @@ public sealed class RequerimientoService : IRequerimientoService
         // 3) Cotizaciones de esos articulos (precio > 0). Si hubiera varias por (clave, proveedor), la mas barata.
         var cots = await _db.RequerimientoCotizaciones.AsNoTracking()
             .Where(c => claves.Contains(c.ClaveProducto) && c.PrecioUnitario > 0m)
-            .Select(c => new { c.Id, c.ClaveProducto, c.ProveedorId, c.PrecioUnitario })
+            .Select(c => new { c.Id, c.ClaveProducto, c.ProveedorId, c.PrecioUnitario, c.IvaPct, c.DescuentoPct, c.DescuentoValor })
             .ToListAsync(ct);
 
         // Punto #4: flete por oferta, para plegar el landed cost al total por proveedor.
@@ -1623,10 +1646,16 @@ public sealed class RequerimientoService : IRequerimientoService
 
         var precio = new Dictionary<(string Clave, Guid Prov), decimal>();
         var ofertaMin = new Dictionary<(string Clave, Guid Prov), Guid>();  // id de la oferta mas barata (para su flete)
+        // Ola A fiscal: oferta elegida (la mas barata por unidad) con sus datos de IVA/descuento, para totalizar con impuestos.
+        var chosen = new Dictionary<(string Clave, Guid Prov), (decimal Precio, decimal? IvaPct, decimal? DescPct, decimal? DescVal)>();
         foreach (var c in cots)
         {
             var k = (c.ClaveProducto, c.ProveedorId);
-            if (!precio.TryGetValue(k, out var p) || c.PrecioUnitario < p) { precio[k] = c.PrecioUnitario; ofertaMin[k] = c.Id; }
+            if (!precio.TryGetValue(k, out var p) || c.PrecioUnitario < p)
+            {
+                precio[k] = c.PrecioUnitario; ofertaMin[k] = c.Id;
+                chosen[k] = (c.PrecioUnitario, c.IvaPct, c.DescuentoPct, c.DescuentoValor);
+            }
         }
         // El mas barato por articulo (para "gana en" y la "mejor canasta posible").
         var minPorClave = new Dictionary<string, decimal>();
@@ -1644,12 +1673,12 @@ public sealed class RequerimientoService : IRequerimientoService
             var qty = qtyPorClave.TryGetValue(clave, out var q) ? q : 0m;
             var cur = acc.TryGetValue(prov, out var a) ? a : (Cubre: 0, Gana: 0, Total: 0m, SumPrem: 0m);
             cur.Cubre += 1;
-            cur.Total += kv.Value * qty;
-            // Landed: suma el flete de la oferta mas barata de esta clave (por unidad -> * cantidad; si no, fijo).
-            if (ofertaMin.TryGetValue(kv.Key, out var oid) && fletes.TryGetValue(oid, out var fs))
-            {
-                cur.Total += fs.PorUnidad ? fs.Monto * qty : fs.Monto;
-            }
+            // Ola A fiscal: total de la linea con descuento + IVA + flete (misma formula que el comparador).
+            var ch = chosen[kv.Key];
+            decimal fMonto = 0m; bool fUnit = false;
+            if (ofertaMin.TryGetValue(kv.Key, out var oid) && fletes.TryGetValue(oid, out var fs)) { fMonto = fs.Monto; fUnit = fs.PorUnidad; }
+            cur.Total += ComprasFiscal.Calcular(ch.Precio, qty, ComprasFiscal.ResolverIva(ch.IvaPct, null),
+                ch.DescPct, ch.DescVal, fMonto, fUnit).Total;
             if (minPorClave.TryGetValue(clave, out var mn))
             {
                 if (kv.Value == mn) { cur.Gana += 1; }
@@ -1672,7 +1701,19 @@ public sealed class RequerimientoService : IRequerimientoService
             .OrderByDescending(f => f.CubreTodo).ThenBy(f => f.Total)
             .ToList();
 
-        var mejorCanasta = minPorClave.Sum(kv => kv.Value * (qtyPorClave.TryGetValue(kv.Key, out var q) ? q : 0m));
+        // "Mejor canasta posible": por cada articulo, la oferta mas barata (por unidad) totalizada con su fiscal.
+        decimal mejorCanasta = 0m;
+        foreach (var clave in minPorClave.Keys)
+        {
+            var qty = qtyPorClave.TryGetValue(clave, out var q) ? q : 0m;
+            var bestKey = chosen.Keys.Where(k => k.Clave == clave).OrderBy(k => chosen[k].Precio).FirstOrDefault();
+            if (bestKey.Clave is null) { continue; }
+            var ch = chosen[bestKey];
+            decimal fMonto = 0m; bool fUnit = false;
+            if (ofertaMin.TryGetValue(bestKey, out var oid) && fletes.TryGetValue(oid, out var fs)) { fMonto = fs.Monto; fUnit = fs.PorUnidad; }
+            mejorCanasta += ComprasFiscal.Calcular(ch.Precio, qty, ComprasFiscal.ResolverIva(ch.IvaPct, null),
+                ch.DescPct, ch.DescVal, fMonto, fUnit).Total;
+        }
         return new BasketResumenProveedorDto(n, mejorCanasta, filas, origenesOpc);
     }
 
@@ -1687,6 +1728,10 @@ public sealed class RequerimientoService : IRequerimientoService
         var reglasVig = await _config.ListReglasAsync(ct);
         var provVig = await _config.GetProveedorVigenciaMapAsync(ct);
         var itemDims = itemId is Guid iid ? await ItemDimValuesAsync(iid, ct) : null;
+        // Ola A fiscal: IVA del item (Inventario) como fallback cuando la oferta no lo trae snapshoteado.
+        var itemIva = itemId is Guid iivId
+            ? await _db.Items.AsNoTracking().Where(i => i.Id == iivId).Select(i => i.IvaRate).FirstOrDefaultAsync(ct)
+            : null;
         // Punto #4: flete por oferta (landed cost), guardado aparte de la entidad.
         var fletes = await _config.GetCotizacionFletesAsync(ct);
         // Contacto (con quien se hablo) resuelto por lote desde el Directorio, para pintar nombre/tel/correo.
@@ -1716,7 +1761,8 @@ public sealed class RequerimientoService : IRequerimientoService
                 c.PrecioUnitario, c.TiempoEntrega, c.CaracteristicasDespacho, c.CondicionesPago,
                 c.VigenciaHasta, c.Notas, c.Fuente, c.ProveedorContactoId, ult?.Precio, varPct,
                 c.FechaCotizacion, cNom, cTel, cMail, vigDias,
-                flete?.Monto ?? 0m, flete?.PorUnidad ?? false));
+                flete?.Monto ?? 0m, flete?.PorUnidad ?? false,
+                ComprasFiscal.ResolverIva(c.IvaPct, itemIva), c.DescuentoPct, c.DescuentoValor));
         }
         // Mas barato primero (los de precio 0 = sin precio al final).
         return list
@@ -1750,11 +1796,20 @@ public sealed class RequerimientoService : IRequerimientoService
                 _db.RequerimientoCotizaciones.Add(entity);
             }
         }
+        // Ola A fiscal: IVA del item (Inventario) para snapshotear si el usuario no lo escribio.
+        var itemIvaSave = req.ItemId is Guid iIva
+            ? await _db.Items.AsNoTracking().Where(i => i.Id == iIva).Select(i => i.IvaRate).FirstOrDefaultAsync(ct)
+            : null;
+
         entity.ClaveProducto = clave;
         entity.ItemId = req.ItemId;
         entity.ProveedorId = req.ProveedorId;
         entity.ProveedorContactoId = req.ProveedorContactoId;
         entity.PrecioUnitario = req.PrecioUnitario;
+        // IVA snapshoteado (oferta > item > 19%). Descuento por % o valor (saneados; el valor gana al mostrar).
+        entity.IvaPct = ComprasFiscal.ResolverIva(req.IvaPct, itemIvaSave);
+        entity.DescuentoPct = req.DescuentoPct is > 0m ? Math.Min(req.DescuentoPct.Value, 100m) : null;
+        entity.DescuentoValor = req.DescuentoValor is > 0m ? req.DescuentoValor.Value : null;
         entity.TiempoEntrega = (req.TiempoEntrega ?? "").Trim();
         entity.CaracteristicasDespacho = (req.CaracteristicasDespacho ?? "").Trim();
         entity.CondicionesPago = (req.CondicionesPago ?? "").Trim();

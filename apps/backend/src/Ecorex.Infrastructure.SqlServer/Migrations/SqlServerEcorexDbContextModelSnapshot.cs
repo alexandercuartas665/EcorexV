@@ -10063,6 +10063,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("item_type_id");
 
+                    b.Property<decimal?>("IvaRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("iva_rate");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -13180,6 +13185,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<decimal?>("DescuentoPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("descuento_pct");
+
+                    b.Property<decimal?>("DescuentoValor")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("descuento_valor");
+
                     b.Property<int>("Estado")
                         .HasColumnType("int")
                         .HasColumnName("estado");
@@ -13187,6 +13202,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<DateTimeOffset?>("FechaProgramadaCompra")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("fecha_programada_compra");
+
+                    b.Property<decimal?>("IvaPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("iva_pct");
 
                     b.Property<decimal>("PrecioUnitario")
                         .HasPrecision(18, 4)
@@ -13272,6 +13292,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<decimal?>("DescuentoPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("descuento_pct");
+
+                    b.Property<decimal?>("DescuentoValor")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasColumnName("descuento_valor");
+
                     b.Property<DateTimeOffset?>("FechaCotizacion")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("fecha_cotizacion");
@@ -13283,6 +13313,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("ItemId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("item_id");
+
+                    b.Property<decimal?>("IvaPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("iva_pct");
 
                     b.Property<string>("Notas")
                         .HasMaxLength(1000)

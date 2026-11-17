@@ -9,6 +9,12 @@
 @inject IWebHostEnvironment Env
 @inject IConfiguration Config
 @inject NavigationManager Nav
+@inject Ecorex.Application.Gestor.TemplateAgent.ITemplateSnapshotService Snapshots
+@inject Ecorex.Application.Gestor.TemplateAgent.ITemplateAgentChatService AgentChat
+@inject IJSRuntime JS
+@using Ecorex.Application.Gestor.TemplateAgent
+@using Ecorex.SuperAdmin.Components.Shared.Templates
+@using Microsoft.AspNetCore.Components.Authorization
 
 <PageTitle>Plantillas WhatsApp - ECOREX.tareas</PageTitle>
 
@@ -36,6 +42,7 @@
         {
             <button class="btn btn-outline-primary" @onclick="OpenImport" disabled="@_busy" title="Traer las plantillas que ya existen en tu cuenta de YCloud">Importar desde YCloud</button>
         }
+        <button class="btn btn-outline-primary" @onclick="@(() => OpenAgentAsync(null))" title="Redactar una plantilla con el agente de IA (verifica las reglas de Meta)">Agente IA</button>
         <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nueva plantilla</button>
     </div>
 </div>
@@ -118,6 +125,7 @@ else
                         {
                             <button class="btn btn-sm btn-outline-success" @onclick="@(() => OpenTest(t))" disabled="@_busy" title="Enviar la plantilla a un numero de prueba">Probar</button>
                         }
+                        <button class="btn btn-sm btn-outline-primary" @onclick="@(() => OpenAgentAsync(t.Id))" disabled="@_busy" title="Abrir con el agente de IA">Agente</button>
                         <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenEditorAsync(t.Id))" disabled="@(!(CanEdit(t.Status) || t.Provider == WhatsAppProvider.Evolution))">Editar</button>
                         <button class="btn btn-sm btn-outline-danger" @onclick="@(() => ToggleActiveAsync(t))" disabled="@_busy">
                             @(t.IsActive ? "Archivar" : "Restaurar")
@@ -132,6 +140,88 @@ else
         <div class="tk-field-error">@_pageError</div>
     }
 }
+
+@* ===== Agente editor de plantillas (ADR-0174, fase 2): vista previa + verificacion + versiones + chat ===== *@
+@if (_agentOpen)
+{
+    <div class="modal-overlay">
+        <div class="wa-agent" @onclick:stopPropagation="true">
+            <div class="wa-agent-head">
+                <div class="wa-agent-title">@(_agentTpl?.Name ?? "Nueva plantilla con el agente")</div>
+                @if (_agentTpl is not null)
+                {
+                    <span class="wa-badge @StatusClass(_agentTpl.Status)">@StatusLabel(_agentTpl.Status)</span>
+                    <select class="form-select form-select-sm wa-agent-versions" @onchange="OnAgentVersionPicked" disabled="@_busy">
+                        <option value="">Versiones (@_agentVersions.Count)</option>
+                        @foreach (var v in _agentVersions)
+                        {
+                            <option value="@v.Id">@v.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm") &#183; @v.Label</option>
+                        }
+                    </select>
+                }
+                <button class="modal-close" style="margin-left:auto;" @onclick="CloseAgentAsync">&times;</button>
+            </div>
+            <div class="wa-agent-grid">
+                <div class="wa-agent-prev">
+                    @if (_agentTpl is null)
+                    {
+                        <p class="text-muted small">Describe el mensaje en el chat. El agente arma el borrador (nombre, categoria, cuerpo, variables con ejemplos), lo verifica contra las reglas de Meta y te pide confirmar. Someter a Meta es una confirmacion aparte.</p>
+                    }
+                    else
+                    {
+                        var d = AgentDraft();
+                        var vr = WhatsAppTemplateVerifier.Verify(d);
+                        <div class="wa-phone">
+                            <div class="wa-bubble">
+                                @if (!string.IsNullOrWhiteSpace(_agentTpl.HeaderText))
+                                {
+                                    <div class="wa-bubble-h">@_agentTpl.HeaderText</div>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(_agentTpl.HeaderMediaUrl))
+                                {
+                                    <div class="wa-bubble-media">[@_agentTpl.HeaderType]</div>
+                                }
+                                <div class="wa-bubble-b">@BodyWithExamples(_agentTpl)</div>
+                                @if (!string.IsNullOrWhiteSpace(_agentTpl.FooterText))
+                                {
+                                    <div class="wa-bubble-f">@_agentTpl.FooterText</div>
+                                }
+                            </div>
+                        </div>
+                        <div class="wa-agent-meta">
+                            <span><b>Categoria:</b> @_agentTpl.Category</span>
+                            <span><b>Idioma:</b> @_agentTpl.Language</span>
+                            <span><b>Linea:</b> @(_agentTpl.WhatsAppLineName ?? "-") @(_agentTpl.Provider?.ToString() ?? "")</span>
+                            @if (_agentTpl.Variables.Count > 0)
+                            {
+                                <span><b>Variables:</b> @string.Join(", ", _agentTpl.Variables.Select(x => x.Token + " = " + x.Example))</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_agentTpl.RejectionReason))
+                            {
+                                <span class="text-danger"><b>Rechazo:</b> @_agentTpl.RejectionReason</span>
+                            }
+                        </div>
+                        <div class="wa-agent-verify @(vr.Errors > 0 ? "bad" : vr.Warnings > 0 ? "warn" : "ok")">
+                            <div style="font-weight:700;">@VerifyTitle(vr)</div>
+                            @foreach (var i in vr.Issues)
+                            {
+                                <div><b>@(i.Severity == "error" ? "Error" : "Aviso")</b> (@i.Where): @i.Problem <span class="text-muted">@i.Fix</span></div>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="wa-agent-chat">
+                    <TemplateAgentChatPanel @key="_agentKey" Kind="Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp" TemplateId="_agentTemplateId"
+                                            OnTemplateChanged="OnAgentChangedAsync" IrreversibleDetail="@AgentPreviewText()"
+                                            Subtitle="Describe el mensaje; el agente lo redacta con las reglas de Meta. Someter a Meta se confirma aparte."
+                                            Placeholder="Ej. Aviso de que el pedido esta listo para recoger en bodega..."
+                                            Greeting="Hola. Cuentame que mensaje de WhatsApp necesitas (para que, a quien y que datos lleva) y lo redacto como plantilla lista para aprobar en Meta." />
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 
 @* ===== Modal crear/editar plantilla ===== *@
 @if (_showEditor)
@@ -501,6 +591,98 @@ else
     private string? _fFooterText;
     private IReadOnlyList<WhatsAppTemplateButtonDto> _fButtons = new List<WhatsAppTemplateButtonDto>();
     private string? _editorError;
+    private IReadOnlyList<WhatsAppTemplateVariable> _fVariables = new List<WhatsAppTemplateVariable>();
+
+    // ===== Agente editor de plantillas (ADR-0174, fase 2) =====
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private bool _agentOpen;
+    private Guid _agentKey = Guid.NewGuid();
+    private Guid? _agentTemplateId;
+    private WhatsAppTemplateDto? _agentTpl;
+    private List<TemplateSnapshotDto> _agentVersions = new();
+
+    private async Task OpenAgentAsync(Guid? id)
+    {
+        _agentTemplateId = id;
+        _agentTpl = id is Guid tid ? await TemplateSvc.GetAsync(tid) : null;
+        _agentKey = Guid.NewGuid();
+        await LoadAgentVersionsAsync();
+        _agentOpen = true;
+    }
+
+    private async Task CloseAgentAsync()
+    {
+        _agentOpen = false;
+        await ReloadAsync();
+    }
+
+    private async Task LoadAgentVersionsAsync()
+        => _agentVersions = _agentTpl is null ? new() : (await Snapshots.ListAsync(Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp, _agentTpl.Id)).ToList();
+
+    private async Task OnAgentChangedAsync(Guid? templateId)
+    {
+        if (templateId is not Guid id) { return; }
+        _agentTemplateId = id;
+        _agentTpl = await TemplateSvc.GetAsync(id);
+        await LoadAgentVersionsAsync();
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private async Task OnAgentVersionPicked(ChangeEventArgs e)
+    {
+        if (!Guid.TryParse(e.Value?.ToString(), out var snapId) || _agentTpl is null) { return; }
+        var v = _agentVersions.FirstOrDefault(x => x.Id == snapId);
+        if (v is null) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", "Restaurar la version \"" + v.Label + "\"? (solo si la plantilla esta en borrador o rechazada; la actual queda guardada)"))
+        {
+            StateHasChanged();
+            return;
+        }
+        _busy = true;
+        try
+        {
+            Guid? actor = null;
+            if (AuthState is not null && Guid.TryParse((await AuthState).User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var a)) { actor = a; }
+            if (await Snapshots.RestoreAsync(snapId, actor))
+            {
+                try { await AgentChat.NoteExternalChangeAsync(Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp, _agentTpl.Id, "El usuario restauro la version \"" + v.Label + "\"."); } catch { }
+                await OnAgentChangedAsync(_agentTpl.Id);
+            }
+            else { _pageError = "No se pudo restaurar (la plantilla ya fue sometida/aprobada o la version no aplica)."; }
+        }
+        finally { _busy = false; }
+    }
+
+    private WhatsAppDraft AgentDraft() => new(
+        _agentTpl!.Name, _agentTpl.Language, _agentTpl.Category, _agentTpl.HeaderType, _agentTpl.HeaderText, _agentTpl.HeaderMediaUrl,
+        _agentTpl.BodyText, _agentTpl.FooterText, _agentTpl.Variables);
+
+    private static string VerifyTitle(TemplateVerifyResult vr)
+        => vr.Errors == 0 && vr.Warnings == 0 ? "Verificacion Meta: todo en orden." : $"Verificacion Meta: {vr.Errors} error(es), {vr.Warnings} aviso(s)";
+
+    // Texto final (con ejemplos) que se muestra en la tarjeta roja de "Someter a Meta".
+    private string? AgentPreviewText()
+    {
+        if (_agentTpl is null) { return null; }
+        var nl = Environment.NewLine;
+        return _agentTpl.Name + " (" + _agentTpl.Category + ", " + _agentTpl.Language + ") - linea " + _agentTpl.WhatsAppLineName + nl + nl
+            + (string.IsNullOrWhiteSpace(_agentTpl.HeaderText) ? "" : _agentTpl.HeaderText + nl + nl)
+            + BodyWithExamples(_agentTpl)
+            + (string.IsNullOrWhiteSpace(_agentTpl.FooterText) ? "" : nl + nl + _agentTpl.FooterText);
+    }
+
+    private static string BodyWithExamples(WhatsAppTemplateDto t)
+    {
+        var body = t.BodyText ?? string.Empty;
+        foreach (var v in t.Variables)
+        {
+            var rx = new System.Text.RegularExpressions.Regex(@"\{\{\s*" + System.Text.RegularExpressions.Regex.Escape(v.Token) + @"\s*\}\}",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            body = rx.Replace(body, string.IsNullOrWhiteSpace(v.Example) ? "[" + v.Token + "]" : v.Example);
+        }
+        return body;
+    }
 
     // Etiqueta legible del tipo de boton de Meta (URL/QUICK_REPLY/PHONE_NUMBER/COPY_CODE/...).
     private static string ButtonTypeLabel(string? type) => (type ?? "").ToUpperInvariant() switch
@@ -547,6 +729,7 @@ else
         _fBodyText = "";
         _fFooterText = null;
         _fButtons = new List<WhatsAppTemplateButtonDto>();
+        _fVariables = new List<WhatsAppTemplateVariable>();
     }
 
     private async Task OpenEditorAsync(Guid? id)
@@ -576,6 +759,7 @@ else
             _fBodyText = detail.BodyText;
             _fFooterText = detail.FooterText;
             _fButtons = detail.Buttons;
+            _fVariables = detail.Variables;
         }
         else
         {
@@ -728,9 +912,12 @@ else
             HeaderText: _fHeaderKind == "text" ? _fHeaderText : null,
             HeaderMediaUrl: (_fHeaderKind == "image" || _fHeaderKind == "document") ? _fHeaderMediaUrl : null,
             FooterText: _fFooterText,
+            // Conserva el ejemplo que ya tenia cada variable (p.ej. los que redacto el agente); si es nueva, el del catalogo.
             Variables: WhatsAppTemplateCalculations.ExtractTokens(_fBodyText)
                 .Select(tok => new WhatsAppTemplateVariable(
-                    tok, WhatsAppTemplateVariableCatalog.Find(tok)?.DefaultExample ?? tok)).ToList());
+                    tok,
+                    _fVariables.FirstOrDefault(v => string.Equals(v.Token, tok, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(v.Example))?.Example
+                        ?? WhatsAppTemplateVariableCatalog.Find(tok)?.DefaultExample ?? tok)).ToList());
         var result = _editingId is null
             ? await TemplateSvc.CreateAsync(request)
             : await TemplateSvc.UpdateAsync(_editingId.Value, request);
@@ -739,6 +926,10 @@ else
             _editorError = result.Error;
             _busy = false;
             return;
+        }
+        if (_editingId is Guid edited)
+        {
+            try { await AgentChat.NoteExternalChangeAsync(Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp, edited, "El usuario edito y guardo la plantilla a mano."); } catch { }
         }
         _showEditor = false;
         _busy = false;

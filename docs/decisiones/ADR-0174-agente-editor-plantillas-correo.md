@@ -1,7 +1,7 @@
-# ADR-0174: Agente editor de plantillas de correo (nucleo generico de chat + bajas + firma)
+# ADR-0174: Agente editor de plantillas de correo y WhatsApp (nucleo generico de chat + bajas + firma)
 
 Fecha: 2026-11-16
-Estado: Aceptada (fase 1: correo. Fase 2 pendiente: plantillas de WhatsApp sobre el mismo nucleo)
+Estado: Aceptada (fase 1: correo; fase 2: WhatsApp)
 
 ## Contexto
 
@@ -55,5 +55,19 @@ Migracion dual aditiva `AddTemplateAgentAndEmailUnsubscribe` (4 tablas + 5 colum
   Afecta igual al constructor de formularios. Mientras tanto, marcar Gemini como "IA gestion de plantillas".
 - El enlace de baja requiere `Ecorex:PublicBaseUrl` / `ECOREX_PUBLIC_BASE_URL`; sin URL publica la variable queda
   vacia (el verificador sigue exigiendola en la plantilla).
-- Fase 2 (WhatsApp) reutiliza el nucleo: toolset con save_whatsapp_draft y submit_to_meta (irreversible) sobre
-  `WhatsAppTemplateService.SubmitAsync` (YCloud).
+
+## Fase 2: WhatsApp (mismo nucleo)
+
+- `WhatsAppTemplateAgentToolset`: get_whatsapp_template / list_whatsapp_context / verify_whatsapp (solo lectura),
+  save_whatsapp_draft (crea/actualiza el BORRADOR por `IWhatsAppTemplateService`: validacion, unicidad, auditoria) y
+  submit_to_meta (IRREVERSIBLE: confirmacion explicita aparte con casilla "Entiendo..." y el texto final con ejemplos;
+  se niega si la verificacion tiene errores; usa `SubmitAsync`, que en lineas YCloud crea la plantilla en Meta).
+- `WhatsAppTemplateVerifier` (reglas de Meta): nombre snake_case, idioma, cuerpo <= 1024, encabezado/pie <= 60 y sin
+  variables, variable sin ejemplo, variable al inicio/final, variables pegadas, "Params Words Ratio" (>= 3 palabras
+  fijas por variable), Authentication no soportada, media sin URL https (errores); promocion en Utility, variable sin
+  usar, saltos excesivos (avisos).
+- /plantillas-whatsapp: boton "Agente IA" y "Agente" por fila abren un panel con vista previa tipo WhatsApp (ejemplos
+  aplicados), verificacion en vivo, versiones con Restaurar (solo si la plantilla es editable) y el chat. El editor
+  manual ahora CONSERVA los ejemplos de las variables al guardar (antes los pisaba con el catalogo).
+- Arnes: el agente no afirma haber hecho una accion que solo propuso (visto en el E2E: "Listo, ya envie" antes de
+  confirmar).

@@ -38,7 +38,7 @@
                 {
                     @foreach (var p in _proposals.Where(x => x.Irreversible))
                     {
-                        <pre class="tac-final">@FinalText(p)</pre>
+                        <pre class="tac-final">@(string.IsNullOrWhiteSpace(IrreversibleDetail) ? FinalText(p) : IrreversibleDetail)</pre>
                     }
                     <label class="tac-ack"><input type="checkbox" @bind="_ack" /> Entiendo que se enviara a Meta y no se puede deshacer.</label>
                     <div class="tac-proposal-actions">
@@ -107,6 +107,10 @@
 
     /// <summary>Se invoca cuando un cambio confirmado toco la plantilla (con su id, por si se acaba de crear).</summary>
     [Parameter] public EventCallback<Guid?> OnTemplateChanged { get; set; }
+
+    /// <summary>Texto final que se mostrara en la tarjeta roja de una accion irreversible (p.ej. la plantilla de
+    /// WhatsApp con ejemplos que se sometera a Meta). Lo provee la pagina.</summary>
+    [Parameter] public string? IrreversibleDetail { get; set; }
 
     [Parameter] public string Subtitle { get; set; } = "Describe el correo, adjunta una imagen/PDF/HTML para replicarlo o pide cambios.";
     [Parameter] public string Placeholder { get; set; } = "Ej. Un correo de bienvenida para prospectos con boton a nuestro catalogo...";

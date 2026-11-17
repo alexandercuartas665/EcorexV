@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-16 - v0.16.335 (fase 2): agente de plantillas de WhatsApp (rama feat/agente-plantillas, SIN deploy)
+
+- AGENTE: Claude Opus 5.5. ADR-0174 (seccion Fase 2). Mismo nucleo de la fase 1, sin migraciones nuevas.
+- HECHO: WhatsAppTemplateAgentToolset (leer, contexto de lineas, verify_whatsapp, save_whatsapp_draft, submit_to_meta
+  IRREVERSIBLE con confirmacion aparte) + WhatsAppTemplateVerifier (reglas de Meta). /plantillas-whatsapp: "Agente IA"
+  y "Agente" por fila -> panel con vista previa tipo WhatsApp, verificacion en vivo, versiones y chat. El editor manual
+  conserva los ejemplos de las variables. Arnes: el agente ya no dice "listo, ya envie" antes de que confirmes.
+- VERIFICADO: build 0 errores; Application.Tests 1485 (7 nuevos del verificador/borrador de WhatsApp).
+  E2E local: SOLDARCO :5271 (linea YCloud real) -> borrador notificacion_cotizacion_lista creado, verificado y editado
+  con version; tarjeta roja de Someter con texto final y boton bloqueado hasta la casilla; RECHAZADA a proposito (NO se
+  sometio a Meta: sigue Draft sin provider_template_id). BITCODE :5272 con acuartas@bitcode.com.co -> plantilla
+  "Seguimiento soporte TI" creada y send_test ENVIADO 2 veces a acuartas@bitcode.com.co (regla del usuario: pruebas de
+  correo solo a ese buzon).
+- PENDIENTE: someter una plantilla real a Meta solo con OK explicito (crea la plantilla en la WABA de la linea).
+
 ## 2026-11-16 - v0.16.335: agente editor de plantillas de correo + bajas + firma (rama feat/agente-plantillas, SIN deploy)
 
 - AGENTE: Claude Opus 5.5 (sesion del motor de acciones; el usuario pidio construirlo en esta sesion). ADR-0174.

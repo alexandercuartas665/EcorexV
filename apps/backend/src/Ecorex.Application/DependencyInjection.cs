@@ -79,6 +79,7 @@ public static class DependencyInjection
         services.AddScoped<Gestor.IEmailUnsubscribeService, Gestor.EmailUnsubscribeService>();
         services.AddScoped<Gestor.IUserSignatureService, Gestor.UserSignatureService>();
         services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.EmailTemplateAgentToolset>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.WhatsAppTemplateAgentToolset>();
         services.AddScoped<Gestor.TemplateAgent.ITemplateSnapshotService, Gestor.TemplateAgent.TemplateSnapshotService>();
         services.AddScoped<Gestor.TemplateAgent.ITemplateAgentChatService, Gestor.TemplateAgent.TemplateAgentChatService>();
         services.AddScoped<Tenancy.ITemplateAssetService, Tenancy.TemplateAssetService>();

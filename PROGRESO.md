@@ -38,7 +38,11 @@
   en cada envio. Sin migraciones.
 - Renumerada a v0.16.348 al integrar main (v0.16.347 = maquetas-cerebro). Vista previa con formato real de
   WhatsApp (*negrita*, _cursiva_, ~tachado~) en el panel del agente y en el paso WhatsApp del gestor.
-- Siguiente (tras deploy de la sesion principal): E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
+- E2E en PROD 2026-11-18 (desplegada como v0.16.349 por ECOREX.desarrollo): plantilla promo_catalogo_soldaduras
+  (imagen de la galeria + 3 botones) creada con el agente y sometida 14:44 por la linea YCloud Ana; Meta la
+  aprobo y el worker la paso a Approved a las 14:50 sin intervencion. Paso WhatsApp en el gestor de contactos
+  (filtro "PRUEBA acuartas 8 y 9 AM", ventana 14:58-15:30) -> Sent 14:58 al 3217626882.
+- (Historico) Siguiente (tras deploy de la sesion principal): E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
   WhatsApp programado desde el gestor de contactos.
 
 ## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - DESPLEGADA (incluye v0.16.347)

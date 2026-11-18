@@ -2,12 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) (SIN deploy)
+## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) - DESPLEGADA (SIN deploy)
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 40e3c671 (sesion
   ECOREX.call_center). La rama decia v0.16.348 (ya usada y desplegada por maquetas-cerebro ola 3b) -> renumerada a
   v0.16.349 (AppVersion y lineas Version de ADR-0184/0185/0186; ADRs sin choque). Sin migraciones. Conflicto solo en
   PROGRESO (resuelto). Las entradas originales de la sesion siguen abajo.
+- PRUEBAS en el tronco: build + format verdes; unitarias Application 1592, SuperAdmin 293, Domain 35; integracion dual
+  WhatsApp|Template|Plantilla|McpMaquetas|Auth 89/89 tras 3 arreglos: (1) b536a5c5 IMaquetaMcpToolset se registraba en
+  Application pero sus dependencias solo en SuperAdmin -> Ecorex.Api no arrancaba (bug de v0.16.345; prod no afectado);
+  (2) WhatsAppTemplatesTests: SyncStatusAsync ya no es stub (Invalid para lineas no YCloud); (3) 3f94293e ChatIngestTests
+  espera el MSISDN canonico (ADR-0125 v2), falla vieja oculta por (1).
+- DEPLOY: 2026-11-18 ~14:45 Bogota con OK del usuario, via rapida GHCR (CI 44380444000, commit 3f94293e). Footer /login
+  v0.16.349, Restarts=0, sin errores en logs, WhatsAppTemplateStatusWorker arrancado. Imagen nueva
+  sha256:e05c3662dbf6fc95329d4d4814be851ffdd603d552ec5d4be3a25f099d84d3c1; rollback
+  sha256:161bba49f15896d410f27ef5b1ecff279d10f4a7425cbbfc5b9c3cb0b7939f75 (v0.16.348).
 
 - Rama feat/whatsapp-sync-estado-ycloud (desde main b226f078). `SyncStatusAsync` deja de ser stub: reconciliador
   puro `WhatsAppTemplateStatusSync` (solo estado/motivo/id/ReviewedAt, nunca contenido), `SyncPendingAsync` por

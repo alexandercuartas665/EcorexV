@@ -123,6 +123,14 @@ public interface IFormResponseService
     Task<FormResult<TaskConceptFormItemDto>> DuplicateResponseAsync(Guid responseId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Salto de flujo (ADR-0076 v2): copia un formulario de la TAREA PADRE a esta tarea hija como borrador
+    /// EDITABLE anclado al numero de la hija ("{numero hija}-{n}"), con todo su Data. Los heredados del padre son
+    /// solo consulta y no cuentan para el obligatorio de los pasos de la hija: esta copia si. Error si la tarea no
+    /// existe/esta Cerrada, no tiene padre, o el formulario no esta anclado al numero del padre.
+    /// </summary>
+    Task<FormResult<TaskConceptFormItemDto>> CopyParentFormToTaskAsync(Guid responseId, Guid taskItemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Marca cual respuesta de la tarea es la ACTIVA por defecto (exclusivo por tarea: desmarca las
     /// demas del mismo conjunto de la tarea). Con una sola respuesta no hace falta: ya es la activa.
     /// </summary>

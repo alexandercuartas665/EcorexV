@@ -1044,7 +1044,13 @@
                                                 <div class="tk-quote-actions">
                                                     @{ var primaryActive = !g.Inherited && (isStep ? (stepPending && !taskClosed) : (!finalized && !taskClosed)); }
                                                     <button class="btn btn-xs @(primaryActive ? "btn-primary" : "")" @onclick="@(() => OpenFormItem(g, it, sf))" disabled="@_busy">@(primaryActive ? "Diligenciar" : "Ver")</button>
-                                                    @* Los HEREDADOS del padre son SOLO consulta: sin activar / copiar / reabrir / eliminar. *@
+                                                    @* Los HEREDADOS del padre son SOLO consulta: sin activar / copiar / reabrir / eliminar. Para
+                                                       trabajarlos en ESTA tarea (y que cuenten para el obligatorio del paso) se TRAEN como copia
+                                                       editable (ADR-0076 v2); se ofrece solo si la tarea aun no tiene uno propio de ese formulario. *@
+                                                    @if (g.Inherited && !taskClosed && !allForms.Any(p => !p.Genero.Inherited && p.Genero.DefinitionId == g.DefinitionId))
+                                                    {
+                                                        <button class="btn btn-xs btn-primary" @onclick="@(() => CopyParentFormAsync(it))" disabled="@_busy" title="Copiar este formulario de la tarea padre a esta tarea para editarlo y usarlo en el flujo">Traer a esta tarea</button>
+                                                    }
                                                     @if (!g.Inherited)
                                                     {
                                                         @* "Marcar activo" en CUALQUIER formulario NO activo del genero (incluido el del paso
@@ -3167,7 +3173,8 @@
         if (_detail is null) { return; }
         var taskClosed = _detail.Item.Status == TaskItemStatus.Closed;
         var finalized = it.Status == FormResponseStatus.Submitted;
-        var mode = (!taskClosed && !finalized) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
+        // Los heredados de la tarea padre (salto de flujo) se abren SIEMPRE en consulta: pertenecen al padre.
+        var mode = (!taskClosed && !finalized && !g.Inherited) ? FormRenderMode.Fill : FormRenderMode.ReadOnly;
         var title = g.FormTitle + (string.IsNullOrWhiteSpace(it.Titulo) ? "" : $" - {it.Titulo}");
         _openForm = new OpenFormState(g.DefinitionId, it.ResponseId, it.Reference, title, mode, IsStep: false, Step: null, Layout: g.CardLayout);
     }
@@ -3230,6 +3237,25 @@
         try
         {
             var res = await FormResponsesSvc.DuplicateResponseAsync(it.ResponseId);
+            if (res.IsOk && res.Value is not null)
+            {
+                await ReloadAsync(_detail.Item.Id);
+                var found = FindGeneroItem(res.Value.ResponseId);
+                if (found is not null) { OpenGeneroForm(found.Value.Genero, found.Value.Item); }
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>"Traer a esta tarea" (ADR-0076 v2): copia un formulario heredado de la tarea padre a esta tarea como
+    /// borrador editable (con su Data) y lo abre para diligenciar.</summary>
+    private async Task CopyParentFormAsync(TaskConceptFormItemDto it)
+    {
+        if (_detail is null || _busy) { return; }
+        _busy = true;
+        try
+        {
+            var res = await FormResponsesSvc.CopyParentFormToTaskAsync(it.ResponseId, _detail.Item.Id);
             if (res.IsOk && res.Value is not null)
             {
                 await ReloadAsync(_detail.Item.Id);

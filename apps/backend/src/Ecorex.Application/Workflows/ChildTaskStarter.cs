@@ -20,12 +20,15 @@ public sealed class ChildTaskStarter : IChildTaskStarter
     private readonly IApplicationDbContext _db;
     private readonly ISequenceService _sequences;
     private readonly IWorkflowEngine _engine;
+    private readonly Forms.IFormResponseService? _forms;
 
-    public ChildTaskStarter(IApplicationDbContext db, ISequenceService sequences, IWorkflowEngine engine)
+    public ChildTaskStarter(IApplicationDbContext db, ISequenceService sequences, IWorkflowEngine engine,
+        Forms.IFormResponseService? forms = null)
     {
         _db = db;
         _sequences = sequences;
         _engine = engine;
+        _forms = forms;
     }
 
     public async Task<Guid?> StartChildFromJumpAsync(
@@ -131,6 +134,8 @@ public sealed class ChildTaskStarter : IChildTaskStarter
         // Persistir la hija ANTES de arrancarle el flujo: StartInstanceAsync la busca por Id en la BD.
         await _db.SaveChangesAsync(cancellationToken);
 
+        await CopyRequiredParentFormsAsync(parent, child, effectiveDefId, cancellationToken);
+
         // Arranca el flujo destino en la hija. Se une a la transaccion activa (HasActiveTransaction) del padre.
         // El actor es el asignado del padre (tenant_user valido) o null; la herencia robusta (ADR-0075) resuelve
         // el encargado de la hija por su propio cargo / paso previo.
@@ -163,5 +168,37 @@ public sealed class ChildTaskStarter : IChildTaskStarter
         }
 
         return child.Id;
+    }
+
+    /// <summary>
+    /// ADR-0076 v2: los formularios del PADRE que el flujo DESTINO exige (obligatorios en algun nodo) se copian a
+    /// la hija como borrador EDITABLE anclado a su numero, con todo su Data. Antes solo se veian como "Tarea padre"
+    /// (solo consulta) y el paso que los exige quedaba bloqueado: el obligatorio se busca por el numero de la hija.
+    /// Solo los EXIGIDOS: un salto a otro flujo que no los pide (p.ej. cotizacion -> OT) no duplica registros.
+    /// Uno por formulario: el activo del padre (o el original "{numero}", o el mas antiguo), misma regla que la UI.
+    /// </summary>
+    private async Task CopyRequiredParentFormsAsync(TaskItem parent, TaskItem child, Guid targetDefinitionId, CancellationToken cancellationToken)
+    {
+        if (_forms is null || string.IsNullOrEmpty(parent.Number)) { return; }
+        var requiredDefIds = await (
+            from f in _db.WorkflowNodeForms.AsNoTracking()
+            join n in _db.WorkflowNodes.AsNoTracking() on f.NodeId equals n.Id
+            where n.DefinitionId == targetDefinitionId && f.IsRequired
+            select f.DefinitionId).Distinct().ToListAsync(cancellationToken);
+        if (requiredDefIds.Count == 0) { return; }
+
+        var prefix = parent.Number + "-";
+        var parentForms = await _db.FormResponses.AsNoTracking()
+            .Where(r => requiredDefIds.Contains(r.DefinitionId) && r.Reference != null
+                && (r.Reference == parent.Number || r.Reference.StartsWith(prefix)))
+            .OrderBy(r => r.CreatedAt)
+            .ToListAsync(cancellationToken);
+        foreach (var group in parentForms.GroupBy(r => r.DefinitionId))
+        {
+            var pick = group.FirstOrDefault(r => r.IsActive)
+                ?? group.FirstOrDefault(r => r.Reference == parent.Number)
+                ?? group.First();
+            await _forms.CopyParentFormToTaskAsync(pick.Id, child.Id, cancellationToken);
+        }
     }
 }

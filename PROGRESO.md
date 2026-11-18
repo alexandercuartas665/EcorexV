@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.350: formularios de la tarea padre en un salto de flujo (ADR-0187) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339).
+- PROBLEMA (AGROMETALICAS, prod): T00886 (FLW-007 GESTION COMERCIAL IA) salto a FLW-F15A6C creando la hija T00894.
+  La COT del padre (T00886-1, Borrador con datos) se veia en la hija como "Tarea padre" sin poder editarla, y el paso
+  "Se prepara la cotizacion para el cliente" (COT obligatorio) bloqueaba: el obligatorio busca por el numero de la
+  HIJA. Ademas la tarjeta pintaba "true" (el subtitulo "cliente" tomaba una casilla si/no).
+- HECHO: IFormResponseService.CopyParentFormToTaskAsync (copia editable "{hija}-{n}" con todo el Data; solo
+  formularios del padre de esa tarea; tarea abierta y con padre). ChildTaskStarter copia al saltar SOLO los
+  formularios del padre que el flujo DESTINO exige (obligatorios en algun nodo); asi cotizacion -> OT (FLW-002, 152
+  hijas) no duplica. TaskDetailModal: boton "Traer a esta tarea" en la tarjeta heredada (si aun no hay uno propio) y
+  los heredados abren siempre en consulta. ResolveFieldCodeAsync ignora Toggle/MultiCheck/Heading/Literal.
+  Sin migraciones.
+- PRUEBAS: ParentFormCopyTests dual 6/6 (copia editable con datos + subtitulo sin "true"; rechaza formularios
+  ajenos y tareas sin padre; el salto copia solo lo exigido por el flujo destino).
+- SIGUIENTE: deploy con OK del usuario; en T00894 pulsar "Traer a esta tarea" en la COT heredada (otras hijas de
+  FLW-007 -> FLW-F15A6C sin COT propia en prod: T00474, T00648).
+
 ## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 40e3c671 (sesion

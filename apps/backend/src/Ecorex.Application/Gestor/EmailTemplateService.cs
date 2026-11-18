@@ -8,10 +8,10 @@ namespace Ecorex.Application.Gestor;
 
 /// <summary>Plantilla de correo (lectura).</summary>
 public sealed record EmailTemplateDto(
-    Guid Id, string Nombre, string Asunto, string CuerpoHtml, bool Activa, DateTimeOffset UpdatedAt);
+    Guid Id, string Nombre, string Asunto, string CuerpoHtml, bool Activa, DateTimeOffset UpdatedAt, string? Estilo = null);
 
 /// <summary>Alta/edicion de una plantilla de correo.</summary>
-public sealed record SaveEmailTemplateRequest(string Nombre, string Asunto, string CuerpoHtml, bool Activa = true);
+public sealed record SaveEmailTemplateRequest(string Nombre, string Asunto, string CuerpoHtml, bool Activa = true, string? Estilo = null);
 
 /// <summary>Valores de merge de un contacto para renderizar una plantilla de correo. Los ultimos cinco
 /// (ADR-0175) son opcionales: {vendedor} = asesor asignado, {telefono}, {sector}, {firma} = firma HTML del
@@ -56,14 +56,14 @@ public sealed class EmailTemplateService : IEmailTemplateService
         if (soloActivas) { q = q.Where(t => t.Activa); }
         return await q
             .OrderByDescending(t => t.Activa).ThenBy(t => t.Nombre)
-            .Select(t => new EmailTemplateDto(t.Id, t.Nombre, t.Asunto, t.CuerpoHtml, t.Activa, t.UpdatedAt ?? t.CreatedAt))
+            .Select(t => new EmailTemplateDto(t.Id, t.Nombre, t.Asunto, t.CuerpoHtml, t.Activa, t.UpdatedAt ?? t.CreatedAt, t.Estilo))
             .ToListAsync(cancellationToken);
     }
 
     public async Task<EmailTemplateDto?> GetAsync(Guid id, CancellationToken cancellationToken = default)
         => await _db.EmailTemplates.AsNoTracking()
             .Where(t => t.Id == id)
-            .Select(t => new EmailTemplateDto(t.Id, t.Nombre, t.Asunto, t.CuerpoHtml, t.Activa, t.UpdatedAt ?? t.CreatedAt))
+            .Select(t => new EmailTemplateDto(t.Id, t.Nombre, t.Asunto, t.CuerpoHtml, t.Activa, t.UpdatedAt ?? t.CreatedAt, t.Estilo))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<EmailTemplateDto?> CreateAsync(SaveEmailTemplateRequest request, CancellationToken cancellationToken = default)
@@ -78,7 +78,8 @@ public sealed class EmailTemplateService : IEmailTemplateService
             Nombre = nombre,
             Asunto = (request.Asunto ?? string.Empty).Trim(),
             CuerpoHtml = request.CuerpoHtml ?? string.Empty,
-            Activa = request.Activa
+            Activa = request.Activa,
+            Estilo = TemplateAgent.EmailDesignStyles.Normalize(request.Estilo),
         };
         _db.EmailTemplates.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
@@ -94,6 +95,7 @@ public sealed class EmailTemplateService : IEmailTemplateService
         entity.Asunto = (request.Asunto ?? string.Empty).Trim();
         entity.CuerpoHtml = request.CuerpoHtml ?? string.Empty;
         entity.Activa = request.Activa;
+        if (request.Estilo is not null) { entity.Estilo = TemplateAgent.EmailDesignStyles.Normalize(request.Estilo); }
         await _db.SaveChangesAsync(cancellationToken);
         return Map(entity);
     }
@@ -112,7 +114,7 @@ public sealed class EmailTemplateService : IEmailTemplateService
     }
 
     private static EmailTemplateDto Map(EmailTemplate e)
-        => new(e.Id, e.Nombre, e.Asunto, e.CuerpoHtml, e.Activa, e.UpdatedAt ?? e.CreatedAt);
+        => new(e.Id, e.Nombre, e.Asunto, e.CuerpoHtml, e.Activa, e.UpdatedAt ?? e.CreatedAt, e.Estilo);
 
     // ---- Merge ----
 

@@ -1,0 +1,148 @@
+@* GALERIA DE IMAGENES de plantillas (ADR-0177), reutilizable: pestana "Galeria" del editor de correos y selector
+   de logo de la marca. Sube PNG/JPG/GIF al gestor unificado (URL publica /i/... para que se vean en los correos),
+   edita la descripcion (alt) y quita (soft-delete: los correos ya enviados la siguen mostrando). Solo ASCII. *@
+@using Ecorex.Application.Gestor
+@using Ecorex.Application.Tenancy
+@inject ITemplateAssetService Assets
+@inject ITemplateGalleryService Gallery
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<div class="pg">
+    <div class="pg-upload">
+        <label class="btn btn-primary btn-sm pg-upload-btn">
+            <InputFile OnChange="OnFilesAsync" multiple accept="image/png,image/jpeg,image/gif" style="display:none;" />
+            @(_busy ? "Subiendo..." : "Subir imagenes")
+        </label>
+        <span class="pg-hint">PNG, JPG o GIF hasta 3 MB (ideal &lt; 300 KB). Quedan con un enlace publico para que se vean dentro de los correos.</span>
+    </div>
+    @if (_error is not null)
+    {
+        <div class="pg-error">@_error</div>
+    }
+    @if (_loading)
+    {
+        <p class="pg-hint" style="margin-top:12px;">Cargando...</p>
+    }
+    else if (_items.Count == 0)
+    {
+        <p class="pg-hint" style="margin-top:14px;">Aun no hay imagenes. Sube tu logo, fotos de producto o banners; luego pidele al agente que las use.</p>
+    }
+    else
+    {
+        <div class="pg-grid">
+            @foreach (var a in _items)
+            {
+                var aa = a;
+                <div class="pg-card">
+                    <div class="pg-thumb"><img src="@aa.Url" alt="@aa.Alt" loading="lazy" /></div>
+                    <div class="pg-name" title="@aa.FileName">@aa.FileName</div>
+                    <div class="pg-meta">@(aa.Width is int w && aa.Height is int h ? $"{w} x {h} px - " : "")@Kb(aa.SizeBytes)</div>
+                    <input class="form-control form-control-sm pg-alt" value="@aa.Alt" placeholder="Descripcion (alt)" maxlength="200"
+                           @onchange="e => SaveAltAsync(aa, e.Value?.ToString())" title="Descripcion de la imagen: la usa el agente como texto alternativo" />
+                    <div class="pg-actions">
+                        @if (PickMode)
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="() => OnPick.InvokeAsync(aa)">@PickLabel</button>
+                        }
+                        else
+                        {
+                            @if (OnUseInChat.HasDelegate)
+                            {
+                                <button class="btn btn-sm btn-primary" @onclick="() => OnUseInChat.InvokeAsync(aa)" title="Pide al agente que use esta imagen">Al chat</button>
+                            }
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => CopyUrlAsync(aa)" title="Copiar el enlace publico">Copiar URL</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteAsync(aa)" title="Quitar de la galeria">Quitar</button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    @if (_copied is not null)
+    {
+        <div class="pg-copied">Enlace copiado: @_copied</div>
+    }
+</div>
+
+@code {
+    /// <summary>Modo seleccion (p.ej. elegir el logo): cada imagen muestra solo el boton <see cref="PickLabel"/>.</summary>
+    [Parameter] public bool PickMode { get; set; }
+    [Parameter] public string PickLabel { get; set; } = "Usar";
+    [Parameter] public EventCallback<TemplateAssetDto> OnPick { get; set; }
+
+    /// <summary>Si se asigna, cada imagen muestra "Al chat" (pedirle al agente que la use).</summary>
+    [Parameter] public EventCallback<TemplateAssetDto> OnUseInChat { get; set; }
+
+    /// <summary>Avisa cuantas imagenes hay (para el contador de la pestana).</summary>
+    [Parameter] public EventCallback<int> OnCountChanged { get; set; }
+
+    private List<TemplateAssetDto> _items = new();
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private string? _copied;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        // Solo formatos que se ven en correo (los SVG legados de la galeria no se ofrecen).
+        _items = (await Assets.ListAsync()).Where(a => a.MimeType is "image/png" or "image/jpeg" or "image/gif").ToList();
+        _loading = false;
+        await OnCountChanged.InvokeAsync(_items.Count);
+    }
+
+    private async Task OnFilesAsync(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        _busy = true;
+        StateHasChanged();
+        var errors = new List<string>();
+        try
+        {
+            foreach (var f in e.GetMultipleFiles(12))
+            {
+                if (f.Size > TemplateGalleryService.MaxBytes)
+                {
+                    errors.Add($"{f.Name}: pesa mas de {TemplateGalleryService.MaxBytes / 1024 / 1024} MB.");
+                    continue;
+                }
+                using var ms = new MemoryStream();
+                await f.OpenReadStream(TemplateGalleryService.MaxBytes).CopyToAsync(ms);
+                var (asset, error) = await Gallery.UploadAsync(f.Name, ms.ToArray(), null);
+                if (asset is null) { errors.Add($"{f.Name}: {error}"); }
+            }
+            await ReloadAsync();
+        }
+        catch (Exception ex) { errors.Add(ex.Message); }
+        finally
+        {
+            _busy = false;
+            _error = errors.Count > 0 ? string.Join(" ", errors) : null;
+        }
+    }
+
+    private async Task SaveAltAsync(TemplateAssetDto a, string? alt)
+    {
+        await Assets.UpdateAltAsync(a.Id, alt);
+        await ReloadAsync();
+    }
+
+    private async Task DeleteAsync(TemplateAssetDto a)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Quitar \"{a.FileName}\" de la galeria? Los correos ya enviados que la usan la seguiran mostrando.")) { return; }
+        await Assets.DeleteAsync(a.Id);
+        await ReloadAsync();
+    }
+
+    private async Task CopyUrlAsync(TemplateAssetDto a)
+    {
+        var abs = Nav.ToAbsoluteUri(a.Url).ToString();
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", abs); }
+        catch { /* sin permiso de portapapeles: igual se muestra el enlace */ }
+        _copied = abs;
+    }
+
+    private static string Kb(long bytes) => bytes >= 1024 * 1024 ? (bytes / 1024d / 1024d).ToString("0.0") + " MB" : Math.Max(1, bytes / 1024) + " KB";
+}

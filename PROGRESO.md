@@ -2,6 +2,40 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-17 - v0.16.339: marca de correo, galeria de imagenes y selector de estilos del agente (SIN DEPLOY)
+
+- AGENTE: Claude Opus 5.5. ADR-0177 (renumerado al integrar: v0.16.338/ADR-0176 ya eran de la maqueta). Rama feat/plantillas-marca-galeria-estilos (desde el tronco 9dbc0ed6).
+- PEDIDO del usuario: logo y color de marca en los correos, una pequena galeria para cargar imagenes y un selector de
+  estilos para que la IA afine el detalle.
+- HECHO:
+  - MARCA DE CORREO (`EmailBrand`, una fila por tenant): logo para correos (de la galeria; si no, el de la empresa),
+    color principal, acento, estilo por defecto, sitio web y texto del pie. Contacto del pie desde la ficha de la
+    empresa. Tarjeta + modal con muestra en vivo en /plantillas-correo.
+  - GALERIA: reutiliza `TemplateAsset` (+ Alt/Width/Height/StoredFileId + soft-delete). `TemplateGalleryService` sube al
+    gestor unificado (modulo galeria-plantillas), valida formato por firma (PNG/JPG/GIF; SVG/WEBP rechazados), tope 3 MB,
+    lee dimensiones (`ImageDimensions`). Endpoint ANONIMO `/i/{id}{ext}` acotado a ese modulo (cache inmutable).
+  - ESTILOS: `EmailDesignStyles` (corporativo, moderno, minimalista, editorial, elegante, promocional, personal) con guias
+    concretas en el arnes; el estilo viaja como "[estilo: clave]" (MessagePrefix del panel, oculto en el chat);
+    `EmailTemplate.Estilo`; boton "Redisenar en <estilo>".
+  - AGENTE: herramienta `list_images`; arnes con secciones MARCA (colores exactos, logo OBLIGATORIO, datos reales del pie),
+    ESTILOS e IMAGENES; honestidad reforzada. Verificador: img sin src (error), base64/relativa/http/SVG (avisos).
+  - Migracion dual aditiva `AddEmailBrandGalleryStyles` (aplicada en la BD local 5442).
+- VERIFICADO: build 0 errores; dotnet format limpio; Application.Tests 1513/1513 (18 nuevas). E2E local BITCODE :5272
+  (Chrome MCP): subir 2 PNG (1200x500 y 480x120 leidos), /i/ anonimo 200 y otro modulo 404, marca guardada, plantilla
+  `presentacion_moderna_hero` creada en Moderno (hero de la galeria, colores exactos, pie real) y redisenada a Elegante
+  con un clic (logo arriba, serif, fondo oscuro). Hallazgo corregido: con hero el agente omitia el logo -> obligatorio.
+- ITERACION 2 (mismo dia, pedido del usuario): lista en TARJETAS con miniatura renderizada; editor en MODAL de 2
+  columnas (pestanas Vista previa | HTML | Galeria | Versiones + chat con selector de estilo); galeria extraida a
+  `TemplateGalleryPanel`; pestana Versiones con Ver / Restaurar (deshacible) / Guardar version ahora
+  (`ITemplateSnapshotService.GetPayloadAsync`, la foto incluye Estilo). E2E local (Chrome MCP, por JS): tarjetas con
+  miniatura y badge de estilo; modal 2 columnas; ver version Moderno sin tocar la actual; restaurar y deshacer;
+  plantilla nueva `seguimiento_demo_minimal` (Minimalista) aparece como tarjeta al confirmar. Hallazgo: tras confirmar,
+  Gemini respondio en frances -> regla de idioma al final de los arneses.
+- PENDIENTE: merge por dev (tronco + espejo main) y deploy SOLO con OK del usuario (lleva migracion). Tras el deploy,
+  configurar la marca real de cada tenant y probar send_test (en local las imagenes son http://localhost).
+- NOTA: en el nucleo, cuando el modelo llama verify_email y save_template en la misma vuelta, la tarjeta de propuesta
+  lista "verify_email" tambien (cosmetico, previo a este cambio).
+
 ## 2026-11-17 - v0.16.338: integracion maqueta TRONOX -> tarjetas (POST /api/maqueta/solicitudes)
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0176. Rama feat/maqueta-solicitudes.

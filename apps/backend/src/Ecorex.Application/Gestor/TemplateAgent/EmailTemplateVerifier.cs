@@ -38,6 +38,7 @@ public static class EmailTemplateVerifier
 
     private static readonly Regex ImgTag = new(@"<img\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex AltAttr = new(@"\balt\s*=\s*(""[^""]*""|'[^']*')", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SrcAttr = new(@"\bsrc\s*=\s*(""([^""]*)""|'([^']*)')", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex AnchorHref = new(@"<a\b[^>]*?\bhref\s*=\s*(""([^""]*)""|'([^']*)')", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex AnchorTag = new(@"<a\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Forbidden = new(@"<\s*(script|form|iframe|object|embed|input|button|select|textarea)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -112,6 +113,36 @@ public static class EmailTemplateVerifier
         if (imgsNoAlt > 0)
         {
             issues.Add(new("warning", "cuerpo", $"{imgsNoAlt} imagen(es) sin texto alternativo (alt).", "Agrega alt=\"...\" con una descripcion corta a cada <img>."));
+        }
+
+        // Origen de las imagenes (ADR-0177): el correo se abre fuera de la app, sin sesion.
+        var srcs = ImgTag.Matches(body).Select(m => SrcAttr.Match(m.Value)).ToList();
+        var noSrc = srcs.Count(m => !m.Success || (m.Groups[2].Value + m.Groups[3].Value).Trim().Length == 0);
+        if (noSrc > 0)
+        {
+            issues.Add(new("error", "cuerpo", $"{noSrc} imagen(es) sin src.", "Pon la URL publica de la imagen (de la Galeria) o quita la etiqueta <img>."));
+        }
+        var srcValues = srcs.Where(m => m.Success).Select(m => (m.Groups[2].Value + m.Groups[3].Value).Trim()).Where(s => s.Length > 0).ToList();
+        var dataUri = srcValues.Count(s => s.StartsWith("data:", StringComparison.OrdinalIgnoreCase));
+        if (dataUri > 0)
+        {
+            issues.Add(new("warning", "cuerpo", $"{dataUri} imagen(es) incrustada(s) en base64 (data:); Gmail y Outlook no las muestran.", "Sube la imagen a la Galeria y usa su URL publica."));
+        }
+        var relative = srcValues.Count(s => !s.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            && !s.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && !s.StartsWith("http://", StringComparison.OrdinalIgnoreCase));
+        if (relative > 0)
+        {
+            issues.Add(new("warning", "cuerpo", $"{relative} imagen(es) con ruta relativa; fuera de la app no se veran.", "Usa la URL absoluta https:// (en produccion la Galeria la da completa)."));
+        }
+        var httpImg = srcValues.Count(s => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase));
+        if (httpImg > 0)
+        {
+            issues.Add(new("warning", "cuerpo", $"{httpImg} imagen(es) por http:// (no seguro); algunos clientes las bloquean.", "Usa https://."));
+        }
+        var svg = srcValues.Count(s => s.Split('?')[0].EndsWith(".svg", StringComparison.OrdinalIgnoreCase));
+        if (svg > 0)
+        {
+            issues.Add(new("warning", "cuerpo", $"{svg} imagen(es) SVG; Gmail y Outlook no las muestran.", "Usa PNG o JPG."));
         }
 
         // Enlaces: vacios, '#', javascript:, http (no seguro).

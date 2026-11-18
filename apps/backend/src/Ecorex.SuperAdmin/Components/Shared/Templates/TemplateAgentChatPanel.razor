@@ -112,6 +112,10 @@
     /// WhatsApp con ejemplos que se sometera a Meta). Lo provee la pagina.</summary>
     [Parameter] public string? IrreversibleDetail { get; set; }
 
+    /// <summary>Prefijo que se antepone al texto ENVIADO al agente (no al que se muestra); p.ej. la etiqueta del
+    /// estilo de diseno elegido en el editor de correos ("[estilo: moderno] ", ADR-0177).</summary>
+    [Parameter] public Func<string?>? MessagePrefix { get; set; }
+
     [Parameter] public string Subtitle { get; set; } = "Describe el correo, adjunta una imagen/PDF/HTML para replicarlo o pide cambios.";
     [Parameter] public string Placeholder { get; set; } = "Ej. Un correo de bienvenida para prospectos con boton a nuestro catalogo...";
     [Parameter] public string Greeting { get; set; } = "Hola. Cuentame que correo necesitas, o adjunta una captura/PDF/HTML de un correo y lo replico. Tambien puedo mejorar la plantilla abierta.";
@@ -166,7 +170,7 @@
                 && !msg.Content.StartsWith("El usuario rechazo", StringComparison.Ordinal)
                 && !msg.Content.StartsWith(TemplateAgentNotes.Prefix, StringComparison.Ordinal))
             {
-                _messages.Add(new Bubble("me", msg.Content!));
+                _messages.Add(new Bubble("me", EmailDesignStyles.StripTag(msg.Content!)));
             }
             else if (msg.Role == FormBuilderMessageRole.Assistant) { _messages.Add(new Bubble("bot", msg.Content!)); }
         }
@@ -207,6 +211,22 @@
         catch (Exception ex) { _error = "No se pudo leer el archivo: " + ex.Message; }
     }
 
+    /// <summary>Agrega texto al cuadro del chat (p.ej. "usa la imagen X" desde la galeria) sin enviarlo.</summary>
+    public void AppendToInput(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return; }
+        _input = string.IsNullOrWhiteSpace(_input) ? text : _input.TrimEnd() + " " + text;
+        StateHasChanged();
+    }
+
+    /// <summary>Envia un mensaje al agente como si el usuario lo escribiera (p.ej. "aplica el estilo").</summary>
+    public async Task SendTextAsync(string text)
+    {
+        if (_busy || string.IsNullOrWhiteSpace(text)) { return; }
+        _input = text;
+        await InvokeAsync(SendAsync);
+    }
+
     private async Task SendAsync()
     {
         if (_busy || _conversationId is null) { return; }
@@ -222,7 +242,9 @@
         StateHasChanged();
         var actor = await ActorAsync();
         TemplateAgentTurnResult r;
-        try { r = await Chat.SendAsync(_conversationId.Value, text, atts, actor); }
+        var prefix = MessagePrefix?.Invoke();
+        var sent = string.IsNullOrWhiteSpace(prefix) ? text : prefix + (text ?? string.Empty);
+        try { r = await Chat.SendAsync(_conversationId.Value, sent, atts, actor); }
         catch (Exception ex) { r = TemplateAgentTurnResult.Fail(_conversationId.Value, ex.Message); }
         _busy = false;
         await ApplyAsync(r);

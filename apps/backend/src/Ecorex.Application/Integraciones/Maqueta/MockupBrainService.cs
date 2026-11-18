@@ -73,11 +73,18 @@ public interface IMockupBrainService
     Task<Guid?> FindTaskIdAsync(string number, CancellationToken ct = default);
 
     /// <summary>Adjuntos (imagenes/PDF) del cerebro del proyecto, por nombre (ola 3b).</summary>
-    Task<IReadOnlyList<MockupBrainAssetDto>> ListAssetsAsync(string slug, CancellationToken ct = default);
+    /// <param name="withUsage">true = calcula en que notas se embebe cada adjunto (lee los cuerpos de las notas).</param>
+    Task<IReadOnlyList<MockupBrainAssetDto>> ListAssetsAsync(string slug, bool withUsage = false, CancellationToken ct = default);
 
     /// <summary>Sube un adjunto (imagen o PDF, max 10 MB, firma verificada). Si el nombre existe, se numera.</summary>
     Task<TaskCoreResult<MockupBrainAssetDto>> UploadAssetAsync(string slug, string fileName, byte[] content, McpActor actor,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Borra un adjunto del proyecto (binario + registro del gestor de archivos, sin papelera). Solo Owner/Admin y queda
+    /// auditado. Las notas que lo embebian lo muestran como "no encontrado".
+    /// </summary>
+    Task<TaskCoreResult<bool>> DeleteAssetAsync(string slug, Guid assetId, McpActor actor, CancellationToken ct = default);
 }
 
 public sealed class MockupBrainService : IMockupBrainService
@@ -444,16 +451,56 @@ public sealed class MockupBrainService : IMockupBrainService
             assetsCreated, assetsSkipped));
     }
 
-    public async Task<IReadOnlyList<MockupBrainAssetDto>> ListAssetsAsync(string slug, CancellationToken ct = default)
+    public async Task<IReadOnlyList<MockupBrainAssetDto>> ListAssetsAsync(string slug, bool withUsage = false, CancellationToken ct = default)
     {
         var project = await FindProjectAsync(slug, ct);
         if (project is null) { return Array.Empty<MockupBrainAssetDto>(); }
         var files = await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct);
+
+        // Uso: que notas (activas) embeben cada adjunto, por la llave del nombre.
+        var usage = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (withUsage && files.Count > 0)
+        {
+            var notes = await _db.MockupNotes.AsNoTracking()
+                .Where(n => n.MockupProjectId == project.Id)
+                .Select(n => new { n.Title, n.Body })
+                .ToListAsync(ct);
+            foreach (var n in notes)
+            {
+                foreach (var key in MockupBrainAssets.Embeds(n.Body))
+                {
+                    if (!usage.TryGetValue(key, out var list)) { usage[key] = list = new List<string>(); }
+                    list.Add(n.Title);
+                }
+            }
+        }
+
         return files
             .Where(f => MockupBrainAssets.ContentTypeFor(f.FileName) is not null)
             .OrderBy(f => f.FileName, StringComparer.OrdinalIgnoreCase)
-            .Select(f => new MockupBrainAssetDto(f.Id, f.FileName, MockupBrainAssets.ContentTypeFor(f.FileName)!, f.SizeBytes, f.Url))
+            .Select(f => new MockupBrainAssetDto(f.Id, f.FileName, MockupBrainAssets.ContentTypeFor(f.FileName)!, f.SizeBytes, f.Url,
+                withUsage
+                    ? (usage.TryGetValue(MockupBrainAssets.Key(f.FileName), out var used) ? used.OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToList() : new List<string>())
+                    : null))
             .ToList();
+    }
+
+    public async Task<TaskCoreResult<bool>> DeleteAssetAsync(string slug, Guid assetId, McpActor actor, CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(slug, ct);
+        if (project is null) { return TaskCoreResult<bool>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        if (!actor.IsOwnerOrAdmin) { return TaskCoreResult<bool>.Forbidden("Solo Owner/Admin borra adjuntos del cerebro (el borrado es definitivo)."); }
+        // El adjunto debe ser de ESTE proyecto (modulo + Ref1): no se borra cualquier archivo del gestor por su id.
+        var asset = (await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct)).FirstOrDefault(f => f.Id == assetId);
+        if (asset is null) { return TaskCoreResult<bool>.NotFound("El adjunto no existe en este proyecto."); }
+        var usedIn = (await ListAssetsAsync(slug, withUsage: true, ct)).FirstOrDefault(a => a.Id == assetId)?.UsedIn ?? Array.Empty<string>();
+
+        if (!await _files.DeleteAsync(asset.Id, ct)) { return TaskCoreResult<bool>.NotFound("El adjunto ya no existe."); }
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.adjunto-borrar", nameof(MockupProject), project.Id,
+            previousValue: new { nombre = asset.FileName, bytes = asset.SizeBytes, notas = usedIn }, newValue: null,
+            tenantId: actor.TenantId, reason: AuditReason);
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<bool>.Ok(true);
     }
 
     public async Task<TaskCoreResult<MockupBrainAssetDto>> UploadAssetAsync(string slug, string fileName, byte[] content, McpActor actor,

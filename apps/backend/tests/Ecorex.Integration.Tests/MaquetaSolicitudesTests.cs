@@ -369,6 +369,23 @@ public abstract class MaquetaSolicitudesTestsBase
         Assert.False(grafo.IsError, grafo.Json);
         Assert.Contains("\"pantalla\":1", grafo.Json);
         Assert.Contains("\"notas_pendientes\":[]", grafo.Json);
+
+        // Ola 3b: adjuntos del cerebro por MCP (listar, ver la imagen y verlos desde la nota).
+        var brain = new MockupBrainService(ctx, new AuditWriter(ctx), files);
+        byte[] png = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 5, 5 };
+        Assert.True((await brain.UploadAssetAsync("tronox-sgdea", "boceto.png", png, actor)).IsOk);
+        Assert.False((await mcp.ExecuteAsync("editar_nota", JsonSerializer.Serialize(new { titulo = "Pendientes", contenido = "![[boceto.png]] ![[falta.png]]" }), actor)).IsError);
+        var conAdjuntos = await mcp.ExecuteAsync("ver_nota", JsonSerializer.Serialize(new { titulo = "Pendientes" }), actor);
+        Assert.Contains("\"adjuntos\":[{\"nombre\":\"boceto.png\",\"existe\":true},{\"nombre\":\"falta.png\",\"existe\":false}]", conAdjuntos.Json);
+        var lista = await mcp.ExecuteAsync("listar_adjuntos", "{}", actor);
+        Assert.Contains("\"nombre\":\"boceto.png\"", lista.Json);
+        Assert.Contains("\"en_notas\":[\"Pendientes\"]", lista.Json);
+        var imagen = await mcp.ExecuteAsync("ver_adjunto", JsonSerializer.Serialize(new { nombre = "Boceto.PNG" }), actor);
+        Assert.False(imagen.IsError, imagen.Json);
+        Assert.Equal("image/png", imagen.Media!.MimeType);
+        Assert.Equal(Convert.ToBase64String(png), imagen.Media.Base64);
+        Assert.True((await mcp.ExecuteAsync("ver_adjunto", JsonSerializer.Serialize(new { nombre = "nada.png" }), actor)).IsError);
+        Assert.Contains("listar_adjuntos", mcp.ReadOnlyTools);
     }
 
     private static McpActor Actor(SeedData s) => new(s.TenantId, s.OwnerUserId, s.OwnerPlatformId, "Owner Maqueta", true, Guid.NewGuid());
@@ -443,13 +460,18 @@ public abstract class MaquetaSolicitudesTestsBase
                 request.ContentType, request.Content.Length, DateTimeOffset.UtcNow, "memory"));
         }
 
+        // Filtra por modulo/Ref1/Ref2 (los adjuntos del cerebro se listan asi, ADR-0183 ola 3b).
         public Task<IReadOnlyList<StoredFileDto>> ListAsync(string module, string? ref1 = null, string? ref2 = null, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<StoredFileDto>>(Array.Empty<StoredFileDto>());
+            => Task.FromResult<IReadOnlyList<StoredFileDto>>(_byId
+                .Where(f => f.Value.Module == module && (ref1 is null || f.Value.Ref1 == ref1) && (ref2 is null || f.Value.Ref2 == ref2))
+                .Select(f => new StoredFileDto(f.Key, f.Value.Module, f.Value.Ref1, f.Value.Ref2, f.Value.FileName, f.Value.ContentType,
+                    f.Value.Content.Length, DateTimeOffset.UtcNow, "memory"))
+                .ToList());
         public Task<StoredFileDto?> GetAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
         public Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
         public Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default)
             => Task.FromResult(_byId.TryGetValue(fileId, out var r) ? new FileStorageContent(r.Content, r.ContentType, r.FileName) : null);
-        public Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult(_byId.Remove(fileId));
         public Task<StoredFileDto?> FindAsync(string module, string? ref1, string? ref2, string fileName, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
         public Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyCollection<string>>(Array.Empty<string>());

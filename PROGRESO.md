@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.351: cerebro digital, borrar adjuntos y adjuntos por MCP (ADR-0183 punto 9) - SIN DEPLOY
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 6b7a29ee unida al tronco como
+  v0.16.351 (sin choque de version ni de ADR; sin migraciones). Conflicto solo en PROGRESO (resuelto).
+  Verificado en el tronco: build + format verdes; unitarias Application 1593, SuperAdmin 293, Domain 35; integracion
+  dual Mockup|Maqueta|Auth.WhatsAppLine 55/55 (PG + SQL Server).
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). OK del usuario: "Si,
+  hazlo" (borrar adjuntos y exponerlos por el MCP). Rama al dia con el tronco (v0.16.350, ADR-0187) por merge;
+  renumerada a v0.16.351 (la 0.16.350 la usa ADR-0187).
+- HECHO: MockupBrainAssets.Embeds (llaves de ![[...]] y ![alt](ruta), sin codigo ni externos).
+  IMockupBrainService.ListAssetsAsync(withUsage) con las notas que embeben cada adjunto y DeleteAssetAsync (solo
+  Owner/Admin, solo del modulo/Ref1 del proyecto, definitivo, auditoria maqueta.nota.adjunto-borrar). UI: panel
+  Adjuntos (clip) con miniatura, tamano, uso, Subir, Insertar en la nota abierta y Borrar con aviso de notas
+  afectadas. MCP: listar_adjuntos y ver_adjunto (imagen como bloque image; BMP/PDF solo descripcion), ver_nota con
+  adjuntos. Doble de archivos de MaquetaSolicitudesTests ahora lista/borra de verdad.
+- PRUEBAS: unitarias Application 21/21 (Embeds) y SuperAdmin 8/8; dual MockupBrain* + McpMaquetas_* 24/24 (PG +
+  SQL Server: borrar solo Owner/Admin y del proyecto, uso por notas, listar_adjuntos/ver_adjunto con la imagen). E2E 5285: panel con uso
+  ("en 1 nota" / "sin usar"), borrar el huerfano violeta.png de la prueba anterior (ok), aviso al borrar uno en
+  uso nombrando la nota (cancelado, no borra), Insertar pone ![[...]] en su propia linea (descartado sin guardar).
+
 ## 2026-11-18 - v0.16.350: formularios de la tarea padre en un salto de flujo (ADR-0187) - DESPLEGADA
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339).

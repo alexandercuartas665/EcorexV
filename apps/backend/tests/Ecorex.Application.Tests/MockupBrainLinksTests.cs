@@ -136,6 +136,16 @@ public class MockupBrainLinksTests
         Assert.Equal("mi foto.png", MockupBrainAssets.Key("img/Mi%20Foto.png"));
     }
 
+    [Fact]
+    public void Embeds_DevuelveLlavesDeAdjuntos_SinCodigoNiExternos()
+    {
+        var keys = MockupBrainAssets.Embeds(
+            "![[Boceto.png|300]] ![[Manual.pdf]] ![[otra nota]] ![x](img/Mi%20Foto.png) ![y](https://web.test/a.png)\n" +
+            "`![[en-codigo.png]]` ![[Boceto.png]] [[no-embebido.png]]");
+
+        Assert.Equal(new[] { "boceto.png", "manual.pdf", "mi foto.png" }, keys);
+    }
+
     private static readonly byte[] Png = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13 };
 
     private static byte[] ZipBytes(params (string Path, byte[] Content)[] entries)

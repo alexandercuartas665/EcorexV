@@ -135,6 +135,10 @@ archiva el autor de la nota o un Owner/Admin (soft-delete).
 6b. **Adjuntar imagen** (ola 3b): en el editor de la nota, "Adjuntar imagen" sube una imagen o PDF y pone
    `![[nombre]]` en su propia linea. Al escribir `[[` el autocompletado sugiere tambien los adjuntos. Las imagenes
    de internet (`![x](https://...)`) no se cargan dentro de ECOREX: quedan como enlace.
+6c. **Panel Adjuntos** (clip en la lista de notas): miniatura, tamano y en que notas se usa cada adjunto; Subir,
+   Insertar en la nota abierta y Borrar. Borrar es definitivo (no hay papelera) y solo lo puede hacer un
+   Owner/Admin; antes avisa que notas lo usan, donde quedara como "no encontrado". Queda en la auditoria.
+   Por el MCP: `listar_adjuntos` y `ver_adjunto` (Claude ve la imagen); `ver_nota` lista los adjuntos de la nota.
 7. **Con Claude (plan Max)**: el mismo MCP de maquetas (seccion 7) trae `listar_notas`, `buscar_notas`, `ver_nota`,
    `grafo_cerebro`, `crear_nota` y `editar_nota`. Ejemplo: "lee el cerebro de tronox-sgdea, dime que decisiones
    estan sueltas y guarda un resumen en la nota 'Estado del proyecto'". Las escrituras quedan "(via IA)".

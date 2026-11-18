@@ -10,8 +10,12 @@
   feat/maquetas-cerebro, puerto 5285. Preguntas abiertas: $100 = plan Claude Max o creditos API; cerebro por
   proyecto o por empresa; importar vault de Obsidian.
 
-## 2026-11-18 - v0.16.345: MCP de maquetas para el PC local (ola 2) - SIN DEPLOY
+## 2026-11-18 - v0.16.345: MCP de maquetas para el PC local (ola 2) (DESPLEGADO 2026-11-18)
 
+- DEPLOY 2026-11-18 08:29 Bogota (OK del usuario: "cuando este dale ok a despliegue"). Antes se verifico que la corrida
+  manual del DRON ya habia terminado (tramo 1/1 ok, sin actividad en 3 min). Via rapida GHCR, imagen de 69db21ce.
+  Footer /login = v0.16.345; POST /api/mcp/maquetas sin token 401, GET 405; Restarts=0, sin errores. Rollback:
+  sha256:0bf6dc75df3bf283b151db876f0b8588da1e09162d1004e75f90e384cc1d8a1d.
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0182 (ADR-0181 queda para feat/agentes-sistema).
 - PEDIDO: "Dale ola 2": que el MCP comunique ECOREX con el PC local para aplicar los cambios de la maqueta.
 - HECHO: servidor MCP POST /api/mcp/maquetas (McpMaquetasEndpoints sobre McpJsonRpcHost) con token personal

@@ -1492,6 +1492,50 @@ public sealed class FormResponseService : IFormResponseService
             response.Id, response.Reference, response.Status, response.Reference, null, response.CreatedAt));
     }
 
+    public async Task<FormResult<TaskConceptFormItemDto>> CopyParentFormToTaskAsync(Guid responseId, Guid taskItemId, CancellationToken cancellationToken = default)
+    {
+        var task = await _db.TaskItems.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskItemId, cancellationToken);
+        if (task is null || string.IsNullOrEmpty(task.Number))
+        {
+            return FormResult<TaskConceptFormItemDto>.NotFound("Tarea no encontrada.");
+        }
+        if (task.Status == TaskItemStatus.Closed)
+        {
+            return FormResult<TaskConceptFormItemDto>.Invalid("La tarea esta cerrada: no se pueden agregar formularios.");
+        }
+        if (task.ParentId is not Guid parentId)
+        {
+            return FormResult<TaskConceptFormItemDto>.Invalid("La tarea no nacio de un salto de flujo (no tiene tarea padre).");
+        }
+        var parentNumber = await _db.TaskItems.AsNoTracking()
+            .Where(t => t.Id == parentId).Select(t => t.Number).FirstOrDefaultAsync(cancellationToken);
+        var src = await _db.FormResponses.AsNoTracking().FirstOrDefaultAsync(r => r.Id == responseId, cancellationToken);
+        if (src is null) { return FormResult<TaskConceptFormItemDto>.NotFound("Formulario no encontrado."); }
+        // Solo formularios del PADRE de esta tarea (anclados a su numero o a una variante "{padre}-{n}").
+        if (string.IsNullOrEmpty(parentNumber) || StripOrdinal(src.Reference) != parentNumber)
+        {
+            return FormResult<TaskConceptFormItemDto>.Invalid("El formulario no pertenece a la tarea padre.");
+        }
+
+        // Copia todo el Data y hereda el numero de la HIJA en el campo "numero" (igual que "Copiar"). No se marca
+        // DerivedFromResponseId: eso significa "convertido" (ADR-0078) y la cotizacion del padre no se convierte.
+        var next = await NextFormOrdinalAsync(src.DefinitionId, task.Number, cancellationToken);
+        var reference = $"{task.Number}-{next}";
+        var data = await BuildInheritedNumberDataAsync(src.DefinitionId, reference, src.Data, cancellationToken);
+        var response = new FormResponse
+        {
+            TenantId = task.TenantId,
+            DefinitionId = src.DefinitionId,
+            Reference = reference,
+            Status = FormResponseStatus.Draft,
+            Data = data
+        };
+        _db.FormResponses.Add(response);
+        await _db.SaveChangesAsync(cancellationToken);
+        return FormResult<TaskConceptFormItemDto>.Ok(new TaskConceptFormItemDto(
+            response.Id, response.Reference, response.Status, response.Reference, null, response.CreatedAt));
+    }
+
     public async Task<FormResult<Guid>> CreateDerivedFormAsync(
         Guid sourceResponseId, Guid targetDefinitionId,
         IReadOnlyDictionary<string, string>? fieldMapping,
@@ -2048,8 +2092,13 @@ public sealed class FormResponseService : IFormResponseService
     /// <summary>Primer FieldCode de la definicion cuyo Label contiene alguna de las pistas. Null si ninguno.</summary>
     private async Task<string?> ResolveFieldCodeAsync(Guid defId, CancellationToken ct, params string[] needles)
     {
+        // Solo campos con VALOR de texto: una casilla si/no cuya etiqueta menciona "cliente" (p.ej. "El cliente
+        // suministra el material") no es el cliente, y pintaba "true" en la tarjeta.
         var q = await _db.FormQuestions.AsNoTracking()
-            .Where(x => x.DefinitionId == defId).Select(x => new { x.FieldCode, x.Label }).ToListAsync(ct);
+            .Where(x => x.DefinitionId == defId
+                && x.ControlType != FormControlType.Toggle && x.ControlType != FormControlType.MultiCheck
+                && x.ControlType != FormControlType.Heading && x.ControlType != FormControlType.Literal)
+            .Select(x => new { x.FieldCode, x.Label }).ToListAsync(ct);
         return q.FirstOrDefault(x => needles.Any(n => (x.Label ?? "").Contains(n, StringComparison.OrdinalIgnoreCase)))?.FieldCode;
     }
 

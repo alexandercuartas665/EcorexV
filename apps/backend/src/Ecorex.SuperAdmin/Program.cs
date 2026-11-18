@@ -2460,6 +2460,8 @@ Ecorex.SuperAdmin.Endpoints.ConfigApiEndpoints.MapConfigApiEndpoints(app);
 // Servidor MCP de TABLEROS para IAs externas (ADR-0159): token PERSONAL por usuario (emitido en /conectar-ia).
 Ecorex.SuperAdmin.Endpoints.McpTablerosEndpoints.MapMcpTablerosEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.MapMcpWhatsAppEndpoints(app);
+// ADR-0182: MCP de MAQUETAS para el PC local (mismo token personal integ:maqueta que la subida de versiones).
+Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.MapMcpMaquetasEndpoints(app);
 // Integracion maqueta (ADR-0176): POST /api/maqueta/solicitudes con token personal integ:maqueta + CORS propio.
 Ecorex.SuperAdmin.Endpoints.MaquetaSolicitudesEndpoints.MapMaquetaSolicitudesEndpoints(app);
 app.MapOpenApi();

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Integraciones.Maqueta;
 using Ecorex.Application.Mcp;
@@ -183,6 +184,86 @@ public abstract class MaquetaSolicitudesTestsBase
         Assert.Empty(await mockups.ListSolicitudesAsync("no-existe"));
     }
 
+    /// <summary>ADR-0182: MCP de maquetas para el PC local (lee, ve la captura, comenta, resuelve; solo tarjetas de maqueta).</summary>
+    [Fact]
+    public async Task McpMaquetas_ListaVeConCapturaComentaYResuelve_SoloTarjetasDeMaqueta()
+    {
+        var seed = await SeedTenantAsync("Maqueta MCP", withActivityType: true);
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var files = new FakeFileStorage();
+        var svc = Build(ctx, seed, files);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var mockups = new MockupService(ctx, tenantCtx, files, new AuditWriter(ctx));
+        var actor = (await svc.ResolveSessionActorAsync(seed.OwnerPlatformId))!;
+
+        var project = (await mockups.CreateProjectAsync("TRONOX SGDEA", null, null, isOwnerOrAdmin: true)).Value!;
+        var png = Convert.ToBase64String(new byte[] { 0x89, 0x50, 0x4E, 0x47, 9, 9, 9 });
+        var req = Request("ed-mcp-1", "Cambiar el boton guardar", "Alta", png);
+        req.Origen = MockupService.SourceFor(project.Slug);
+        req.Tablero = project.BoardName;
+        var mine = await svc.RecibirAsync(req, actor);
+        Assert.True(mine.IsOk, mine.Error);
+        var foreign = Request("crm-1", "Tarjeta de otra integracion", "Media", null);
+        foreign.Origen = "crm-externo";
+        var other = await svc.RecibirAsync(foreign, actor);
+        Assert.True(other.IsOk, other.Error);
+
+        var mcp = BuildMcp(ctx, tenantCtx, files);
+        mcp.PublicBaseUrl = "https://app.test";
+        Assert.True(mcp.ReadOnlyTools.All(t => mcp.GetSpecs().Any(s => s.Name == t)));
+
+        var proyectos = await mcp.ExecuteAsync("listar_proyectos", "{}", actor);
+        Assert.False(proyectos.IsError, proyectos.Json);
+        Assert.Contains("\"proyecto\":\"tronox-sgdea\"", proyectos.Json);
+        Assert.Contains("\"solicitudes_abiertas\":1", proyectos.Json);
+
+        // Un solo proyecto: 'proyecto' se puede omitir.
+        var abiertas = await mcp.ExecuteAsync("listar_solicitudes", "{}", actor);
+        Assert.False(abiertas.IsError, abiertas.Json);
+        Assert.Contains(mine.Value!.Number, abiertas.Json);
+        Assert.Contains("rq07-terceros.html", abiertas.Json);
+        Assert.DoesNotContain(other.Value!.Number, abiertas.Json);
+
+        var detalle = await mcp.ExecuteAsync("ver_solicitud", JsonSerializer.Serialize(new { numero = mine.Value.Number }), actor);
+        Assert.False(detalle.IsError, detalle.Json);
+        Assert.NotNull(detalle.Media);
+        Assert.Equal("image/png", detalle.Media!.MimeType);
+        Assert.Equal(png, detalle.Media.Base64);
+        Assert.Contains("button.btn", detalle.Json);
+        Assert.Contains("Cambiar el boton guardar", detalle.Json);
+        var sinCaptura = await mcp.ExecuteAsync("ver_solicitud", JsonSerializer.Serialize(new { numero = mine.Value.Number, sin_captura = true }), actor);
+        Assert.Null(sinCaptura.Media);
+
+        // Una tarjeta que NO nacio de una maqueta no se opera por este MCP.
+        Assert.True((await mcp.ExecuteAsync("ver_solicitud", JsonSerializer.Serialize(new { numero = other.Value.Number }), actor)).IsError);
+        Assert.True((await mcp.ExecuteAsync("resolver_solicitud", JsonSerializer.Serialize(new { numero = other.Value.Number, nota = "x" }), actor)).IsError);
+
+        var publicar = await mcp.ExecuteAsync("como_publicar_version", "{\"notas\":\"Ajustes T1\"}", actor);
+        Assert.False(publicar.IsError, publicar.Json);
+        Assert.Contains("https://app.test/api/maqueta/proyectos/tronox-sgdea/versiones?notas=Ajustes%20T1", publicar.Json);
+        Assert.Contains("\"siguiente_version\":1", publicar.Json);
+
+        var comentario = await mcp.ExecuteAsync("comentar_solicitud",
+            JsonSerializer.Serialize(new { numero = mine.Value.Number.ToLowerInvariant(), texto = "Cambie el texto en rq07-terceros.html" }), actor);
+        Assert.False(comentario.IsError, comentario.Json);
+        var resuelta = await mcp.ExecuteAsync("resolver_solicitud",
+            JsonSerializer.Serialize(new { numero = mine.Value.Number, nota = "Publicado en v2" }), actor);
+        Assert.False(resuelta.IsError, resuelta.Json);
+        var task = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Id == mine.Value.TaskId);
+        Assert.Equal(TaskItemStatus.Done, task.Status);
+        Assert.Contains("\"total\":0", (await mcp.ExecuteAsync("listar_solicitudes", "{}", actor)).Json);
+        Assert.Contains(mine.Value.Number, (await mcp.ExecuteAsync("listar_solicitudes", "{\"estado\":\"terminadas\"}", actor)).Json);
+    }
+
+    [Theory]
+    [InlineData("/archivo/0198a0b2-0000-7000-8000-000000000001", true)]
+    [InlineData("https://app2.bitcode.com.co/archivo/0198a0b2-0000-7000-8000-000000000001?v=2", true)]
+    [InlineData("/otra/0198a0b2-0000-7000-8000-000000000001", false)]
+    [InlineData("/archivo/no-es-guid", false)]
+    [InlineData(null, false)]
+    public void McpMaquetas_IdDelArchivoDesdeLaUrl(string? url, bool ok)
+        => Assert.Equal(ok, MaquetaMcpToolset.TryFileId(url, out _));
+
     [Fact]
     public async Task SesionDelHub_ResuelveActorDelTenant_YAuditaCanalHub()
     {
@@ -228,6 +309,18 @@ public abstract class MaquetaSolicitudesTestsBase
         var boards = new ActivityBoardService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), tasks, new AuditWriter(ctx), new NodeAssigneeResolver(ctx),
             _fixture.CreateFactory(tenantCtx.TenantId));
         return new MaquetaSolicitudService(ctx, tenantCtx, boards, tasks, files, new AuditWriter(ctx));
+    }
+
+    private MaquetaMcpToolset BuildMcp(EcorexDbContext ctx, ITenantContext tenantCtx, IFileStorageService files)
+    {
+        var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
+        var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
+        var boards = new ActivityBoardService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), tasks, new AuditWriter(ctx), new NodeAssigneeResolver(ctx),
+            _fixture.CreateFactory(tenantCtx.TenantId));
+        var flowDesign = new WorkflowDesignService(ctx, engine);
+        var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, flowDesign, new NoOpAgentStepRunner());
+        var tablero = new TableroMcpToolset(ctx, boards, tasks, inbox);
+        return new MaquetaMcpToolset(ctx, new MockupService(ctx, tenantCtx, files, new AuditWriter(ctx)), tablero, files);
     }
 
     private static McpActor Actor(SeedData s) => new(s.TenantId, s.OwnerUserId, s.OwnerPlatformId, "Owner Maqueta", true, Guid.NewGuid());
@@ -291,10 +384,14 @@ public abstract class MaquetaSolicitudesTestsBase
     {
         public List<FileStorageSaveRequest> Saved { get; } = new();
 
+        private readonly Dictionary<Guid, FileStorageSaveRequest> _byId = new();
+
         public Task<StoredFileDto> SaveAsync(FileStorageSaveRequest request, CancellationToken ct = default)
         {
             Saved.Add(request);
-            return Task.FromResult(new StoredFileDto(Guid.NewGuid(), request.Module, request.Ref1, request.Ref2, request.FileName,
+            var id = Guid.NewGuid();
+            _byId[id] = request;
+            return Task.FromResult(new StoredFileDto(id, request.Module, request.Ref1, request.Ref2, request.FileName,
                 request.ContentType, request.Content.Length, DateTimeOffset.UtcNow, "memory"));
         }
 
@@ -302,7 +399,8 @@ public abstract class MaquetaSolicitudesTestsBase
             => Task.FromResult<IReadOnlyList<StoredFileDto>>(Array.Empty<StoredFileDto>());
         public Task<StoredFileDto?> GetAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
         public Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
-        public Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
+        public Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default)
+            => Task.FromResult(_byId.TryGetValue(fileId, out var r) ? new FileStorageContent(r.Content, r.ContentType, r.FileName) : null);
         public Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult(false);
         public Task<StoredFileDto?> FindAsync(string module, string? ref1, string? ref2, string fileName, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
         public Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default)

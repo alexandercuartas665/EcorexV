@@ -353,6 +353,8 @@ public static class DependencyInjection
         services.AddScoped<Mcp.ITableroMcpToolset, Mcp.TableroMcpToolset>();
         // ADR-0164: MCP de WhatsApp por linea Evolution (token personal mcp:whatsapp).
         services.AddScoped<Mcp.IWhatsAppMcpToolset, Mcp.WhatsAppMcpToolset>();
+        // ADR-0182: MCP de MAQUETAS (token personal integ:maqueta): solicitudes del editor para el PC local.
+        services.AddScoped<Mcp.IMaquetaMcpToolset, Mcp.MaquetaMcpToolset>();
         services.AddScoped<Tenancy.TasksToolset>();
         services.AddScoped<Tenancy.ITasksToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());

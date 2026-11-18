@@ -54,7 +54,7 @@ else
             @* ADR-0176: el mismo token personal sirve tambien a la integracion de la maqueta (otro alcance). *@
             <select class="form-select" style="max-width:240px;" @bind="_newScope">
                 <option value="@Ecorex.Domain.Entities.TenantApiToken.ScopeMcpTableros">IA (MCP de tableros)</option>
-                <option value="@Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta">Maqueta (anotaciones)</option>
+                <option value="@Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta">Maquetas (MCP del PC local)</option>
             </select>
             <input class="form-control" style="max-width:320px;" placeholder="@(_newScope == Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta ? "Ej. Maqueta TRONOX" : "Ej. Claude en mi portatil")" maxlength="150" @bind="_newName" />
             <button class="btn btn-primary" disabled="@_busy" @onclick="IssueAsync">@(_busy ? "Generando..." : "Generar token")</button>
@@ -76,8 +76,10 @@ else
                 @if (_plainScope == Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta)
                 {
                     <p style="font-size:12.5px;margin:0 0 10px;">
-                        En el admin de la maqueta, boton <b>ECOREX</b>: URL base <code>@Nav.BaseUri.TrimEnd('/')</code> y este token.
-                        Cada anotacion enviada cae como tarjeta en tus tableros (tablero "Maqueta TRONOX - Ajustes" si no indica otro).
+                        Conecta Claude Code en el PC donde esta la carpeta de la maqueta: servidor MCP
+                        <code>@MaquetasUrl</code>. La IA lee las solicitudes anotadas en <b>Maquetas</b> (con su captura y el
+                        elemento), aplica los ajustes en tus archivos y, con este mismo token, publica la version nueva
+                        (guardalo en la variable de entorno <code>ECOREX_MAQUETA_TOKEN</code>).
                     </p>
                 }
                 @foreach (var (title, snippet) in Snippets(_plain, _plainScope))
@@ -114,7 +116,7 @@ else
                         var tt = t;
                         <tr>
                             <td>@tt.Name</td>
-                            <td>@(tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMcpWhatsApp ? "WhatsApp (lineas)" : tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta ? "Maqueta (anotaciones)" : "Tableros")</td>
+                            <td>@(tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMcpWhatsApp ? "WhatsApp (lineas)" : tt.Scope == Ecorex.Domain.Entities.TenantApiToken.ScopeMaqueta ? "Maquetas" : "Tableros")</td>
                             <td>@tt.CreatedAt.LocalDateTime.ToString("dd MMM yyyy HH:mm")</td>
                             <td>@(tt.LastUsedAt is { } lu ? lu.LocalDateTime.ToString("dd MMM yyyy HH:mm") : "Nunca")</td>
                             <td><span class="badge bg-@(tt.IsActive ? "success" : "secondary")">@(tt.IsActive ? "Activo" : "Revocado")</span></td>
@@ -149,6 +151,8 @@ else
     private List<PersonalTokenDto> _tokens = new();
 
     private string ServerUrl => Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.McpTablerosEndpoints.Route;
+
+    private string MaquetasUrl => Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.Route;
 
     protected override async Task OnInitializedAsync()
     {
@@ -221,16 +225,11 @@ else
         {
             return Ecorex.SuperAdmin.Endpoints.McpClientSnippets.Build("ecorex-tableros", ServerUrl, token);
         }
-        // ADR-0176: prueba rapida del endpoint de la maqueta (el mismo curl de aceptacion del contrato).
-        var url = Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.MaquetaSolicitudesEndpoints.Route;
-        var curl = string.Join(" \\\n", new[]
-            {
-                $"curl -i -X POST \"{url}\"",
-                $"  -H \"Authorization: Bearer {token}\"",
-                "  -H \"Content-Type: application/json\"",
-                "  --data '{\"origen\":\"maqueta-tronox\",\"idLocal\":\"an-test-1\",\"titulo\":\"Prueba de integracion\",\"descripcion\":\"cuerpo\",\"categoria\":\"Ajuste\",\"prioridad\":\"Media\",\"autor\":\"QA\",\"modulo\":\"RQ07\",\"captura\":null}'"
-            });
-        return new[] { ("Prueba con curl", curl) };
+        // ADR-0182: el token de maquetas conecta el MCP de maquetas del PC local y publica versiones por la API.
+        var snippets = Ecorex.SuperAdmin.Endpoints.McpClientSnippets.Build("ecorex-maquetas", MaquetasUrl, token).ToList();
+        snippets.Insert(0, ("Guardar el token en el PC (PowerShell, una vez)",
+            $"[Environment]::SetEnvironmentVariable('ECOREX_MAQUETA_TOKEN', '{token}', 'User')"));
+        return snippets;
     }
 
     private async Task Copy(string text)

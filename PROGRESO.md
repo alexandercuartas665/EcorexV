@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.345: MCP de maquetas para el PC local (ola 2) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0182 (ADR-0181 queda para feat/agentes-sistema).
+- PEDIDO: "Dale ola 2": que el MCP comunique ECOREX con el PC local para aplicar los cambios de la maqueta.
+- HECHO: servidor MCP POST /api/mcp/maquetas (McpMaquetasEndpoints sobre McpJsonRpcHost) con token personal
+  integ:maqueta (el mismo que sube versiones). MaquetaMcpToolset: listar_proyectos, listar_solicitudes,
+  ver_solicitud (metadata + ver_tarea + CAPTURA como imagen), listar_versiones, como_publicar_version (comandos
+  PowerShell/bash con ECOREX_MAQUETA_TOKEN), comentar_solicitud, mover_solicitud, resolver_solicitud (delegan en el
+  toolset de tableros). Solo tarjetas de origen maqueta-*. Conectar IA: conector "Maquetas (MCP del PC local)" con
+  URL, comando para guardar el token y snippets de clientes MCP.
+- PRUEBAS: dual MaquetaSolicitudesTests 22/22 (incluye McpMaquetas_* y TryFileId). E2E local 5275: token de prueba
+  emitido en Conectar IA, initialize/tools/list (8 herramientas, 5 de lectura), listar_proyectos, listar_solicitudes,
+  ver_solicitud T00046 con la captura (image/png), mover a "En progreso", comentar, resolver (Completado, terminada),
+  sin token 401; auditoria mcp.maquetas.* x3; el ZIP del comando PowerShell sale con index.html en la raiz (278
+  entradas, sin subir). Token de prueba revocado (401 despues).
+- SIGUIENTE: deploy con OK del usuario.
+
 ## 2026-11-18 - v0.16.344: integra feat/compras-ux-4-pulidos (comparador, IVA/descuento, bolsa + OC en un paso, imprimir OC con {oc.*}) (DESPLEGADO 2026-11-18)
 
 - DEPLOY 2026-11-18 06:36 Bogota junto con v0.16.343 (OK del usuario: "Dale realiza el deploy yo corro a mano los

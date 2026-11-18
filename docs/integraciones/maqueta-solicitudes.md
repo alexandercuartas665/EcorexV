@@ -91,3 +91,20 @@ Respuesta `201 {"proyecto","version","archivos","entrada","anotador","url"}`; `4
   `anotador.config.js` (window.ANOTADOR_MANIFEST) el editor ofrece sus temas. Las pantallas salen de los `.html` del
   ZIP (titulo de `<meta name="maq-titulo">` o `<title>`, modulo de `<meta name="maq-modulo">`).
 - La respuesta de `POST /api/maqueta/proyectos/{slug}/versiones` agrega `editor` (URL del editor del proyecto).
+
+## 7. MCP de maquetas para el PC local (ADR-0182, v0.16.345)
+
+1. En ECOREX: **Conectar IA** -> conector **Maquetas (MCP del PC local)** -> Generar token (se muestra una vez).
+2. En el PC (PowerShell, una vez): guardar el token en `ECOREX_MAQUETA_TOKEN` (la pantalla da el comando) y conectar
+   Claude Code en la carpeta de la maqueta:
+
+```bash
+claude mcp add --transport http ecorex-maquetas https://app2.bitcode.com.co/api/mcp/maquetas --header "Authorization: Bearer <TOKEN>"
+```
+
+3. Pedirle a Claude: "revisa las solicitudes abiertas de la maqueta y aplicalas". Herramientas:
+   `listar_proyectos`, `listar_solicitudes`, `ver_solicitud` (incluye la captura como imagen), `listar_versiones`,
+   `como_publicar_version` (comando PowerShell/bash para subir el ZIP con el mismo token), `comentar_solicitud`,
+   `mover_solicitud`, `resolver_solicitud`.
+4. Solo opera tarjetas nacidas de una maqueta (origen `maqueta-*`). Publicar exige Owner/Admin. Las escrituras quedan
+   en la bitacora de la tarjeta ("via IA") y en la auditoria (`mcp.maquetas.*`).

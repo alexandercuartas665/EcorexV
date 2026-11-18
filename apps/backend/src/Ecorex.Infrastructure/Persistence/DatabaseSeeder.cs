@@ -3049,6 +3049,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // que no habia forma de llegar a el salvo escribiendo la URL.
         Item(act.Id, "Tableros", "tableros", "000635");
         Item(act.Id, "Administrar actividades", "actividades", "000636");
+        // Maquetas (ADR-0180): galeria de proyectos de maqueta + editor de anotaciones; las solicitudes caen como tarjetas.
+        Item(act.Id, "Maquetas", "maqueta");
         Item(act.Id, "Conceptos", "conceptos", "000270");
         // Prioridades, Estados y Tipos de proyecto se unificaron en un solo modulo con CRUD
         // (cards + modal), igual que se hizo con inventarios. Un solo item de menu.
@@ -3445,41 +3447,57 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     /// recortadas (sin Plantillas WhatsApp) no se tocan. Hereda la visibilidad del item de WhatsApp. Corre en cada
     /// arranque; no duplica. Los menus NUEVOS ya lo traen via <see cref="EnsureDefaultMenuAsync"/>.
     /// </summary>
-    public async Task EnsurePlantillasCorreoMenuItemAsync(CancellationToken cancellationToken = default)
+    public Task EnsurePlantillasCorreoMenuItemAsync(CancellationToken cancellationToken = default)
+        => EnsureMenuItemAfterAsync("plantillas-whatsapp", "plantillas-correo", "Plantillas de correo", cancellationToken);
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE: asegura el item "Maquetas" (ruta maqueta, ADR-0180) justo debajo de "Administrar
+    /// actividades" en toda vista de menu ya sembrada que tenga ese item (v0.16.343), para que cualquier tenant cliente
+    /// encuentre sus maquetas. Hereda la visibilidad del ancla; no duplica. Los menus NUEVOS ya lo traen.
+    /// </summary>
+    public Task EnsureMaquetasMenuItemAsync(CancellationToken cancellationToken = default)
+        => EnsureMenuItemAfterAsync("actividades", "maqueta", "Maquetas", cancellationToken);
+
+    /// <summary>
+    /// Inserta el item (<paramref name="route"/>, <paramref name="name"/>) inmediatamente despues del item con ruta
+    /// <paramref name="anchorRoute"/> en cada vista de menu que tenga el ancla y aun no tenga la ruta. Abre el hueco
+    /// corriendo los hermanos siguientes y hereda padre y visibilidad del ancla.
+    /// </summary>
+    private async Task EnsureMenuItemAfterAsync(string anchorRoute, string route, string name, CancellationToken cancellationToken)
     {
-        var whatsappItems = await _db.MenuNodes.IgnoreQueryFilters()
-            .Where(n => n.Kind == MenuNodeKind.Item && n.Route == "plantillas-whatsapp")
+        var anchors = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.Kind == MenuNodeKind.Item && n.Route == anchorRoute)
             .ToListAsync(cancellationToken);
 
         var added = false;
         var handledViews = new HashSet<Guid>();
-        foreach (var wa in whatsappItems.OrderBy(n => n.SortOrder))
+        foreach (var anchor in anchors.OrderBy(n => n.SortOrder))
         {
-            if (!handledViews.Add(wa.MenuViewId)) { continue; }
+            if (!handledViews.Add(anchor.MenuViewId)) { continue; }
 
             var exists = await _db.MenuNodes.IgnoreQueryFilters()
-                .AnyAsync(n => n.MenuViewId == wa.MenuViewId && n.Route == "plantillas-correo", cancellationToken);
+                .AnyAsync(n => n.MenuViewId == anchor.MenuViewId && n.Route == route, cancellationToken);
             if (exists) { continue; }
 
-            // Abre un hueco inmediatamente despues de "Plantillas WhatsApp" entre sus hermanos.
+            // Abre un hueco inmediatamente despues del ancla entre sus hermanos.
             var siblingsAfter = await _db.MenuNodes.IgnoreQueryFilters()
-                .Where(n => n.MenuViewId == wa.MenuViewId && n.ParentId == wa.ParentId && n.SortOrder > wa.SortOrder)
+                .Where(n => n.MenuViewId == anchor.MenuViewId && n.ParentId == anchor.ParentId && n.SortOrder > anchor.SortOrder)
                 .ToListAsync(cancellationToken);
             foreach (var sibling in siblingsAfter) { sibling.SortOrder += 1; }
 
             _db.MenuNodes.Add(new MenuNode
             {
-                TenantId = wa.TenantId,
-                MenuViewId = wa.MenuViewId,
-                ParentId = wa.ParentId,
+                TenantId = anchor.TenantId,
+                MenuViewId = anchor.MenuViewId,
+                ParentId = anchor.ParentId,
                 Kind = MenuNodeKind.Item,
-                Name = "Plantillas de correo",
+                Name = name,
                 IconKey = null,
                 LegacyCode = null,
-                Route = "plantillas-correo",
+                Route = route,
                 State = MenuNodeState.Ready,
-                IsVisible = wa.IsVisible,
-                SortOrder = wa.SortOrder + 1
+                IsVisible = anchor.IsVisible,
+                SortOrder = anchor.SortOrder + 1
             });
             added = true;
         }

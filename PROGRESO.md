@@ -2,6 +2,64 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.344: integra feat/compras-ux-4-pulidos (comparador, IVA/descuento, bolsa + OC en un paso, imprimir OC con {oc.*}) (DESPLEGADO 2026-11-18)
+
+- DEPLOY 2026-11-18 06:36 Bogota junto con v0.16.343 (OK del usuario: "Dale realiza el deploy yo corro a mano los
+  drones"; se hizo dentro de la ventana del DRON diario, el usuario relanza el DRON a mano). Via rapida GHCR, imagen
+  de 6c56a966. Footer /login = v0.16.344; migraciones AddComprasIvaDescuento y AddMockupProjectBoard aplicadas
+  (la de compras, con fecha anterior, se aplico sin problema; simulado antes en BD de prueba); item Maquetas en las
+  16 vistas de menu con Administrar actividades; Restarts=0, sin errores en logs. Rollback:
+  sha256:f9a14b22049b51aa95f645c58b5bd6b3f2326d91b09dceb024a6d8e84a7c948c.
+- INTEGRACION (dev principal ECOREX.desarrollo, 2026-11-18): rama feat/compras-ux-4-pulidos hasta 6537fbb4 (5 commits:
+  fee1802a 4 pulidos del comparador, 1cd91f7c Ola A backend IVA por producto + descuento % o valor (ComprasFiscal),
+  1d473155 Ola A UI, 3b3dfce2 Ola B bolsa del producto + OC en un paso, 6537fbb4 imprimir OC). La rama decia
+  v0.16.337 (ya usada en el tronco) -> renumerada a v0.16.344. Trae la migracion dual aditiva AddComprasIvaDescuento
+  (PG 20261117195901 / SQL Server 20261117200134). La entrada original de la sesion Compras UX sigue abajo.
+
+- AGENTE: Claude Opus 4.8 (sesion Compras UX, :5265). Sin migracion (solo motor de tokens + datos sembrados).
+- CONTEXTO: al generar la OC (Gestionar compra) se crea una actividad por proveedor con la descripcion en texto;
+  NO imprimia un documento con plantilla. El motor de Plantillas de documento + render PDF (Puppeteer) ya existia,
+  pero sus tokens solo cubrian tarea/empresa/tercero/formulario. Faltaba exponer la OC como tokens estructurados.
+- HECHO: TaskDocumentComposerService.RenderPlantillaAsync ahora AUMENTA el mapa de tokens con {oc.*} cuando la
+  actividad tiene lineas de compra ancladas (requerimiento_compra_hijos.TaskItemId == task.Id): {oc.numero},
+  {oc.proveedor}, {oc.items}, {oc.subtotal}, {oc.descuento}, {oc.iva}, {oc.total}, {oc.lineas_html} (filas <tr>) y
+  {oc.tabla_html} (tabla completa con totales). Aritmetica via ComprasFiscal (Ola A), misma fuente que comparador /
+  canasta / planificacion. Los tokens se resuelven al redactar (quedan horneados en el documento versionado), asi
+  que no pesan en las notificaciones de WhatsApp (el resolver general NotifyTokenResolver no se toco). Catalogo de
+  tokens del editor (DocumentTemplateService) suma la categoria "Orden de compra".
+- DATO (tenant ANDINAS, dev): plantilla "Orden de compra" + grupo "Compras" (con membrete {empresa.*}) sembrados y
+  ligados al concepto de la actividad de OC (actividad_subcategoria_plantilla_grupos). Cada tenant adopta la plantilla
+  asignando el grupo a su concepto de compras (como ya funciona el sistema de plantillas); NO se baked en DatabaseSeeder
+  porque la subcategoria de la OC sale de la config/matriz del tenant (sin id fijo).
+- VERIFICADO E2E: build 0 errores. OC T00006 (Bomba 2 x 980.000, desc 5% = 98.000, IVA 19% = 353.780, total 2.215.780)
+  -> Documentos desde plantilla -> "Orden de compra" renderizo la tabla y los totales exactos, sin tokens {oc.*}
+  sueltos -> guardado v1 -> PDF (endpoint /plantillas-doc/documento/{id}/pdf) HTTP 200 application/pdf 63.6 KB con
+  membrete congelado. PDF enviado al usuario.
+- PENDIENTE: validacion del usuario. Opcional a su pedido: auto-redactar el documento al generar la OC, enviar al
+  proveedor (correo/WhatsApp), y/o sembrar la plantilla para todos los tenants. Sin push ni deploy (esperar OK de version).
+
+## 2026-11-18 - v0.16.343: editor de maquetas EN EL SISTEMA + maqueta HTML puro + galeria de tarjetas (DESPLEGADO 2026-11-18 junto con v0.16.344)
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0180.
+- PEDIDO: la carga de maquetas desde el tenant cliente, cada proyecto como tarjeta, la herramienta tipo Lovable
+  dentro del sistema y la maqueta como HTML puro separado del editor. Decisiones del usuario: "Solo galeria de
+  tarjetas" (no una tarea por proyecto) y "Menu + Owner/Admin" (todos ven y anotan).
+- HECHO: editor Blazor /maqueta/{slug} (MaquetaEditor) con agente propio inyectado en el iframe mismo-origen
+  (wwwroot/js/maqueta-agente.js + maqueta-editor.js; html2canvas 1.4.1 MIT en wwwroot/lib): pantallas, recargar,
+  escritorio/movil, temas (si la maqueta trae anotador.config.js), Seleccionar -> captura + selector -> Crear tarjeta
+  (MaquetaSolicitudService con el actor de la sesion, origen maqueta-{slug}); panel de solicitudes del proyecto con
+  "Ver en la maqueta" (abre la pantalla y resalta el elemento) y "Abrir tarjeta" (TaskDetailModal). Galeria /maqueta
+  con tarjetas (vista previa viva, version, archivos, solicitudes abiertas/total) y panel Versiones (configuracion
+  con tablero destino, subir ZIP, abrir/usar version, archivar). MockupProject.BoardName (migracion dual aditiva
+  AddMockupProjectBoard, PG 20261118094430 / SQL Server 20261118094705), UpdateProjectAsync, ListSolicitudesAsync,
+  conteos en ListProjectsAsync. InspectZip: entrada index.html (el kit anotador/ ya no es la entrada). Menu
+  "Maquetas" en Sistema - Actividades + backfill idempotente para todos los tenants (EnsureMenuItemAfterAsync
+  generaliza el de Plantillas de correo). Respuesta de subida por API agrega "editor".
+- PRUEBAS: unitarias (ZIP/origen/tablero/metadata, MockupPages) y dual (editor: tablero propio, lista y conteos;
+  backfill de menu). E2E local 5275 (BITCODE): galeria con 2 tarjetas, editor carga 122 pantallas con titulos y
+  temas, Seleccionar + captura -> T00046 en "Maqueta TRONOX SGDEA - Ajustes" con la captura adjunta, Abrir tarjeta,
+  cambiar pantalla/tema y "Ver en la maqueta" (vuelve a index y resalta el elemento); maqueta local (dev) tambien abre en el editor.
+- SIGUIENTE: deploy con OK del usuario; ola 2 = MCP de maquetas para el PC local.
 ## 2026-11-18 - Responder ofertas de portales desde la tarea (ADR-0181) (rama feat/agentes-sistema, SIN release ni deploy)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas; el usuario pidio construirlo aqui porque la sesion principal

@@ -76,3 +76,18 @@ curl -X POST "https://app2.bitcode.com.co/api/maqueta/proyectos/tronox-sgdea/ver
 
 Respuesta `201 {"proyecto","version","archivos","entrada","anotador","url"}`; `400` ZIP invalido, `401` token,
 `403` no es Owner/Admin, `404` proyecto inexistente, `413` mayor a 100 MB.
+
+## 6. Editor del sistema y maqueta en HTML puro (ADR-0180, v0.16.343)
+
+- El menu trae **Sistema - Actividades > Maquetas** en todos los tenants (debajo de "Administrar actividades").
+- `/maqueta` es una **galeria de tarjetas**: una por proyecto, con vista previa, version, archivos y solicitudes
+  abiertas. Owner/Admin: **+ Nuevo proyecto** y **Versiones** (configuracion: nombre y tablero destino; subir ZIP;
+  abrir o usar una version; archivar).
+- `/maqueta/<slug>` es el **editor** (tipo Lovable): solicitudes a la izquierda, maqueta a la derecha. **Seleccionar**
+  -> clic en un elemento -> captura + selector -> **Crear tarjeta**. La tarjeta cae en el tablero del proyecto (por
+  defecto "Maqueta <Nombre> - Ajustes") con origen `maqueta-<slug>`. Cada solicitud tiene **Ver en la maqueta**
+  (abre la pantalla y resalta el elemento) y **Abrir tarjeta**. `?v=<n>` anota una version especifica.
+- El ZIP ya **no necesita** el kit `anotador/`: basta el HTML de la maqueta (index.html + pantallas). Si la raiz trae
+  `anotador.config.js` (window.ANOTADOR_MANIFEST) el editor ofrece sus temas. Las pantallas salen de los `.html` del
+  ZIP (titulo de `<meta name="maq-titulo">` o `<title>`, modulo de `<meta name="maq-modulo">`).
+- La respuesta de `POST /api/maqueta/proyectos/{slug}/versiones` agrega `editor` (URL del editor del proyecto).

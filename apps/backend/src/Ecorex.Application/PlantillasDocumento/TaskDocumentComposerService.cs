@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.Text;
 using Ecorex.Application.Common;
 using Ecorex.Application.Documentos;
+using Ecorex.Application.Requerimientos;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -82,9 +84,81 @@ public sealed class TaskDocumentComposerService : ITaskDocumentComposerService
             .FirstOrDefaultAsync(t => t.Id == templateId && t.IsActive, cancellationToken);
         if (template is null) { return TaskCoreResult<string>.NotFound("La plantilla no existe o esta inactiva."); }
 
-        var tokens = await _tokens.BuildAsync(task, cancellationToken);
+        var baseTokens = await _tokens.BuildAsync(task, cancellationToken);
+        var tokens = new Dictionary<string, string>(baseTokens, StringComparer.OrdinalIgnoreCase);
+        await AugmentOrdenCompraTokensAsync(task, tokens, cancellationToken);
         var html = _tokens.Render(template.HtmlContent, tokens);
         return TaskCoreResult<string>.Ok(html);
+    }
+
+    /// <summary>
+    /// Tokens {oc.*} de una ORDEN DE COMPRA: si la actividad fue generada por el modulo de Compras, sus
+    /// lineas (requerimiento_compra_hijos con TaskItemId == task.Id) alimentan {oc.numero}, {oc.proveedor},
+    /// {oc.items}, {oc.subtotal}, {oc.descuento}, {oc.iva}, {oc.total}, {oc.lineas_html} (filas &lt;tr&gt;) y
+    /// {oc.tabla_html} (tabla completa con totales). La aritmetica usa <see cref="ComprasFiscal"/> (Ola A),
+    /// la misma fuente del comparador, la canasta y la planificacion, para que los numeros coincidan. No
+    /// agrega nada si la tarea no es una orden de compra (no hay lineas ancladas).
+    /// </summary>
+    private async Task AugmentOrdenCompraTokensAsync(
+        TaskItem task, Dictionary<string, string> map, CancellationToken cancellationToken)
+    {
+        var hijos = await _db.RequerimientoCompraHijos.AsNoTracking()
+            .Where(h => h.TaskItemId == task.Id).ToListAsync(cancellationToken);
+        if (hijos.Count == 0) { return; }
+
+        var reqIds = hijos.Select(h => h.RequerimientoId).Distinct().ToList();
+        var padres = await _db.RequerimientosCompra.AsNoTracking()
+            .Where(r => reqIds.Contains(r.Id))
+            .Select(r => new { r.Id, r.Descripcion, r.UnidadMedida })
+            .ToListAsync(cancellationToken);
+        var padreMap = padres.ToDictionary(p => p.Id);
+
+        static string Num(decimal d) => d.ToString("#,##0.##", CultureInfo.InvariantCulture);
+        static string H(string? s) => System.Net.WebUtility.HtmlEncode(s ?? string.Empty);
+        string Desc(Guid reqId) => padreMap.TryGetValue(reqId, out var p) ? p.Descripcion : string.Empty;
+
+        decimal subtotal = 0m, descuento = 0m, ivaTotal = 0m, total = 0m;
+        var rows = new StringBuilder();
+        foreach (var h in hijos.OrderBy(h => Desc(h.RequerimientoId), StringComparer.OrdinalIgnoreCase))
+        {
+            var ivaPct = ComprasFiscal.ResolverIva(h.IvaPct, null);
+            var f = ComprasFiscal.Calcular(h.PrecioUnitario, h.Cantidad, ivaPct, h.DescuentoPct, h.DescuentoValor);
+            subtotal += f.Subtotal; descuento += f.DescuentoMonto; ivaTotal += f.IvaMonto; total += f.Total;
+            var pad = padreMap.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
+            rows.Append("<tr>")
+                .Append("<td>").Append(H(pad?.Descripcion)).Append("</td>")
+                .Append("<td style=\"text-align:right\">").Append(Num(h.Cantidad)).Append("</td>")
+                .Append("<td>").Append(H(pad?.UnidadMedida)).Append("</td>")
+                .Append("<td style=\"text-align:right\">").Append(Num(h.PrecioUnitario)).Append("</td>")
+                .Append("<td style=\"text-align:right\">").Append(Num(f.DescuentoMonto)).Append("</td>")
+                .Append("<td style=\"text-align:right\">").Append(Num(f.IvaPct)).Append("% (").Append(Num(f.IvaMonto)).Append(")</td>")
+                .Append("<td style=\"text-align:right\">").Append(Num(f.Total)).Append("</td>")
+                .Append("</tr>");
+        }
+
+        var tabla = new StringBuilder();
+        tabla.Append("<table style=\"width:100%;border-collapse:collapse;font-size:12px\" border=\"1\" cellpadding=\"4\">")
+            .Append("<thead><tr>")
+            .Append("<th align=\"left\">Producto</th><th align=\"right\">Cant.</th><th align=\"left\">Unidad</th>")
+            .Append("<th align=\"right\">Precio unit.</th><th align=\"right\">Descuento</th><th align=\"right\">IVA</th><th align=\"right\">Total</th>")
+            .Append("</tr></thead><tbody>")
+            .Append(rows)
+            .Append("</tbody><tfoot>")
+            .Append("<tr><td colspan=\"6\" align=\"right\"><b>Subtotal</b></td><td align=\"right\">").Append(Num(subtotal)).Append("</td></tr>")
+            .Append("<tr><td colspan=\"6\" align=\"right\">Descuento</td><td align=\"right\">-").Append(Num(descuento)).Append("</td></tr>")
+            .Append("<tr><td colspan=\"6\" align=\"right\">IVA</td><td align=\"right\">").Append(Num(ivaTotal)).Append("</td></tr>")
+            .Append("<tr><td colspan=\"6\" align=\"right\"><b>TOTAL</b></td><td align=\"right\"><b>").Append(Num(total)).Append("</b></td></tr>")
+            .Append("</tfoot></table>");
+
+        map["oc.numero"] = task.Number;
+        map["oc.proveedor"] = task.RequesterName ?? string.Empty;
+        map["oc.items"] = hijos.Count.ToString(CultureInfo.InvariantCulture);
+        map["oc.subtotal"] = Num(subtotal);
+        map["oc.descuento"] = Num(descuento);
+        map["oc.iva"] = Num(ivaTotal);
+        map["oc.total"] = Num(total);
+        map["oc.lineas_html"] = rows.ToString();
+        map["oc.tabla_html"] = tabla.ToString();
     }
 
     public async Task<IReadOnlyList<TaskDocumentoDto>> ListDocumentosAsync(

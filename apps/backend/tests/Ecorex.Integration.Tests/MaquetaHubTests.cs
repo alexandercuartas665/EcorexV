@@ -216,6 +216,9 @@ public sealed class MaquetaHubTests : IDisposable
         public Task<TaskCoreResult<MockupVersionDto>> UploadVersionAsync(string projectSlug, byte[] zip, string? notes, string uploaderName, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<bool>> SetCurrentVersionAsync(Guid projectId, Guid versionId, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<TaskCoreResult<bool>> ArchiveProjectAsync(Guid projectId, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<MockupProjectDto?> GetProjectAsync(string slug, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<MockupProjectDto>> UpdateProjectAsync(Guid projectId, string name, string? description, string? boardName, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<MockupSolicitudDto>> ListSolicitudesAsync(string slug, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     /// <summary>Autenticacion de prueba: cabecera X-Test-User = "tenant" (con tenant_id) o "platform" (sin tenant).</summary>

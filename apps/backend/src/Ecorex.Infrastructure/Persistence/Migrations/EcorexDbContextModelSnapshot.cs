@@ -10205,6 +10205,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("item_type_id");
 
+                    b.Property<decimal?>("IvaRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("iva_rate");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -11450,6 +11455,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<string>("BoardName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("board_name");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -13472,6 +13482,16 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<decimal?>("DescuentoPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("descuento_pct");
+
+                    b.Property<decimal?>("DescuentoValor")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("descuento_valor");
+
                     b.Property<int>("Estado")
                         .HasColumnType("integer")
                         .HasColumnName("estado");
@@ -13479,6 +13499,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("FechaProgramadaCompra")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fecha_programada_compra");
+
+                    b.Property<decimal?>("IvaPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("iva_pct");
 
                     b.Property<decimal>("PrecioUnitario")
                         .HasPrecision(18, 4)
@@ -13564,6 +13589,16 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<decimal?>("DescuentoPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("descuento_pct");
+
+                    b.Property<decimal?>("DescuentoValor")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("descuento_valor");
+
                     b.Property<DateTimeOffset?>("FechaCotizacion")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fecha_cotizacion");
@@ -13575,6 +13610,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ItemId")
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");
+
+                    b.Property<decimal?>("IvaPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("iva_pct");
 
                     b.Property<string>("Notas")
                         .HasMaxLength(1000)

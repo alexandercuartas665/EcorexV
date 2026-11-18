@@ -96,6 +96,51 @@ public abstract class PlantillasCorreoMenuBackfillTestsBase
         }
     }
 
+    /// <summary>v0.16.343 (ADR-0180): "Maquetas" queda justo debajo de "Administrar actividades" en cada vista; no duplica.</summary>
+    [Fact]
+    public async Task BackfillMaquetas_InsertaDebajoDeAdministrarActividades_YNoDuplica()
+    {
+        var tenantId = Guid.CreateVersion7();
+        Guid viewId;
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            ctx.Tenants.Add(new Tenant { Id = tenantId, Name = "Menu Maquetas" });
+            await ctx.SaveChangesAsync();
+        }
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var view = new MenuView { TenantId = tenantId, Name = "Completo", IsDefault = true };
+            ctx.MenuViews.Add(view);
+            await ctx.SaveChangesAsync();
+            viewId = view.Id;
+            var act = Node(tenantId, view.Id, null, MenuNodeKind.Section, "Sistema - Actividades", "act", 1);
+            ctx.MenuNodes.Add(act);
+            ctx.MenuNodes.AddRange(
+                Node(tenantId, view.Id, act.Id, MenuNodeKind.Item, "Tableros", "tableros", 1),
+                Node(tenantId, view.Id, act.Id, MenuNodeKind.Item, "Administrar actividades", "actividades", 2),
+                Node(tenantId, view.Id, act.Id, MenuNodeKind.Item, "Conceptos", "conceptos", 3));
+            await ctx.SaveChangesAsync();
+        }
+
+        for (var i = 0; i < 2; i++)
+        {
+            await using var ctx = _fixture.CreateContext(tenantId: null);
+            var seeder = new DatabaseSeeder(ctx, new Pbkdf2PasswordHasher(), NullLogger<DatabaseSeeder>.Instance);
+            await seeder.EnsureMaquetasMenuItemAsync();
+        }
+
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var nodes = await ctx.MenuNodes.AsNoTracking().Where(n => n.MenuViewId == viewId).ToListAsync();
+            var maquetas = Assert.Single(nodes, n => n.Route == "maqueta");
+            var actividades = nodes.Single(n => n.Route == "actividades");
+            Assert.Equal("Maquetas", maquetas.Name);
+            Assert.Equal(actividades.ParentId, maquetas.ParentId);
+            Assert.Equal(actividades.SortOrder + 1, maquetas.SortOrder);
+            Assert.Equal(maquetas.SortOrder + 1, nodes.Single(n => n.Route == "conceptos").SortOrder);
+        }
+    }
+
     private static MenuNode Node(Guid tenantId, Guid viewId, Guid? parentId, MenuNodeKind kind, string name, string route, int sort)
         => new()
         {

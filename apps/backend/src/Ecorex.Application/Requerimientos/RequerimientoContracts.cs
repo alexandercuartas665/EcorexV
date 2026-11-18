@@ -65,10 +65,20 @@ public sealed record RequerimientoHijoDto(
     Guid? TaskItemId,
     decimal PrecioUnitario,
     Guid? CotizacionTaskItemId = null,
-    Guid? ProveedorContactoId = null)
+    Guid? ProveedorContactoId = null,
+    // Ola A fiscal: IvaPct ya resuelto (nunca null). Descuento por % o valor (el valor gana).
+    decimal IvaPct = ComprasFiscal.IvaDefault,
+    decimal? DescuentoPct = null,
+    decimal? DescuentoValor = null)
 {
-    /// <summary>Total del hijo = Cantidad * PrecioUnitario (Ola 6).</summary>
-    public decimal Total => Cantidad * PrecioUnitario;
+    /// <summary>Subtotal del hijo = Cantidad * PrecioUnitario (antes de descuento e IVA).</summary>
+    public decimal Subtotal => Cantidad * PrecioUnitario;
+    /// <summary>Desglose fiscal (subtotal, descuento, base, IVA, total). Fuente unica: ComprasFiscal.</summary>
+    public LineaFiscal Fiscal => ComprasFiscal.Calcular(PrecioUnitario, Cantidad, IvaPct, DescuentoPct, DescuentoValor);
+    /// <summary>Total con IVA y descuento aplicados (lo que realmente cuesta la linea).</summary>
+    public decimal TotalConIva => Fiscal.Total;
+    /// <summary>Compat: "Total" historico = subtotal sin impuestos (Cantidad * PrecioUnitario).</summary>
+    public decimal Total => Subtotal;
 }
 
 /// <summary>Una linea planificada (hijo) con proveedor asignado, aplanada con el producto/necesidad
@@ -92,9 +102,18 @@ public sealed record OcProveedorLineaDto(
     string Entrega,
     RequerimientoEstado Estado,
     Guid? TaskItemId,
-    Guid? CotizacionTaskItemId)
+    Guid? CotizacionTaskItemId,
+    // Ola A fiscal: IvaPct ya resuelto (nunca null). Descuento por % o valor.
+    decimal IvaPct = ComprasFiscal.IvaDefault,
+    decimal? DescuentoPct = null,
+    decimal? DescuentoValor = null)
 {
+    /// <summary>Subtotal = Cantidad * PrecioUnitario (antes de descuento e IVA).</summary>
     public decimal Total => Cantidad * PrecioUnitario;
+    /// <summary>Desglose fiscal de la linea de la OC. Fuente unica: ComprasFiscal.</summary>
+    public LineaFiscal Fiscal => ComprasFiscal.Calcular(PrecioUnitario, Cantidad, IvaPct, DescuentoPct, DescuentoValor);
+    /// <summary>Total con IVA y descuento (lo que cuesta la linea en la orden de compra).</summary>
+    public decimal TotalConIva => Fiscal.Total;
 }
 
 /// <summary>Un contacto de un proveedor (TerceroContacto) para elegir/editar desde Requerimientos (Ola 11).</summary>
@@ -125,7 +144,11 @@ public sealed record HijoInput(
     string? TiempoEntrega,
     Guid? ProveedorId,
     decimal PrecioUnitario,
-    Guid? ProveedorContactoId = null);
+    Guid? ProveedorContactoId = null,
+    // Ola A fiscal: IvaPct (null = heredar del item/default). Descuento por % o valor (el valor gana).
+    decimal? IvaPct = null,
+    decimal? DescuentoPct = null,
+    decimal? DescuentoValor = null);
 
 /// <summary>Guarda TODA la planificacion (hijos) de una necesidad de una vez (reemplaza el conjunto).</summary>
 public sealed record GuardarHijosRequest(Guid RequerimientoId, IReadOnlyList<HijoInput> Hijos);
@@ -142,7 +165,11 @@ public sealed record PlanificarGrupoRequest(
     decimal PrecioUnitario,
     DateTimeOffset? FechaProgramadaCompra,
     string? CaracteristicasDespacho,
-    string? TiempoEntrega);
+    string? TiempoEntrega,
+    // Ola A fiscal: IVA (null = heredar del item/default) y descuento por % o valor, compartidos por el grupo.
+    decimal? IvaPct = null,
+    decimal? DescuentoPct = null,
+    decimal? DescuentoValor = null);
 
 /// <summary>Resultado del plan de grupo.</summary>
 public sealed record PlanificarGrupoResult(bool Ok, string? Error, int HijosCreados);
@@ -175,7 +202,12 @@ public sealed record CotizacionDto(
     // Punto #4 (landed cost): flete de la oferta. FleteMonto 0 = sin flete; FleteEsPorUnidad lo multiplica por
     // la cantidad (si no, es fijo por orden). Se guarda aparte de la oferta (sin migracion).
     decimal FleteMonto = 0m,
-    bool FleteEsPorUnidad = false);
+    bool FleteEsPorUnidad = false,
+    // Ola A fiscal: IvaPct ya RESUELTO (de la oferta, si no del item, si no 19%), nunca null. Descuento como se
+    // guardo (porcentaje o valor; el valor gana). El desglose completo se calcula con ComprasFiscal.
+    decimal IvaPct = ComprasFiscal.IvaDefault,
+    decimal? DescuentoPct = null,
+    decimal? DescuentoValor = null);
 
 /// <summary>Alta/edicion de una oferta (Id null = alta). Identifica el producto por item o por descripcion.</summary>
 public sealed record SaveCotizacionRequest(
@@ -196,7 +228,11 @@ public sealed record SaveCotizacionRequest(
     RequerimientoCotizacionFuente Fuente = RequerimientoCotizacionFuente.Manual,
     // Punto #4: flete de la oferta (0 = sin flete; EsPorUnidad lo multiplica por la cantidad).
     decimal FleteMonto = 0m,
-    bool FleteEsPorUnidad = false);
+    bool FleteEsPorUnidad = false,
+    // Ola A fiscal: IvaPct que escribio el usuario (null = heredar del item/default). Descuento por % o valor.
+    decimal? IvaPct = null,
+    decimal? DescuentoPct = null,
+    decimal? DescuentoValor = null);
 
 /// <summary>Una linea de una Solicitud de Cotizacion (RFQ): la distribucion que se le pide al proveedor, con
 /// su snapshot de lo pedido y (cuando responda) los campos de oferta.</summary>

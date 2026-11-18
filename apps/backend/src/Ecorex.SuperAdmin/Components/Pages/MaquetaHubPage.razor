@@ -1,12 +1,11 @@
 @page "/maqueta"
 @attribute [Authorize(Policy = Ecorex.SuperAdmin.Maqueta.MaquetaHub.Policy)]
-@* Maquetas (ADR-0178 hub local + ADR-0179 nube). Lista las maquetas del tenant (subidas por ZIP, con versiones) y,
-   en Development, las de disco local del registro MaquetaHub. Abre la pagina de entrada (el anotador si viene el kit)
-   en un iframe del MISMO origen; el anotador envia las tarjetas a POST /api/maqueta/solicitudes con la sesion.
-   Owner/Admin: crear proyecto, subir version (ZIP), cambiar la version actual y archivar. Solo ASCII. *@
+@* Maquetas (ADR-0178 hub local + ADR-0179 nube + ADR-0180 galeria/editor). Galeria de TARJETAS con los proyectos de
+   maqueta del tenant (y, en Development, los de disco local). Cada tarjeta abre el editor del sistema
+   (/maqueta/{slug}); la maqueta en si es HTML puro servido en /maqueta/{slug}/... Owner/Admin: crear proyecto,
+   configurar (nombre, tablero destino), subir version (ZIP), cambiar la version actual y archivar. Solo ASCII. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Integraciones.Maqueta
-@using Ecorex.Application.Tenancy
 @using Ecorex.SuperAdmin.Maqueta
 @using Microsoft.AspNetCore.Components.Authorization
 @inject MaquetaHubRegistry Hub
@@ -24,32 +23,12 @@
 <div class="mh-bar">
     <div class="mh-title">
         <h1 class="page-title" style="margin:0;">Maquetas</h1>
-        <span class="page-sub" style="margin:0;">Anota la maqueta: las solicitudes llegan como tarjetas a tu empresa.</span>
+        <span class="page-sub" style="margin:0;">Abre una maqueta, selecciona un elemento y pide el ajuste: llega como tarjeta al tablero del proyecto.</span>
     </div>
-    <div class="mh-actions">
-        @if (_items.Count > 0)
-        {
-            <label class="mh-label" for="mh-proyecto">Proyecto</label>
-            <select id="mh-proyecto" class="form-select form-select-sm mh-select" value="@_current?.Key" @onchange="OnProjectChanged">
-                @foreach (var it in _items)
-                {
-                    <option value="@it.Key">@it.Label</option>
-                }
-            </select>
-            @if (_current?.Url is { } openUrl)
-            {
-                <a class="btn btn-sm btn-outline-secondary" href="@openUrl" target="_blank" rel="noopener">Pantalla completa</a>
-            }
-        }
-        @if (_isAdmin)
-        {
-            @if (_current?.Project is not null)
-            {
-                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleVersions">@(_showVersions ? "Ocultar versiones" : "Versiones")</button>
-            }
-            <button class="btn btn-sm btn-primary" @onclick="() => _showNew = !_showNew">+ Nuevo proyecto</button>
-        }
-    </div>
+    @if (_isAdmin)
+    {
+        <button class="btn btn-sm btn-primary" @onclick="() => { _showNew = !_showNew; _message = null; }">+ Nuevo proyecto</button>
+    }
 </div>
 
 @if (!string.IsNullOrEmpty(_message))
@@ -66,6 +45,7 @@
             <label>Identificador (URL)<input class="form-control form-control-sm" @bind="_newSlug" placeholder="tronox" /></label>
             <label class="mh-wide">Descripcion<input class="form-control form-control-sm" @bind="_newDesc" placeholder="Opcional" /></label>
         </div>
+        <div class="mh-hint">Las solicitudes caeran en el tablero "@MockupService.DefaultBoardFor(string.IsNullOrWhiteSpace(_newName) ? "..." : _newName)" (se puede cambiar despues).</div>
         <div class="mh-panel-actions">
             <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="CreateProjectAsync">Crear</button>
             <button class="btn btn-sm btn-link" @onclick="() => _showNew = false">Cancelar</button>
@@ -73,36 +53,135 @@
     </div>
 }
 
-@if (_showVersions && _isAdmin && _current?.Project is { } proj)
+@if (_loading)
 {
-    <div class="mh-panel">
-        <div class="mh-panel-title">Versiones de @proj.Name <span class="mh-muted">(/maqueta/@proj.Slug/)</span></div>
+    <div class="mh-muted">Cargando...</div>
+}
+else if (_projects.Count == 0 && _locals.Count == 0)
+{
+    <div class="mh-empty">
+        @if (_isAdmin)
+        {
+            <span>No hay maquetas todavia. Crea un proyecto y sube el ZIP con el HTML de la maqueta.</span>
+        }
+        else
+        {
+            <span>No hay maquetas publicadas en tu empresa.</span>
+        }
+    </div>
+}
+else
+{
+    <div class="mh-gallery">
+        @foreach (var p in _projects)
+        {
+            var hasVersion = p.CurrentVersionNumber is not null;
+            <div class="mh-card @(_manage?.Id == p.Id ? "managing" : null)">
+                <a class="mh-thumb" href="@($"/maqueta/{p.Slug}")" title="Abrir el editor">
+                    @if (hasVersion)
+                    {
+                        <iframe src="@($"/maqueta/{p.Slug}/{PreviewEntry(p)}")" loading="lazy" tabindex="-1" title="Vista previa @p.Name"></iframe>
+                    }
+                    else
+                    {
+                        <span class="mh-thumb-empty"><i class="fa-regular fa-file-zipper"></i><br />Sin version</span>
+                    }
+                    <span class="mh-thumb-overlay"><span>Abrir editor</span></span>
+                </a>
+                <div class="mh-card-body">
+                    <div class="mh-card-title">
+                        <a href="@($"/maqueta/{p.Slug}")">@p.Name</a>
+                        @if (p.OpenRequests > 0)
+                        {
+                            <span class="mh-badge" title="Solicitudes abiertas">@p.OpenRequests abiertas</span>
+                        }
+                    </div>
+                    <div class="mh-card-meta">
+                        @if (hasVersion)
+                        {
+                            <span>v@(p.CurrentVersionNumber)</span>
+                            <span>@(p.CurrentFileCount ?? 0) archivos</span>
+                            @if (p.LastUploadAt is { } at)
+                            {
+                                <span>subida @Ago(at)</span>
+                            }
+                        }
+                        else
+                        {
+                            <span>Aun no tiene versiones</span>
+                        }
+                        <span>@p.TotalRequests solicitudes</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(p.Description))
+                    {
+                        <div class="mh-card-desc">@p.Description</div>
+                    }
+                    <div class="mh-card-actions">
+                        <a class="btn btn-sm btn-primary" href="@($"/maqueta/{p.Slug}")">Abrir</a>
+                        @if (_isAdmin)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleManageAsync(p)">@(_manage?.Id == p.Id ? "Cerrar" : "Versiones")</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        @foreach (var l in _locals)
+        {
+            <div class="mh-card local">
+                <a class="mh-thumb" href="@($"/maqueta/{l.Id}")" title="Abrir el editor">
+                    <iframe src="@($"{l.BasePath}/index.html")" loading="lazy" tabindex="-1" title="Vista previa @l.Nombre"></iframe>
+                    <span class="mh-thumb-overlay"><span>Abrir editor</span></span>
+                </a>
+                <div class="mh-card-body">
+                    <div class="mh-card-title"><a href="@($"/maqueta/{l.Id}")">@l.Nombre</a><span class="mh-badge local">local</span></div>
+                    <div class="mh-card-meta"><span>Carpeta del equipo (solo desarrollo)</span></div>
+                    <div class="mh-card-actions"><a class="btn btn-sm btn-primary" href="@($"/maqueta/{l.Id}")">Abrir</a></div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_manage is { } proj && _isAdmin)
+{
+    <div class="mh-panel mh-manage">
+        <div class="mh-panel-title">@proj.Name <span class="mh-muted">/maqueta/@proj.Slug</span></div>
+
+        <div class="mh-section">Configuracion</div>
+        <div class="mh-grid">
+            <label>Nombre<input class="form-control form-control-sm" @bind="_editName" /></label>
+            <label>Tablero de las solicitudes<input class="form-control form-control-sm" @bind="_editBoard" placeholder="@MockupService.DefaultBoardFor(proj.Name)" /></label>
+            <label class="mh-wide">Descripcion<input class="form-control form-control-sm" @bind="_editDesc" placeholder="Opcional" /></label>
+        </div>
+        <div class="mh-hint">El tablero se busca por nombre; si no existe se crea con la primera solicitud.</div>
+        <div class="mh-panel-actions">
+            <button class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="SaveSettingsAsync">Guardar configuracion</button>
+        </div>
+
+        <div class="mh-section">Subir version</div>
         <div class="mh-upload">
             <InputFile OnChange="OnZipSelected" accept=".zip,application/zip" class="form-control form-control-sm mh-file" />
             <input class="form-control form-control-sm" @bind="_uploadNotes" placeholder="Notas de la version (opcional)" />
             <button class="btn btn-sm btn-primary" disabled="@(_busy || _zip is null)" @onclick="UploadAsync">@(_busy ? "Subiendo..." : "Subir version")</button>
         </div>
-        <div class="mh-hint">ZIP de la carpeta de la maqueta (con <code>anotador/</code> si quieres anotar). Max @(MockupService.MaxZipBytes / (1024 * 1024)) MB. Queda como version actual.</div>
-        @if (_versions.Count == 0)
-        {
-            <div class="mh-muted">Aun no hay versiones.</div>
-        }
-        else
+        <div class="mh-hint">ZIP con el HTML de la maqueta (index.html + pantallas, css, js, imagenes). No necesita el anotador: el editor es del sistema. Max @(MockupService.MaxZipBytes / (1024 * 1024)) MB. Queda como version actual.</div>
+
+        @if (_versions.Count > 0)
         {
             <table class="table table-sm mh-table">
-                <thead><tr><th>#</th><th>Fecha</th><th>Subida por</th><th>Archivos</th><th>Entrada</th><th>Notas</th><th></th></tr></thead>
+                <thead><tr><th>#</th><th>Subida</th><th>Por</th><th>Archivos</th><th>Notas</th><th></th></tr></thead>
                 <tbody>
                     @foreach (var v in _versions)
                     {
                         <tr>
                             <td>v@(v.Number) @if (v.IsCurrent) { <span class="badge bg-success ms-1">actual</span> }</td>
-                            <td>@v.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@Ago(v.CreatedAt)</td>
                             <td>@v.UploadedByName</td>
                             <td>@v.FileCount</td>
-                            <td><code>@v.EntryPath</code></td>
                             <td>@v.Notes</td>
                             <td class="text-end">
-                                <a class="btn btn-sm btn-link" href="@($"/maqueta/{proj.Slug}~{v.Number}/{v.EntryPath}")" target="_blank" rel="noopener">Ver</a>
+                                <a class="btn btn-sm btn-link" href="@($"/maqueta/{proj.Slug}?v={v.Number}")">Abrir</a>
                                 @if (!v.IsCurrent)
                                 {
                                     <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => SetCurrentAsync(v)">Usar esta</button>
@@ -119,50 +198,23 @@
     </div>
 }
 
-@if (_loading)
-{
-    <div class="mh-muted">Cargando...</div>
-}
-else if (_items.Count == 0)
-{
-    <div class="mh-empty">
-        @if (_isAdmin)
-        {
-            <span>No hay maquetas todavia. Crea un proyecto y sube el ZIP de la carpeta de la maqueta.</span>
-        }
-        else
-        {
-            <span>No hay maquetas publicadas en tu empresa.</span>
-        }
-    </div>
-}
-else if (_current is not null)
-{
-    @if (_current.Url is { } frameUrl)
-    {
-        <iframe class="mh-frame" src="@frameUrl" title="Maqueta @_current.Label"></iframe>
-    }
-    else
-    {
-        <div class="mh-empty">Este proyecto aun no tiene versiones. @(_isAdmin ? "Abre Versiones y sube el ZIP." : "")</div>
-    }
-}
-
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    /// <summary>Compatibilidad: /maqueta?p=slug (v0.16.341-342) abre el editor del proyecto.</summary>
     [SupplyParameterFromQuery(Name = "p")] public string? ProjectKey { get; set; }
 
-    /// <summary>Entrada del selector: maqueta en la nube (Project) o de disco local (solo dev).</summary>
-    private sealed record HubItem(string Key, string Label, string? Url, MockupProjectDto? Project);
+    /// <summary>/maqueta?gestionar=slug abre el panel de versiones (enlace "Versiones" del editor).</summary>
+    [SupplyParameterFromQuery(Name = "gestionar")] public string? ManageKey { get; set; }
 
-    private List<HubItem> _items = new();
-    private HubItem? _current;
+    private List<MockupProjectDto> _projects = new();
+    private List<MaquetaHubProject> _locals = new();
+    private MockupProjectDto? _manage;
     private List<MockupVersionDto> _versions = new();
     private bool _loading = true;
     private bool _isAdmin;
     private bool _busy;
     private bool _showNew;
-    private bool _showVersions;
     private string? _message;
     private bool _messageIsError;
     private Guid _tenantId;
@@ -172,67 +224,74 @@ else if (_current is not null)
     private string _newName = string.Empty;
     private string _newSlug = string.Empty;
     private string? _newDesc;
+    private string _editName = string.Empty;
+    private string? _editDesc;
+    private string? _editBoard;
     private IBrowserFile? _zip;
     private string? _uploadNotes;
 
     protected override async Task OnInitializedAsync()
     {
+        if (!string.IsNullOrWhiteSpace(ProjectKey) && MaquetaHub.IsValidId(ProjectKey.Trim().ToLowerInvariant()))
+        {
+            Nav.NavigateTo($"/maqueta/{ProjectKey.Trim().ToLowerInvariant()}", replace: true);
+            return;
+        }
         if (AuthState is not null)
         {
             var user = (await AuthState).User;
             Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _tenantId);
             Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
             _userName = user.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
-            var role = user.FindFirst("tenant_role")?.Value;
-            _isAdmin = role is "Owner" or "Admin";
+            _isAdmin = user.FindFirst("tenant_role")?.Value is "Owner" or "Admin";
         }
         await ReloadAsync();
+        if (_isAdmin && _projects.FirstOrDefault(p => p.Slug == ManageKey) is { } toManage)
+        {
+            await OpenManageAsync(toManage);
+        }
         _loading = false;
-    }
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (_loading) { return; }
-        SelectCurrent();
-        await LoadVersionsAsync();
     }
 
     private async Task ReloadAsync()
     {
-        var cloud = await RunAsync(svc => svc.ListProjectsAsync());
-        _items = cloud
-            .Select(p => new HubItem(p.Slug, p.Name + (p.CurrentVersionNumber is int n ? $" (v{n})" : " (sin version)"),
-                p.CurrentVersionNumber is null ? null : $"{MaquetaHub.PathPrefix}/{p.Slug}/{p.EntryPath}", p))
-            .ToList();
+        _projects = (await RunAsync(svc => svc.ListProjectsAsync())).ToList();
         // Maquetas de disco local (solo Development/bandera): no chocan con un slug de la nube.
-        foreach (var local in Hub.Projects.Where(l => _items.All(i => i.Key != l.Id)))
+        _locals = Hub.Projects.Where(l => _projects.All(p => p.Slug != l.Id)).ToList();
+        if (_manage is not null)
         {
-            _items.Add(new HubItem(local.Id, local.Nombre + " (local)", local.AnotadorUrl, null));
+            _manage = _projects.FirstOrDefault(p => p.Id == _manage.Id);
+            await LoadVersionsAsync();
         }
-        SelectCurrent();
-        await LoadVersionsAsync();
     }
 
-    private void SelectCurrent()
-        => _current = _items.FirstOrDefault(i => string.Equals(i.Key, ProjectKey, StringComparison.OrdinalIgnoreCase)) ?? _items.FirstOrDefault();
+    /// <summary>Pagina de la vista previa: index.html (las versiones viejas pudieron registrar el anotador como entrada).</summary>
+    private static string PreviewEntry(MockupProjectDto p)
+        => p.EntryPath is null || p.EntryPath == MockupService.AnotadorEntry ? "index.html" : p.EntryPath;
+
+    private async Task ToggleManageAsync(MockupProjectDto p)
+    {
+        if (_manage?.Id == p.Id) { _manage = null; return; }
+        await OpenManageAsync(p);
+    }
+
+    private async Task OpenManageAsync(MockupProjectDto p)
+    {
+        _manage = p;
+        _editName = p.Name;
+        _editDesc = p.Description;
+        _editBoard = p.BoardName;
+        _zip = null;
+        _uploadNotes = null;
+        _message = null;
+        await LoadVersionsAsync();
+    }
 
     private async Task LoadVersionsAsync()
     {
-        _versions = _isAdmin && _showVersions && _current?.Project is { } p
+        _versions = _manage is { } p
             ? (await RunAsync(svc => svc.ListVersionsAsync(p.Id))).ToList()
             : new List<MockupVersionDto>();
-    }
-
-    private void OnProjectChanged(ChangeEventArgs e)
-    {
-        var key = e.Value?.ToString();
-        if (_items.Any(i => i.Key == key)) { Nav.NavigateTo("maqueta?p=" + Uri.EscapeDataString(key!)); }
-    }
-
-    private async Task ToggleVersions()
-    {
-        _showVersions = !_showVersions;
-        await LoadVersionsAsync();
     }
 
     private void SuggestSlug() => _newSlug = MockupService.SlugFrom(_newName);
@@ -243,43 +302,59 @@ else if (_current is not null)
         var res = await RunAsync(svc => svc.CreateProjectAsync(_newName, _newSlug, _newDesc, _isAdmin));
         _busy = false;
         if (!res.IsOk || res.Value is null) { Show(res.Error ?? "No se pudo crear el proyecto.", true); return; }
-        Show($"Proyecto '{res.Value.Name}' creado. Sube ahora el ZIP de la maqueta.", false);
         _showNew = false;
         _newName = _newSlug = string.Empty;
         _newDesc = null;
-        _showVersions = true;
-        Nav.NavigateTo("maqueta?p=" + Uri.EscapeDataString(res.Value.Slug));
         await ReloadAsync();
+        if (_projects.FirstOrDefault(p => p.Id == res.Value.Id) is { } created) { await OpenManageAsync(created); }
+        Show($"Proyecto '{res.Value.Name}' creado. Sube ahora el ZIP con el HTML de la maqueta.", false);
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        if (_manage is not { } p) { return; }
+        _busy = true;
+        var res = await RunAsync(svc => svc.UpdateProjectAsync(p.Id, _editName, _editDesc, _editBoard, _isAdmin));
+        _busy = false;
+        if (!res.IsOk) { Show(res.Error ?? "No se pudo guardar.", true); return; }
+        Show("Configuracion guardada.", false);
+        await ReloadAsync();
+        _editBoard = _manage?.BoardName;
     }
 
     private void OnZipSelected(InputFileChangeEventArgs e) => _zip = e.File;
 
     private async Task UploadAsync()
     {
-        if (_zip is null || _current?.Project is not { } p) { return; }
+        if (_zip is null || _manage is not { } p) { return; }
         if (_zip.Size > MockupService.MaxZipBytes) { Show($"El ZIP supera {MockupService.MaxZipBytes / (1024 * 1024)} MB.", true); return; }
         _busy = true;
         StateHasChanged();
-        byte[] bytes;
-        await using (var stream = _zip.OpenReadStream(MockupService.MaxZipBytes))
+        try
         {
-            using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms);
-            bytes = ms.ToArray();
+            byte[] bytes;
+            await using (var stream = _zip.OpenReadStream(MockupService.MaxZipBytes))
+            {
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var res = await RunAsync(svc => svc.UploadVersionAsync(p.Slug, bytes, _uploadNotes, _userName, _isAdmin));
+            if (!res.IsOk || res.Value is null) { Show(res.Error ?? "No se pudo subir la version.", true); return; }
+            Show($"Version v{res.Value.Number} publicada ({res.Value.FileCount} archivos).", false);
+            _zip = null;
+            _uploadNotes = null;
+            await ReloadAsync();
         }
-        var res = await RunAsync(svc => svc.UploadVersionAsync(p.Slug, bytes, _uploadNotes, _userName, _isAdmin));
-        _busy = false;
-        if (!res.IsOk || res.Value is null) { Show(res.Error ?? "No se pudo subir la version.", true); return; }
-        Show($"Version v{res.Value.Number} publicada ({res.Value.FileCount} archivos). Entrada: {res.Value.EntryPath}" +
-             (res.Value.HasAnotador ? "" : " (sin anotador/: no se podra anotar)"), !res.Value.HasAnotador);
-        _zip = null;
-        _uploadNotes = null;
-        await ReloadAsync();
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task SetCurrentAsync(MockupVersionDto v)
     {
-        if (_current?.Project is not { } p) { return; }
+        if (_manage is not { } p) { return; }
         _busy = true;
         var res = await RunAsync(svc => svc.SetCurrentVersionAsync(p.Id, v.Id, _isAdmin));
         _busy = false;
@@ -290,14 +365,13 @@ else if (_current is not null)
 
     private async Task ArchiveAsync()
     {
-        if (_current?.Project is not { } p) { return; }
+        if (_manage is not { } p) { return; }
         _busy = true;
         var res = await RunAsync(svc => svc.ArchiveProjectAsync(p.Id, _isAdmin));
         _busy = false;
         if (!res.IsOk) { Show(res.Error ?? "No se pudo archivar.", true); return; }
         Show($"Proyecto '{p.Name}' archivado.", false);
-        _showVersions = false;
-        Nav.NavigateTo("maqueta");
+        _manage = null;
         await ReloadAsync();
     }
 
@@ -305,6 +379,16 @@ else if (_current is not null)
     {
         _message = message;
         _messageIsError = isError;
+    }
+
+    /// <summary>Hace cuanto (independiente de la zona horaria).</summary>
+    private static string Ago(DateTimeOffset when)
+    {
+        var d = DateTimeOffset.UtcNow - when;
+        if (d.TotalMinutes < 1) { return "ahora"; }
+        if (d.TotalHours < 1) { return $"hace {(int)d.TotalMinutes} min"; }
+        if (d.TotalDays < 1) { return $"hace {(int)d.TotalHours} h"; }
+        return $"hace {(int)d.TotalDays} d";
     }
 
     /// <summary>Cada operacion corre en un scope propio con el tenant de la sesion (el circuito no tiene HttpContext).</summary>

@@ -82,6 +82,11 @@ public sealed class MockupSiteCache
         return !ctx.Items.ContainsKey(MissKey);
     }
 
+    /// <summary>Pantallas de la version (inmutable: se escanea una sola vez) para el editor (ADR-0180).</summary>
+    public MockupSiteInfo GetSiteInfo(Guid versionId, string root) => _sites.GetOrAdd(versionId, _ => MockupPages.Scan(root));
+
+    private readonly ConcurrentDictionary<Guid, MockupSiteInfo> _sites = new();
+
     private const string MissKey = "ecorex.mockup.miss";
 
     private async Task<string> ExtractAsync(MockupServeTarget target, IFileStorageService files)

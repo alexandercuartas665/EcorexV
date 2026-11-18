@@ -99,8 +99,19 @@ public sealed class RequerimientoCompraHijo : TenantEntity
     /// <summary>Contacto especifico del proveedor (TerceroContacto) elegido para esta linea (Ola 10/11).
     /// Null = usar el primer contacto / los datos del propio proveedor. Define el Requester de la actividad.</summary>
     public Guid? ProveedorContactoId { get; set; }
-    /// <summary>Precio unitario pactado/estimado de la compra (Ola 6). El total del hijo = Cantidad * PrecioUnitario.</summary>
+    /// <summary>Precio unitario pactado/estimado de la compra (Ola 6). El subtotal del hijo = Cantidad * PrecioUnitario.</summary>
     public decimal PrecioUnitario { get; set; }
+
+    // ---- Impuestos y descuento (Ola A fiscal) ----
+    /// <summary>IVA aplicado a esta linea en % (19/5/0...). Null = resolver del item (Inventario) o el default del
+    /// modulo (19%). El total con IVA = base gravable * (1 + IvaPct/100).</summary>
+    public decimal? IvaPct { get; set; }
+    /// <summary>Descuento por PORCENTAJE sobre el subtotal (0-100). Null/0 = sin descuento porcentual.</summary>
+    public decimal? DescuentoPct { get; set; }
+    /// <summary>Descuento por VALOR fijo (monto de la linea). Null/0 = sin descuento de valor. Si hay valor, gana
+    /// sobre el porcentaje. La base gravable = subtotal - descuento (nunca negativa).</summary>
+    public decimal? DescuentoValor { get; set; }
+
     public RequerimientoEstado Estado { get; set; } = RequerimientoEstado.Planificado;
     /// <summary>Actividad (TaskItem) generada al ejecutar la compra de este hijo.</summary>
     public Guid? TaskItemId { get; set; }
@@ -125,6 +136,16 @@ public sealed class RequerimientoCotizacion : TenantEntity
     public Guid? ProveedorContactoId { get; set; }
     /// <summary>Precio unitario ofertado.</summary>
     public decimal PrecioUnitario { get; set; }
+
+    // ---- Impuestos y descuento de la oferta (Ola A fiscal) ----
+    /// <summary>IVA ofertado para esta oferta en % (19/5/0...). Null = resolver del item (Inventario) o el default
+    /// del modulo (19%). Se arrastra a la linea planificada al usar la oferta.</summary>
+    public decimal? IvaPct { get; set; }
+    /// <summary>Descuento por PORCENTAJE sobre el subtotal (0-100). Null/0 = sin descuento porcentual.</summary>
+    public decimal? DescuentoPct { get; set; }
+    /// <summary>Descuento por VALOR fijo (monto). Null/0 = sin descuento de valor. Si hay valor, gana sobre el %.</summary>
+    public decimal? DescuentoValor { get; set; }
+
     /// <summary>Tiempo de entrega ofertado (texto libre, p.ej. "15 dias", "inmediato").</summary>
     public string TiempoEntrega { get; set; } = string.Empty;
     /// <summary>Condiciones/caracteristicas de despacho (transportadora, lugar, etc.).</summary>

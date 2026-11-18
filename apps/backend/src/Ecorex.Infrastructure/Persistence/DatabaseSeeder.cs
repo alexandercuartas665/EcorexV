@@ -3118,6 +3118,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(ia.Id, "Conversaciones", "conversaciones");
         Item(ia.Id, "Bitacora del agente", "bitacora-agente");
         Item(ia.Id, "Plantillas WhatsApp", "plantillas-whatsapp");
+        // Backfill idempotente para BD ya sembradas: EnsurePlantillasCorreoMenuItemAsync (v0.16.340).
+        Item(ia.Id, "Plantillas de correo", "plantillas-correo");
         Item(ia.Id, "Configuracion de voz", "config-voz");
 
         // ---- Seccion: CRM (heredado) (slug crm) ----
@@ -3429,6 +3431,55 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 State = MenuNodeState.Ready,
                 IsVisible = true,
                 SortOrder = maxSort + 1
+            });
+            added = true;
+        }
+
+        if (added) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE: asegura el item "Plantillas de correo" (ruta plantillas-correo) justo debajo de
+    /// "Plantillas WhatsApp" en toda vista de menu YA sembrada que tenga ese item (v0.16.340). Se ancla al item de
+    /// WhatsApp y no a la seccion "ia" porque varios tenants lo movieron o renombraron la seccion; las vistas
+    /// recortadas (sin Plantillas WhatsApp) no se tocan. Hereda la visibilidad del item de WhatsApp. Corre en cada
+    /// arranque; no duplica. Los menus NUEVOS ya lo traen via <see cref="EnsureDefaultMenuAsync"/>.
+    /// </summary>
+    public async Task EnsurePlantillasCorreoMenuItemAsync(CancellationToken cancellationToken = default)
+    {
+        var whatsappItems = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.Kind == MenuNodeKind.Item && n.Route == "plantillas-whatsapp")
+            .ToListAsync(cancellationToken);
+
+        var added = false;
+        var handledViews = new HashSet<Guid>();
+        foreach (var wa in whatsappItems.OrderBy(n => n.SortOrder))
+        {
+            if (!handledViews.Add(wa.MenuViewId)) { continue; }
+
+            var exists = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == wa.MenuViewId && n.Route == "plantillas-correo", cancellationToken);
+            if (exists) { continue; }
+
+            // Abre un hueco inmediatamente despues de "Plantillas WhatsApp" entre sus hermanos.
+            var siblingsAfter = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.MenuViewId == wa.MenuViewId && n.ParentId == wa.ParentId && n.SortOrder > wa.SortOrder)
+                .ToListAsync(cancellationToken);
+            foreach (var sibling in siblingsAfter) { sibling.SortOrder += 1; }
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = wa.TenantId,
+                MenuViewId = wa.MenuViewId,
+                ParentId = wa.ParentId,
+                Kind = MenuNodeKind.Item,
+                Name = "Plantillas de correo",
+                IconKey = null,
+                LegacyCode = null,
+                Route = "plantillas-correo",
+                State = MenuNodeState.Ready,
+                IsVisible = wa.IsVisible,
+                SortOrder = wa.SortOrder + 1
             });
             added = true;
         }

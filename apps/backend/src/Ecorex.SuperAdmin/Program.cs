@@ -413,6 +413,8 @@ if (!app.Environment.IsDevelopment())
         await seeder.EnsureVozMenuItemAsync();
         //  - "Plantillas de documento" (feature plantillas de documento, ola 1) bajo Sistema - General.
         await seeder.EnsurePlantillasDocumentoMenuItemAsync();
+        //  - "Plantillas de correo" (v0.16.340) debajo de "Plantillas WhatsApp" en cada vista que lo tenga.
+        await seeder.EnsurePlantillasCorreoMenuItemAsync();
         // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
         // catalogo esta vacio. Idempotente por catalogo (no resucita lo que se borre).
         await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
@@ -585,6 +587,8 @@ else
     await seeder.EnsureVozMenuItemAsync();
     // Backfill idempotente (plantillas de documento, ola 1): item "Plantillas de documento" bajo Sistema - General.
     await seeder.EnsurePlantillasDocumentoMenuItemAsync();
+    // Backfill idempotente (v0.16.340): item "Plantillas de correo" debajo de "Plantillas WhatsApp".
+    await seeder.EnsurePlantillasCorreoMenuItemAsync();
     // Retira el item de menu "plantillas" (galeria ahora es modal en Flujos/Formularios, ADR-0097). Idempotente.
     await seeder.RemovePlantillasMenuItemAsync();
     // Plantillas de arranque del marketplace (ADR-0097): igual que en prod, corre tras ambas ramas

@@ -2,6 +2,20 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-17 - v0.16.340: item de menu "Plantillas de correo" en todos los tenants
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). Sin ADR (backfill de menu, mismo patron que
+  "Plantillas de documento" / "Configuracion de voz").
+- MOTIVO: validacion en prod (solo lectura): NINGUNA de las 25 vistas de menu de los 11 tenants tenia el item
+  `plantillas-correo`; la pagina /plantillas-correo solo se abria por URL o por enlaces internos.
+- HECHO: el arbol canonico (EnsureDefaultMenuAsync) trae "Plantillas de correo" debajo de "Plantillas WhatsApp"
+  (tenants nuevos). Backfill idempotente `EnsurePlantillasCorreoMenuItemAsync` en cada arranque (prod y dev): se
+  ANCLA al item "Plantillas WhatsApp" (no a la seccion "ia", porque varios tenants la renombraron o movieron), lo
+  inserta justo debajo corriendo un puesto a los hermanos siguientes y hereda su visibilidad. Las vistas sin
+  Plantillas WhatsApp (menus recortados por cargo) no se tocan. En prod alcanza 15 vistas de los 11 tenants.
+- PRUEBA: PlantillasCorreoMenuBackfillTests (dual PG/SQL Server): posicion, seccion renombrada, oculto heredado,
+  vista recortada intacta, dos corridas sin duplicar.
+
 ## 2026-11-17 - v0.16.339: marca de correo, galeria de imagenes y selector de estilos del agente (DESPLEGADA 2026-11-17, junto con v0.16.338)
 
 - DEPLOY 2026-11-17 ~19:45 Bogota (OK del usuario: "Despliega las dos versiones juntas"): merge 12fd3e12 (tronco + main),

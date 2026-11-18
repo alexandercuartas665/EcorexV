@@ -2,8 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.346: integra feat/agentes-sistema (responder ofertas de portales desde la tarea, ADR-0181)
+## 2026-11-18 - v0.16.346: integra feat/agentes-sistema (responder ofertas de portales desde la tarea, ADR-0181) (DESPLEGADO 2026-11-18)
 
+- DEPLOY 2026-11-18 09:50 Bogota (OK del usuario: "Si, unela y luego despliega"). Via rapida GHCR, imagen de 1b70bffd.
+  Footer /login = v0.16.346; Restarts=0, sin errores. Rollback: sha256:3bd0e6a8719420d16fd3a6406139a8b965ca104e3a78d4a76c1737268cac17c6.
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/agentes-sistema hasta 89d44fff (c3df28dd feat(dron)
   responder ofertas de portales desde la tarea + 01a193b8 docs(progreso) DRON Ingenios). Merge limpio con main 79c169e6.
   Trae: Crear actividad con vencimiento/camposFijos/prellenado; reglas por fila de grilla (FormGridRowRules:

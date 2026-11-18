@@ -7,9 +7,9 @@ namespace Ecorex.Application.Tenancy;
 /// en orden de aparicion.</summary>
 public sealed record WhatsAppTemplateVariable(string Token, string Example);
 
-/// <summary>Un boton de la plantilla, IMPORTADO de Meta (solo lectura). <paramref name="Type"/> en
-/// MAYUSCULAS (URL | QUICK_REPLY | PHONE_NUMBER | COPY_CODE | ...); <paramref name="HasUrlVariable"/> = boton
-/// URL con sufijo variable {{1}} (dinamico por envio).</summary>
+/// <summary>Un boton de la plantilla: importado de Meta o creado desde el sistema (ADR-0186: QUICK_REPLY, URL fija,
+/// PHONE_NUMBER). <paramref name="Type"/> en MAYUSCULAS (URL | QUICK_REPLY | PHONE_NUMBER | COPY_CODE | ...);
+/// <paramref name="HasUrlVariable"/> = boton URL con sufijo variable {{1}} (dinamico por envio, solo importados).</summary>
 public sealed record WhatsAppTemplateButtonDto(
     string Type, string? Text, string? Url, string? PhoneNumber, bool HasUrlVariable);
 
@@ -52,7 +52,9 @@ public sealed record SaveWhatsAppTemplateRequest(
     string? HeaderText = null,
     string? HeaderMediaUrl = null,
     string? FooterText = null,
-    IReadOnlyList<WhatsAppTemplateVariable>? Variables = null);
+    IReadOnlyList<WhatsAppTemplateVariable>? Variables = null,
+    // Botones (ADR-0186). null = conservar los que tenga la plantilla; lista vacia = quitarlos.
+    IReadOnlyList<WhatsAppTemplateButtonDto>? Buttons = null);
 
 /// <summary>Definicion de una variable disponible en el editor (token amigable + ejemplo por
 /// defecto). Sirve para armar la ayuda del editor.</summary>

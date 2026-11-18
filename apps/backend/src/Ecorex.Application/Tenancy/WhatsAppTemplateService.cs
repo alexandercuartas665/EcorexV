@@ -639,6 +639,11 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         template.BodyText = request.BodyText.Trim();
         template.FooterText = string.IsNullOrWhiteSpace(request.FooterText) ? null : request.FooterText.Trim();
         template.VariablesJson = JsonSerializer.Serialize(request.Variables ?? Array.Empty<WhatsAppTemplateVariable>());
+        // Botones (ADR-0186): null = conservar los actuales (editor manual, restaurar versiones viejas).
+        if (request.Buttons is not null)
+        {
+            template.ButtonsJson = WhatsAppTemplateButtons.ToJson(WhatsAppTemplateButtons.Normalize(request.Buttons));
+        }
         template.WhatsAppLineId = line.Id;
         template.Provider = line.Provider;
         template.WabaId = line.CloudBusinessAccountId;

@@ -175,7 +175,17 @@ else
             </div>
             <div class="wa-agent-grid">
                 <div class="wa-agent-prev">
-                    @if (_agentTpl is null)
+                    @* Pestanas: vista previa | galeria (ADR-0186). La galeria es la misma de los correos (JPG/PNG para WhatsApp). *@
+                    <div class="wa-agent-tabs">
+                        <button class="wa-agent-tab @(_agentTab == "prev" ? "on" : "")" @onclick="@(() => _agentTab = "prev")">Vista previa</button>
+                        <button class="wa-agent-tab @(_agentTab == "galeria" ? "on" : "")" @onclick="@(() => _agentTab = "galeria")">Galeria @if (_galleryCount > 0) { <span class="wa-agent-tab-n">@_galleryCount</span> }</button>
+                    </div>
+                    @if (_agentTab == "galeria")
+                    {
+                        <p class="text-muted small" style="margin:0;">Sube imagenes JPG o PNG (ideal horizontal 1200 x 628, menos de 5 MB). Con "Usar en el chat" se la pides al agente como encabezado de la plantilla.</p>
+                        <TemplateGalleryPanel OnUseInChat="UseImageInChat" OnCountChanged="n => _galleryCount = n" />
+                    }
+                    else if (_agentTpl is null)
                     {
                         <p class="text-muted small">Describe el mensaje en el chat. El agente arma el borrador (nombre, categoria, cuerpo, variables con ejemplos), lo verifica contra las reglas de Meta y te pide confirmar. Someter a Meta es una confirmacion aparte.</p>
                     }
@@ -189,6 +199,10 @@ else
                                 {
                                     <div class="wa-bubble-h">@_agentTpl.HeaderText</div>
                                 }
+                                else if (!string.IsNullOrWhiteSpace(_agentTpl.HeaderMediaUrl) && _agentTpl.HeaderType == WhatsAppTemplateHeaderType.Image)
+                                {
+                                    <img class="wa-bubble-img" src="@_agentTpl.HeaderMediaUrl" alt="Imagen del encabezado" />
+                                }
                                 else if (!string.IsNullOrWhiteSpace(_agentTpl.HeaderMediaUrl))
                                 {
                                     <div class="wa-bubble-media">[@_agentTpl.HeaderType]</div>
@@ -199,6 +213,15 @@ else
                                     <div class="wa-bubble-f">@_agentTpl.FooterText</div>
                                 }
                             </div>
+                            @if (_agentTpl.Buttons.Count > 0)
+                            {
+                                <div class="wa-bubble-btns">
+                                    @foreach (var b in _agentTpl.Buttons)
+                                    {
+                                        <div class="wa-bubble-btn" title="@(b.Url ?? b.PhoneNumber)">@ButtonIcon(b.Type) @b.Text</div>
+                                    }
+                                </div>
+                            }
                         </div>
                         <div class="wa-agent-meta">
                             <span><b>Categoria:</b> @_agentTpl.Category</span>
@@ -223,10 +246,10 @@ else
                     }
                 </div>
                 <div class="wa-agent-chat">
-                    <TemplateAgentChatPanel @key="_agentKey" Kind="Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp" TemplateId="_agentTemplateId"
+                    <TemplateAgentChatPanel @ref="_agentPanel" @key="_agentKey" Kind="Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp" TemplateId="_agentTemplateId"
                                             OnTemplateChanged="OnAgentChangedAsync" IrreversibleDetail="@AgentPreviewText()"
                                             Subtitle="Describe el mensaje; el agente lo redacta con las reglas de Meta. Someter a Meta se confirma aparte."
-                                            Placeholder="Ej. Aviso de que el pedido esta listo para recoger en bodega..."
+                                            Placeholder="Ej. Promocion de soldaduras con la foto del catalogo y botones Ver catalogo / Me interesa..."
                                             Greeting="Hola. Cuentame que mensaje de WhatsApp necesitas (para que, a quien y que datos lleva) y lo redacto como plantilla lista para aprobar en Meta." />
                 </div>
             </div>
@@ -613,6 +636,9 @@ else
     private Guid _agentKey = Guid.NewGuid();
     private Guid? _agentTemplateId;
     private WhatsAppTemplateDto? _agentTpl;
+    private TemplateAgentChatPanel? _agentPanel;
+    private string _agentTab = "prev";
+    private int _galleryCount;
     private List<TemplateSnapshotDto> _agentVersions = new();
 
     private async Task OpenAgentAsync(Guid? id)
@@ -670,7 +696,21 @@ else
 
     private WhatsAppDraft AgentDraft() => new(
         _agentTpl!.Name, _agentTpl.Language, _agentTpl.Category, _agentTpl.HeaderType, _agentTpl.HeaderText, _agentTpl.HeaderMediaUrl,
-        _agentTpl.BodyText, _agentTpl.FooterText, _agentTpl.Variables);
+        _agentTpl.BodyText, _agentTpl.FooterText, _agentTpl.Variables, _agentTpl.Buttons);
+
+    // Galeria -> chat (ADR-0186): deja la peticion escrita en el chat para que el agente use esa imagen.
+    private void UseImageInChat(TemplateAssetDto a)
+    {
+        _agentPanel?.AppendToInput($"Usa la imagen \"{a.Alt ?? a.FileName}\" de la galeria ({a.FileName}) como encabezado.");
+        _agentTab = "prev";
+    }
+
+    private static string ButtonIcon(string type) => type switch
+    {
+        WhatsAppTemplateButtons.Url => "\u2197",
+        WhatsAppTemplateButtons.Phone => "\u260E",
+        _ => "\u21A9"
+    };
 
     private static string VerifyTitle(TemplateVerifyResult vr)
         => vr.Errors == 0 && vr.Warnings == 0 ? "Verificacion Meta: todo en orden." : $"Verificacion Meta: {vr.Errors} error(es), {vr.Warnings} aviso(s)";
@@ -682,8 +722,11 @@ else
         var nl = Environment.NewLine;
         return _agentTpl.Name + " (" + _agentTpl.Category + ", " + _agentTpl.Language + ") - linea " + _agentTpl.WhatsAppLineName + nl + nl
             + (string.IsNullOrWhiteSpace(_agentTpl.HeaderText) ? "" : _agentTpl.HeaderText + nl + nl)
+            + (_agentTpl.HeaderType == WhatsAppTemplateHeaderType.Image && !string.IsNullOrWhiteSpace(_agentTpl.HeaderMediaUrl) ? "[Imagen] " + _agentTpl.HeaderMediaUrl + nl + nl : "")
             + BodyWithExamples(_agentTpl)
-            + (string.IsNullOrWhiteSpace(_agentTpl.FooterText) ? "" : nl + nl + _agentTpl.FooterText);
+            + (string.IsNullOrWhiteSpace(_agentTpl.FooterText) ? "" : nl + nl + _agentTpl.FooterText)
+            + (_agentTpl.Buttons.Count == 0 ? "" : nl + nl + string.Join(nl, _agentTpl.Buttons.Select(b => "[ " + b.Text + " ]"
+                + (b.Url is not null ? " -> " + b.Url : b.PhoneNumber is not null ? " -> " + b.PhoneNumber : ""))));
     }
 
     private static string BodyWithExamples(WhatsAppTemplateDto t)

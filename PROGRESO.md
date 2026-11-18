@@ -12,8 +12,18 @@
 - Prueba en prod 2026-11-18: los 2 correos programados (filtro "PRUEBA acuartas 8 y 9 AM") salieron Sent a las
   08:00 y 09:00 Bogota. Remitente actual de SOLDARCO = SMTP global (soporte@bitcode.com.co, nombre "soporte"):
   SOLDARCO no tiene SMTP propio en /configuracion.
+- Remitente comercial por campana (ADR-0185, misma version): el paso E-mail del gestor de contactos acepta nombre
+  visible, correo remitente (solo como From si es del dominio del servidor; si no, va como Reply-To) y "responder
+  a". `IEmailSender` gana sobrecarga con `EmailSenderOverride` (metodo por defecto: los fakes no cambian).
+  El usuario eligio ambas vias: A) SMTP propio de SOLDARCO en /configuracion (lo configura el usuario, la clave
+  no la escribe el agente) y B) este cambio.
+- Imagen de la galeria + botones en plantillas WhatsApp (ADR-0186, misma version): pestana Galeria en el panel del
+  agente (mismo TemplateGalleryPanel de correos), herramienta list_images (JPG/PNG), argumentos imagen_url y
+  botones (respuesta rapida, sitio web https fijo, llamar) con reglas de Meta, componente BUTTONS al someter,
+  arnes con "diseno de alto impacto", vista previa con imagen y botones, y el motor manda la media del encabezado
+  en cada envio. Sin migraciones.
 - Siguiente: E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
-  WhatsApp programado desde el gestor de contactos; remitente comercial del correo (decision del usuario).
+  WhatsApp programado desde el gestor de contactos.
 
 ## 2026-11-18 - v0.16.346: integra feat/agentes-sistema (responder ofertas de portales desde la tarea, ADR-0181) (DESPLEGADO 2026-11-18)
 

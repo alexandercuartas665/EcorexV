@@ -112,6 +112,11 @@
                         <span><code>#</code> etiqueta</span>
                         <span><code>**negrita**</code></span>
                         <span><code>- [ ]</code> tarea</span>
+                        @* Ola 3b: adjuntar imagen o PDF; se inserta ![[nombre]] en el cursor. *@
+                        <label class="mb-link mb-attach @(_uploading ? "busy" : null)" title="Imagen PNG/JPG/GIF/WEBP/BMP o PDF, max 10 MB">
+                            <i class="fa-solid fa-paperclip"></i> @(_uploading ? "Subiendo..." : "Adjuntar imagen")
+                            <InputFile OnChange="OnAssetSelected" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf" disabled="@_uploading" />
+                        </label>
                         @if (!string.IsNullOrEmpty(CurrentFile))
                         {
                             <button class="mb-link" @onclick="InsertCurrentPageAsync"><i class="fa-regular fa-window-maximize"></i> Enlazar pantalla actual</button>
@@ -128,7 +133,7 @@
                     }
                     else
                     {
-                        @((MarkupString)MockupMarkdown.ToHtml(_draftBody, Exists))
+                        @((MarkupString)MockupMarkdown.ToHtml(_draftBody, Exists, AssetUrl))
                     }
                 </div>
             }
@@ -268,7 +273,7 @@
                 <button class="mb-icon" title="Cerrar" disabled="@_importing" @onclick="() => _showImport = false"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="mb-modal-body">
-                <p>Comprime la carpeta del vault en un <b>.zip</b> y subelo. Cada archivo <code>.md</code> se vuelve una nota (el titulo es el nombre del archivo, como en Obsidian) y sus <code>[[enlaces]]</code> y <code>#etiquetas</code> se conectan en el grafo. Se ignoran <code>.obsidian/</code>, imagenes y adjuntos. Maximo @(MockupBrainService.MaxVaultZipBytes / (1024 * 1024)) MB y @MockupBrainService.MaxVaultNotes.ToString("N0") notas.</p>
+                <p>Comprime la carpeta del vault en un <b>.zip</b> y subelo. Cada archivo <code>.md</code> se vuelve una nota (el titulo es el nombre del archivo, como en Obsidian) y sus <code>[[enlaces]]</code> y <code>#etiquetas</code> se conectan en el grafo. Las imagenes (PNG, JPG, GIF, WEBP, BMP) y los PDF se suben como adjuntos y se ven donde la nota los embebe (<code>![[foto.png]]</code>); se ignoran <code>.obsidian/</code> y otros formatos. Maximo @(MockupBrainService.MaxVaultZipBytes / (1024 * 1024)) MB y @MockupBrainService.MaxVaultNotes.ToString("N0") notas.</p>
                 <InputFile OnChange="OnVaultSelected" accept=".zip,application/zip" class="form-control form-control-sm" disabled="@_importing" />
                 <label class="mb-check"><input type="checkbox" @bind="_overwrite" disabled="@_importing" /> Sobrescribir las notas que ya existen con el mismo titulo</label>
                 @if (_importError is not null)
@@ -278,7 +283,7 @@
                 @if (_importResult is { } r)
                 {
                     <div class="mb-result">
-                        <div><b>@r.Created</b> notas nuevas &middot; <b>@r.Updated</b> actualizadas &middot; <b>@r.Skipped</b> omitidas (ya existian) &middot; <b>@r.Links</b> enlaces</div>
+                        <div><b>@r.Created</b> notas nuevas &middot; <b>@r.Updated</b> actualizadas &middot; <b>@r.Skipped</b> omitidas (ya existian) &middot; <b>@r.Links</b> enlaces &middot; <b>@r.AssetsCreated</b> adjuntos@(r.AssetsSkipped > 0 ? $" ({r.AssetsSkipped} ya existian)" : "")</div>
                         @if (r.Warnings.Count > 0)
                         {
                             <ul>
@@ -352,6 +357,9 @@
 
     private bool _showClaude;
 
+    private Dictionary<string, MockupBrainAssetDto> _assets = new(StringComparer.Ordinal);
+    private bool _uploading;
+
     private string McpUrl => Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.Route;
 
     private bool _showImport;
@@ -405,7 +413,8 @@
                 if (_pendingInsert is { } text)
                 {
                     _pendingInsert = null;
-                    await JS.InvokeVoidAsync("ecxMaquetaCerebro.insert", _editorRef, text);
+                    // Los adjuntos embebidos (![[...]]) van en su propia linea; los enlaces, en linea.
+                    await JS.InvokeVoidAsync("ecxMaquetaCerebro.insert", _editorRef, text, text.StartsWith("![[", StringComparison.Ordinal));
                 }
                 else
                 {
@@ -538,10 +547,68 @@
             _notes = string.IsNullOrWhiteSpace(_search)
                 ? all.ToList()
                 : (await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListNotesAsync(Slug, _search))).ToList();
+            await ReloadAssetsAsync();
         }
         finally
         {
             _loadingList = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ adjuntos (ola 3b)
+
+    private async Task ReloadAssetsAsync()
+    {
+        var assets = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListAssetsAsync(Slug));
+        _assets = assets.GroupBy(a => MockupBrainAssets.Key(a.Name)).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    }
+
+    /// <summary>URL del adjunto por la referencia escrita en la nota (nombre o ruta de Obsidian).</summary>
+    private string? AssetUrl(string reference)
+        => _assets.TryGetValue(MockupBrainAssets.Key(reference), out var a) ? a.Url : null;
+
+    private async Task OnAssetSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > MockupBrainAssets.MaxAssetBytes)
+        {
+            await OnToast.InvokeAsync($"El adjunto supera {MockupBrainAssets.MaxAssetBytes / (1024 * 1024)} MB.");
+            return;
+        }
+        _uploading = true;
+        try
+        {
+            byte[] bytes;
+            await using (var stream = file.OpenReadStream(MockupBrainAssets.MaxAssetBytes))
+            using (var ms = new MemoryStream())
+            {
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var name = file.Name;
+            var res = await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                if (actor is null) { return TaskCoreResult<MockupBrainAssetDto>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+                return await sp.GetRequiredService<IMockupBrainService>().UploadAssetAsync(Slug, name, bytes, actor);
+            });
+            if (!res.IsOk || res.Value is null)
+            {
+                await OnToast.InvokeAsync(res.Error ?? "No se pudo subir el adjunto.");
+                return;
+            }
+            await ReloadAssetsAsync();
+            _pendingInsert = $"![[{res.Value.Name}]]";
+            _editorPending = true;
+            await OnToast.InvokeAsync($"Adjunto '{res.Value.Name}' subido.");
+        }
+        catch (IOException ex)
+        {
+            await OnToast.InvokeAsync("No se pudo leer el archivo: " + ex.Message);
+        }
+        finally
+        {
+            _uploading = false;
         }
     }
 
@@ -864,6 +931,7 @@
         list.AddRange(_allTitles.Select(t => (object)new { kind = "note", label = t, value = t }));
         list.AddRange(Pages.Select(p => (object)new { kind = "page", label = $"{p.Title} ({p.File})", value = p.File }));
         list.AddRange(Solicitudes.Take(300).Select(s => (object)new { kind = "task", label = $"{s.Number} {s.Title}", value = s.Number }));
+        list.AddRange(_assets.Values.Take(500).Select(a => (object)new { kind = "file", label = a.Name, value = a.Name }));
         return list.ToArray();
     }
 

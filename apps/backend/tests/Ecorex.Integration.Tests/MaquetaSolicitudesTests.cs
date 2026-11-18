@@ -321,7 +321,7 @@ public abstract class MaquetaSolicitudesTestsBase
         var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, flowDesign, new NoOpAgentStepRunner());
         var tablero = new TableroMcpToolset(ctx, boards, tasks, inbox);
         return new MaquetaMcpToolset(ctx, new MockupService(ctx, tenantCtx, files, new AuditWriter(ctx)), tablero, files,
-            new MockupBrainService(ctx, new AuditWriter(ctx)));
+            new MockupBrainService(ctx, new AuditWriter(ctx), files));
     }
 
     /// <summary>ADR-0183: el MCP de maquetas lee y escribe el cerebro digital (notas enlazadas) del proyecto.</summary>

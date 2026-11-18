@@ -48,7 +48,7 @@ Respuestas del usuario (2026-11-18) a las preguntas del hand-off:
    del archivo (asi enlaza Obsidian). Se ignoran `.obsidian/`, ocultos, `__MACOSX` y adjuntos (se informan). Nombres
    repetidos en carpetas distintas -> "Nombre (carpeta)"; nombres con caracteres reservados se limpian. Las notas
    con titulo existente se omiten salvo "sobrescribir". Todo el vault entra en UN SaveChanges (todo o nada).
-   Los adjuntos (imagenes) quedan para una ola 3b.
+   Los adjuntos van en la ola 3b (punto 9).
 5. **UI**: pestanas **Maqueta | Cerebro** en la barra del editor (`/maqueta/{slug}`, `?tab=cerebro&nota=...`). El
    cerebro se monta una vez y se oculta con CSS (no recarga el iframe ni pierde el borrador). Tres zonas: lista con
    busqueda / editor markdown con autocompletado al escribir `[[` (notas, pantallas, solicitudes) y vista previa /
@@ -70,6 +70,23 @@ Respuestas del usuario (2026-11-18) a las preguntas del hand-off:
    - **Pestana Cerebro**: boton "Chatear con Claude sobre esta maqueta" con los mismos pasos y prompts ya armados con
      el proyecto, la nota y la pantalla abiertas, para copiar y pegar en Claude.
    Si mas adelante hay creditos de API, el chat dentro del panel reutilizaria las mismas herramientas del MCP.
+9. **Ola 3b = adjuntos (imagenes y PDF)**, SIN tabla nueva ni migracion: viven en el gestor unificado de archivos
+   (modulo `maqueta-cerebro`, Ref1 = id del proyecto, nombre = el que usa Obsidian). `MockupBrainAssets` (puro) fija
+   las reglas: como `/archivo/{id}` sirve INLINE en el mismo origen de la app, solo se aceptan PNG, JPG, GIF, WEBP,
+   BMP y PDF, verificando la FIRMA de los bytes (un HTML renombrado a .png se rechaza); SVG/HTML/otros nunca.
+   Max 10 MB por adjunto; el ZIP del vault sube a 80 MB. Nombres sin carpeta ni caracteres de enlace; repetidos se
+   numeran al subir ("foto (2).png") y se omiten en la importacion.
+   - **Importar vault**: las notas entran primero en su transaccion; los adjuntos se guardan DESPUES (el binario no
+     participa de la transaccion de BD). Si uno falla, se avisa y la nota muestra el adjunto como "no encontrado".
+     Sin "sobrescribir" los adjuntos con el mismo nombre se omiten; con "sobrescribir" se reemplazan.
+   - **Subir desde el editor**: boton "Adjuntar imagen" (`IMockupBrainService.UploadAssetAsync`) que inserta
+     `![[nombre]]` en su propia linea. El autocompletado de `[[` sugiere tambien los adjuntos.
+   - **Render**: `![[foto.png]]`, `![[foto.png|300]]` (ancho) y `![alt](carpeta/Mi%20foto.png)` se resuelven por
+     nombre de archivo (sin carpeta ni mayusculas) contra los adjuntos del proyecto -> `<img src="/archivo/{id}">`;
+     el PDF sale como enlace; solo se aceptan URLs `/archivo/...` del resolutor. Las imagenes EXTERNAS
+     (`![x](https://...)`) NO se cargan dentro de la app: quedan como enlace.
+   - Pendiente: borrar adjuntos y ver/listar adjuntos por el MCP (los clientes MCP no tienen la sesion de
+     `/archivo`).
 
 ## Consecuencias
 

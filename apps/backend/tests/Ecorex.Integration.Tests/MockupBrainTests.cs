@@ -3,6 +3,7 @@ using System.Text;
 using Ecorex.Application.Common;
 using Ecorex.Application.Integraciones.Maqueta;
 using Ecorex.Application.Mcp;
+using Ecorex.Application.Storage;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Infrastructure.Persistence;
@@ -30,7 +31,7 @@ public abstract class MockupBrainTestsBase
         var tenantId = await SeedTenantAsync("Cerebro A");
         await using var ctx = _fixture.CreateContext(tenantId);
         var slug = await CreateProjectAsync(ctx, tenantId);
-        var brain = new MockupBrainService(ctx, new AuditWriter(ctx));
+        var brain = new MockupBrainService(ctx, new AuditWriter(ctx), new BrainFiles());
         var ana = Actor(tenantId, "Ana", admin: false);
 
         var a = await brain.SaveNoteAsync(slug, null, "Menu principal", "Ver [[Radicacion]], [[inicio.html]] y [[T99999]] #ux", null, ana);
@@ -83,7 +84,7 @@ public abstract class MockupBrainTestsBase
         var tenantId = await SeedTenantAsync("Cerebro Archivo");
         await using var ctx = _fixture.CreateContext(tenantId);
         var slug = await CreateProjectAsync(ctx, tenantId);
-        var brain = new MockupBrainService(ctx, new AuditWriter(ctx));
+        var brain = new MockupBrainService(ctx, new AuditWriter(ctx), new BrainFiles());
         var ana = Actor(tenantId, "Ana", admin: false);
         var luis = Actor(tenantId, "Luis", admin: false);
         var owner = Actor(tenantId, "Owner", admin: true);
@@ -118,22 +119,30 @@ public abstract class MockupBrainTestsBase
         var tenantId = await SeedTenantAsync("Cerebro Vault");
         await using var ctx = _fixture.CreateContext(tenantId);
         var slug = await CreateProjectAsync(ctx, tenantId);
-        var brain = new MockupBrainService(ctx, new AuditWriter(ctx));
+        var files = new BrainFiles();
+        var brain = new MockupBrainService(ctx, new AuditWriter(ctx), files);
         var ana = Actor(tenantId, "Ana", admin: false);
         Assert.True((await brain.SaveNoteAsync(slug, null, "Inicio", "mia", null, ana)).IsOk);
 
-        var zip = Zip(
-            ("vault/Inicio.md", "del vault [[Ideas]]"),
-            ("vault/Ideas.md", "Ideas [[Inicio]] [[inicio.html]] #tema"),
-            ("vault/Sub/Pendientes.md", "- [ ] [[Ideas]]"),
-            ("vault/.obsidian/app.json", "{}"),
-            ("vault/img/a.png", "png"));
+        byte[] png = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 7, 7, 7 };
+        var zip = ZipEntries(
+            ("vault/Inicio.md", Encoding.UTF8.GetBytes("del vault [[Ideas]] ![[a.png]]")),
+            ("vault/Ideas.md", Encoding.UTF8.GetBytes("Ideas [[Inicio]] [[inicio.html]] #tema")),
+            ("vault/Sub/Pendientes.md", Encoding.UTF8.GetBytes("- [ ] [[Ideas]]")),
+            ("vault/.obsidian/app.json", Encoding.UTF8.GetBytes("{}")),
+            ("vault/img/a.png", png),
+            ("vault/img/b.svg", Encoding.UTF8.GetBytes("<svg/>")));
 
         var first = await brain.ImportVaultAsync(slug, zip, overwrite: false, ana);
         Assert.True(first.IsOk, first.Error);
         Assert.Equal(2, first.Value!.Created);
         Assert.Equal(1, first.Value.Skipped);
         Assert.Equal(1, first.Value.IgnoredFiles);
+        Assert.Equal(1, first.Value.AssetsCreated);
+        var asset = Assert.Single(await brain.ListAssetsAsync(slug));
+        Assert.Equal("a.png", asset.Name);
+        Assert.True(asset.IsImage);
+        Assert.StartsWith("/archivo/", asset.Url);
         Assert.Equal("mia", (await brain.GetNoteAsync(slug, null, "inicio"))!.Body);
         var ideas = (await brain.GetNoteAsync(slug, null, "Ideas"))!;
         Assert.Equal("vault/Ideas.md", ideas.ImportedFrom);
@@ -142,11 +151,36 @@ public abstract class MockupBrainTestsBase
         var second = await brain.ImportVaultAsync(slug, zip, overwrite: true, ana);
         Assert.True(second.IsOk, second.Error);
         Assert.Equal(3, second.Value!.Updated);
-        Assert.Equal("del vault [[Ideas]]", (await brain.GetNoteAsync(slug, null, "Inicio"))!.Body);
+        Assert.Equal(1, second.Value.AssetsCreated);
+        Assert.Single(await brain.ListAssetsAsync(slug));
+        var third = await brain.ImportVaultAsync(slug, zip, overwrite: false, ana);
+        Assert.Equal(1, third.Value!.AssetsSkipped);
+        Assert.Single(await brain.ListAssetsAsync(slug));
+        Assert.Equal("del vault [[Ideas]] ![[a.png]]", (await brain.GetNoteAsync(slug, null, "Inicio"))!.Body);
         Assert.Equal(2, (await brain.GetNoteAsync(slug, null, "Ideas"))!.Backlinks.Count);
         Assert.Equal(3, (await brain.ListNotesAsync(slug)).Count);
 
         Assert.Equal(TaskCoreStatus.Invalid, (await brain.ImportVaultAsync(slug, new byte[] { 1, 2 }, false, ana)).Status);
+    }
+
+    [Fact]
+    public async Task SubirAdjunto_ValidaFormatoYFirma_YNumeraRepetidos()
+    {
+        var tenantId = await SeedTenantAsync("Cerebro Adjuntos");
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var slug = await CreateProjectAsync(ctx, tenantId);
+        var brain = new MockupBrainService(ctx, new AuditWriter(ctx), new BrainFiles());
+        var ana = Actor(tenantId, "Ana", admin: false);
+        byte[] png = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3 };
+
+        var first = await brain.UploadAssetAsync(slug, "captura.png", png, ana);
+        Assert.True(first.IsOk, first.Error);
+        Assert.Equal("captura.png", first.Value!.Name);
+        Assert.Equal("Captura (2).PNG", (await brain.UploadAssetAsync(slug, "Captura.PNG", png, ana)).Value!.Name);
+        Assert.Equal(TaskCoreStatus.Invalid, (await brain.UploadAssetAsync(slug, "xss.png", Encoding.ASCII.GetBytes("<script>"), ana)).Status);
+        Assert.Equal(TaskCoreStatus.Invalid, (await brain.UploadAssetAsync(slug, "logo.svg", Encoding.ASCII.GetBytes("<svg/>"), ana)).Status);
+        Assert.Equal(TaskCoreStatus.NotFound, (await brain.UploadAssetAsync("no-existe", "a.png", png, ana)).Status);
+        Assert.Equal(2, (await brain.ListAssetsAsync(slug)).Count);
     }
 
     [Fact]
@@ -159,13 +193,13 @@ public abstract class MockupBrainTestsBase
         await using (var ctxA = _fixture.CreateContext(a))
         {
             slug = await CreateProjectAsync(ctxA, a);
-            var brainA = new MockupBrainService(ctxA, new AuditWriter(ctxA));
+            var brainA = new MockupBrainService(ctxA, new AuditWriter(ctxA), new BrainFiles());
             noteId = (await brainA.SaveNoteAsync(slug, null, "Secreto", "solo A", null, Actor(a, "Ana", false))).Value!.Id;
         }
 
         await using (var ctxB = _fixture.CreateContext(b))
         {
-            var brainB = new MockupBrainService(ctxB, new AuditWriter(ctxB));
+            var brainB = new MockupBrainService(ctxB, new AuditWriter(ctxB), new BrainFiles());
             var intruso = Actor(b, "Intruso", admin: true);
             Assert.Empty(await brainB.ListNotesAsync(slug));
             Assert.Null(await brainB.GetNoteAsync(slug, noteId));
@@ -178,6 +212,35 @@ public abstract class MockupBrainTestsBase
     }
 
     // ---- Helpers ----
+
+    /// <summary>Gestor de archivos en memoria que SI filtra por modulo y Ref1 (los adjuntos del cerebro se listan asi).</summary>
+    private sealed class BrainFiles : IFileStorageService
+    {
+        private readonly Dictionary<Guid, (FileStorageSaveRequest Req, DateTimeOffset At)> _files = new();
+
+        public Task<StoredFileDto> SaveAsync(FileStorageSaveRequest request, CancellationToken ct = default)
+        {
+            var id = Guid.NewGuid();
+            _files[id] = (request, DateTimeOffset.UtcNow);
+            return Task.FromResult(Dto(id, request, _files[id].At));
+        }
+
+        public Task<IReadOnlyList<StoredFileDto>> ListAsync(string module, string? ref1 = null, string? ref2 = null, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<StoredFileDto>>(_files
+                .Where(f => f.Value.Req.Module == module && (ref1 is null || f.Value.Req.Ref1 == ref1) && (ref2 is null || f.Value.Req.Ref2 == ref2))
+                .Select(f => Dto(f.Key, f.Value.Req, f.Value.At)).ToList());
+
+        public Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult(_files.Remove(fileId));
+        public Task<StoredFileDto?> GetAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
+        public Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
+        public Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
+        public Task<StoredFileDto?> FindAsync(string module, string? ref1, string? ref2, string fileName, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
+        public Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyCollection<string>>(Array.Empty<string>());
+
+        private static StoredFileDto Dto(Guid id, FileStorageSaveRequest r, DateTimeOffset at)
+            => new(id, r.Module, r.Ref1, r.Ref2, r.FileName, r.ContentType, r.Content.Length, at, "memory");
+    }
 
     private static McpActor Actor(Guid tenantId, string name, bool admin)
         => new(tenantId, Guid.CreateVersion7(), Guid.CreateVersion7(), name, admin, Guid.NewGuid());
@@ -197,6 +260,20 @@ public abstract class MockupBrainTestsBase
         ctx.Tenants.Add(new Tenant { Id = tenantId, Name = name });
         await ctx.SaveChangesAsync();
         return tenantId;
+    }
+
+    private static byte[] ZipEntries(params (string Path, byte[] Content)[] entries)
+    {
+        using var ms = new MemoryStream();
+        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (path, content) in entries)
+            {
+                using var stream = archive.CreateEntry(path).Open();
+                stream.Write(content);
+            }
+        }
+        return ms.ToArray();
     }
 
     private static byte[] Zip(params (string Path, string Content)[] entries)

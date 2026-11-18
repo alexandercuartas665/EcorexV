@@ -10,7 +10,8 @@ window.ecxMaquetaCerebro = (function () {
     page: { name: 'Pantalla', color: '#2563eb' },
     task: { name: 'Tarjeta', color: '#c77a06' },
     tag: { name: 'Etiqueta', color: '#16a34a' },
-    missing: { name: 'Pendiente', color: '#94a3b8' }
+    missing: { name: 'Pendiente', color: '#94a3b8' },
+    file: { name: 'Adjunto', color: '#64748b' }
   };
   var ORDER = ['note', 'page', 'task', 'tag', 'missing'];
 
@@ -227,9 +228,14 @@ window.ecxMaquetaCerebro = (function () {
   }
 
   /** Inserta texto en el cursor del editor (y avisa a Blazor con un evento input). */
-  function insert(ta, text) {
+  function insert(ta, text, block) {
     if (!ta) { return; }
     var s = ta.selectionStart || 0, e = ta.selectionEnd || 0;
+    // block: el texto va en su propia linea (adjuntos embebidos ![[...]]).
+    if (block) {
+      if (s > 0 && ta.value.charAt(s - 1) !== '\n') { text = '\n' + text; }
+      if (e < ta.value.length && ta.value.charAt(e) !== '\n') { text = text + '\n'; }
+    }
     ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
     var caret = s + text.length;
     ta.focus();

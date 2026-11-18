@@ -9,6 +9,7 @@ using Ecorex.Infrastructure.Persistence;
 using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.Components;
+using Ecorex.SuperAdmin.Maqueta;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -113,6 +114,8 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("SuperAdminOnly", p => p.RequireClaim("platform_role", "SuperAdmin"))
     // Miembro de una agencia: tiene claim tenant_id.
     .AddPolicy("TenantMember", p => p.RequireClaim("tenant_id"))
+    // Hub de maquetas (ADR-0178): usuario de un tenant (las tarjetas caen en su tenant). Solo Development/flag.
+    .AddPolicy(Ecorex.SuperAdmin.Maqueta.MaquetaHub.Policy, p => p.RequireClaim("tenant_id"))
     // ---- Policies por modulo ----
     // Ola 7 (endurecimiento) PASO 2 REALIZADO para la familia Tareas: estas policies ya no son
     // placeholder de tenant_id: derivan el requisito REAL del Module Registry (PermissionRequirement
@@ -252,6 +255,8 @@ builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.
 builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
 // Integracion maqueta (ADR-0176): anotaciones del admin de la maqueta -> tarjetas (usa el gestor de archivos para la captura).
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMaquetaSolicitudService, Ecorex.Application.Integraciones.Maqueta.MaquetaSolicitudService>();
+// Hub de maquetas /maqueta (ADR-0178): registro de proyectos (seccion MaquetaHub). Inactivo salvo Development/flag.
+builder.Services.AddMaquetaHub(builder.Configuration, builder.Environment.IsDevelopment());
 // Galeria de imagenes de plantillas (ADR-0177): sube al gestor unificado (por eso se registra aqui, no en Application).
 builder.Services.AddScoped<Ecorex.Application.Gestor.ITemplateGalleryService, Ecorex.Application.Gestor.TemplateGalleryService>();
 // Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.
@@ -970,6 +975,8 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+// Hub de maquetas (ADR-0178): /maqueta/{id}/... sirve la carpeta de cada maqueta detras del login. No-op si inactivo.
+app.UseMaquetaHub();
 // Enlace publico de libros de indicadores /a/{token} (ADR-0158 D7): tope por IP solo en /a
 // (el limitador global no limita nada fuera de esa ruta).
 app.UseRateLimiter();

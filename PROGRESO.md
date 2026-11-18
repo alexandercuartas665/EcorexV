@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-17 - v0.16.341: hub de maquetas /maqueta (hospeda el anotador + envio por sesion) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0178. Pedido de la sesion de la maqueta.
+- HECHO: registro `MaquetaHub` en appsettings (Enabled, AllowOutsideDevelopment, Projects[{Id,Nombre,RutaFisica}]);
+  activo SOLO en Development o con bandera (prod corre Production: el area no existe). `/maqueta/{id}/...` sirve la
+  carpeta de cada maqueta con StaticFiles + PhysicalFileProvider (sin dot-files, sin '..', solo tipos conocidos, sin
+  listado, nosniff + SAMEORIGIN) DETRAS del login (anonimo -> /login, sin tenant -> 403). Launcher Blazor `/maqueta`
+  (policy MaquetaHub.Usar): selector de proyecto + iframe del anotador + "Pantalla completa". `POST
+  /api/maqueta/solicitudes` acepta ademas la SESION cuando no llega Bearer y el hub esta activo (actor = usuario
+  logueado en su tenant; anti-CSRF: JSON + mismo origen); auditoria `integ-maqueta-hub` con canal "hub".
+  appsettings.Development.json registra `tronox` -> D:/DesarrolloIA/tronox.maqueta. El kit del anotador NO se toco.
+- VERIFICADO: build 0 errores; format limpio; MaquetaHubTests 4/4 (gating, ids/carpetas invalidas, sesion exigida,
+  no sale de la carpeta, sin listado); MaquetaSolicitudesTests 8/8 dual (nuevo: actor por sesion, aislamiento,
+  auditoria hub); Application.Tests 1514/1514; SuperAdmin.Tests 269/269. E2E local :5275 (BITCODE): /maqueta abre el
+  anotador de TRONOX con la maqueta; POST por sesion -> 201 T00044 con captura en "Maqueta TRONOX - Ajustes",
+  reenvio -> 200 misma tarjeta sin re-adjuntar; text/plain -> 403; Bearer falso -> 401; anonimo -> 302 /login.
+- PENDIENTE: la sesion de la maqueta ajusta el cliente JS del anotador para postear sin token al mismo origen
+  (hoy el kit exige baseUrl+token: con un token ecx_ tambien funciona). Deploy no aplica al hub (solo dev), pero el
+  cambio del endpoint y la version van en el proximo deploy con OK del usuario.
+
 ## 2026-11-17 - v0.16.340: item de menu "Plantillas de correo" en todos los tenants (DESPLEGADA 2026-11-17)
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). Sin ADR (backfill de menu, mismo patron que

@@ -1,0 +1,80 @@
+@page "/maqueta"
+@attribute [Authorize(Policy = Ecorex.SuperAdmin.Maqueta.MaquetaHub.Policy)]
+@* Hub de maquetas (ADR-0178): launcher minimo. Lista los proyectos del registro (appsettings MaquetaHub) y abre el
+   anotador de la maqueta elegida (/maqueta/{id}/anotador/anotador.html, mismo origen) en un iframe. El anotador
+   trae su propia UI y envia las tarjetas a POST /api/maqueta/solicitudes con la sesion. Solo Development/flag.
+   Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.SuperAdmin.Maqueta
+@inject MaquetaHubRegistry Hub
+@inject NavigationManager Nav
+
+<PageTitle>Maquetas - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span class="cur">Maquetas</span>
+</nav>
+
+@if (!Hub.IsActive)
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Maquetas</h1>
+            <p class="page-sub">El hub de maquetas no esta habilitado en este entorno (solo Development o con la bandera
+                <code>MaquetaHub:AllowOutsideDevelopment</code>).</p>
+        </div>
+    </div>
+}
+else if (Hub.Projects.Count == 0)
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Maquetas</h1>
+            <p class="page-sub">No hay proyectos validos en <code>MaquetaHub:Projects</code> (id, nombre y una carpeta que exista).</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="mh-bar">
+        <div class="mh-title">
+            <h1 class="page-title" style="margin:0;">Maquetas</h1>
+            <span class="page-sub" style="margin:0;">Anota la maqueta: las solicitudes llegan como tarjetas a tu empresa.</span>
+        </div>
+        <div class="mh-actions">
+            <label class="mh-label" for="mh-proyecto">Proyecto</label>
+            <select id="mh-proyecto" class="form-select form-select-sm mh-select" value="@_current?.Id" @onchange="OnProjectChanged">
+                @foreach (var p in Hub.Projects)
+                {
+                    <option value="@p.Id">@p.Nombre</option>
+                }
+            </select>
+            @if (_current is not null)
+            {
+                <a class="btn btn-sm btn-outline-secondary" href="@_current.AnotadorUrl" target="_blank" rel="noopener">Pantalla completa</a>
+            }
+        </div>
+    </div>
+
+    @if (_current is not null)
+    {
+        <iframe class="mh-frame" src="@_current.AnotadorUrl" title="Anotador de @_current.Nombre"></iframe>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "p")] public string? ProjectId { get; set; }
+
+    private MaquetaHubProject? _current;
+
+    protected override void OnParametersSet()
+        => _current = Hub.Find(ProjectId) ?? Hub.Projects.FirstOrDefault();
+
+    private void OnProjectChanged(ChangeEventArgs e)
+    {
+        var id = e.Value?.ToString();
+        if (Hub.Find(id) is { } p) { Nav.NavigateTo("maqueta?p=" + Uri.EscapeDataString(p.Id)); }
+    }
+}

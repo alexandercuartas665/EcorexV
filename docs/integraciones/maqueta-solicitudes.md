@@ -40,3 +40,21 @@ Debe responder `204` con `Access-Control-Allow-Origin: http://localhost:8096`.
 | `ECOREX_PUBLIC_BASE_URL` | (la del request) | Base del enlace `url` de la respuesta |
 
 No hay clave secreta en configuracion: la autenticacion es el token personal (hash SHA-256 en BD).
+
+## 4. Hub de maquetas en ECOREX (ADR-0178, solo Development)
+
+Con `MaquetaHub` activo (por defecto en `appsettings.Development.json`, proyecto `tronox`):
+
+1. Entrar a ECOREX local y abrir `/maqueta`: elegir el proyecto; el anotador se abre en
+   `/maqueta/<id>/anotador/anotador.html` (mismo origen que ECOREX, detras del login).
+2. Envio de tarjetas: si el anotador postea a `/api/maqueta/solicitudes` SIN `Authorization`, se usa la sesion de
+   ECOREX (el tenant y el solicitante salen del usuario logueado; auditoria `integ-maqueta-hub`). Requiere
+   `Content-Type: application/json` y mismo origen. Con un token `ecx_` en el boton ECOREX tambien funciona.
+3. Agregar otra maqueta: una entrada en `MaquetaHub:Projects` (`Id` en minusculas, `Nombre`, `RutaFisica` absoluta)
+   y reiniciar.
+
+| Clave | Por defecto | Uso |
+|---|---|---|
+| `MaquetaHub:Enabled` | `false` (`true` en Development) | Activa el area /maqueta |
+| `MaquetaHub:AllowOutsideDevelopment` | `false` | Permite activarla fuera de Development |
+| `MaquetaHub:Projects` | `[]` | `{ Id, Nombre, RutaFisica }` por maqueta |

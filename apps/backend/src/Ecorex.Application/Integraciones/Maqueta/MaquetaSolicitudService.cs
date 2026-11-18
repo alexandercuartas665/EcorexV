@@ -75,6 +75,13 @@ public sealed record MaquetaSolicitudResult(Guid TaskId, string Number, Guid? Bo
 public interface IMaquetaSolicitudService
 {
     Task<TaskCoreResult<MaquetaSolicitudResult>> RecibirAsync(MaquetaSolicitudRequest request, McpActor actor, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hub de maquetas (ADR-0178): actor a partir de la SESION de ECOREX (sin token). Corre ya dentro del tenant de la
+    /// sesion (filtro global); devuelve null si el usuario no pertenece al tenant, esta inactivo o el tenant no esta
+    /// operativo. El actor sale con <see cref="McpActor.TokenId"/> = Guid.Empty (canal "hub" en la auditoria).
+    /// </summary>
+    Task<McpActor?> ResolveSessionActorAsync(Guid platformUserId, CancellationToken cancellationToken = default);
 }
 
 public sealed class MaquetaSolicitudService : IMaquetaSolicitudService
@@ -89,6 +96,9 @@ public sealed class MaquetaSolicitudService : IMaquetaSolicitudService
     public const int MaxCaptureBytes = 8 * 1024 * 1024;
 
     private const string AuditReason = "integ-maqueta";
+
+    /// <summary>Motivo de auditoria cuando la tarjeta llega por la SESION del hub /maqueta (ADR-0178).</summary>
+    private const string AuditReasonHub = "integ-maqueta-hub";
 
     private static readonly JsonSerializerOptions MetaJson = new(JsonSerializerDefaults.Web)
     {
@@ -113,6 +123,36 @@ public sealed class MaquetaSolicitudService : IMaquetaSolicitudService
         _audit = audit;
     }
 
+    public async Task<McpActor?> ResolveSessionActorAsync(Guid platformUserId, CancellationToken cancellationToken = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId || platformUserId == Guid.Empty) { return null; }
+
+        // Filtro global por tenant: solo encuentra al usuario si pertenece al tenant de la sesion.
+        var user = await _db.TenantUsers.AsNoTracking()
+            .Where(u => u.PlatformUserId == platformUserId)
+            .Select(u => new
+            {
+                u.Id,
+                u.TenantId,
+                u.TenantRole,
+                u.Status,
+                u.Email,
+                Display = u.PlatformUser != null ? u.PlatformUser.DisplayName : null
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (user is null || user.TenantId != tenantId || user.Status != PlatformUserStatus.Active) { return null; }
+
+        var tenantActive = await _db.Tenants.IgnoreQueryFilters().AsNoTracking()
+            .AnyAsync(t => t.Id == tenantId
+                && t.Status != TenantStatus.Suspended && t.Status != TenantStatus.Blocked
+                && t.Status != TenantStatus.Closing && t.Status != TenantStatus.Archived, cancellationToken);
+        if (!tenantActive) { return null; }
+
+        var display = string.IsNullOrWhiteSpace(user.Display) ? user.Email : user.Display!;
+        return new McpActor(tenantId, user.Id, platformUserId, display,
+            user.TenantRole is TenantRole.Owner or TenantRole.Admin, Guid.Empty);
+    }
+
     public async Task<TaskCoreResult<MaquetaSolicitudResult>> RecibirAsync(MaquetaSolicitudRequest request, McpActor actor, CancellationToken cancellationToken = default)
     {
         if (_tenant.TenantId is not Guid tenantId || tenantId != actor.TenantId)
@@ -130,6 +170,9 @@ public sealed class MaquetaSolicitudService : IMaquetaSolicitudService
         var priority = ParsePriority(request.Prioridad);
         var author = Clean(request.Autor, 150);
         var actorName = $"{actor.DisplayName} (via maqueta)";
+        var viaHub = actor.TokenId == Guid.Empty;
+        var auditReason = viaHub ? AuditReasonHub : AuditReason;
+        var canal = viaHub ? "hub" : "token";
 
         // Captura: se valida ANTES de tocar la BD (un base64 roto no debe dejar una tarjeta a medias).
         byte[]? capture = null;
@@ -217,7 +260,7 @@ public sealed class MaquetaSolicitudService : IMaquetaSolicitudService
             };
             _db.ExternalTaskLinks.Add(link);
             _audit.Write(actor.PlatformUserId, "maqueta.solicitud.create", nameof(TaskItem), taskId,
-                previousValue: null, newValue: new { number, source, key, board = boardName }, tenantId: tenantId, reason: AuditReason);
+                previousValue: null, newValue: new { number, source, key, board = boardName, canal }, tenantId: tenantId, reason: auditReason);
             try
             {
                 await _db.SaveChangesAsync(cancellationToken);
@@ -268,7 +311,7 @@ public sealed class MaquetaSolicitudService : IMaquetaSolicitudService
             link.MetadataJson = metadata;
             link.ReceivedCount++;
             _audit.Write(actor.PlatformUserId, "maqueta.solicitud.update", nameof(TaskItem), taskId,
-                previousValue: null, newValue: new { number, source, key, link.ReceivedCount }, tenantId: tenantId, reason: AuditReason);
+                previousValue: null, newValue: new { number, source, key, link.ReceivedCount, canal }, tenantId: tenantId, reason: auditReason);
             await _db.SaveChangesAsync(cancellationToken);
         }
 

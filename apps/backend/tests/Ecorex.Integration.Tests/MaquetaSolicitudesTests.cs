@@ -128,6 +128,41 @@ public abstract class MaquetaSolicitudesTestsBase
         Assert.Null(await tokens.ResolveAsync(mcp.PlainToken, TenantApiToken.ScopeMaqueta));
     }
 
+    [Fact]
+    public async Task SesionDelHub_ResuelveActorDelTenant_YAuditaCanalHub()
+    {
+        var seed = await SeedTenantAsync("Maqueta Sesion", withActivityType: true);
+        var otro = await SeedTenantAsync("Maqueta Otro", withActivityType: true);
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var svc = Build(ctx, seed, new FakeFileStorage());
+
+        // Usuario de la sesion del tenant: actor sin token (canal hub).
+        var actor = await svc.ResolveSessionActorAsync(seed.OwnerPlatformId);
+        Assert.NotNull(actor);
+        Assert.Equal(seed.TenantId, actor!.TenantId);
+        Assert.Equal(seed.OwnerUserId, actor.TenantUserId);
+        Assert.Equal(Guid.Empty, actor.TokenId);
+        Assert.True(actor.IsOwnerOrAdmin);
+
+        // Un usuario de OTRA empresa no se resuelve dentro de este tenant (filtro global); tampoco el vacio.
+        Assert.Null(await svc.ResolveSessionActorAsync(otro.OwnerPlatformId));
+        Assert.Null(await svc.ResolveSessionActorAsync(Guid.Empty));
+
+        // La tarjeta que llega por la sesion queda auditada con el motivo del hub.
+        var res = await svc.RecibirAsync(Request("an-hub-1", "Desde el hub", "Media", null), actor);
+        Assert.True(res.IsOk, res.Error);
+        var audit = await ctx.SuperAdminAuditLogs.IgnoreQueryFilters().AsNoTracking()
+            .Where(a => a.EntityId == res.Value!.TaskId && a.ActionName == "maqueta.solicitud.create")
+            .SingleAsync();
+        Assert.Equal("integ-maqueta-hub", audit.Reason);
+
+        // Usuario inactivo: sin actor.
+        var member = await ctx.TenantUsers.SingleAsync(u => u.Id == seed.OwnerUserId);
+        member.Status = PlatformUserStatus.Blocked;
+        await ctx.SaveChangesAsync();
+        Assert.Null(await svc.ResolveSessionActorAsync(seed.OwnerPlatformId));
+    }
+
     // ---- Helpers ----
 
     private MaquetaSolicitudService Build(EcorexDbContext ctx, SeedData seed, IFileStorageService files)

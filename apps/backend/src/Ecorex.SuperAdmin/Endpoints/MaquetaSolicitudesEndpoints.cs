@@ -5,6 +5,7 @@ using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.SuperAdmin.Auth;
+using Ecorex.SuperAdmin.Maqueta;
 
 namespace Ecorex.SuperAdmin.Endpoints;
 
@@ -19,6 +20,9 @@ namespace Ecorex.SuperAdmin.Endpoints;
 ///   MaquetaIntegration:AllowedOrigins (coma); por defecto localhost/127.0.0.1:8096. Preflight OPTIONS -> 204.
 /// - AISLAMIENTO: la resolucion por hash es la unica lectura cross-tenant; luego AmbientTenantContext.Begin + scope
 ///   DI propio y el filtro global aisla todo lo demas.
+/// - SESION (ADR-0178): solo con el hub /maqueta activo (Development/flag), si NO llega Bearer se acepta la cookie de
+///   sesion de ECOREX del usuario logueado (el anotador corre bajo el mismo origen). Anti-CSRF: Content-Type JSON y,
+///   si el navegador manda Origin / Sec-Fetch-Site, deben ser del mismo origen. Un Bearer invalido NO cae a sesion.
 /// - Respuesta: 201 {id, url, estado:"creada"} o 200 {..., estado:"actualizada"} (reenvio del mismo idLocal);
 ///   error 4xx/5xx {error}.
 /// </summary>
@@ -68,16 +72,36 @@ public static class MaquetaSolicitudesEndpoints
     {
         ApplyCors(http, allowed);
 
-        // 1) Auth por token personal (antes de leer el cuerpo).
+        // 1) Auth por token personal (antes de leer el cuerpo) o, sin Bearer, por la sesion del hub /maqueta.
         var bearer = ExtractBearer(http.Request);
-        if (bearer is null) { return Unauthorized(http, "falta Authorization: Bearer <token>"); }
         McpActor? actor;
-        await using (var authScope = scopes.CreateAsyncScope())
+        if (bearer is not null)
         {
+            await using var authScope = scopes.CreateAsyncScope();
             var tokens = authScope.ServiceProvider.GetRequiredService<IPersonalAccessTokenService>();
             actor = await tokens.ResolveAsync(bearer, TenantApiToken.ScopeMaqueta, ct);
+            if (actor is null) { return Unauthorized(http, "token invalido, revocado, de otra integracion o de usuario inactivo"); }
         }
-        if (actor is null) { return Unauthorized(http, "token invalido, revocado, de otra integracion o de usuario inactivo"); }
+        else
+        {
+            var hub = http.RequestServices.GetService<MaquetaHubRegistry>();
+            if (hub is not { IsActive: true } || http.User.Identity?.IsAuthenticated != true)
+            {
+                return Unauthorized(http, "falta Authorization: Bearer <token>");
+            }
+            if (!IsSameOriginJson(http)) { return Error("La sesion solo se acepta desde el mismo origen y con JSON.", StatusCodes.Status403Forbidden); }
+            if (!Guid.TryParse(http.User.FindFirst("tenant_id")?.Value, out var sessionTenant)
+                || !Guid.TryParse(http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var sessionUser))
+            {
+                return Error("La sesion no pertenece a un usuario de empresa.", StatusCodes.Status403Forbidden);
+            }
+            using (AmbientTenantContext.Begin(sessionTenant, sessionUser))
+            {
+                await using var authScope = scopes.CreateAsyncScope();
+                actor = await authScope.ServiceProvider.GetRequiredService<IMaquetaSolicitudService>().ResolveSessionActorAsync(sessionUser, ct);
+            }
+            if (actor is null) { return Unauthorized(http, "la sesion no tiene un usuario activo en la empresa"); }
+        }
 
         // 2) Cuerpo JSON.
         if (http.Request.ContentLength is > MaxBodyBytes) { return Error("La solicitud es demasiado grande.", StatusCodes.Status413PayloadTooLarge); }
@@ -122,6 +146,22 @@ public static class MaquetaSolicitudesEndpoints
         }
         var payload = new { id = r.Number, url, estado = r.Created ? "creada" : "actualizada", captura = r.CaptureAttached };
         return Results.Json(payload, Json, statusCode: r.Created ? StatusCodes.Status201Created : StatusCodes.Status200OK);
+    }
+
+    /// <summary>
+    /// Anti-CSRF del canal por sesion: JSON obligatorio (un formulario de otro sitio no puede mandarlo sin preflight) y,
+    /// si vienen, Origin = origen propio y Sec-Fetch-Site = same-origin.
+    /// </summary>
+    private static bool IsSameOriginJson(HttpContext http)
+    {
+        var contentType = http.Request.ContentType ?? string.Empty;
+        if (!contentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { return false; }
+        var fetchSite = http.Request.Headers["Sec-Fetch-Site"].ToString();
+        if (fetchSite.Length > 0 && !string.Equals(fetchSite, "same-origin", StringComparison.OrdinalIgnoreCase)) { return false; }
+        var origin = http.Request.Headers.Origin.ToString();
+        if (origin.Length == 0) { return true; }
+        var self = $"{http.Request.Scheme}://{http.Request.Host}";
+        return string.Equals(origin.TrimEnd('/'), self, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Pone las cabeceras CORS si el Origin esta permitido. Sin Origin (curl) no aplica y se deja pasar.</summary>

@@ -1,0 +1,42 @@
+/* Hub de maquetas (ADR-0178): barra minima + iframe a todo el alto disponible. */
+.mh-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.mh-title {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.mh-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mh-label {
+    font-size: 12px;
+    color: var(--bs-secondary-color, #6b7280);
+    margin: 0;
+}
+
+.mh-select {
+    min-width: 220px;
+}
+
+.mh-frame {
+    display: block;
+    width: 100%;
+    height: calc(100vh - 170px);
+    min-height: 480px;
+    border: 1px solid var(--bs-border-color, #e5e7eb);
+    border-radius: 8px;
+    background: #fff;
+}

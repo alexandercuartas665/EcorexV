@@ -2,6 +2,32 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.346: cerebro digital de la maqueta (ola 3, ADR-0183) - SIN DEPLOY, rama feat/maquetas-cerebro
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, worktree .claude/worktrees/maquetas-cerebro, puerto 5285).
+- RESPUESTAS DEL USUARIO (hand-off seccion 3): los $100 = plan Claude Max (no hay llave API: la IA usa el MCP);
+  un cerebro POR PROYECTO; importar el vault de Obsidian desde el inicio; todos escriben, archiva autor u Owner/Admin.
+- HECHO: MockupNote (ISoftDeletable + IVersioned, indice unico filtrado por titulo entre activas) + MockupNoteLink
+  (tabla derivada); migracion dual aditiva AddMockupBrain (PG 20261118135022, SQL Server 20261118135307).
+  MockupBrainLinks (parser puro [[nota]], [[nota|alias]], [[nota#seccion]], [[pantalla.html]], [[T00046]], #etiqueta;
+  ignora codigo y adjuntos; prohibe [ ] | # ^ / \ en titulos). IMockupBrainService: listar/buscar, ver con
+  backlinks, guardar con version (409), renombrar reescribe enlaces, archivar (soft-delete), grafo, importar vault
+  ZIP (todo o nada) y FindTaskIdAsync. UI: pestanas Maqueta | Cerebro en el editor (?tab=cerebro&nota=), lista +
+  editor markdown con autocompletado [[ y Ctrl+S + vista previa SANITIZADA (MockupMarkdown propio, sin Markdig) +
+  panel de backlinks/enlaces/grafo local + grafo completo ECharts force en modal + importar Obsidian + "Nota de esta
+  pantalla". JS wwwroot/js/maqueta-cerebro.js. MCP: listar_notas, buscar_notas, ver_nota, grafo_cerebro, crear_nota,
+  editar_nota (+ instrucciones del servidor). ADR-0183, docs/integraciones/maqueta-solicitudes.md seccion 8.
+- PRUEBAS: unitarias MockupBrainLinksTests 12/12 y MockupMarkdownTests 4/4 (incluye XSS); dual (PG + SQL Server)
+  MockupBrainTests + McpMaquetas_* 22/22; dotnet format whitespace/style verde. E2E en 5285 (proyecto tronox-sgdea,
+  BD local): crear nota con autocompletado de pantalla, enlace pendiente -> clic la crea, backlinks, grafo local y
+  completo, clic en pantalla vuelve a Maqueta en esa pantalla, [[T00046]] abre la tarjeta, renombrar reescribe el
+  enlace, importar ZIP de vault (2 notas, .obsidian ignorado), "Nota de esta pantalla". Quedaron 4 notas de prueba en
+  el cerebro de tronox-sgdea de la BD LOCAL (Prueba E2E cerebro, Flujo de radicacion PQRS, Inicio vault, Ideas de
+  navegacion).
+- SIGUIENTE: dev principal integra la rama (renumera version/ADR si choca) y despliega con OK del usuario. Ola 3b:
+  adjuntos (imagenes) del vault. Ola 4 (plan Max): documentar en Conectar IA como chatear con la maqueta y el
+  cerebro desde Claude Desktop/Code via el MCP (con OK del usuario).
+
 ## 2026-11-18 - Hand-off: cerebro digital + chat con la maqueta (ola 3/4) a una sesion nueva
 
 - AGENTE: Claude Opus 5.5 (dev principal). Sin codigo. El usuario pidio un "cerebro digital" tipo Obsidian por

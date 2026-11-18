@@ -209,6 +209,59 @@
     min-height: 0;
 }
 
+/* Pestanas Maqueta | Cerebro (ADR-0183): se ocultan con CSS, sin destruir el iframe ni el borrador de la nota. */
+.me-main.off {
+    display: none;
+}
+
+.me-brain {
+    display: none;
+    flex: 1;
+    min-height: 0;
+}
+
+.me-brain.on {
+    display: flex;
+}
+
+.me-tabs {
+    display: inline-flex;
+    padding: 2px;
+    border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 10px;
+    background: var(--surface, #fff);
+    margin-right: 4px;
+}
+
+.me-tabs button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink-2, #5c5c66);
+    font-size: 13px;
+    font-weight: 550;
+    cursor: pointer;
+}
+
+.me-tabs button:hover:not(:disabled) {
+    color: var(--ink, #1b1b1e);
+}
+
+.me-tabs button.on {
+    background: var(--t-violet-bg, #eee8fd);
+    color: var(--t-violet, #7c3aed);
+}
+
+.me-tabs button:disabled {
+    opacity: .45;
+    cursor: default;
+}
+
 .me-side {
     width: 360px;
     flex: 0 0 360px;

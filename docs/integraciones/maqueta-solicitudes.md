@@ -108,3 +108,27 @@ claude mcp add --transport http ecorex-maquetas https://app2.bitcode.com.co/api/
    `mover_solicitud`, `resolver_solicitud`.
 4. Solo opera tarjetas nacidas de una maqueta (origen `maqueta-*`). Publicar exige Owner/Admin. Las escrituras quedan
    en la bitacora de la tarjeta ("via IA") y en la auditoria (`mcp.maquetas.*`).
+
+## 8. Cerebro digital del proyecto (ADR-0183, v0.16.346)
+
+Segunda pestana del editor: `/maqueta/{slug}` -> **Cerebro** (o directo `/maqueta/{slug}?tab=cerebro&nota=Titulo`).
+Notas markdown enlazadas al estilo Obsidian, una coleccion por proyecto. Cualquier usuario del tenant escribe;
+archiva el autor de la nota o un Owner/Admin (soft-delete).
+
+1. **Enlaces**: `[[Titulo de nota]]` (o `[[Titulo|texto]]`, `[[Titulo#Seccion]]`), `[[pantalla.html]]` (pantalla de
+   la maqueta), `[[T00046]]` (solicitud) y `#etiqueta`. Al escribir `[[` el editor sugiere notas, pantallas y
+   solicitudes. Un enlace a una nota que no existe queda **pendiente** (gris punteado) y un clic la crea.
+2. **Panel derecho**: "Enlazan aqui" (backlinks), enlaces salientes, etiquetas y el grafo local de la nota.
+3. **Grafo completo**: boton Grafo. Colores por tipo (nota violeta, pantalla azul, tarjeta ambar, etiqueta verde,
+   pendiente gris), tamano por conexiones, filtros por tipo. Clic: nota -> la abre; pantalla -> vuelve a la pestana
+   Maqueta en esa pantalla; tarjeta -> abre la tarjeta.
+4. **Nota de esta pantalla**: boton de nota en la barra de la pestana Maqueta: abre (o prepara) la nota
+   "Pantalla - {titulo}" con el enlace a la pantalla abierta.
+5. **Renombrar** una nota actualiza los `[[enlaces]]` de las demas. Si otra persona la cambio mientras la editabas,
+   al guardar avisa (concurrencia optimista) y ofrece recargarla. `Ctrl+S` guarda.
+6. **Importar Obsidian**: icono de importar en la lista. ZIP de la carpeta del vault (max 30 MB, 3.000 notas): cada
+   `.md` es una nota con el nombre del archivo como titulo. Se ignoran `.obsidian/` y adjuntos (imagenes, PDF). Las
+   notas con titulo existente se omiten salvo marcar "sobrescribir". Todo o nada (una transaccion).
+7. **Con Claude (plan Max)**: el mismo MCP de maquetas (seccion 7) trae `listar_notas`, `buscar_notas`, `ver_nota`,
+   `grafo_cerebro`, `crear_nota` y `editar_nota`. Ejemplo: "lee el cerebro de tronox-sgdea, dime que decisiones
+   estan sueltas y guarda un resumen en la nota 'Estado del proyecto'". Las escrituras quedan "(via IA)".

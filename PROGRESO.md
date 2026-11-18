@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - Hand-off: cerebro digital + chat con la maqueta (ola 3/4) a una sesion nueva
+
+- AGENTE: Claude Opus 5.5 (dev principal). Sin codigo. El usuario pidio un "cerebro digital" tipo Obsidian por
+  proyecto (notas con [[enlaces]] + grafo) como segunda pestana del editor y un chat con la maqueta. Se entrega en
+  docs/HANDOFF-maquetas-cerebro-y-chat.md a una sesion nueva: worktree .claude/worktrees/maquetas-cerebro, rama
+  feat/maquetas-cerebro, puerto 5285. Preguntas abiertas: $100 = plan Claude Max o creditos API; cerebro por
+  proyecto o por empresa; importar vault de Obsidian.
+
 ## 2026-11-18 - v0.16.345: MCP de maquetas para el PC local (ola 2) - SIN DEPLOY
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0182 (ADR-0181 queda para feat/agentes-sistema).

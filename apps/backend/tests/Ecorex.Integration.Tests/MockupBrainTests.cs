@@ -181,6 +181,20 @@ public abstract class MockupBrainTestsBase
         Assert.Equal(TaskCoreStatus.Invalid, (await brain.UploadAssetAsync(slug, "logo.svg", Encoding.ASCII.GetBytes("<svg/>"), ana)).Status);
         Assert.Equal(TaskCoreStatus.NotFound, (await brain.UploadAssetAsync("no-existe", "a.png", png, ana)).Status);
         Assert.Equal(2, (await brain.ListAssetsAsync(slug)).Count);
+
+        // Uso por notas y borrado (definitivo): solo Owner/Admin, solo adjuntos de ESTE proyecto.
+        Assert.True((await brain.SaveNoteAsync(slug, null, "Boceto", "![[captura.png|200]] y ![x](img/captura.png)", null, ana)).IsOk);
+        var listed = await brain.ListAssetsAsync(slug, withUsage: true);
+        Assert.Equal(new[] { "Boceto" }, listed.Single(a => a.Name == "captura.png").UsedIn);
+        Assert.Empty(listed.Single(a => a.Name == "Captura (2).PNG").UsedIn!);
+        Assert.Null((await brain.ListAssetsAsync(slug)).First().UsedIn);
+
+        var owner = Actor(tenantId, "Owner", admin: true);
+        Assert.Equal(TaskCoreStatus.Forbidden, (await brain.DeleteAssetAsync(slug, first.Value.Id, ana)).Status);
+        Assert.Equal(TaskCoreStatus.NotFound, (await brain.DeleteAssetAsync(slug, Guid.NewGuid(), owner)).Status);
+        Assert.True((await brain.DeleteAssetAsync(slug, first.Value.Id, owner)).IsOk);
+        Assert.Equal(new[] { "Captura (2).PNG" }, (await brain.ListAssetsAsync(slug)).Select(a => a.Name));
+        Assert.Equal(TaskCoreStatus.NotFound, (await brain.DeleteAssetAsync(slug, first.Value.Id, owner)).Status);
     }
 
     [Fact]

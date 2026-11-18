@@ -38,7 +38,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal)
     {
         "listar_proyectos", "listar_solicitudes", "ver_solicitud", "listar_versiones", "como_publicar_version",
-        "listar_notas", "buscar_notas", "ver_nota", "grafo_cerebro"
+        "listar_notas", "buscar_notas", "ver_nota", "grafo_cerebro", "listar_adjuntos", "ver_adjunto"
     };
 
     private static readonly HashSet<string> Destructive = new(StringComparer.Ordinal);
@@ -106,6 +106,14 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             "Resumen del grafo del cerebro digital: nodos (notas, pantallas, tarjetas, etiquetas y notas pendientes por " +
             "crear) con su grado de conexion, y las aristas. Sirve para ver de que trata el proyecto y que esta suelto.",
             """{"type":"object","properties":{"proyecto":{"type":"string"}},"additionalProperties":false}"""),
+        new("listar_adjuntos",
+            "Lista los adjuntos del cerebro digital (imagenes y PDF: diagramas, bocetos, capturas, documentos): nombre, " +
+            "tipo, tamano y en que notas se embeben (![[nombre]]). Usa ver_adjunto para mirar una imagen.",
+            """{"type":"object","properties":{"proyecto":{"type":"string"}},"additionalProperties":false}"""),
+        new("ver_adjunto",
+            "Devuelve un adjunto del cerebro como IMAGEN para que la mires (diagramas, bocetos, capturas). Los PDF no se " +
+            "devuelven: solo su informacion. Pasa el nombre exacto de listar_adjuntos o el que aparece en ![[...]].",
+            """{"type":"object","properties":{"proyecto":{"type":"string"},"nombre":{"type":"string","description":"Nombre del adjunto, ej. boceto.png"}},"required":["nombre"],"additionalProperties":false}"""),
     };
 
     private readonly IApplicationDbContext _db;
@@ -162,6 +170,8 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             "crear_nota" => await CreateNoteAsync(args, actor, cancellationToken),
             "editar_nota" => await EditNoteAsync(args, actor, cancellationToken),
             "grafo_cerebro" => await GraphAsync(args, cancellationToken),
+            "listar_adjuntos" => await ListAssetsAsync(args, cancellationToken),
+            "ver_adjunto" => await ViewAssetAsync(args, actor, cancellationToken),
             _ => Err($"Herramienta desconocida: {toolName}")
         };
     }
@@ -407,9 +417,69 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var note = await _brain.GetNoteAsync(slug!, null, titulo, ct);
-        return note is null
-            ? Err($"No existe la nota '{titulo}' en el cerebro de '{slug}'. Usa listar_notas o buscar_notas.")
-            : Ok(NotePayload(slug!, note));
+        if (note is null) { return Err($"No existe la nota '{titulo}' en el cerebro de '{slug}'. Usa listar_notas o buscar_notas."); }
+        var embeds = MockupBrainAssets.Embeds(note.Body);
+        var assets = embeds.Count == 0
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : (await _brain.ListAssetsAsync(slug!, false, ct)).Select(a => MockupBrainAssets.Key(a.Name)).ToHashSet(StringComparer.Ordinal);
+        return Ok(NotePayload(slug!, note, embeds.Select(k => (object)new { nombre = k, existe = assets.Contains(k) }).ToList()));
+    }
+
+    // ------------------------------------------------------------------ adjuntos del cerebro (ADR-0183, ola 3b)
+
+    private async Task<McpToolResult> ListAssetsAsync(JsonElement args, CancellationToken ct)
+    {
+        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        if (error is not null) { return Err(error); }
+        var assets = await _brain.ListAssetsAsync(slug!, true, ct);
+        return Ok(new
+        {
+            ok = true,
+            proyecto = slug,
+            total = assets.Count,
+            adjuntos = assets.Take(MaxList).Select(a => new
+            {
+                nombre = a.Name,
+                tipo = a.IsImage ? "imagen" : "pdf",
+                kb = Math.Max(1, a.SizeBytes / 1024),
+                en_notas = a.UsedIn
+            }),
+            nota = assets.Count == 0 ? "El cerebro no tiene adjuntos (se suben desde la pestana Cerebro o importando un vault)." : null
+        });
+    }
+
+    private async Task<McpToolResult> ViewAssetAsync(JsonElement args, McpActor actor, CancellationToken ct)
+    {
+        var nombre = Str(args, "nombre");
+        if (nombre is null) { return Err("'nombre' es obligatorio."); }
+        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        if (error is not null) { return Err(error); }
+        var key = MockupBrainAssets.Key(nombre);
+        var asset = (await _brain.ListAssetsAsync(slug!, true, ct)).FirstOrDefault(a => MockupBrainAssets.Key(a.Name) == key);
+        if (asset is null) { return Err($"No existe el adjunto '{nombre}' en el cerebro de '{slug}'. Usa listar_adjuntos."); }
+
+        // Los clientes MCP aceptan PNG/JPEG/GIF/WEBP como bloque de imagen; BMP y PDF solo se describen.
+        var returnable = asset.IsImage && asset.ContentType != "image/bmp" && asset.SizeBytes <= MaxCaptureBytes;
+        var info = new
+        {
+            ok = true,
+            proyecto = slug,
+            nombre = asset.Name,
+            tipo = asset.IsImage ? "imagen" : "pdf",
+            kb = Math.Max(1, asset.SizeBytes / 1024),
+            en_notas = asset.UsedIn,
+            imagen = returnable ? "adjunta"
+                : !asset.IsImage ? "los PDF no se devuelven por este servidor; abrelo en el cerebro"
+                : asset.ContentType == "image/bmp" ? "no se devuelve: formato BMP no soportado por los clientes MCP"
+                : $"no se devuelve: pesa mas de {MaxCaptureBytes / (1024 * 1024)} MB"
+        };
+        if (!returnable) { return Ok(info); }
+        var content = await _files.ReadForTenantAsync(asset.Id, actor.TenantId, ct);
+        if (content is null || content.Content.Length == 0) { return Err($"No se pudo leer el adjunto '{asset.Name}'."); }
+        return new McpToolResult(JsonSerializer.Serialize(info, JsonOut), false)
+        {
+            Media = new McpMedia(Convert.ToBase64String(content.Content), asset.ContentType, asset.Name)
+        };
     }
 
     private async Task<McpToolResult> CreateNoteAsync(JsonElement args, McpActor actor, CancellationToken ct)
@@ -468,7 +538,8 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         });
     }
 
-    private object NotePayload(string slug, MockupNoteDto note) => new
+    /// <param name="adjuntos">Adjuntos que embebe la nota (solo en ver_nota); null = se omite.</param>
+    private object NotePayload(string slug, MockupNoteDto note, IReadOnlyList<object>? adjuntos = null) => new
     {
         ok = true,
         proyecto = slug,
@@ -485,6 +556,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             existe = l.Exists
         }),
         la_enlazan = note.Backlinks.Select(b => new { titulo = b.Title, resumen = b.Snippet }),
+        adjuntos,
         abrir = Url($"/maqueta/{slug}?tab=cerebro&nota={Uri.EscapeDataString(note.Title)}")
     };
 

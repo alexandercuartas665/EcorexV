@@ -2,7 +2,9 @@ namespace Ecorex.Application.Integraciones.Maqueta;
 
 /// <summary>Adjunto (imagen o PDF) del cerebro digital de un proyecto de maqueta.</summary>
 /// <param name="Url">URL del gestor de archivos (/archivo/{id}); exige sesion del tenant.</param>
-public sealed record MockupBrainAssetDto(Guid Id, string Name, string ContentType, long SizeBytes, string Url)
+/// <param name="UsedIn">Titulos de las notas que lo embeben (solo si se pidio el uso; si no, vacio).</param>
+public sealed record MockupBrainAssetDto(Guid Id, string Name, string ContentType, long SizeBytes, string Url,
+    IReadOnlyList<string>? UsedIn = null)
 {
     public bool IsImage => ContentType.StartsWith("image/", StringComparison.Ordinal);
 }
@@ -81,6 +83,40 @@ public static class MockupBrainAssets
             if (!taken.Contains(candidate)) { return candidate; }
         }
     }
+
+    /// <summary>
+    /// Llaves (ver <see cref="Key"/>) de los adjuntos que embebe una nota: <c>![[foto.png]]</c>, <c>![[foto.png|300]]</c>
+    /// y <c>![alt](ruta/foto.png)</c>. Ignora el codigo y las imagenes externas (http/https).
+    /// </summary>
+    public static IReadOnlyList<string> Embeds(string? body)
+    {
+        var text = MockupBrainLinks.StripCode(body ?? string.Empty);
+        var keys = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in MockupBrainLinks.WikiLink().Matches(text))
+        {
+            if (m.Groups[1].Value != "!") { continue; }
+            var inner = m.Groups[2].Value;
+            var pipe = inner.IndexOf('|');
+            Add(pipe >= 0 ? inner[..pipe] : inner);
+        }
+        foreach (System.Text.RegularExpressions.Match m in MdImagePattern.Matches(text))
+        {
+            var target = m.Groups[1].Value;
+            if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || target.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) { continue; }
+            Add(target);
+        }
+        return keys;
+
+        void Add(string reference)
+        {
+            if (ContentTypeFor(Key(reference)) is null) { return; }
+            var key = Key(reference);
+            if (!keys.Contains(key)) { keys.Add(key); }
+        }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex MdImagePattern =
+        new(@"!\[[^\[\]\n]*\]\(<?([^\s()<>]+)>?\)", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>Llave con la que se busca un adjunto desde un enlace: el nombre del archivo, sin carpeta, sin mayusculas
     /// y con los %20 decodificados (Obsidian usa el nombre; el markdown estandar puede traer ruta y espacios codificados).</summary>

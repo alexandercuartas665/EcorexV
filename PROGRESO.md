@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.350: cerebro digital, borrar adjuntos y adjuntos por MCP (ADR-0183 punto 9) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). OK del usuario: "Si,
+  hazlo" (borrar adjuntos y exponerlos por el MCP). Rama al dia con el tronco (v0.16.349) por merge.
+- HECHO: MockupBrainAssets.Embeds (llaves de ![[...]] y ![alt](ruta), sin codigo ni externos).
+  IMockupBrainService.ListAssetsAsync(withUsage) con las notas que embeben cada adjunto y DeleteAssetAsync (solo
+  Owner/Admin, solo del modulo/Ref1 del proyecto, definitivo, auditoria maqueta.nota.adjunto-borrar). UI: panel
+  Adjuntos (clip) con miniatura, tamano, uso, Subir, Insertar en la nota abierta y Borrar con aviso de notas
+  afectadas. MCP: listar_adjuntos y ver_adjunto (imagen como bloque image; BMP/PDF solo descripcion), ver_nota con
+  adjuntos. Doble de archivos de MaquetaSolicitudesTests ahora lista/borra de verdad.
+- PRUEBAS: unitarias Application 21/21 (Embeds) y SuperAdmin 8/8; dual MockupBrain* + McpMaquetas_* 24/24 (PG +
+  SQL Server: borrar solo Owner/Admin y del proyecto, uso por notas, listar_adjuntos/ver_adjunto con la imagen). E2E 5285: panel con uso
+  ("en 1 nota" / "sin usar"), borrar el huerfano violeta.png de la prueba anterior (ok), aviso al borrar uno en
+  uso nombrando la nota (cancelado, no borra), Insertar pone ![[...]] en su propia linea (descartado sin guardar).
+
 ## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - SIN DEPLOY
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). Rama adelantada por

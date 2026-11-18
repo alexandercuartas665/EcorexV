@@ -25,6 +25,7 @@
             <div class="mb-list-actions">
                 <button class="mb-btn primary" @onclick="NewNoteAsync"><i class="fa-solid fa-plus"></i> Nota</button>
                 <button class="mb-btn" title="Grafo completo del proyecto" @onclick="OpenGraphAsync"><i class="fa-solid fa-diagram-project"></i> Grafo</button>
+                <button class="mb-icon" title="Adjuntos del cerebro (imagenes y PDF)" @onclick="OpenAssetsPanelAsync"><i class="fa-solid fa-paperclip"></i></button>
                 <button class="mb-icon" title="Importar un vault de Obsidian (.zip con notas .md)" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i></button>
             </div>
             <button class="mb-claude" title="Piensa con Claude sobre esta maqueta y su cerebro (tu plan de Claude)" @onclick="() => _showClaude = true">
@@ -224,6 +225,70 @@
     </div>
 }
 
+@if (_showAssets)
+{
+    @* Ola 3b: adjuntos del cerebro. Borrar es definitivo (gestor de archivos sin papelera): solo Owner/Admin. *@
+    <div class="mb-overlay" @onclick="() => _showAssets = false">
+        <div class="mb-modal assets" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-solid fa-paperclip"></i> Adjuntos de @ProjectName</h3>
+                <span class="mb-count">@_panelAssets.Count adjuntos</span>
+                <label class="mb-btn mb-attach @(_uploading ? "busy" : null)" title="Imagen PNG/JPG/GIF/WEBP/BMP o PDF, max 10 MB">
+                    <i class="fa-solid fa-upload"></i> @(_uploading ? "Subiendo..." : "Subir")
+                    <InputFile OnChange="OnPanelAssetSelected" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf" disabled="@_uploading" />
+                </label>
+                <button class="mb-icon" title="Cerrar" @onclick="() => _showAssets = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-modal-body">
+                @if (_panelLoading)
+                {
+                    <div class="mb-muted">Cargando adjuntos...</div>
+                }
+                else if (_panelAssets.Count == 0)
+                {
+                    <div class="mb-muted">Aun no hay adjuntos. Subelos aqui, con "Adjuntar imagen" en el editor o importando un vault de Obsidian.</div>
+                }
+                else
+                {
+                    <div class="mb-assets">
+                        @foreach (var a in _panelAssets)
+                        {
+                            var used = a.UsedIn ?? Array.Empty<string>();
+                            <div class="mb-asset">
+                                <a class="mb-asset-thumb" href="@a.Url" target="_blank" rel="noopener" title="Abrir @a.Name">
+                                    @if (a.IsImage)
+                                    {
+                                        <img src="@a.Url" alt="@a.Name" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <i class="fa-regular fa-file-pdf"></i>
+                                    }
+                                </a>
+                                <div class="mb-asset-name" title="@a.Name">@a.Name</div>
+                                <div class="mb-asset-meta" title="@(used.Count == 0 ? "Ninguna nota lo embebe" : string.Join(", ", used))">
+                                    @Size(a.SizeBytes) &middot; @(used.Count == 0 ? "sin usar" : used.Count == 1 ? "en 1 nota" : $"en {used.Count} notas")
+                                </div>
+                                <div class="mb-asset-actions">
+                                    @if (_hasNote)
+                                    {
+                                        <button class="mb-link" title="Insertar en la nota abierta" @onclick="() => InsertAsset(a)"><i class="fa-solid fa-arrow-right-to-bracket"></i> Insertar</button>
+                                    }
+                                    @if (IsAdmin)
+                                    {
+                                        <button class="mb-link danger" title="Borrar definitivamente" @onclick="() => DeleteAssetAsync(a)"><i class="fa-regular fa-trash-can"></i> Borrar</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="mb-modal-foot">@(IsAdmin ? "Borrar un adjunto es definitivo: las notas que lo usan lo muestran como 'no encontrado'." : "Solo un Owner/Admin puede borrar adjuntos.")</div>
+        </div>
+    </div>
+}
+
 @if (_showClaude)
 {
     @* Ola 4 (ADR-0183): con el plan de Claude del usuario el chat vive en Claude Desktop/Code via el MCP de maquetas. *@
@@ -359,6 +424,9 @@
 
     private Dictionary<string, MockupBrainAssetDto> _assets = new(StringComparer.Ordinal);
     private bool _uploading;
+    private bool _showAssets;
+    private bool _panelLoading;
+    private List<MockupBrainAssetDto> _panelAssets = new();
 
     private string McpUrl => Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.Route;
 
@@ -567,9 +635,18 @@
     private string? AssetUrl(string reference)
         => _assets.TryGetValue(MockupBrainAssets.Key(reference), out var a) ? a.Url : null;
 
-    private async Task OnAssetSelected(InputFileChangeEventArgs e)
+    /// <summary>Adjuntar desde el editor: sube e inserta ![[nombre]] en el cursor.</summary>
+    private Task OnAssetSelected(InputFileChangeEventArgs e) => UploadAssetAsync(e.File, insert: true);
+
+    /// <summary>Subir desde el panel Adjuntos: solo sube (no toca la nota).</summary>
+    private async Task OnPanelAssetSelected(InputFileChangeEventArgs e)
     {
-        var file = e.File;
+        await UploadAssetAsync(e.File, insert: false);
+        await LoadPanelAssetsAsync();
+    }
+
+    private async Task UploadAssetAsync(IBrowserFile file, bool insert)
+    {
         if (file.Size > MockupBrainAssets.MaxAssetBytes)
         {
             await OnToast.InvokeAsync($"El adjunto supera {MockupBrainAssets.MaxAssetBytes / (1024 * 1024)} MB.");
@@ -598,8 +675,11 @@
                 return;
             }
             await ReloadAssetsAsync();
-            _pendingInsert = $"![[{res.Value.Name}]]";
-            _editorPending = true;
+            if (insert)
+            {
+                _pendingInsert = $"![[{res.Value.Name}]]";
+                _editorPending = true;
+            }
             await OnToast.InvokeAsync($"Adjunto '{res.Value.Name}' subido.");
         }
         catch (IOException ex)
@@ -611,6 +691,60 @@
             _uploading = false;
         }
     }
+
+    // ------------------------------------------------------------------ panel Adjuntos
+
+    private async Task OpenAssetsPanelAsync()
+    {
+        _showAssets = true;
+        await LoadPanelAssetsAsync();
+    }
+
+    private async Task LoadPanelAssetsAsync()
+    {
+        _panelLoading = true;
+        try { _panelAssets = (await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListAssetsAsync(Slug, withUsage: true))).ToList(); }
+        finally { _panelLoading = false; }
+    }
+
+    /// <summary>Inserta el adjunto en la nota abierta (pasa a modo edicion).</summary>
+    private void InsertAsset(MockupBrainAssetDto asset)
+    {
+        if (!_hasNote) { return; }
+        _showAssets = false;
+        _pendingInsert = $"![[{asset.Name}]]";
+        _editing = true;
+        _editorPending = true;
+        _previewPending = false;
+    }
+
+    private async Task DeleteAssetAsync(MockupBrainAssetDto asset)
+    {
+        var used = asset.UsedIn ?? Array.Empty<string>();
+        var message = $"Borrar definitivamente el adjunto '{asset.Name}'? No se puede deshacer."
+            + (used.Count > 0 ? $" Lo usan {used.Count} nota(s): {string.Join(", ", used.Take(5))}{(used.Count > 5 ? "..." : "")}; ahi quedara como 'no encontrado'." : "");
+        bool ok;
+        try { ok = await JS.InvokeAsync<bool>("ecxMaquetaCerebro.confirm", message); }
+        catch (JSException) { ok = false; }
+        if (!ok) { return; }
+        var id = asset.Id;
+        var res = await RunAsync(async sp =>
+        {
+            var actor = await ResolveActorAsync(sp);
+            if (actor is null) { return TaskCoreResult<bool>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+            return await sp.GetRequiredService<IMockupBrainService>().DeleteAssetAsync(Slug, id, actor);
+        });
+        if (!res.IsOk)
+        {
+            await OnToast.InvokeAsync(res.Error ?? "No se pudo borrar el adjunto.");
+            return;
+        }
+        await ReloadAssetsAsync();
+        await LoadPanelAssetsAsync();
+        await OnToast.InvokeAsync($"Adjunto '{asset.Name}' borrado.");
+    }
+
+    private static string Size(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / (1024d * 1024):0.#} MB" : $"{Math.Max(1, bytes / 1024)} KB";
 
     private async Task OnSearchChanged()
     {

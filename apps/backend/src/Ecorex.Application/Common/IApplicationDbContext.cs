@@ -34,6 +34,16 @@ public interface IApplicationDbContext
     DbSet<FormBuilderConversation> FormBuilderConversations { get; }
     DbSet<FormBuilderMessage> FormBuilderMessages { get; }
     DbSet<EmailTemplate> EmailTemplates { get; }
+
+    // Agente editor de plantillas (ADR-0175). Miembros con implementacion por defecto para no obligar a los
+    // dobles de prueba (FakeAppDb) a declararlos; EcorexDbContext los implementa con sus DbSet reales.
+    DbSet<EmailUnsubscribe> EmailUnsubscribes => throw new NotSupportedException();
+    DbSet<TemplateSnapshot> TemplateSnapshots => throw new NotSupportedException();
+    // Marca de correo (ADR-0177), mismo patron de implementacion por defecto.
+    DbSet<EmailBrand> EmailBrands => throw new NotSupportedException();
+    // Maquetas en la nube (ADR-0179), mismo patron de implementacion por defecto.
+    DbSet<MockupProject> MockupProjects => throw new NotSupportedException();
+    DbSet<MockupVersion> MockupVersions => throw new NotSupportedException();
     DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }
@@ -239,6 +249,9 @@ public interface IApplicationDbContext
 
     // API REST de configuracion (FASE 1): tokens Bearer por-tenant (solo se guarda el hash SHA-256).
     DbSet<TenantApiToken> TenantApiTokens { get; }
+
+    // ADR-0176: vinculo tarea <-> registro de un sistema externo (idempotencia de integraciones, ej. maqueta).
+    DbSet<ExternalTaskLink> ExternalTaskLinks { get; }
 
     // Directorio General (modulo 000232): terceros (empresas / personas) con perfiles de
     // negocio, contactos embebidos y fichas dinamicas (jsonb).

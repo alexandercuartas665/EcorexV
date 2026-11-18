@@ -105,6 +105,22 @@ public sealed class AiAgentService : IAiAgentService
         return Map(agent, count);
     }
 
+    public async Task<AiAgentDto?> SetMediaReaderPromptAsync(Guid id, string? prompt, Guid actorUserId, CancellationToken cancellationToken = default)
+    {
+        var agent = await _db.AiAgents.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
+        if (agent is null) { return null; }
+        var value = string.IsNullOrWhiteSpace(prompt) ? null : prompt.Trim();
+        if (!string.Equals(agent.MediaReaderPrompt, value, StringComparison.Ordinal))
+        {
+            agent.MediaReaderPrompt = value;
+            _audit.Write(actorUserId, "ai-agent.media-reader-prompt", nameof(AiAgent), agent.Id,
+                previousValue: null, newValue: new { custom = value is not null, length = value?.Length ?? 0 }, tenantId: agent.TenantId);
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        var count = await _db.AiAgentResources.CountAsync(r => r.AgentId == id, cancellationToken);
+        return Map(agent, count);
+    }
+
     public async Task<AiAgentDto?> SetActiveAsync(Guid id, bool active, Guid actorUserId, CancellationToken cancellationToken = default)
     {
         var agent = await _db.AiAgents.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
@@ -238,7 +254,8 @@ public sealed class AiAgentService : IAiAgentService
             ReactionsEnabled = src.ReactionsEnabled,
             ReactionRatioN = src.ReactionRatioN,
             ReactionRatioM = src.ReactionRatioM,
-            ReactionEmojis = src.ReactionEmojis
+            ReactionEmojis = src.ReactionEmojis,
+            MediaReaderPrompt = src.MediaReaderPrompt
         };
         _db.AiAgents.Add(copy);
         await _db.SaveChangesAsync(cancellationToken); // asegura copy.Id para los hijos
@@ -359,7 +376,8 @@ public sealed class AiAgentService : IAiAgentService
 
     private static AiAgentDto Map(AiAgent a, int resourceCount) =>
         new(a.Id, a.Name, a.Role, a.Provider, a.Model, a.SystemPrompt, a.IsActive, a.SortOrder, resourceCount, ParseTools(a.DisabledToolsJson),
-            a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis, ParseBoards(a.AllowedBoardIdsJson), ParseBoards(a.AssigneeUserIdsJson), a.DefaultSubcategoriaId);
+            a.ReactionsEnabled, a.ReactionRatioN, a.ReactionRatioM, a.ReactionEmojis, ParseBoards(a.AllowedBoardIdsJson), ParseBoards(a.AssigneeUserIdsJson), a.DefaultSubcategoriaId,
+            a.MediaReaderPrompt);
 
     // Serializacion de la lista de herramientas deshabilitadas del agente (jsonb).
     private static string? SerializeTools(IReadOnlyList<string>? tools)

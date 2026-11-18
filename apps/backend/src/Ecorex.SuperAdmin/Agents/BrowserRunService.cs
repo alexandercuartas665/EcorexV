@@ -544,6 +544,7 @@ public sealed class BrowserRunService(
 
             int ins = 0, upd = 0, del = 0;
             var notas = new List<string>();
+            var errores = new List<string>(); // fallos DUROS (FlowStepOutcome): dejan la corrida en Error
             var consumidos = new HashSet<Guid>(); // pasos que ya corrio un bucle (cuerpo + avance de pagina)
             for (var i = 0; i < steps.Count; i++)
             {
@@ -559,6 +560,7 @@ public sealed class BrowserRunService(
                     flowIndex, flowCount, flowName, stepIdx, steps.Count, paso.Name, false, false, null, txt));
 
                 StepRunResult r;
+                var threw = false;
                 try
                 {
                     // Inicio de bucle: recorre TODAS las filas (y paginas) con su cuerpo; luego esos pasos no se
@@ -570,7 +572,7 @@ public sealed class BrowserRunService(
                     }
                     else { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct, stepLive); }
                 }
-                catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
+                catch (Exception ex) { threw = true; r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
                 ins += r.Inserted; upd += r.Updated; del += r.Deleted;
 
                 progress?.Report(new FlowStepProgress(flowIndex, flowCount, flowName, i, steps.Count, paso.Name, true, r.Ok, r.ScreenshotBase64, r.Error ?? r.Detail));
@@ -587,8 +589,14 @@ public sealed class BrowserRunService(
                     await runLog.CloseAsync(runCorr, false, ins, upd, del, $"Paso '{paso.Name}': {err}.", ct);
                     return new BrowserRunResult(false, runId, runCorr, false, $"{paso.Name}: {err}");
                 }
-                // Pasos guarda/driver (Exploracion/Variable sin filas) devuelven Ok=false de forma benigna: se anota y sigue.
-                if (!r.Ok) { notas.Add(paso.Name); }
+                // Pasos guarda/driver (Exploracion/Variable sin filas) devuelven Ok=false de forma benigna: se anota y
+                // sigue. Navegacion fallida, rechazo por allow-list/JS bloqueado o excepcion son DUROS: tambien se
+                // sigue, pero la corrida cierra en Error (antes quedaba Ok y el bloqueo se veia como corrida sana).
+                if (!r.Ok)
+                {
+                    if (FlowStepOutcome.IsHardFailure(paso.Kind, r, threw)) { errores.Add(FlowStepOutcome.HardNote(paso.Name, r)); }
+                    else { notas.Add(paso.Name); }
+                }
 
                 // Corrida completa nueva: respeta la espera del paso (WaitMs, en ms) antes del siguiente. El agente
                 // corre el JS y vuelve de inmediato; si el script dispara un postback (filtrar, consultar, login), sin
@@ -602,16 +610,23 @@ public sealed class BrowserRunService(
                 }
             }
 
-            var det = $"Flujo ejecutado paso a paso ({steps.Count} pasos)"
-                + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
+            var det = FlowStepOutcome.Summarize(steps.Count, errores, notas);
+            var runOk = errores.Count == 0;
             // Corrida completa nueva (Ejecutar ahora / programacion): no dejar la ventana del agente abierta.
             if (freshSession)
             {
                 try { await CloseStepSessionAsync(flowId, tenantId, ct); } catch { /* best-effort */ }
             }
-            await runLog.CloseAsync(runCorr, true, ins, upd, del, det, ct);
-            log.LogInformation("[NAV-RUN] stepwise OK corr={Corr} flow={Flow} pasos={N}", runCorr, flowId, steps.Count);
-            return new BrowserRunResult(true, runId, runCorr, false, det);
+            await runLog.CloseAsync(runCorr, runOk, ins, upd, del, det, ct);
+            if (runOk)
+            {
+                log.LogInformation("[NAV-RUN] stepwise OK corr={Corr} flow={Flow} pasos={N}", runCorr, flowId, steps.Count);
+            }
+            else
+            {
+                log.LogWarning("[NAV-RUN] stepwise con errores corr={Corr} flow={Flow}: {Detail}", runCorr, flowId, det);
+            }
+            return new BrowserRunResult(runOk, runId, runCorr, false, det);
         }
     }
 
@@ -2352,12 +2367,14 @@ public sealed class BrowserRunService(
                 if (steps.Any(s => s.Kind == ScrapeStepKind.LeerCorreoOtp))
                 {
                     var notas = new List<string>();
+                    var errores = new List<string>(); // fallos DUROS (FlowStepOutcome)
                     var hechos = 0;
                     foreach (var paso in steps)
                     {
                         StepRunResult r;
+                        var threw = false;
                         try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, CancellationToken.None); }
-                        catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
+                        catch (Exception ex) { threw = true; r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
                         hechos++;
                         ins += r.Inserted; upd += r.Updated; del += r.Deleted;
 
@@ -2375,15 +2392,19 @@ public sealed class BrowserRunService(
                             return;
                         }
                         // Pasos guarda/driver (EXPLORACION/Variable sin filas) devuelven Ok=false de forma
-                        // benigna: se anota y se sigue, igual que el operador en el paso a paso.
-                        if (!r.Ok) { notas.Add(paso.Name); }
+                        // benigna: se anota y se sigue, igual que el operador en el paso a paso. Los fallos
+                        // DUROS (navegacion, allow-list/JS bloqueado, excepcion) dejan la corrida en Error.
+                        if (!r.Ok)
+                        {
+                            if (FlowStepOutcome.IsHardFailure(paso.Kind, r, threw)) { errores.Add(FlowStepOutcome.HardNote(paso.Name, r)); }
+                            else { notas.Add(paso.Name); }
+                        }
                     }
                     // Nota: el paso-bucle de descarga sigue bajando en 2do plano (setTimeouts en el navegador);
                     // la corrida se cierra aqui aunque las descargas continuen unos minutos mas.
-                    var det = $"Flujo ejecutado paso a paso ({hechos} pasos)"
-                        + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
-                    await runLog.CloseAsync(runCorr, true, ins, upd, del, det);
-                    log.LogInformation("[NAV-RUN] corr={Corr} OK (stepwise/OTP) pasos={N}", runCorr, hechos);
+                    var det = FlowStepOutcome.Summarize(hechos, errores, notas);
+                    await runLog.CloseAsync(runCorr, errores.Count == 0, ins, upd, del, det);
+                    log.LogInformation("[NAV-RUN] corr={Corr} stepwise/OTP ok={Ok} pasos={N}", runCorr, errores.Count == 0, hechos);
                     return;
                 }
 

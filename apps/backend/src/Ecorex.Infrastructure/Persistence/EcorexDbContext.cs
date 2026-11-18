@@ -92,6 +92,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<QuoteTemplate> QuoteTemplates => Set<QuoteTemplate>();
     public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
     public DbSet<TemplateAsset> TemplateAssets => Set<TemplateAsset>();
+    public DbSet<EmailBrand> EmailBrands => Set<EmailBrand>();
     public DbSet<AiAgent> AiAgents => Set<AiAgent>();
     public DbSet<AiAgentResource> AiAgentResources => Set<AiAgentResource>();
     public DbSet<AiAgentPrompt> AiAgentPrompts => Set<AiAgentPrompt>();
@@ -158,6 +159,11 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<FormBuilderConversation> FormBuilderConversations => Set<FormBuilderConversation>();
     public DbSet<FormBuilderMessage> FormBuilderMessages => Set<FormBuilderMessage>();
     public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => Set<FormBuilderSnapshot>();
+    // Agente editor de plantillas de correo/WhatsApp (ADR-0175) + bajas de correo.
+    public DbSet<TemplateAgentConversation> TemplateAgentConversations => Set<TemplateAgentConversation>();
+    public DbSet<TemplateAgentMessage> TemplateAgentMessages => Set<TemplateAgentMessage>();
+    public DbSet<TemplateSnapshot> TemplateSnapshots => Set<TemplateSnapshot>();
+    public DbSet<EmailUnsubscribe> EmailUnsubscribes => Set<EmailUnsubscribe>();
     public DbSet<FormFlowLink> FormFlowLinks => Set<FormFlowLink>();
     public DbSet<FormToken> FormTokens => Set<FormToken>();
     public DbSet<FormSignatureToken> FormSignatureTokens => Set<FormSignatureToken>();
@@ -372,6 +378,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     // API REST de configuracion (FASE 1): tokens Bearer por-tenant (hash SHA-256, nunca el valor).
     public DbSet<TenantApiToken> TenantApiTokens => Set<TenantApiToken>();
 
+    // ADR-0176: vinculo tarea <-> registro de un sistema externo (idempotencia de integraciones).
+    public DbSet<ExternalTaskLink> ExternalTaskLinks => Set<ExternalTaskLink>();
+
+    // ADR-0179: maquetas en la nube (proyecto + versiones inmutables por ZIP).
+    public DbSet<MockupProject> MockupProjects => Set<MockupProject>();
+    public DbSet<MockupVersion> MockupVersions => Set<MockupVersion>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -395,6 +408,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         configurationBuilder.Properties<FormBuilderMessageRole>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormSnapshotTrigger>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<FormBuilderProposalState>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<TemplateAgentKind>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<LimitEnforcementMode>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AuditActorType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<TenantRole>().HaveConversion<string>().HaveMaxLength(40);
@@ -739,6 +753,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         {
             b.Property(x => x.Model).HasMaxLength(120);
             b.Property(x => x.BaseUrl).HasMaxLength(500);
+            b.Property(x => x.TranscriptionModel).HasMaxLength(120);
             b.HasIndex(x => x.Provider).IsUnique();
         });
 
@@ -759,6 +774,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.InvitationToken).HasMaxLength(128);
             b.Property(x => x.DocumentCode).HasMaxLength(60);
             b.Property(x => x.Phone).HasMaxLength(40);
+            b.Property(x => x.FirmaHtml).HasMaxLength(4000);
             b.HasOne(x => x.PlatformUser).WithMany().HasForeignKey(x => x.PlatformUserId).OnDelete(DeleteBehavior.Restrict);
             // Asignacion usuario->vista del menu (Ola 1). NO ACTION: borrar una vista no arrastra
             // al usuario por cascada (la app deja MenuViewId en null antes de borrar la vista).
@@ -1107,7 +1123,46 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Nombre).HasMaxLength(200).IsRequired();
             b.Property(x => x.Asunto).HasMaxLength(300).IsRequired();
             b.Property(x => x.CuerpoHtml).HasColumnType(longTextColumnType);
+            b.Property(x => x.Estilo).HasMaxLength(40);
             b.HasIndex(x => new { x.TenantId, x.Activa });
+            // Soft-delete (ADR-0175): nunca DELETE fisico. El filtro global excluye IsDeleted.
+            b.Property(x => x.IsDeleted).HasDefaultValue(false);
+        });
+
+        // Agente editor de plantillas (ADR-0175): conversacion + mensajes + versiones + bajas de correo.
+        modelBuilder.Entity<TemplateAgentConversation>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Model).HasMaxLength(100);
+            b.HasIndex(x => new { x.TenantId, x.Kind, x.TemplateId });
+        });
+
+        modelBuilder.Entity<TemplateAgentMessage>(b =>
+        {
+            b.Property(x => x.Content).HasColumnType(longTextColumnType);
+            b.Property(x => x.AttachmentsJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.ToolCallId).HasMaxLength(100);
+            b.Property(x => x.ToolName).HasMaxLength(100);
+            b.Property(x => x.ToolArgsJson).HasColumnType(longTextColumnType);
+            b.Property(x => x.ToolResultJson).HasColumnType(longTextColumnType);
+            b.HasOne(x => x.Conversation).WithMany(x => x.Messages)
+                .HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ConversationId, x.Sequence });
+        });
+
+        modelBuilder.Entity<TemplateSnapshot>(b =>
+        {
+            b.Property(x => x.Label).HasMaxLength(200).IsRequired();
+            b.Property(x => x.PayloadJson).HasColumnType(longTextColumnType).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.Kind, x.TemplateId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<EmailUnsubscribe>(b =>
+        {
+            b.Property(x => x.Email).HasMaxLength(320).IsRequired();
+            b.Property(x => x.Origen).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Motivo).HasMaxLength(500);
+            b.HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
         });
 
         modelBuilder.Entity<TemplateAsset>(b =>
@@ -1115,7 +1170,22 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.FileName).HasMaxLength(255).IsRequired();
             b.Property(x => x.Url).HasMaxLength(500).IsRequired();
             b.Property(x => x.MimeType).HasMaxLength(120);
+            b.Property(x => x.Alt).HasMaxLength(200);
             b.HasIndex(x => new { x.TenantId, x.CreatedAt });
+            // Soft-delete (ADR-0177): el binario se sigue sirviendo para los correos ya enviados.
+            b.Property(x => x.IsDeleted).HasDefaultValue(false);
+        });
+
+        // Marca de correo del tenant (ADR-0177): una fila por tenant.
+        modelBuilder.Entity<EmailBrand>(b =>
+        {
+            b.Property(x => x.LogoUrl).HasMaxLength(500);
+            b.Property(x => x.ColorPrimario).HasMaxLength(9);
+            b.Property(x => x.ColorAcento).HasMaxLength(9);
+            b.Property(x => x.EstiloPorDefecto).HasMaxLength(40);
+            b.Property(x => x.SitioWeb).HasMaxLength(300);
+            b.Property(x => x.PieTexto).HasMaxLength(1000);
+            b.HasIndex(x => x.TenantId).IsUnique();
         });
 
         modelBuilder.Entity<AiAgent>(b =>
@@ -1124,6 +1194,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Role).HasMaxLength(100);
             b.Property(x => x.Model).HasMaxLength(100);
             b.Property(x => x.SystemPrompt).HasColumnType(longTextColumnType);
+            b.Property(x => x.MediaReaderPrompt).HasColumnType(longTextColumnType);
             b.Property(x => x.DisabledToolsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.AllowedBoardIdsJson).HasColumnType(jsonColumnType);
             b.Property(x => x.PromptHistoryJson).HasColumnType(longTextColumnType);
@@ -3936,6 +4007,36 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasIndex(x => new { x.TenantId, x.RevokedAt });
             // ADR-0159: tokens personales (MCP) listados por su dueno.
             b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+        });
+
+        // ADR-0176: idempotencia de integraciones externas (un registro externo = una tarea).
+        modelBuilder.Entity<ExternalTaskLink>(b =>
+        {
+            b.Property(x => x.Source).HasMaxLength(60).IsRequired();
+            b.Property(x => x.ExternalKey).HasMaxLength(150).IsRequired();
+            b.Property(x => x.LastCaptureSha256).HasMaxLength(64);
+            b.HasIndex(x => new { x.TenantId, x.Source, x.ExternalKey }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.TaskItemId });
+            b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ADR-0179: maquetas en la nube. Slug unico por tenant; versiones correlativas por proyecto.
+        modelBuilder.Entity<MockupProject>(b =>
+        {
+            b.Property(x => x.Slug).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+        });
+        modelBuilder.Entity<MockupVersion>(b =>
+        {
+            b.Property(x => x.RootPrefix).HasMaxLength(200);
+            b.Property(x => x.EntryPath).HasMaxLength(300).IsRequired();
+            b.Property(x => x.Notes).HasMaxLength(600);
+            b.Property(x => x.UploadedByName).HasMaxLength(150);
+            b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.Number }).IsUnique();
+            b.HasOne(x => x.MockupProject).WithMany(p => p.Versions).HasForeignKey(x => x.MockupProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ImportProcess>(b =>

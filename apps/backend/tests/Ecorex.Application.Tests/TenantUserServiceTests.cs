@@ -67,6 +67,7 @@ public class TenantUserServiceTests
         public DbSet<Rol> Roles => throw new NotSupportedException();
         public DbSet<Ciudad> Ciudades => throw new NotSupportedException();
         public DbSet<TenantApiToken> TenantApiTokens => throw new NotSupportedException();
+        public DbSet<ExternalTaskLink> ExternalTaskLinks => throw new NotSupportedException();
         public DbSet<RolPermiso> RolPermisos => throw new NotSupportedException();
         public DbSet<ScheduledJob> ScheduledJobs => throw new NotSupportedException();
         public DbSet<ScheduledJobRule> ScheduledJobRules => throw new NotSupportedException();

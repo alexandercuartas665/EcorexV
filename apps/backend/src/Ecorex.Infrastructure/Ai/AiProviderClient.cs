@@ -435,80 +435,32 @@ public sealed class AiProviderClient : IAiProviderClient
             _ => $"{Base(baseUrl, "https://api.openai.com/v1")}/chat/completions"
         };
 
-        var msgs = new List<object>();
-        if (!string.IsNullOrWhiteSpace(systemPrompt)) { msgs.Add(new { role = "system", content = systemPrompt }); }
-        foreach (var m in messages)
-        {
-            if (string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase))
-            {
-                msgs.Add(new { role = "tool", tool_call_id = m.ToolCallId, content = m.Text ?? "" });
-            }
-            else if (m.ToolCalls is { Count: > 0 })
-            {
-                msgs.Add(new
-                {
-                    role = "assistant",
-                    content = m.Text ?? "",
-                    tool_calls = m.ToolCalls.Select(tc => new
-                    {
-                        id = tc.Id,
-                        type = "function",
-                        function = new { name = tc.Name, arguments = tc.ArgumentsJson }
-                    }).ToArray()
-                });
-            }
-            else
-            {
-                var roleO = m.Role is "model" or "assistant" ? "assistant" : "user";
-                // Multimodal (solo Gemini via endpoint OpenAI-compatible): un mensaje de usuario con imagen
-                // y/o audio se manda como content [{text},{image_url:data-uri},{input_audio}] para que el
-                // modelo lo VEA / lo OIGA. Claude no acepta audio y otros proveedores lo ignoran.
-                var hasMedia = provider == AiProvider.Gemini && (m.Images is { Count: > 0 } || m.Audios is { Count: > 0 });
-                if (roleO == "user" && hasMedia)
-                {
-                    var parts = new List<object>();
-                    if (!string.IsNullOrWhiteSpace(m.Text)) { parts.Add(new { type = "text", text = m.Text }); }
-                    if (m.Images is { Count: > 0 })
-                    {
-                        foreach (var im in m.Images)
-                        {
-                            parts.Add(new { type = "image_url", image_url = new { url = $"data:{im.Mime};base64,{im.Base64}" } });
-                        }
-                    }
-                    if (m.Audios is { Count: > 0 })
-                    {
-                        foreach (var au in m.Audios)
-                        {
-                            parts.Add(new { type = "input_audio", input_audio = new { data = au.Base64, format = AudioFormat(au.Mime) } });
-                        }
-                    }
-                    msgs.Add(new { role = "user", content = parts.ToArray() });
-                }
-                else
-                {
-                    msgs.Add(new { role = roleO, content = m.Text ?? "" });
-                }
-            }
-        }
-
-        var toolDefs = tools.Select(t => new
+        var toolDefs = tools.Select(t => (object)new
         {
             type = "function",
             function = new { name = t.Name, description = t.Description ?? "", parameters = ParseSchema(t.ParametersJsonSchema) }
         }).ToArray();
 
-        object body = toolDefs.Length > 0
-            ? new { model, messages = msgs, tools = toolDefs, tool_choice = "auto" }
-            : new { model, messages = msgs };
-
-        using var resp = await SendWithRetryAsync(() =>
+        // Imagenes al modelo principal (ADR-0174): Gemini ya las recibia; ahora tambien DeepSeek/ChatGPT (DeepSeek
+        // solo las acepta en mensajes de USUARIO, que es donde van). El audio sigue siendo solo de Gemini.
+        var sendsImages = provider != AiProvider.Gemini && messages.Any(IsUserWithImages);
+        var (status, raw) = await PostChatAsync(url, apiKey,
+            BuildChatBody(model, BuildChatMessages(provider, systemPrompt, messages, withImages: true), toolDefs), ct);
+        string? notice = null;
+        // Modelo sin vision (400/422 por image_url): UN reintento solo con texto (la lectura del lector de medios ya
+        // va en el turno), para que el agente nunca quede mudo. Gemini no entra aqui (siempre tuvo vision).
+        if (sendsImages && (status is 400 or 422) && !AiQuotaErrors.IsQuotaExhausted(status, raw))
         {
-            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            return req;
-        }, ct);
-        var raw = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode) { return FailTools((int)resp.StatusCode, raw); }
+            var firstError = raw.Length > 300 ? raw[..300] : raw;
+            (status, raw) = await PostChatAsync(url, apiKey,
+                BuildChatBody(model, BuildChatMessages(provider, systemPrompt, messages, withImages: false), toolDefs), ct);
+            if (status is >= 200 and < 300)
+            {
+                notice = $"El modelo {model} de {provider} no acepto las imagenes (HTTP 400); se respondio sin ellas, solo con la lectura en texto. Detalle: {firstError}";
+                _logger.LogWarning("Modelo sin vision: {Provider}/{Model} rechazo image_url; se reintento sin imagenes. {Detail}", provider, model, firstError);
+            }
+        }
+        if (status is < 200 or >= 300) { return FailTools(status, raw); }
 
         using var doc = JsonDocument.Parse(raw);
         var message = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
@@ -540,7 +492,82 @@ public sealed class AiProviderClient : IAiProviderClient
                 cachedTok = pd.TryGetProperty("cached_tokens", out var ctok) ? ctok.GetInt32() : 0;
             }
         }
-        return new AiCompletion(true, text, null, inTok, outTok, calls, cachedTok);
+        return new AiCompletion(true, text, null, inTok, outTok, calls, cachedTok, notice);
+    }
+
+    private static bool IsUserWithImages(AiToolMessage m) =>
+        m.Images is { Count: > 0 } && m.ToolCalls is not { Count: > 0 }
+        && !string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase)
+        && m.Role is not ("model" or "assistant");
+
+    private static object BuildChatBody(string model, List<object> msgs, object[] toolDefs) =>
+        toolDefs.Length > 0
+            ? new { model, messages = msgs, tools = toolDefs, tool_choice = "auto" }
+            : new { model, messages = msgs };
+
+    private async Task<(int Status, string Raw)> PostChatAsync(string url, string apiKey, object body, CancellationToken ct)
+    {
+        using var resp = await SendWithRetryAsync(() =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent(body) };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            return req;
+        }, ct);
+        return ((int)resp.StatusCode, await resp.Content.ReadAsStringAsync(ct));
+    }
+
+    /// <summary>Mensajes chat/completions. Un mensaje de usuario con media va como content [{text},{image_url}...]:
+    /// imagenes para todos los proveedores (si <paramref name="withImages"/>), audio solo para Gemini.</summary>
+    internal static List<object> BuildChatMessages(AiProvider provider, string systemPrompt, IReadOnlyList<AiToolMessage> messages, bool withImages)
+    {
+        var msgs = new List<object>();
+        if (!string.IsNullOrWhiteSpace(systemPrompt)) { msgs.Add(new { role = "system", content = systemPrompt }); }
+        foreach (var m in messages)
+        {
+            if (string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase))
+            {
+                msgs.Add(new { role = "tool", tool_call_id = m.ToolCallId, content = m.Text ?? "" });
+            }
+            else if (m.ToolCalls is { Count: > 0 })
+            {
+                msgs.Add(new
+                {
+                    role = "assistant",
+                    content = m.Text ?? "",
+                    tool_calls = m.ToolCalls.Select(tc => new
+                    {
+                        id = tc.Id,
+                        type = "function",
+                        function = new { name = tc.Name, arguments = tc.ArgumentsJson }
+                    }).ToArray()
+                });
+            }
+            else
+            {
+                var roleO = m.Role is "model" or "assistant" ? "assistant" : "user";
+                var images = withImages && m.Images is { Count: > 0 } ? m.Images : null;
+                var audios = provider == AiProvider.Gemini && m.Audios is { Count: > 0 } ? m.Audios : null;
+                if (roleO == "user" && (images is not null || audios is not null))
+                {
+                    var parts = new List<object>();
+                    if (!string.IsNullOrWhiteSpace(m.Text)) { parts.Add(new { type = "text", text = m.Text }); }
+                    foreach (var im in images ?? Array.Empty<AiInlineImage>())
+                    {
+                        parts.Add(new { type = "image_url", image_url = new { url = $"data:{im.Mime};base64,{im.Base64}" } });
+                    }
+                    foreach (var au in audios ?? Array.Empty<AiInlineAudio>())
+                    {
+                        parts.Add(new { type = "input_audio", input_audio = new { data = au.Base64, format = AudioFormat(au.Mime) } });
+                    }
+                    msgs.Add(new { role = "user", content = parts.ToArray() });
+                }
+                else
+                {
+                    msgs.Add(new { role = roleO, content = m.Text ?? "" });
+                }
+            }
+        }
+        return msgs;
     }
 
     // Gemini por su endpoint NATIVO (generateContent) con function calling. Se usa cuando el turno trae un

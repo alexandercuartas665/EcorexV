@@ -313,7 +313,8 @@
                                         <div class="cw-email-prev">
                                             <div class="cw-email-prev-lbl">VISTA PREVIA &#183; datos de ejemplo</div>
                                             <div class="cw-email-subj"><b>Asunto:</b> @PreviewSubject(sel)</div>
-                                            <div class="cw-email-body">@((MarkupString)PreviewBody(sel))</div>
+                                            @* iframe sandbox (ADR-0175): el HTML de la plantilla no corre en el origen de la app. *@
+                                            <iframe class="cw-email-body" sandbox="" title="Vista previa del correo" srcdoc="@PreviewBody(sel)" style="width:100%;min-height:280px;border:0;background:#fff;display:block;"></iframe>
                                             <div class="cw-email-vars">Variables: {nombre} {empresa} {cargo} {ciudad} {correo}</div>
                                         </div>
                                     }
@@ -464,8 +465,7 @@
     private const string FixedOption = "__fijo";
 
     // Datos de ejemplo para la vista previa del correo (no se envian; solo ilustran el merge).
-    private static readonly EmailMergeFields SampleFields =
-        new("Juan Perez", "ACME S.A.S", "Gerente de Compras", "Bogota", "juan.perez@acme.com");
+    private static readonly EmailMergeFields SampleFields = EmailTemplateService.SampleFields;
 
     private static string PreviewSubject(EmailTemplateDto t)
         => EmailTemplateService.RenderTemplate(t.Asunto, SampleFields, htmlEscapeValues: false);

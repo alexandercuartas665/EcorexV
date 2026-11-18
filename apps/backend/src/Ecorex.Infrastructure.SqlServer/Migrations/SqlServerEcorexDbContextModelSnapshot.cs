@@ -1970,6 +1970,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_active");
 
+                    b.Property<string>("MediaReaderPrompt")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("media_reader_prompt");
+
                     b.Property<string>("Model")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
@@ -2489,6 +2493,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("provider");
 
+                    b.Property<string>("TranscriptionModel")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("transcription_model");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("updated_at");
@@ -2500,6 +2509,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<bool>("UseForFormBuilder")
                         .HasColumnType("bit")
                         .HasColumnName("use_for_form_builder");
+
+                    b.Property<bool>("UseForTemplateBuilder")
+                        .HasColumnType("bit")
+                        .HasColumnName("use_for_template_builder");
 
                     b.HasKey("Id")
                         .HasName("pk_ai_provider_configs");
@@ -7265,6 +7278,73 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("documento_versiones", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.EmailBrand", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ColorAcento")
+                        .HasMaxLength(9)
+                        .HasColumnType("nvarchar(9)")
+                        .HasColumnName("color_acento");
+
+                    b.Property<string>("ColorPrimario")
+                        .HasMaxLength(9)
+                        .HasColumnType("nvarchar(9)")
+                        .HasColumnName("color_primario");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("EstiloPorDefecto")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("estilo_por_defecto");
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("logo_url");
+
+                    b.Property<string>("PieTexto")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("pie_texto");
+
+                    b.Property<string>("SitioWeb")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("sitio_web");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_email_brands");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_email_brands_tenant_id");
+
+                    b.ToTable("email_brands", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.EmailConfig", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7364,6 +7444,25 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("cuerpo_html");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Estilo")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("estilo");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -7389,6 +7488,60 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_email_templates_tenant_id_activa");
 
                     b.ToTable("email_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.EmailUnsubscribe", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("motivo");
+
+                    b.Property<string>("Origen")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("origen");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_email_unsubscribes");
+
+                    b.HasIndex("TenantId", "Email")
+                        .IsUnique()
+                        .HasDatabaseName("ix_email_unsubscribes_tenant_id_email");
+
+                    b.ToTable("email_unsubscribes", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Entidad", b =>
@@ -8130,6 +8283,78 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasFilter("[rol_id] IS NOT NULL");
 
                     b.ToTable("external_data_source_grants", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalTaskLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ExternalKey")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("external_key");
+
+                    b.Property<string>("LastCaptureSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("last_capture_sha256");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("metadata_json");
+
+                    b.Property<int>("ReceivedCount")
+                        .HasColumnType("int")
+                        .HasColumnName("received_count");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)")
+                        .HasColumnName("source");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_task_links");
+
+                    b.HasIndex("TaskItemId")
+                        .HasDatabaseName("ix_external_task_links_task_item_id");
+
+                    b.HasIndex("TenantId", "TaskItemId")
+                        .HasDatabaseName("ix_external_task_links_tenant_id_task_item_id");
+
+                    b.HasIndex("TenantId", "Source", "ExternalKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_external_task_links_tenant_id_source_external_key");
+
+                    b.ToTable("external_task_links", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>
@@ -11220,6 +11445,157 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_message_templates_tenant_id_category_sort_order");
 
                     b.ToTable("message_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupProject", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("CurrentVersionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("current_version_id");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<int>("LastVersionNumber")
+                        .HasColumnType("int")
+                        .HasColumnName("last_version_number");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("slug");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_projects");
+
+                    b.HasIndex("TenantId", "Slug")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mockup_projects_tenant_id_slug");
+
+                    b.ToTable("mockup_projects", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("EntryPath")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("entry_path");
+
+                    b.Property<int>("FileCount")
+                        .HasColumnType("int")
+                        .HasColumnName("file_count");
+
+                    b.Property<bool>("HasAnotador")
+                        .HasColumnType("bit")
+                        .HasColumnName("has_anotador");
+
+                    b.Property<Guid>("MockupProjectId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("mockup_project_id");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("notes");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("int")
+                        .HasColumnName("number");
+
+                    b.Property<string>("RootPrefix")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("root_prefix");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UploadedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("uploaded_by_name");
+
+                    b.Property<Guid>("ZipFileId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("zip_file_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_versions");
+
+                    b.HasIndex("MockupProjectId")
+                        .HasDatabaseName("ix_mockup_versions_mockup_project_id");
+
+                    b.HasIndex("TenantId", "MockupProjectId", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mockup_versions_tenant_id_mockup_project_id_number");
+
+                    b.ToTable("mockup_versions", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ModuleDefinition", b =>
@@ -17248,7 +17624,7 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("task_work_logs", (string)null);
                 });
 
-            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAsset", b =>
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentConversation", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -17263,11 +17639,189 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("provider");
+
+                    b.Property<Guid?>("StartedByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("started_by_user_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_template_agent_conversations");
+
+                    b.HasIndex("TenantId", "Kind", "TemplateId")
+                        .HasDatabaseName("ix_template_agent_conversations_tenant_id_kind_template_id");
+
+                    b.ToTable("template_agent_conversations", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AttachmentsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("attachments_json");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("content");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ProposalState")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("proposal_state");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("role");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("int")
+                        .HasColumnName("sequence");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ToolArgsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("tool_args_json");
+
+                    b.Property<string>("ToolCallId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("tool_call_id");
+
+                    b.Property<string>("ToolName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("tool_name");
+
+                    b.Property<string>("ToolResultJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("tool_result_json");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_template_agent_messages");
+
+                    b.HasIndex("ConversationId", "Sequence")
+                        .HasDatabaseName("ix_template_agent_messages_conversation_id_sequence");
+
+                    b.ToTable("template_agent_messages", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Alt")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("alt");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)")
                         .HasColumnName("file_name");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("int")
+                        .HasColumnName("height");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<string>("MimeType")
                         .HasMaxLength(120)
@@ -17277,6 +17831,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint")
                         .HasColumnName("size_bytes");
+
+                    b.Property<Guid?>("StoredFileId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("stored_file_id");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
@@ -17296,6 +17854,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("url");
 
+                    b.Property<int?>("Width")
+                        .HasColumnType("int")
+                        .HasColumnName("width");
+
                     b.HasKey("Id")
                         .HasName("pk_template_assets");
 
@@ -17303,6 +17865,71 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_template_assets_tenant_id_created_at");
 
                     b.ToTable("template_assets", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("payload_json");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_template_snapshots");
+
+                    b.HasIndex("TenantId", "Kind", "TemplateId", "CreatedAt")
+                        .HasDatabaseName("ix_template_snapshots_tenant_id_kind_template_id_created_at");
+
+                    b.ToTable("template_snapshots", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Tenant", b =>
@@ -18182,6 +18809,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)")
                         .HasColumnName("email");
+
+                    b.Property<string>("FirmaHtml")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)")
+                        .HasColumnName("firma_html");
 
                     b.Property<DateTimeOffset?>("InvitationExpiresAt")
                         .HasColumnType("datetimeoffset")
@@ -21743,6 +22375,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("ExternalDataSource");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalTaskLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_task_links_task_items_task_item_id");
+
+                    b.Navigation("TaskItem");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.CardTag", "CardTag")
@@ -22176,6 +22820,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_messages_conversations_conversation_id");
 
                     b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupVersion", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.MockupProject", "MockupProject")
+                        .WithMany("Versions")
+                        .HasForeignKey("MockupProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_versions_mockup_projects_mockup_project_id");
+
+                    b.Navigation("MockupProject");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Notification", b =>
@@ -22950,6 +23606,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("TenantUser");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentMessage", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TemplateAgentConversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_template_agent_messages_template_agent_conversations_conversation_id");
+
+                    b.Navigation("Conversation");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TenantModule", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ModuleDefinition", "ModuleDefinition")
@@ -23491,6 +24159,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Messages");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupProject", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoCompra", b =>
                 {
                     b.Navigation("Hijos");
@@ -23535,6 +24208,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Campos");
 
                     b.Navigation("Tipologias");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentConversation", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Tercero", b =>

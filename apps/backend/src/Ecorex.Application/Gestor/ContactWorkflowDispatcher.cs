@@ -59,12 +59,16 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     private readonly Voice.IRetellVoiceService _voice;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ContactWorkflowDispatcher> _logger;
+    // Bajas de correo + {enlace_baja} (ADR-0175). Opcional para no romper los dobles de prueba existentes.
+    private readonly IEmailUnsubscribeService? _unsubscribes;
+    private HashSet<string>? _unsubscribedCache;
 
     public ContactWorkflowDispatcher(
         IApplicationDbContext db, ITenantContext tenant, IWhatsAppConnectorService whatsapp,
         IEmailSender email, ITaskItemService tasks, Voice.IRetellVoiceService voice, TimeProvider timeProvider,
-        ILogger<ContactWorkflowDispatcher> logger)
+        ILogger<ContactWorkflowDispatcher> logger, IEmailUnsubscribeService? unsubscribes = null)
     {
+        _unsubscribes = unsubscribes;
         _db = db;
         _tenant = tenant;
         _whatsapp = whatsapp;
@@ -93,6 +97,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             return 0;
         }
         _emailTemplateCache.Clear();
+        _unsubscribedCache = null;
 
         var tz = ScheduledJobRecurrence.ResolveTimeZone(await _db.Tenants
             .Where(t => t.Id == tenantId)
@@ -362,9 +367,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         {
             return (ContactWorkflowRunStatus.Skipped, channel, null, "Paso WhatsApp sin mensaje configurado.");
         }
-        var body = EmailTemplateService.RenderTemplate(text.Trim(),
-            new EmailMergeFields(contact.Nombre, contact.Empresa, contact.Cargo, contact.Ciudad, contact.Email),
-            htmlEscapeValues: false);
+        var body = EmailTemplateService.RenderTemplate(text.Trim(), MergeFieldsFor(contact), htmlEscapeValues: false);
 
         // remoteJid guardado del contacto (soporta LID, ADR-0055): de una conversacion previa por telefono,
         // buscando por las formas equivalentes del numero (con y sin indicativo).
@@ -479,9 +482,15 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             return (ContactWorkflowRunStatus.Skipped, channel, null, "La plantilla de correo no existe o esta inactiva.");
         }
 
+        // Baja de correos (ADR-0175): quien abrio su {enlace_baja} no vuelve a recibir correos del motor.
+        if (await IsUnsubscribedAsync(to, cancellationToken))
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null, "El contacto se dio de baja de los correos.");
+        }
+
         // Merge de las variables con los datos del contacto: asunto en texto plano, cuerpo en HTML (escapa
         // las variables para evitar inyeccion). {empresa} usa el nombre de la empresa padre (o Sector).
-        var fields = new EmailMergeFields(contact.Nombre, contact.Empresa, contact.Cargo, contact.Ciudad, contact.Email);
+        var fields = MergeFieldsFor(contact);
         var subject = EmailTemplateService.RenderTemplate(tpl.Asunto, fields, htmlEscapeValues: false);
         if (string.IsNullOrWhiteSpace(subject)) { subject = tpl.Nombre; }
         var htmlBody = EmailTemplateService.RenderTemplate(tpl.CuerpoHtml, fields, htmlEscapeValues: true);
@@ -508,6 +517,26 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     }
 
     private sealed record EmailTemplateRow(string Nombre, string Asunto, string CuerpoHtml);
+
+    // Valores de merge del contacto (ADR-0175 suma vendedor/telefono/sector/firma/enlace_baja).
+    private EmailMergeFields MergeFieldsFor(SegmentContact contact)
+    {
+        string? enlace = null;
+        if (_unsubscribes is not null && _tenant.TenantId is Guid tid && !string.IsNullOrWhiteSpace(contact.Email))
+        {
+            enlace = _unsubscribes.BuildLink(tid, contact.Email!);
+        }
+        return new EmailMergeFields(contact.Nombre, contact.Empresa, contact.Cargo, contact.Ciudad, contact.Email,
+            Vendedor: contact.Vendedor, Telefono: contact.Telefono, Sector: contact.Sector,
+            Firma: contact.Firma, EnlaceBaja: enlace);
+    }
+
+    private async Task<bool> IsUnsubscribedAsync(string email, CancellationToken cancellationToken)
+    {
+        if (_unsubscribes is null) { return false; }
+        _unsubscribedCache ??= await _unsubscribes.GetUnsubscribedSetAsync(cancellationToken);
+        return _unsubscribedCache.Contains(EmailUnsubscribeService.Normalize(email));
+    }
 
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteLlamadaAsync(
         string? paramsJson, SegmentContact contact, Guid actor, CancellationToken cancellationToken)
@@ -596,7 +625,11 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 t.Estado,
                 t.Email,
                 t.Telefono,
-                EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null
+                EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null,
+                // {vendedor}/{firma} (ADR-0175): asesor vinculado (o el texto legado) y la firma de su usuario.
+                AsesorNombre = t.VendedorAsesor != null ? t.VendedorAsesor.Nombre : null,
+                AsesorFirma = t.VendedorAsesor != null && t.VendedorAsesor.TenantUser != null
+                    ? t.VendedorAsesor.TenantUser.FirmaHtml : null
             })
             .ToListAsync(cancellationToken);
 
@@ -607,7 +640,9 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             .Select(t => new SegmentContact(
                 t.Id, t.Nombre, t.Email, t.Telefono,
                 string.IsNullOrWhiteSpace(t.EmpresaNombre) ? t.Sector : t.EmpresaNombre,
-                t.Cargo, t.Ciudad))
+                t.Cargo, t.Ciudad,
+                string.IsNullOrWhiteSpace(t.AsesorNombre) ? t.Vendedor : t.AsesorNombre,
+                t.Sector, t.AsesorFirma))
             .ToList();
     }
 
@@ -687,5 +722,6 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
 
     private sealed record SegmentContact(
         Guid Id, string Nombre, string? Email, string? Telefono,
-        string? Empresa, string? Cargo, string? Ciudad);
+        string? Empresa, string? Cargo, string? Ciudad,
+        string? Vendedor = null, string? Sector = null, string? Firma = null);
 }

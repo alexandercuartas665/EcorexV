@@ -2,6 +2,212 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-17 - v0.16.342: maquetas en la NUBE (proyectos + versiones por ZIP en /maqueta/{slug}/) (DESPLEGADO 2026-11-18)
+
+- DEPLOY 2026-11-18 04:05 Bogota (OK del usuario: "Dale deploy"), via rapida GHCR, imagen del commit 2e312592. Footer
+  /login = v0.16.342; migracion 20261118032218_AddMockupProjects aplicada (mockup_projects/mockup_versions vacias);
+  Restarts=0. /maqueta anonimo -> 302 a login; POST /api/maqueta/proyectos/x/versiones sin token -> 401. Rollback:
+  sha256:14b3c7e31c44b604981db6d9e492e5df9df1e3d66d99532d73ef9f00da27ad1d.
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0179. Ola 1 de 2 (la ola 2 es el MCP para el PC local).
+- PEDIDO: que las maquetas funcionen en la nube, poder subir varias y trabajar los detalles alli; despues, un MCP que
+  conecte con el PC local para aplicar los cambios. Decisiones del usuario: MISMO dominio app2 (riesgo de XSS
+  almacenado aceptado y documentado), suben solo Owner/Admin y ven todos, nube primero y MCP despues.
+- HECHO: entidades MockupProject/MockupVersion + migracion dual aditiva AddMockupProjects (PG 20261118032218, SQL
+  Server 20261118032229). MockupService: crear proyecto (slug unico por tenant), subir version (ZIP validado: topes,
+  sin '..'/absolutas, sin ocultos, quita carpeta raiz, detecta anotador/index), version actual, archivar (soft-delete),
+  resolver para servir. /maqueta/{slug}/... (actual) y /maqueta/{slug}~{n}/... (version n): descompresion UNA vez a
+  cache en disco + StaticFileMiddleware por version, detras del login y bajo el filtro de tenant. Launcher /maqueta:
+  lista maquetas de la nube (+ locales en dev), Nuevo proyecto, panel Versiones (subir ZIP, Ver, Usar esta, archivar).
+  POST /api/maqueta/proyectos/{slug}/versiones (Bearer integ:maqueta de Owner/Admin; ZIP o multipart; ?notas=).
+  POST /api/maqueta/solicitudes acepta la sesion sin Bearer en cualquier entorno (anti-CSRF igual). Auditoria
+  maqueta-nube.
+- VERIFICADO: build 0 errores; format limpio; has-pending-model-changes limpio en ambos motores; MockupZipInspection
+  10/10; MaquetaHubTests 13/13; MockupProjects + MaquetaSolicitudes 12/12 dual; Application 1524/1524; SuperAdmin
+  269/269; Domain 35/35. E2E local :5275 (BITCODE): proyecto "TRONOX SGDEA" creado por UI; v1 por API (ZIP directo) y
+  v2 (multipart), 275 archivos con anotador; 404/400/401 de la API; /maqueta?p=tronox-sgdea carga el anotador y la
+  maqueta desde la version en la nube; anotacion por sesion desde el anotador -> 201 T00045; "Usar esta" v1 OK;
+  token de prueba revocado (401 despues). Auditoria maqueta-nube registrada.
+- PENDIENTE: deploy SOLO con OK del usuario (lleva migracion). Ola 2: MCP de maquetas para el PC local. Ajuste del
+  kit del anotador (postear sin token al mismo origen) por la sesion de la maqueta. Item de menu "Maquetas" si se pide.
+
+## 2026-11-17 - v0.16.341: hub de maquetas /maqueta (hospeda el anotador + envio por sesion) (DESPLEGADO 2026-11-18 junto con v0.16.342)
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0178. Pedido de la sesion de la maqueta.
+- HECHO: registro `MaquetaHub` en appsettings (Enabled, AllowOutsideDevelopment, Projects[{Id,Nombre,RutaFisica}]);
+  activo SOLO en Development o con bandera (prod corre Production: el area no existe). `/maqueta/{id}/...` sirve la
+  carpeta de cada maqueta con StaticFiles + PhysicalFileProvider (sin dot-files, sin '..', solo tipos conocidos, sin
+  listado, nosniff + SAMEORIGIN) DETRAS del login (anonimo -> /login, sin tenant -> 403). Launcher Blazor `/maqueta`
+  (policy MaquetaHub.Usar): selector de proyecto + iframe del anotador + "Pantalla completa". `POST
+  /api/maqueta/solicitudes` acepta ademas la SESION cuando no llega Bearer y el hub esta activo (actor = usuario
+  logueado en su tenant; anti-CSRF: JSON + mismo origen); auditoria `integ-maqueta-hub` con canal "hub".
+  appsettings.Development.json registra `tronox` -> D:/DesarrolloIA/tronox.maqueta. El kit del anotador NO se toco.
+- VERIFICADO: build 0 errores; format limpio; MaquetaHubTests 4/4 (gating, ids/carpetas invalidas, sesion exigida,
+  no sale de la carpeta, sin listado); MaquetaSolicitudesTests 8/8 dual (nuevo: actor por sesion, aislamiento,
+  auditoria hub); Application.Tests 1514/1514; SuperAdmin.Tests 269/269. E2E local :5275 (BITCODE): /maqueta abre el
+  anotador de TRONOX con la maqueta; POST por sesion -> 201 T00044 con captura en "Maqueta TRONOX - Ajustes",
+  reenvio -> 200 misma tarjeta sin re-adjuntar; text/plain -> 403; Bearer falso -> 401; anonimo -> 302 /login.
+- PENDIENTE: la sesion de la maqueta ajusta el cliente JS del anotador para postear sin token al mismo origen
+  (hoy el kit exige baseUrl+token: con un token ecx_ tambien funciona). Deploy no aplica al hub (solo dev), pero el
+  cambio del endpoint y la version van en el proximo deploy con OK del usuario.
+
+## 2026-11-17 - v0.16.340: item de menu "Plantillas de correo" en todos los tenants (DESPLEGADA 2026-11-17)
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). Sin ADR (backfill de menu, mismo patron que
+  "Plantillas de documento" / "Configuracion de voz").
+- MOTIVO: validacion en prod (solo lectura): NINGUNA de las 25 vistas de menu de los 11 tenants tenia el item
+  `plantillas-correo`; la pagina /plantillas-correo solo se abria por URL o por enlaces internos.
+- HECHO: el arbol canonico (EnsureDefaultMenuAsync) trae "Plantillas de correo" debajo de "Plantillas WhatsApp"
+  (tenants nuevos). Backfill idempotente `EnsurePlantillasCorreoMenuItemAsync` en cada arranque (prod y dev): se
+  ANCLA al item "Plantillas WhatsApp" (no a la seccion "ia", porque varios tenants la renombraron o movieron), lo
+  inserta justo debajo corriendo un puesto a los hermanos siguientes y hereda su visibilidad. Las vistas sin
+  Plantillas WhatsApp (menus recortados por cargo) no se tocan. En prod alcanza 15 vistas de los 11 tenants.
+- DEPLOY 2026-11-17 ~20:15 Bogota (OK del usuario): CI publish-image verde, deploy-prod-fast.ps1 -Version 0.16.340.
+  Footer = v0.16.340; contenedor sin reinicios ni errores. En prod (solo lectura): las 15 vistas con Plantillas
+  WhatsApp de los 11 tenants tienen ahora "Plantillas de correo" justo debajo (1 por vista, visible); las 10 vistas
+  recortadas quedaron intactas. Rollback: sha256:2b1fae2ea6090aed2fe0e7c433c21e3f0c725a8f344196f523afd2521c51ebf0.
+- PRUEBA: PlantillasCorreoMenuBackfillTests (dual PG/SQL Server): posicion, seccion renombrada, oculto heredado,
+  vista recortada intacta, dos corridas sin duplicar.
+
+## 2026-11-17 - v0.16.339: marca de correo, galeria de imagenes y selector de estilos del agente (DESPLEGADA 2026-11-17, junto con v0.16.338)
+
+- DEPLOY 2026-11-17 ~19:45 Bogota (OK del usuario: "Despliega las dos versiones juntas"): merge 12fd3e12 (tronco + main),
+  CI publish-image verde, deploy-prod-fast.ps1 -Version 0.16.339. Footer /login = v0.16.339; migraciones
+  AddExternalTaskLink y AddEmailBrandGalleryStyles aplicadas en prod; contenedor sin reinicios ni errores; en prod
+  OPTIONS /api/maqueta/solicitudes -> 204 y POST sin token -> 401. Rollback: imagen anterior
+  sha256:679a70a88266fab3253616562a1f80c80ef7915c3699b1ad9448f32a52c262f7.
+- AGENTE: Claude Opus 5.5. ADR-0177 (renumerado al integrar: v0.16.338/ADR-0176 ya eran de la maqueta). Rama feat/plantillas-marca-galeria-estilos (desde el tronco 9dbc0ed6).
+- PEDIDO del usuario: logo y color de marca en los correos, una pequena galeria para cargar imagenes y un selector de
+  estilos para que la IA afine el detalle.
+- HECHO:
+  - MARCA DE CORREO (`EmailBrand`, una fila por tenant): logo para correos (de la galeria; si no, el de la empresa),
+    color principal, acento, estilo por defecto, sitio web y texto del pie. Contacto del pie desde la ficha de la
+    empresa. Tarjeta + modal con muestra en vivo en /plantillas-correo.
+  - GALERIA: reutiliza `TemplateAsset` (+ Alt/Width/Height/StoredFileId + soft-delete). `TemplateGalleryService` sube al
+    gestor unificado (modulo galeria-plantillas), valida formato por firma (PNG/JPG/GIF; SVG/WEBP rechazados), tope 3 MB,
+    lee dimensiones (`ImageDimensions`). Endpoint ANONIMO `/i/{id}{ext}` acotado a ese modulo (cache inmutable).
+  - ESTILOS: `EmailDesignStyles` (corporativo, moderno, minimalista, editorial, elegante, promocional, personal) con guias
+    concretas en el arnes; el estilo viaja como "[estilo: clave]" (MessagePrefix del panel, oculto en el chat);
+    `EmailTemplate.Estilo`; boton "Redisenar en <estilo>".
+  - AGENTE: herramienta `list_images`; arnes con secciones MARCA (colores exactos, logo OBLIGATORIO, datos reales del pie),
+    ESTILOS e IMAGENES; honestidad reforzada. Verificador: img sin src (error), base64/relativa/http/SVG (avisos).
+  - Migracion dual aditiva `AddEmailBrandGalleryStyles` (aplicada en la BD local 5442).
+- VERIFICADO: build 0 errores; dotnet format limpio; Application.Tests 1513/1513 (18 nuevas). E2E local BITCODE :5272
+  (Chrome MCP): subir 2 PNG (1200x500 y 480x120 leidos), /i/ anonimo 200 y otro modulo 404, marca guardada, plantilla
+  `presentacion_moderna_hero` creada en Moderno (hero de la galeria, colores exactos, pie real) y redisenada a Elegante
+  con un clic (logo arriba, serif, fondo oscuro). Hallazgo corregido: con hero el agente omitia el logo -> obligatorio.
+- ITERACION 2 (mismo dia, pedido del usuario): lista en TARJETAS con miniatura renderizada; editor en MODAL de 2
+  columnas (pestanas Vista previa | HTML | Galeria | Versiones + chat con selector de estilo); galeria extraida a
+  `TemplateGalleryPanel`; pestana Versiones con Ver / Restaurar (deshacible) / Guardar version ahora
+  (`ITemplateSnapshotService.GetPayloadAsync`, la foto incluye Estilo). E2E local (Chrome MCP, por JS): tarjetas con
+  miniatura y badge de estilo; modal 2 columnas; ver version Moderno sin tocar la actual; restaurar y deshacer;
+  plantilla nueva `seguimiento_demo_minimal` (Minimalista) aparece como tarjeta al confirmar. Hallazgo: tras confirmar,
+  Gemini respondio en frances -> regla de idioma al final de los arneses.
+- PENDIENTE: merge por dev (tronco + espejo main) y deploy SOLO con OK del usuario (lleva migracion). Tras el deploy,
+  configurar la marca real de cada tenant y probar send_test (en local las imagenes son http://localhost).
+- NOTA: en el nucleo, cuando el modelo llama verify_email y save_template en la misma vuelta, la tarjeta de propuesta
+  lista "verify_email" tambien (cosmetico, previo a este cambio).
+
+## 2026-11-17 - v0.16.338: integracion maqueta TRONOX -> tarjetas (POST /api/maqueta/solicitudes) (DESPLEGADA 2026-11-17 dentro de v0.16.339)
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0176. Rama feat/maqueta-solicitudes.
+- MOTIVO: el admin de anotaciones de la maqueta TRONOX (http://localhost:8096) ya llama a un contrato fijo
+  (tronox.maqueta/docs/INTEGRACION-ECOREX-ANOTACIONES.md); faltaba el endpoint. Las tarjetas deben caer en el
+  tenant cliente ACUARTAS.
+- HECHO: endpoint POST /api/maqueta/solicitudes (+ preflight OPTIONS con CORS propio, origenes en
+  MaquetaIntegration:AllowedOrigins, por defecto localhost/127.0.0.1:8096). Auth = token PERSONAL con alcance nuevo
+  `integ:maqueta`, emitido en /conectar-ia ("Maqueta (anotaciones)"): el tenant sale del usuario del token (para
+  ACUARTAS lo emite un usuario de ACUARTAS). MaquetaSolicitudService: tablero por nombre (crea "Maqueta TRONOX -
+  Ajustes" si no existe) -> primera columna; titulo/descripcion Markdown/prioridad; etiquetas modulo+categoria;
+  autor -> solicitante; captura -> gestor de archivos (modulo "maqueta") + adjunto; tipo de actividad de respaldo
+  si el tenant no tiene clasificacion. Idempotencia con entidad nueva ExternalTaskLink (unica por tenant+origen+
+  idLocal): el reenvio actualiza la MISMA tarjeta y no repite una captura igual (SHA-256). Respuesta 201/200
+  {id: numero de tarea, url: deep-link, estado}. Guia de prueba en docs/integraciones/maqueta-solicitudes.md.
+- MIGRACION: AddExternalTaskLink (PG 20261117203832, SQL Server 20261117203812), solo crea la tabla.
+- PENDIENTE: integrar al tronco + main y deploy SOLO con OK del usuario; luego, en prod, un usuario de ACUARTAS
+  emite el token en /conectar-ia y lo pega en el boton ECOREX del admin de la maqueta (URL base
+  https://app2.bitcode.com.co).
+
+## 2026-11-17 - v0.16.337: diseno profesional por defecto en el agente de plantillas de correo (DESPLEGADA 2026-11-17)
+
+- DEPLOY: 2026-11-17 13:10 Bogota con OK del usuario (dev principal ECOREX.desarrollo; fast-forward de feat/plantillas-prompt-profesional al tronco, TemplateAgent 18/18). Footer /login = v0.16.337; sin migracion; arranque sin errores. Gemini ya marcado como "IA gestion de plantillas" (UI, auditado).
+
+- AGENTE: Claude Opus 4.8. ADR-0175 (nota). Rama feat/plantillas-prompt-profesional.
+- MOTIVO: probando en prod (SOLDARCO, v0.16.336) el agente de correo redactaba HTML correcto pero PLANO (parrafos
+  negros sobre blanco). El modelo SI produce correos de agencia cuando se le describe el diseno, pero no lo hacia por
+  defecto: el arnes (EmailSystemPrompt) solo exigia reglas de entregabilidad, no estetica.
+- HECHO: TemplateAgentHarness.EmailSystemPrompt gana una seccion "DISENO PROFESIONAL (REGLA POR DEFECTO)": lienzo tipo
+  tarjeta 600px sobre fondo gris, banda de encabezado con color de marca (logo si hay, si no el nombre como wordmark),
+  titulo hero, cuerpo con jerarquia, razones como mini-tarjetas con icono, CTA bulletproof en color de acento,
+  separadores, pie gris con contacto + enlace de baja discreto, y paleta coherente de 2-3 colores. Se conservan las
+  reglas de HTML apto para correo (tablas, inline, sin JS).
+- VERIFICADO: build Application 0 errores; dotnet format del archivo limpio; Application.Tests TemplateAgent 18/18.
+  E2E en prod: el agente rehizo la plantilla plana a una version de 8.7 KB con encabezado de marca, tarjetas y boton
+  naranja, verificacion en orden. Plantilla de prueba `presentacion_comercial` dejada INACTIVA en SOLDARCO.
+- PENDIENTE: merge por dev al tronco + espejo main y deploy SOLO con OK del usuario. Opcional: configurar logo/color de
+  marca de SOLDARCO para que el encabezado use el logo real.
+
+## 2026-11-16 - v0.16.336 (fase 2): agente de plantillas de WhatsApp (DESPLEGADA 2026-11-17)
+
+- AGENTE: Claude Opus 5.5. ADR-0175 (seccion Fase 2). Mismo nucleo de la fase 1, sin migraciones nuevas.
+- HECHO: WhatsAppTemplateAgentToolset (leer, contexto de lineas, verify_whatsapp, save_whatsapp_draft, submit_to_meta
+  IRREVERSIBLE con confirmacion aparte) + WhatsAppTemplateVerifier (reglas de Meta). /plantillas-whatsapp: "Agente IA"
+  y "Agente" por fila -> panel con vista previa tipo WhatsApp, verificacion en vivo, versiones y chat. El editor manual
+  conserva los ejemplos de las variables. Arnes: el agente ya no dice "listo, ya envie" antes de que confirmes.
+- VERIFICADO: build 0 errores; Application.Tests 1485 (7 nuevos del verificador/borrador de WhatsApp).
+  E2E local: SOLDARCO :5271 (linea YCloud real) -> borrador notificacion_cotizacion_lista creado, verificado y editado
+  con version; tarjeta roja de Someter con texto final y boton bloqueado hasta la casilla; RECHAZADA a proposito (NO se
+  sometio a Meta: sigue Draft sin provider_template_id). BITCODE :5272 con acuartas@bitcode.com.co -> plantilla
+  "Seguimiento soporte TI" creada y send_test ENVIADO 2 veces a acuartas@bitcode.com.co (regla del usuario: pruebas de
+  correo solo a ese buzon).
+- PENDIENTE: someter una plantilla real a Meta solo con OK explicito (crea la plantilla en la WABA de la linea).
+
+## 2026-11-16 - v0.16.336: agente editor de plantillas de correo + bajas + firma (DESPLEGADA 2026-11-17)
+
+- DEPLOY: 2026-11-17 ~06:40 Bogota con OK del usuario, dentro de la ventana del DRON DIAN (el usuario corre el DRON manualmente). Footer /login = v0.16.336; migracion 20261117011732_AddTemplateAgentAndEmailUnsubscribe aplicada; sin errores en el arranque. ECOREX_PUBLIC_BASE_URL definida en prod. PENDIENTE: marcar Gemini como "IA gestion de plantillas" en Servidores de IA (hoy ninguno lo esta y el de formularios es DeepSeek, que da 400 en la 2a vuelta con tools).
+
+- INTEGRACION (2026-11-17, dev principal): rebase sobre 743f3f5d (lector de medios DeepSeek, que tomo ADR-0174 y v0.16.335). Este trabajo se renumero a ADR-0175 y v0.16.336. Conflictos resueltos conservando ambos lados: AiProviderConfig/AiProviderDtos/AiServerConfigService/ServidoresIa tienen UseForTemplateBuilder ("IA gestion de plantillas") Y TranscriptionModel (transcriptor de plataforma). La migracion AddTemplateAgentAndEmailUnsubscribe conserva su timestamp (PG 20261117011732 / SQL 20261117011718, ya aplicada en la BD local) y queda antes de AddAgentMediaReaderAndTranscriber.
+
+- AGENTE: Claude Opus 5.5 (sesion del motor de acciones; el usuario pidio construirlo en esta sesion). ADR-0175.
+- HECHO (fase 1, correo): nucleo generico de chat con gate humano (TemplateAgentChatService + ITemplateAgentToolset),
+  conversacion persistente, versiones (TemplateSnapshot) con Restaurar, verificador determinista obligatorio
+  (EmailTemplateVerifier), toolset de correo (get_template/list_variables/verify_email/save_template/send_test).
+  /plantillas-correo pasa a editor de 3 columnas (campos | vista previa en iframe sandbox | chat del agente) con
+  verificacion en vivo, selector de versiones y lista de bajas. Variables nuevas {telefono} {sector} {vendedor} {firma}
+  {enlace_baja}; firma por usuario en Mi cuenta (TenantUser.FirmaHtml); pagina publica /baja/{token} (token Data
+  Protection de proposito propio) + EmailUnsubscribe; el motor omite a los dados de baja. Flag "IA gestion de
+  plantillas" en Servidores de IA. EmailTemplate a soft-delete; vista previa del disenador de acciones en iframe sandbox.
+- MIGRACION dual aditiva AddTemplateAgentAndEmailUnsubscribe (20261117011732 PG / 20261117011718 SQL): 4 tablas + 5 columnas.
+- VERIFICADO: build 0 errores; Application.Tests 1478 (11 nuevos: verificador, merge, preheader, gate e irreversible; +1
+  dispatcher con baja/firma/vendedor), Domain.Tests 35, Integration: TenantIsolation dual 6/6 y token de baja 3/3.
+  E2E local :5271 (SOLDARCO, BD 5442, Gemini): crear desde un brief, replicar desde imagen (canvas), editar, version +
+  restaurar, gate (Pending sin escritura hasta Confirmar), soft-delete, firma, /baja con token valido e invalido, quitar baja.
+  Ajustes tras el E2E: el agente ya no pide permiso ni pega el borrador (va directo a la tarjeta) y recibe una nota del
+  sistema al restaurar/guardar a mano (antes reaplicaba el asunto viejo de su historial).
+- NO PROBADO: send_test (enviaria a un buzon real de SOLDARCO).
+- OJO: deepseek-v4-flash (marcado para formularios en la BD) da 400 en la 2a vuelta con herramientas (reasoning_content);
+  en prod marcar Gemini como "IA gestion de plantillas" antes de usar el agente.
+- SIGUIENTE: fase 2 (WhatsApp: redactar + someter a Meta con confirmacion irreversible); merge al tronco y deploy con OK.
+
+## 2026-11-16 - Release v0.16.335: agentes en DeepSeek entienden imagenes, PDF y notas de voz (DESPLEGADA 2026-11-17)
+
+- DEPLOY: 2026-11-17 04:30 Bogota con OK del usuario (via rapida GHCR). Footer /login = v0.16.335; migracion 20261117023912_AddAgentMediaReaderAndTranscriber aplicada; media_reader_prompt sembrado SOLO en "Agente Comercial" (EPRING); sin errores en logs.
+
+- AGENTE: Claude Opus 5.5 (dev principal). Hand-off de la sesion data-ops (diagnostico en prod). ADR-0174.
+- PROBLEMA: con DeepSeek el agente respondia sin entender los adjuntos: (1) el lector de imagen/PDF usaba una plantilla FIJA de EPRING (factura de energia/techo/motobomba) para todos los agentes y descartaba lo demas (caso ANA: "Electrodo E7018 1/8 - 10 cajas" se perdio); (2) el modelo principal solo recibia imagenes en Gemini; (3) PDF solo en Gemini/Claude; (4) audio solo en Gemini.
+- HECHO: AgentMediaReader (Application) con lector GENERICO por defecto ("QUE ES" + transcripcion de todo el texto legible) y prompt propio por agente (ai_agents.media_reader_prompt, acordeon "Lector de archivos" en el editor; SetMediaReaderPromptAsync aparte de UpdateAsync). Imagenes al modelo principal tambien en DeepSeek/ChatGPT (image_url) con UN reintento sin imagenes si el modelo no tiene vision (aviso en la bitacora de prompts). PDF en DeepSeek/ChatGPT rasterizado con IPdfRasterizer (5 paginas, 150 dpi). Notas de voz: transcriptor de plataforma = Gemini de Servidores de IA con modelo configurable (ai_provider_configs.transcription_model, campo en la tarjeta de Gemini; null = gemini-2.5-flash), consumo en AiUsageLog del tenant (source "transcripcion"); respeta el freno de cupo de v0.16.332; sin Gemini habilitado, como antes + un log.
+- MIGRACION dual AddAgentMediaReaderAndTranscriber (20261117023912 PG / 20261117024201 SQL): 2 columnas nullable + DATOS: copia la plantilla historica de EPRING como lector de los agentes cuyo prompt base / datos cache / prompts enrutados nombran VALOR_TOTAL_COP, CONSUMO_KWH, TIPO_IMAGEN, FOTO_TECHO_AREA o PLACA_MOTOBOMBA (idempotente). En prod ese filtro devuelve SOLO "Agente Comercial" de EPRING (verificado con SELECT, solo lectura). Los demas agentes (tambien los de Gemini) pasan al lector generico.
+- VERIFICADO: build Release 0 errores; Application.Tests 1473, SuperAdmin.Tests 269, Domain.Tests 35 verdes (nuevos: AgentMediaReaderTests 7 = prompt propio/generico, PDF rasterizado con tope en DeepSeek, nativo en Gemini, transcriptor de plataforma; AiProviderClientImagesTests 6 = image_url en DeepSeek/ChatGPT/Gemini, sin audio en DeepSeek, reintento sin imagenes ante 400). has-pending-model-changes limpio en PG y SQL Server; integracion dual 8/8 (TenantIsolation + McpWhatsApp en PG y SQL Server, que aplican TODAS las migraciones con MigrateAsync: el UPDATE de datos corre en ambos motores); dotnet format limpio. SQL de la migracion probado en la BD local con ROLLBACK (local no tiene EPRING).
+- NO HECHO: prueba manual con el emulador POST /api/test/agent (imagen/PDF/nota de voz con un agente en DeepSeek y la foto de factura de EPRING); queda para la validacion en prod de la sesion data-ops con ANA. Las paginas del PDF no se pasan ademas al modelo principal (opcional del hand-off; el lector ya entrega su texto).
+- SIGUIENTE: deploy con OK del usuario. Luego data-ops valida con ANA y migra agente por agente (EPRING, AGRO) con simulaciones; los agentes de vision (p.ej. "Extractor de medidas (planos)" de AGRO) no se migran hasta probarlos aparte.
+
+## 2026-11-16 - Release v0.16.334: corrida paso a paso ya no queda "Ok" con pasos bloqueados (DESPLEGADO 2026-11-16)
+
+- AGENTE: Claude Opus 5.5 (dev principal). Hand-off de ECOREX.plataformas (solo diagnostico), pedido por el usuario.
+- CASO: prod, SOLDARCO, 2026-11-16 13:30. Programacion "Consulta de pedidos (lun-sab cada 2 h)" del DRON PLATAFORMAS INGENIOS B0005: los 8 pasos que abren/leen el portal fallaron ("Dominio no permitido por la allow-list local: apps.pdpartner.com", "Inyeccion de JS no permitida en este dominio") y la corrida cerro result=Ok, "sin filas en: ...". La causa operativa (allow-list del agente en SERVER06) la arregla el usuario.
+- FIX: FlowStepOutcome (SuperAdmin/Agents) clasifica cada Ok=false. DURO: Navigate fallido, rechazo por politica del agente (allow-list / JS bloqueado) o excepcion del runtime. BENIGNO (sigue como "sin filas"): guardas/drivers sin filas, esperas agotadas (p.ej. "Esperar fin de descargas" del DRON DIAN, que sigue bajando en 2do plano). Con errores duros la corrida cierra ok=false con "N paso(s) con error: paso: error; ... (flujo de N pasos; sin filas en: ...)" y el flujo queda en Error; FlowSequenceRunner lo cuenta como tramo fallido (aplica su reintento) y el conciliador lo muestra como aviso. Aplica a la corrida completa (Ejecutar ahora / programacion) y al camino paso a paso de flujos con OTP. No se aborta al primer fallo: se siguen corriendo los pasos como antes (el aborto sigue solo para OTP y offline).
+- OJO DRON DIAN: un Navigate que no responde en 60 s (visto 5 veces en la BD local en "IR A BUSCADOR"/"ENTRAR CON ENLACE DIAN") ahora deja la corrida en Error en vez de Ok; es correcto (la pagina no cargo).
+- VERIFICADO: build Release 0 errores; SuperAdmin.Tests 263 verdes (nuevos FlowStepOutcomeTests 14, con los textos reales de prod y los benignos del DRON DIAN); dotnet format limpio en los archivos tocados.
+- SIGUIENTE: deploy con OK del usuario (no en domingo 01:00-13:00 ni lun-sab 06:00-09:00 Bogota por las secuencias del DRON DIAN).
 ## 2026-11-16 - DRON PLATAFORMAS INGENIOS (B0005) programado en PROD: consulta de pedidos lun-sab cada 2 h (config, sin codigo, v0.16.333)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas). Pedido del usuario: "programa la consulta a plataformas".

@@ -49,7 +49,10 @@ public class ScheduleTriggerTests
         // Inicio lunes 2026-11-02. Semanas validas: la del 2, la del 16, la del 30...
         var t = new ScheduleTrigger
         {
-            Tipo = TriggerTipo.Semanal, Cada = 2, Dias = new[] { 1, 4 }, Inicio = new DateTime(2026, 11, 2, 1, 0, 0),
+            Tipo = TriggerTipo.Semanal,
+            Cada = 2,
+            Dias = new[] { 1, 4 },
+            Inicio = new DateTime(2026, 11, 2, 1, 0, 0),
         };
 
         var proximas = t.NextLocal(Local(2026, 11, 2, 2, 0), Bog, 4);
@@ -68,7 +71,9 @@ public class ScheduleTriggerTests
     {
         var t = new ScheduleTrigger
         {
-            Tipo = TriggerTipo.Mensual, Meses = new[] { 2, 11 }, DiasMes = new[] { ScheduleTrigger.UltimoDia },
+            Tipo = TriggerTipo.Mensual,
+            Meses = new[] { 2, 11 },
+            DiasMes = new[] { ScheduleTrigger.UltimoDia },
             Inicio = new DateTime(2026, 1, 1, 23, 0, 0),
         };
 
@@ -82,7 +87,11 @@ public class ScheduleTriggerTests
     {
         var primerLunes = new ScheduleTrigger
         {
-            Tipo = TriggerTipo.Mensual, PorDiaDelMes = false, Ordinal = 1, DiaSemana = 1, Inicio = new DateTime(2026, 1, 1, 8, 0, 0),
+            Tipo = TriggerTipo.Mensual,
+            PorDiaDelMes = false,
+            Ordinal = 1,
+            DiaSemana = 1,
+            Inicio = new DateTime(2026, 1, 1, 8, 0, 0),
         };
         var ultimoViernes = primerLunes with { Ordinal = 5, DiaSemana = 5 };
 
@@ -104,7 +113,10 @@ public class ScheduleTriggerTests
     {
         var t = new ScheduleTrigger
         {
-            Tipo = TriggerTipo.Diaria, Inicio = new DateTime(2026, 11, 1, 8, 0, 0), RepetirCadaMin = 120, RepetirDuranteMin = 360,
+            Tipo = TriggerTipo.Diaria,
+            Inicio = new DateTime(2026, 11, 1, 8, 0, 0),
+            RepetirCadaMin = 120,
+            RepetirDuranteMin = 360,
         };
 
         var p = t.NextLocal(Local(2026, 11, 16, 7, 0), Bog, 4);
@@ -122,7 +134,9 @@ public class ScheduleTriggerTests
     {
         var t = new ScheduleTrigger
         {
-            Tipo = TriggerTipo.Diaria, Inicio = new DateTime(2026, 11, 1, 6, 0, 0), Caduca = new DateTime(2026, 11, 17, 12, 0, 0),
+            Tipo = TriggerTipo.Diaria,
+            Inicio = new DateTime(2026, 11, 1, 6, 0, 0),
+            Caduca = new DateTime(2026, 11, 17, 12, 0, 0),
         };
 
         Assert.Equal(Local(2026, 11, 17, 6, 0), t.NextAfter(Local(2026, 11, 16, 7, 0), Bog));
@@ -137,7 +151,10 @@ public class ScheduleTriggerTests
     {
         var t = new ScheduleTrigger
         {
-            Tipo = tipo, Cada = cada, Dias = conDias ? new[] { 1 } : Array.Empty<int>(), Inicio = new DateTime(2026, 11, 1, 6, 0, 0),
+            Tipo = tipo,
+            Cada = cada,
+            Dias = conDias ? new[] { 1 } : Array.Empty<int>(),
+            Inicio = new DateTime(2026, 11, 1, 6, 0, 0),
         };
 
         Assert.NotNull(t.Validate());
@@ -156,7 +173,10 @@ public class ScheduleTriggerTests
     {
         var t = new ScheduleTrigger
         {
-            Tipo = TriggerTipo.Semanal, Cada = 1, Dias = new[] { 0 }, Inicio = new DateTime(2026, 11, 16, 1, 0, 0),
+            Tipo = TriggerTipo.Semanal,
+            Cada = 1,
+            Dias = new[] { 0 },
+            Inicio = new DateTime(2026, 11, 16, 1, 0, 0),
         };
 
         var back = ScheduleTrigger.Parse(t.ToJson());
@@ -174,7 +194,10 @@ public class ScheduleTriggerTests
     {
         var p = new Ecorex.Domain.Entities.ImportProcess
         {
-            Name = "x", IsActive = true, ScheduleKind = Ecorex.Domain.Enums.ImportScheduleKind.Cron, CronExpression = "0 0 * * *",
+            Name = "x",
+            IsActive = true,
+            ScheduleKind = Ecorex.Domain.Enums.ImportScheduleKind.Cron,
+            CronExpression = "0 0 * * *",
             TriggerJson = new ScheduleTrigger { Tipo = TriggerTipo.UnaVez, Inicio = new DateTime(2026, 11, 20, 1, 0, 0) }.ToJson(),
         };
 

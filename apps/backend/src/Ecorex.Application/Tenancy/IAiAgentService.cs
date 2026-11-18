@@ -9,6 +9,10 @@ public interface IAiAgentService
     Task<AiAgentDto?> CreateAsync(CreateAiAgentRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<AiAgentDto?> UpdateAsync(Guid id, UpdateAiAgentRequest request, Guid actorUserId, CancellationToken cancellationToken = default);
 
+    /// <summary>Fija el prompt del LECTOR DE MEDIOS (imagenes/PDF) del agente (ADR-0174); null o vacio = lector
+    /// generico. Va aparte de UpdateAsync para que los llamadores que no lo conocen no lo borren.</summary>
+    Task<AiAgentDto?> SetMediaReaderPromptAsync(Guid id, string? prompt, Guid actorUserId, CancellationToken cancellationToken = default);
+
     /// <summary>Enciende (produccion) o apaga el agente.</summary>
     Task<AiAgentDto?> SetActiveAsync(Guid id, bool active, Guid actorUserId, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, Guid actorUserId, CancellationToken cancellationToken = default);

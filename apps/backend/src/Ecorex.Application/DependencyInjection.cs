@@ -75,6 +75,15 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IQuoteTemplateService, Tenancy.QuoteTemplateService>();
         // Plantillas de correo del motor de acciones por filtro (ADR-0056, paso E-mail).
         services.AddScoped<Gestor.IEmailTemplateService, Gestor.EmailTemplateService>();
+        // Agente editor de plantillas + bajas de correo + firma por usuario (ADR-0175).
+        services.AddScoped<Gestor.IEmailUnsubscribeService, Gestor.EmailUnsubscribeService>();
+        // Marca de correo del tenant (ADR-0177): logo, colores, estilo por defecto y datos del pie.
+        services.AddScoped<Gestor.IEmailBrandService, Gestor.EmailBrandService>();
+        services.AddScoped<Gestor.IUserSignatureService, Gestor.UserSignatureService>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.EmailTemplateAgentToolset>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.WhatsAppTemplateAgentToolset>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateSnapshotService, Gestor.TemplateAgent.TemplateSnapshotService>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateAgentChatService, Gestor.TemplateAgent.TemplateAgentChatService>();
         services.AddScoped<Tenancy.ITemplateAssetService, Tenancy.TemplateAssetService>();
         services.AddScoped<Tenancy.IQuoteRenderService, Tenancy.QuoteRenderService>();
         // Broadcaster por defecto (no-op); la app host con SignalR lo reemplaza.

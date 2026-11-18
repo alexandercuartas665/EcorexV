@@ -272,6 +272,7 @@ public class ScheduledUpsertRunTests
         public DbSet<Rol> Roles => NotUsed<Rol>();
         public DbSet<Ciudad> Ciudades => NotUsed<Ciudad>();
         public DbSet<TenantApiToken> TenantApiTokens => NotUsed<TenantApiToken>();
+        public DbSet<ExternalTaskLink> ExternalTaskLinks => NotUsed<ExternalTaskLink>();
         public DbSet<RolPermiso> RolPermisos => NotUsed<RolPermiso>();
         public DbSet<Tercero> Terceros => NotUsed<Tercero>();
         public DbSet<TerceroContacto> TerceroContactos => NotUsed<TerceroContacto>();

@@ -1,11 +1,23 @@
 @page "/plantillas-correo"
 @attribute [Authorize]
-@* Administrador de PLANTILLAS DE CORREO del motor de acciones por filtro (ADR-0056, paso E-mail).
-   Lista + crear/editar (Nombre, Asunto, Cuerpo HTML, Activa) + vista previa con datos de ejemplo.
-   Las plantillas activas se ofrecen en el disenador de acciones (paso E-mail). Solo ASCII. *@
+@* Administrador de PLANTILLAS DE CORREO del motor de acciones por filtro (ADR-0056, paso E-mail) con el
+   AGENTE EDITOR DE PLANTILLAS (ADR-0175) y marca/galeria/estilos (ADR-0177).
+   - Lista en TARJETAS con miniatura del correo renderizado.
+   - Editor en un MODAL de 2 columnas: izquierda con pestanas (Vista previa | HTML | Galeria | Versiones),
+     derecha el chat del agente con el selector de estilo. Versiones: ver una version antes de restaurarla.
+   El HTML (de la IA o pegado) solo se pinta en iframes sandbox="" (sin scripts ni mismo origen). Solo ASCII. *@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Ecorex.Application.Gestor
+@using Ecorex.Application.Gestor.TemplateAgent
+@using Ecorex.Application.Tenancy
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Templates
+@using Microsoft.AspNetCore.Components.Authorization
 @inject IEmailTemplateService Svc
+@inject ITemplateSnapshotService Snapshots
+@inject IEmailUnsubscribeService Bajas
+@inject ITemplateAgentChatService AgentChat
+@inject IEmailBrandService BrandSvc
 @inject IJSRuntime JS
 
 <PageTitle>Plantillas de correo - ECOREX.tareas</PageTitle>
@@ -22,45 +34,115 @@
     <div>
         <div class="pc-eyebrow">MOTOR DE ACCIONES &#183; E-MAIL</div>
         <h1 class="page-title" style="margin-top:6px;">Plantillas de correo</h1>
-        <p class="page-sub" style="margin-bottom:0;">Asunto y cuerpo con variables <b>{nombre} {empresa} {cargo} {ciudad} {correo}</b> que se reemplazan con los datos del contacto al enviar. Las activas aparecen en el disenador de acciones (paso E-mail).</p>
+        <p class="page-sub" style="margin-bottom:0;">Crea o edita correos con el <b>agente de plantillas</b> (describe el correo o adjunta una captura para replicarlo). Las activas aparecen en el disenador de acciones (paso E-mail).</p>
     </div>
-    <button class="btn btn-primary" @onclick="OpenNew">+ Nueva plantilla</button>
+    <div class="pc-head-actions">
+        <button class="btn btn-outline-secondary" @onclick="OpenGalleryModal">Galeria</button>
+        <button class="btn btn-primary" @onclick="OpenNew">+ Nueva plantilla</button>
+    </div>
 </div>
+
+@* Tarjeta de la MARCA DE CORREO: lo que el agente aplica a todos los correos (ADR-0177). *@
+<button class="pc-brandbar" @onclick="OpenBrand" title="Editar la marca de correo">
+    <span class="pc-brand-logo" style="@(string.IsNullOrWhiteSpace(_brand?.ColorPrimario) ? "" : $"background:{_brand!.ColorPrimario};color:#fff;")">
+        @if (!string.IsNullOrWhiteSpace(_brand?.LogoEfectivo))
+        {
+            <img src="@_brand!.LogoEfectivo" alt="Logo" />
+        }
+        else
+        {
+            <span>@Initials(_brand?.Empresa)</span>
+        }
+    </span>
+    <span class="pc-brand-main">
+        <span class="pc-brand-t">Marca de correo</span>
+        <span class="pc-brand-s">
+            <span class="pc-sw" style="background:@(_brand?.ColorPrimario ?? "#d9dce3")" title="Color principal"></span>
+            <span class="pc-sw" style="background:@(_brand?.ColorAcento ?? "#eceef2")" title="Color de acento"></span>
+            Estilo por defecto: <b>@StyleName(_brand?.EstiloPorDefecto)</b>
+            @if (string.IsNullOrWhiteSpace(_brand?.ColorPrimario))
+            {
+                <span class="pc-brand-hint">- configura tus colores para que todos los correos salgan con tu marca</span>
+            }
+        </span>
+    </span>
+    <span class="pc-brand-edit">Editar</span>
+</button>
 
 @if (_loading)
 {
-    <p class="text-muted">Cargando plantillas...</p>
+    <p class="text-muted" style="margin-top:14px;">Cargando plantillas...</p>
 }
 else
 {
-    <div class="pc-list">
-        @if (_items.Count == 0)
-        {
-            <p class="text-muted">Aun no hay plantillas. Usa "+ Nueva plantilla" para crear la primera.</p>
-        }
+    @* ===== Tarjetas de plantillas ===== *@
+    <div class="pc-cards">
+        <button class="pc-card pc-card-new" @onclick="OpenNew">
+            <span class="pc-card-plus">+</span>
+            <span class="pc-card-newt">Nueva plantilla</span>
+            <span class="pc-card-news">Describe el correo al agente o replica una captura</span>
+        </button>
         @foreach (var t in _items)
         {
             var tt = t;
-            <div class="pc-row">
-                <div class="pc-main">
+            <div class="pc-card">
+                <button class="pc-thumb" @onclick="() => OpenEdit(tt)" title="Abrir @tt.Nombre">
+                    @if (string.IsNullOrWhiteSpace(tt.CuerpoHtml))
+                    {
+                        <span class="pc-thumb-empty">Sin contenido</span>
+                    }
+                    else
+                    {
+                        <iframe sandbox="" tabindex="-1" loading="lazy" aria-hidden="true" srcdoc="@PreviewDocFor(tt.CuerpoHtml)"></iframe>
+                    }
+                </button>
+                <div class="pc-card-body">
                     <div class="pc-name">
-                        @tt.Nombre
-                        @if (!tt.Activa)
-                        {
-                            <span class="pc-badge pc-off">Inactiva</span>
-                        }
-                        else
-                        {
-                            <span class="pc-badge pc-on">Activa</span>
-                        }
+                        <span class="pc-name-t" title="@tt.Nombre">@tt.Nombre</span>
+                        @if (tt.Activa) { <span class="pc-badge pc-on">Activa</span> }
+                        else { <span class="pc-badge pc-off">Inactiva</span> }
                     </div>
-                    <div class="pc-subj">@(string.IsNullOrWhiteSpace(tt.Asunto) ? "(sin asunto)" : tt.Asunto)</div>
-                </div>
-                <div class="pc-actions">
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(tt)">Editar</button>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteAsync(tt)" disabled="@_busy">Eliminar</button>
+                    <div class="pc-subj" title="@tt.Asunto">@(string.IsNullOrWhiteSpace(tt.Asunto) ? "(sin asunto)" : tt.Asunto)</div>
+                    <div class="pc-card-foot">
+                        @if (EmailDesignStyles.Find(tt.Estilo) is { } st)
+                        {
+                            <span class="pc-badge pc-style">@st.Nombre</span>
+                        }
+                        <span class="pc-date">@tt.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                        <span class="pc-card-actions">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(tt)">Editar</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteAsync(tt)" disabled="@_busy" title="Eliminar">&times;</button>
+                        </span>
+                    </div>
                 </div>
             </div>
+        }
+    </div>
+
+    <div class="pc-bajas">
+        <button class="pc-bajas-toggle" @onclick="ToggleBajasAsync">
+            @(_bajasOpen ? "v" : ">") Bajas de correo
+            @if (_bajas is not null) { <span class="pc-badge pc-off">@_bajas.Count</span> }
+        </button>
+        @if (_bajasOpen)
+        {
+            <p class="text-muted small" style="margin:6px 0 8px;">Contactos que abrieron el enlace {enlace_baja} de un correo. El motor de acciones ya no les envia correos. Quitar una baja solo si el contacto pidio volver a recibirlos.</p>
+            @if (_bajas is null || _bajas.Count == 0)
+            {
+                <p class="text-muted small">Nadie se ha dado de baja.</p>
+            }
+            else
+            {
+                @foreach (var b in _bajas)
+                {
+                    var bb = b;
+                    <div class="pc-baja-row">
+                        <span class="pc-baja-mail">@bb.Email</span>
+                        <span class="text-muted small">@bb.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm") - @bb.Origen@(string.IsNullOrWhiteSpace(bb.Motivo) ? "" : " - " + bb.Motivo)</span>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => RemoveBajaAsync(bb)" disabled="@_busy">Quitar</button>
+                    </div>
+                }
+            }
         }
     </div>
 }
@@ -70,97 +152,407 @@ else
     <div class="text-danger small" style="margin-top:10px">@_error</div>
 }
 
-@* ===== Modal: nueva / editar plantilla ===== *@
+@* ===== EDITOR en modal: pestanas | chat ===== *@
 @if (_editOpen)
 {
-    <div class="modal-overlay" @onclick="() => _editOpen = false">
-        <div class="modal-dialog" style="max-width:760px;" @onclick:stopPropagation="true">
+    <div class="modal-overlay pe-overlay">
+        <div class="pe-modal" role="dialog" aria-label="Editor de plantilla de correo">
+            <div class="pe-mhead">
+                <div class="pe-title">@(_editingId is null ? "Nueva plantilla" : _fNombre)</div>
+                @if (_dirty) { <span class="pe-dirty">Cambios sin guardar</span> }
+                <div class="pe-top-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="OpenBrand" title="Logo, colores y datos del pie">Marca</button>
+                    <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+                    <button class="modal-close" @onclick="CloseEditorAsync" title="Cerrar">&times;</button>
+                </div>
+            </div>
+            <div class="pe-meta">
+                <input class="form-control form-control-sm pe-meta-name" value="@_fNombre" @oninput="e => { _fNombre = e.Value?.ToString() ?? string.Empty; _dirty = true; }" maxlength="200" placeholder="Nombre interno *" title="Nombre interno de la plantilla" />
+                <input class="form-control form-control-sm pe-meta-subj" value="@_fAsunto" @oninput="e => { _fAsunto = e.Value?.ToString() ?? string.Empty; _dirty = true; }" maxlength="300" placeholder="Asunto * (ej. Hola {nombre}, una propuesta para {empresa})" title="Asunto del correo" />
+                <label class="pc-check pe-meta-active" title="Disponible en el disenador de acciones">
+                    <input type="checkbox" checked="@_fActiva" @onchange="e => { _fActiva = (bool)(e.Value ?? false); _dirty = true; }" />
+                    <span>Activa</span>
+                </label>
+            </div>
+            @if (_modalError is not null)
+            {
+                <div class="pe-merror">@_modalError</div>
+            }
+
+            <div class="pe-mgrid">
+                @* ----- Columna izquierda: pestanas ----- *@
+                <div class="pe-left">
+                    <div class="pe-tabs" role="tablist">
+                        <button class="pe-tab @(_tab == "preview" ? "on" : "")" @onclick="@(() => _tab = "preview")">Vista previa</button>
+                        <button class="pe-tab @(_tab == "html" ? "on" : "")" @onclick="@(() => _tab = "html")">HTML</button>
+                        <button class="pe-tab @(_tab == "galeria" ? "on" : "")" @onclick="@(() => _tab = "galeria")">Galeria @if (_galleryCount > 0) { <span class="pe-tab-n">@_galleryCount</span> }</button>
+                        <button class="pe-tab @(_tab == "versiones" ? "on" : "")" @onclick="OpenVersionsTab">Versiones @if (_versions.Count > 0) { <span class="pe-tab-n">@_versions.Count</span> }</button>
+                    </div>
+
+                    <div class="pe-tabbody">
+                        @if (_tab == "preview")
+                        {
+                            @if (_viewSnap is not null)
+                            {
+                                <div class="pe-viewing">
+                                    <span>Viendo la version del <b>@_viewSnap.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</b> (@VersionLabel(_viewSnap.Label)).</span>
+                                    <span class="pe-viewing-actions">
+                                        <button class="btn btn-sm btn-primary" @onclick="() => RestoreAsync(_viewSnap)" disabled="@_busy">Restaurar esta version</button>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => _viewSnap = null">Volver a la actual</button>
+                                    </span>
+                                </div>
+                            }
+                            var subj = _viewSnap is not null ? _viewAsunto : _fAsunto;
+                            <div class="pc-prev-subj"><b>Asunto:</b> @EmailTemplateService.RenderTemplate(subj, EmailTemplateService.SampleFields, htmlEscapeValues: false) <span class="pe-sample">datos de ejemplo: Juan Perez / ACME S.A.S</span></div>
+                            <iframe class="pe-frame" sandbox="" title="Vista previa del correo" srcdoc="@PreviewDocFor(_viewSnap is not null ? _viewHtml : _fCuerpo)"></iframe>
+                            @if (_viewSnap is null)
+                            {
+                                var vr = EmailTemplateVerifier.Verify(_fAsunto, _fCuerpo);
+                                <div class="pe-verify @(vr.Errors > 0 ? "bad" : vr.Warnings > 0 ? "warn" : "ok")">
+                                    <div class="pe-verify-h">
+                                        @if (vr.Errors == 0 && vr.Warnings == 0) { <span>Verificacion: todo en orden.</span> }
+                                        else { <span>Verificacion: @vr.Errors error(es), @vr.Warnings aviso(s)</span> }
+                                    </div>
+                                    @foreach (var i in vr.Issues)
+                                    {
+                                        <div class="pe-issue @i.Severity"><b>@(i.Severity == "error" ? "Error" : "Aviso")</b> (@i.Where): @i.Problem <span class="text-muted">@i.Fix</span></div>
+                                    }
+                                </div>
+                            }
+                        }
+                        else if (_tab == "html")
+                        {
+                            <textarea class="form-control pe-code" value="@_fCuerpo" @oninput="e => { _fCuerpo = e.Value?.ToString() ?? string.Empty; _dirty = true; }" spellcheck="false" placeholder="&lt;table role=&quot;presentation&quot; width=&quot;600&quot;&gt;...&lt;/table&gt;"></textarea>
+                            <div class="pe-vars">
+                                <span class="pc-prev-lbl">VARIABLES</span>
+                                @foreach (var v in EmailTemplateService.Variables)
+                                {
+                                    <span class="pe-var" title="@v.Descripcion">{@v.Token}</span>
+                                }
+                            </div>
+                        }
+                        else if (_tab == "galeria")
+                        {
+                            <TemplateGalleryPanel OnUseInChat="UseInChat" OnCountChanged="n => _galleryCount = n" />
+                        }
+                        else
+                        {
+                            <div class="pe-vers-head">
+                                <p class="pe-vers-hint">Antes de cada cambio del agente y de cada guardado se guarda una version automatica. Si el agente estropea la plantilla, abre una version para verla y restaurala (la actual queda guardada, asi tambien puedes deshacer).</p>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="SaveVersionNowAsync" disabled="@(_busy || _editingId is null)">Guardar version ahora</button>
+                            </div>
+                            @if (_editingId is null)
+                            {
+                                <p class="pe-vers-hint">Guarda la plantilla para empezar a tener versiones.</p>
+                            }
+                            else if (_versions.Count == 0)
+                            {
+                                <p class="pe-vers-hint">Aun no hay versiones.</p>
+                            }
+                            else
+                            {
+                                <div class="pe-vers">
+                                    @foreach (var v in _versions)
+                                    {
+                                        var vv = v;
+                                        <div class="pe-ver @(_viewSnap?.Id == vv.Id ? "on" : "")">
+                                            <div class="pe-ver-main">
+                                                <b>@vv.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</b>
+                                                <span>@VersionLabel(vv.Label)</span>
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => ViewVersionAsync(vv)" disabled="@_busy">Ver</button>
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => RestoreAsync(vv)" disabled="@_busy">Restaurar</button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                @* ----- Columna derecha: estilo + chat del agente ----- *@
+                <div class="pe-right">
+                    @{ var cur = EmailDesignStyles.Find(_styleKey) ?? EmailDesignStyles.All[0]; }
+                    <div class="pe-style">
+                        <button class="pe-style-cur" @onclick="() => _stylePickerOpen = !_stylePickerOpen" title="Elegir el estilo de diseno del correo">
+                            <span class="pe-style-bar">
+                                @foreach (var c in cur.Muestra) { <i style="background:@c"></i> }
+                            </span>
+                            <span class="pe-style-txt">
+                                <span class="pe-style-lbl">ESTILO DE DISENO</span>
+                                <b>@cur.Nombre</b>
+                            </span>
+                            <span class="pe-style-caret">@(_stylePickerOpen ? "Cerrar" : "Cambiar")</span>
+                        </button>
+                        @if (_stylePickerOpen)
+                        {
+                            <div class="pe-style-grid">
+                                @foreach (var s in EmailDesignStyles.All)
+                                {
+                                    var ss = s;
+                                    <button class="pe-style-card @(ss.Key == _styleKey ? "on" : "")" @onclick="() => PickStyle(ss.Key)">
+                                        <span class="pe-style-bar">
+                                            @foreach (var c in ss.Muestra) { <i style="background:@c"></i> }
+                                        </span>
+                                        <b>@ss.Nombre</b>
+                                        <span>@ss.Descripcion</span>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        @if (_editingId is not null && !string.IsNullOrWhiteSpace(_fCuerpo) && _styleKey != _savedStyle)
+                        {
+                            <div class="pe-style-apply">
+                                <span>La plantilla esta en <b>@StyleName(_savedStyle)</b>.</span>
+                                <button class="btn btn-sm btn-primary" @onclick="ApplyStyleAsync">Redisenar en @cur.Nombre</button>
+                            </div>
+                        }
+                    </div>
+                    <TemplateAgentChatPanel @ref="_panel" @key="_panelKey" Kind="TemplateAgentKind.Email" TemplateId="_editingId"
+                                            OnTemplateChanged="OnAgentChangedAsync" MessagePrefix="StylePrefix" />
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: MARCA DE CORREO (ADR-0177) ===== *@
+@if (_brandOpen)
+{
+    <div class="modal-overlay pe-overlay-top">
+        <div class="modal-dialog" style="max-width:620px;">
             <div class="modal-head">
-                <h3>@(_editingId is null ? "Nueva plantilla" : "Editar plantilla")</h3>
-                <button class="modal-close" @onclick="() => _editOpen = false">&times;</button>
+                <h3>Marca de correo</h3>
+                <button class="modal-close" @onclick="() => _brandOpen = false">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="field">
-                    <label class="form-label">Nombre *</label>
-                    <input class="form-control" @bind="_fNombre" maxlength="200" placeholder="Ej. Bienvenida prospectos" />
-                </div>
-                <div class="field">
-                    <label class="form-label">Asunto *</label>
-                    <input class="form-control" @bind="_fAsunto" maxlength="300" placeholder="Hola {nombre}, una propuesta para {empresa}" />
-                </div>
-                <div class="field">
-                    <label class="form-label">Cuerpo (HTML)</label>
-                    <textarea class="form-control" rows="8" @bind="_fCuerpo" placeholder="&lt;p&gt;Hola {nombre},&lt;/p&gt;&lt;p&gt;Nos gustaria conversar con {empresa}...&lt;/p&gt;"></textarea>
-                </div>
-                <label class="pc-check">
-                    <input type="checkbox" checked="@_fActiva" @onchange="e => _fActiva = (bool)(e.Value ?? false)" />
-                    <span>Activa (disponible en el disenador de acciones)</span>
-                </label>
+                <p class="text-muted small" style="margin-top:0;">El agente aplica esta marca a <b>todos</b> los correos: logo, colores, estilo por defecto y datos reales del pie.</p>
 
-                <div class="pc-prev">
-                    <div class="pc-prev-lbl">VISTA PREVIA &#183; datos de ejemplo (Juan Perez / ACME S.A.S)</div>
-                    <div class="pc-prev-subj"><b>Asunto:</b> @PreviewSubject()</div>
-                    <div class="pc-prev-body">@((MarkupString)PreviewBody())</div>
+                @* Muestra en vivo de la banda y el boton con los colores elegidos. *@
+                <div class="pb-preview">
+                    <div class="pb-band" style="background:@(_bPrim ?? "#0d2c4b")">
+                        @if (!string.IsNullOrWhiteSpace(BrandLogoPreview))
+                        {
+                            <img src="@BrandLogoPreview" alt="Logo" />
+                        }
+                        else
+                        {
+                            <span class="pb-word">@(_brand?.Empresa ?? "Tu empresa")</span>
+                        }
+                    </div>
+                    <div class="pb-body">
+                        <div class="pb-hero">Asi se vera tu correo</div>
+                        <span class="pb-cta" style="background:@(_bAcc ?? "#e8833a")">Boton de accion</span>
+                    </div>
                 </div>
 
-                @if (_modalError is not null)
+                <div class="field">
+                    <label class="form-label">Logo para correos</label>
+                    <div class="pb-logo-row">
+                        <span class="text-muted small">
+                            @if (!string.IsNullOrWhiteSpace(_bLogo)) { <span>Logo de la galeria.</span> }
+                            else { <span>Se usa el logo de la empresa (Mi cuenta).</span> }
+                        </span>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => _logoPickerOpen = true">Elegir de la galeria</button>
+                        @if (!string.IsNullOrWhiteSpace(_bLogo))
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _bLogo = null">Usar el de la empresa</button>
+                        }
+                    </div>
+                    <div class="text-muted" style="font-size:11px;margin-top:4px;">Tip: si tu banda es oscura, sube a la galeria una version clara (blanca) del logo en PNG.</div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field">
+                        <label class="form-label">Color principal</label>
+                        <div class="pb-color">
+                            <input type="color" value="@(_bPrim ?? "#0d2c4b")" @oninput="e => _bPrim = e.Value?.ToString()" />
+                            <input class="form-control" value="@_bPrim" @onchange="e => _bPrim = e.Value?.ToString()" placeholder="#0d2c4b" maxlength="7" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label">Color de acento (botones)</label>
+                        <div class="pb-color">
+                            <input type="color" value="@(_bAcc ?? "#e8833a")" @oninput="e => _bAcc = e.Value?.ToString()" />
+                            <input class="form-control" value="@_bAcc" @onchange="e => _bAcc = e.Value?.ToString()" placeholder="#e8833a" maxlength="7" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="form-label">Estilo de diseno por defecto</label>
+                    <select class="form-select" value="@_bEstilo" @onchange="e => _bEstilo = e.Value?.ToString()">
+                        @foreach (var s in EmailDesignStyles.All)
+                        {
+                            <option value="@s.Key">@s.Nombre - @s.Descripcion</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label class="form-label">Sitio web</label>
+                    <input class="form-control" value="@_bSitio" @onchange="e => _bSitio = e.Value?.ToString()" placeholder="https://miempresa.com" maxlength="300" />
+                    <div class="text-muted" style="font-size:11px;margin-top:4px;">Va en el pie y es el destino por defecto de los botones.</div>
+                </div>
+
+                <div class="field">
+                    <label class="form-label">Texto adicional del pie (opcional)</label>
+                    <textarea class="form-control" rows="2" value="@_bPie" @onchange="e => _bPie = e.Value?.ToString()" placeholder="Ej. Lunes a viernes 8am-6pm - Instagram @@miempresa" maxlength="1000"></textarea>
+                </div>
+
+                <div class="pb-contact">
+                    <div class="pc-prev-lbl">DATOS DE CONTACTO DEL PIE (de Mi cuenta &gt; Datos de la empresa)</div>
+                    <div>@(_brand?.Empresa) - @(Or(_brand?.Direccion, "sin direccion")) - @(Or(_brand?.Ciudad, "sin ciudad")) - @(Or(_brand?.Telefono, "sin telefono")) - @(Or(_brand?.Correo, "sin correo"))</div>
+                </div>
+
+                @if (_brandError is not null)
                 {
-                    <div class="text-danger small">@_modalError</div>
+                    <div class="text-danger small" style="margin-top:8px;">@_brandError</div>
                 }
             </div>
             <div class="modal-foot">
-                <button class="btn btn-outline-secondary" @onclick="() => _editOpen = false">Cancelar</button>
-                <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_busy">Guardar</button>
+                <button class="btn btn-outline-secondary" @onclick="() => _brandOpen = false">Cancelar</button>
+                <button class="btn btn-primary" @onclick="SaveBrandAsync" disabled="@_brandBusy">Guardar marca</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===== Modal: GALERIA (desde la lista) o SELECTOR DE LOGO (desde la marca) ===== *@
+@if (_galleryModalOpen || _logoPickerOpen)
+{
+    <div class="modal-overlay pe-overlay-top2">
+        <div class="modal-dialog" style="max-width:900px;">
+            <div class="modal-head">
+                <h3>@(_logoPickerOpen ? "Elige el logo para tus correos" : "Galeria de imagenes")</h3>
+                <button class="modal-close" @onclick="CloseGalleryModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <TemplateGalleryPanel PickMode="_logoPickerOpen" PickLabel="Usar como logo" OnPick="PickLogo" />
             </div>
         </div>
     </div>
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private bool _loading = true;
     private bool _busy;
     private string? _error;
     private List<EmailTemplateDto> _items = new();
 
+    // --- Editor (modal) ---
     private bool _editOpen;
     private Guid? _editingId;
+    private Guid _panelKey = Guid.NewGuid();
+    private TemplateAgentChatPanel? _panel;
     private string? _modalError;
     private string _fNombre = "";
     private string _fAsunto = "";
     private string _fCuerpo = "";
     private bool _fActiva = true;
+    private bool _dirty;
+    private string _tab = "preview";
+    private int _galleryCount;
 
-    private static readonly EmailMergeFields SampleFields =
-        new("Juan Perez", "ACME S.A.S", "Gerente de Compras", "Bogota", "juan.perez@acme.com");
+    // --- Versiones ---
+    private List<TemplateSnapshotDto> _versions = new();
+    private TemplateSnapshotDto? _viewSnap;
+    private string _viewHtml = "";
+    private string _viewAsunto = "";
+
+    private bool _bajasOpen;
+    private List<EmailUnsubscribeDto>? _bajas;
+
+    // --- Estilo de diseno (ADR-0177) ---
+    private string _styleKey = EmailDesignStyles.DefaultKey;
+    private string _savedStyle = EmailDesignStyles.DefaultKey;
+    private bool _stylePickerOpen;
+
+    // --- Marca de correo ---
+    private EmailBrandDto? _brand;
+    private bool _brandOpen;
+    private bool _brandBusy;
+    private string? _brandError;
+    private string? _bLogo;
+    private string? _bPrim;
+    private string? _bAcc;
+    private string? _bEstilo;
+    private string? _bSitio;
+    private string? _bPie;
+
+    // --- Galeria en modal (desde la lista) / selector de logo ---
+    private bool _galleryModalOpen;
+    private bool _logoPickerOpen;
 
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
+        _bajas = (await Bajas.ListAsync()).ToList();
+        _brand = await BrandSvc.GetAsync();
         _loading = false;
     }
 
     private async Task ReloadAsync() => _items = (await Svc.ListAsync()).ToList();
 
+    private string BrandDefaultStyle => EmailDesignStyles.Normalize(_brand?.EstiloPorDefecto) ?? EmailDesignStyles.DefaultKey;
+
     private void OpenNew()
     {
         _modalError = null;
         _editingId = null;
-        _fNombre = "";
-        _fAsunto = "";
-        _fCuerpo = "";
-        _fActiva = true;
+        _fNombre = ""; _fAsunto = ""; _fCuerpo = ""; _fActiva = true;
+        _dirty = false;
+        _versions = new();
+        _viewSnap = null;
+        _tab = "preview";
+        _styleKey = _savedStyle = BrandDefaultStyle;
+        _stylePickerOpen = false;
+        _panelKey = Guid.NewGuid();
         _editOpen = true;
     }
 
-    private void OpenEdit(EmailTemplateDto t)
+    private async Task OpenEdit(EmailTemplateDto t)
     {
         _modalError = null;
         _editingId = t.Id;
-        _fNombre = t.Nombre;
-        _fAsunto = t.Asunto;
-        _fCuerpo = t.CuerpoHtml;
-        _fActiva = t.Activa;
+        _fNombre = t.Nombre; _fAsunto = t.Asunto; _fCuerpo = t.CuerpoHtml; _fActiva = t.Activa;
+        _dirty = false;
+        _viewSnap = null;
+        _tab = "preview";
+        _styleKey = _savedStyle = EmailDesignStyles.Normalize(t.Estilo) ?? BrandDefaultStyle;
+        _stylePickerOpen = false;
+        _panelKey = Guid.NewGuid();
         _editOpen = true;
+        await LoadVersionsAsync();
+    }
+
+    private async Task CloseEditorAsync()
+    {
+        if (_dirty && !await JS.InvokeAsync<bool>("confirm", "Hay cambios sin guardar. Salir de todas formas?")) { return; }
+        _editOpen = false;
+        await ReloadAsync();
+    }
+
+    private async Task LoadVersionsAsync()
+        => _versions = _editingId is Guid id ? (await Snapshots.ListAsync(TemplateAgentKind.Email, id)).ToList() : new();
+
+    // El agente aplico un cambio (o creo la plantilla): se recarga el editor y la tarjeta en la lista de fondo.
+    private async Task OnAgentChangedAsync(Guid? templateId)
+    {
+        if (templateId is not Guid id) { return; }
+        var t = await Svc.GetAsync(id);
+        if (t is null) { return; }
+        _editingId = id;
+        _fNombre = t.Nombre; _fAsunto = t.Asunto; _fCuerpo = t.CuerpoHtml; _fActiva = t.Activa;
+        if (EmailDesignStyles.Normalize(t.Estilo) is { } st) { _savedStyle = st; }
+        _dirty = false;
+        _viewSnap = null;
+        _tab = "preview";
+        await LoadVersionsAsync();
+        await ReloadAsync();
+        StateHasChanged();
     }
 
     private async Task SaveAsync()
@@ -171,16 +563,172 @@ else
         _busy = true;
         try
         {
-            var req = new SaveEmailTemplateRequest(_fNombre, _fAsunto, _fCuerpo, _fActiva);
-            var res = _editingId is Guid id
-                ? await Svc.UpdateAsync(id, req)
-                : await Svc.CreateAsync(req);
+            EmailTemplateDto? res;
+            if (_editingId is Guid id)
+            {
+                // El guardado manual NO cambia el estilo registrado (lo fija el agente al redisenar).
+                var req = new SaveEmailTemplateRequest(_fNombre, _fAsunto, _fCuerpo, _fActiva);
+                // Version previa tambien en el guardado manual (se puede volver atras igual que con el agente).
+                try { await Snapshots.SnapshotAsync(TemplateAgentKind.Email, id, "Antes de: guardado manual", null, await ActorAsync()); }
+                catch { /* best-effort */ }
+                res = await Svc.UpdateAsync(id, req);
+                // Avisa al agente que la plantilla cambio fuera del chat (no reaplicar cambios viejos).
+                if (res is not null) { try { await AgentChat.NoteExternalChangeAsync(TemplateAgentKind.Email, id, "El usuario edito y guardo la plantilla a mano."); } catch { } }
+            }
+            else
+            {
+                res = await Svc.CreateAsync(new SaveEmailTemplateRequest(_fNombre, _fAsunto, _fCuerpo, _fActiva, _styleKey));
+                // La plantilla nueva ya existe: el chat se re-monta ligado a ella (si no, el agente crearia otra).
+                if (res is not null) { _panelKey = Guid.NewGuid(); _savedStyle = _styleKey; }
+            }
             if (res is null) { _modalError = "No se pudo guardar la plantilla."; return; }
-            _editOpen = false;
+            _editingId = res.Id;
+            _dirty = false;
+            await LoadVersionsAsync();
             await ReloadAsync();
         }
         finally { _busy = false; }
     }
+
+    // ---------- Versiones ----------
+
+    private async Task OpenVersionsTab()
+    {
+        _tab = "versiones";
+        await LoadVersionsAsync();
+    }
+
+    private async Task SaveVersionNowAsync()
+    {
+        if (_editingId is not Guid id) { return; }
+        if (_dirty) { _modalError = "Guarda primero los cambios: la version toma el contenido guardado."; return; }
+        _busy = true;
+        try
+        {
+            await Snapshots.SnapshotAsync(TemplateAgentKind.Email, id, "Version guardada a mano", null, await ActorAsync());
+            await LoadVersionsAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ViewVersionAsync(TemplateSnapshotDto v)
+    {
+        var snap = EmailTemplateAgentToolset.ParseSnapshot(await Snapshots.GetPayloadAsync(v.Id));
+        if (snap is null) { _modalError = "No se pudo leer esa version."; return; }
+        _viewSnap = v;
+        _viewHtml = snap.CuerpoHtml ?? string.Empty;
+        _viewAsunto = snap.Asunto ?? string.Empty;
+        _tab = "preview";
+    }
+
+    private async Task RestoreAsync(TemplateSnapshotDto v)
+    {
+        if (_dirty && !await JS.InvokeAsync<bool>("confirm", "Hay cambios sin guardar que se perderan. Restaurar de todas formas?")) { return; }
+        if (!await JS.InvokeAsync<bool>("confirm", $"Restaurar la version del {v.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm}? La version actual queda guardada y puedes volver a ella.")) { return; }
+        _busy = true;
+        try
+        {
+            if (await Snapshots.RestoreAsync(v.Id, await ActorAsync()) && _editingId is Guid id)
+            {
+                try { await AgentChat.NoteExternalChangeAsync(TemplateAgentKind.Email, id, $"El usuario restauro la version del {v.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm}."); } catch { }
+                await OnAgentChangedAsync(id);
+                // El selector sigue al estilo de la version restaurada (si la version lo traia).
+                _styleKey = _savedStyle;
+            }
+            else { _modalError = "No se pudo restaurar la version."; }
+        }
+        finally { _busy = false; }
+    }
+
+    // Etiquetas tecnicas de las versiones -> texto para el usuario.
+    private static string VersionLabel(string label)
+    {
+        if (label.Contains("save_template", StringComparison.Ordinal)) { return "antes de un cambio del agente"; }
+        if (label.StartsWith("Antes de: guardado manual", StringComparison.Ordinal)) { return "antes de un guardado manual"; }
+        if (label.StartsWith("Antes de restaurar", StringComparison.Ordinal)) { return "antes de una restauracion"; }
+        return label;
+    }
+
+    // ---------- Estilo ----------
+
+    private string? StylePrefix() => EmailDesignStyles.TagFor(_styleKey);
+
+    private void PickStyle(string key)
+    {
+        _styleKey = EmailDesignStyles.Normalize(key) ?? EmailDesignStyles.DefaultKey;
+        _stylePickerOpen = false;
+    }
+
+    private async Task ApplyStyleAsync()
+    {
+        if (_panel is null) { return; }
+        await _panel.SendTextAsync("Redisena la plantilla completa con este estilo, conservando textos, variables, enlaces e imagenes.");
+    }
+
+    private static string StyleName(string? key) => (EmailDesignStyles.Find(key) ?? EmailDesignStyles.All[0]).Nombre;
+
+    // ---------- Marca ----------
+
+    private string? BrandLogoPreview => string.IsNullOrWhiteSpace(_bLogo) ? _brand?.LogoEmpresa : _bLogo;
+
+    private void OpenBrand()
+    {
+        _brandError = null;
+        _bLogo = _brand?.LogoUrl;
+        _bPrim = _brand?.ColorPrimario;
+        _bAcc = _brand?.ColorAcento;
+        _bEstilo = _brand?.EstiloPorDefecto ?? EmailDesignStyles.DefaultKey;
+        _bSitio = _brand?.SitioWeb;
+        _bPie = _brand?.PieTexto;
+        _brandOpen = true;
+    }
+
+    private async Task SaveBrandAsync()
+    {
+        _brandError = null;
+        _brandBusy = true;
+        try
+        {
+            var r = await BrandSvc.SaveAsync(new SaveEmailBrandRequest(_bLogo, _bPrim, _bAcc, _bEstilo, _bSitio, _bPie));
+            if (!r.Ok) { _brandError = r.Error; return; }
+            _brand = r.Brand;
+            _brandOpen = false;
+            // Plantilla nueva sin contenido aun: toma el nuevo estilo por defecto.
+            if (_editOpen && _editingId is null && string.IsNullOrWhiteSpace(_fCuerpo)) { _styleKey = _savedStyle = BrandDefaultStyle; }
+        }
+        catch (Exception ex) { _brandError = ex.Message; }
+        finally { _brandBusy = false; }
+    }
+
+    // ---------- Galeria ----------
+
+    private void OpenGalleryModal() => _galleryModalOpen = true;
+
+    private void CloseGalleryModal()
+    {
+        _galleryModalOpen = false;
+        _logoPickerOpen = false;
+    }
+
+    private void PickLogo(TemplateAssetDto a)
+    {
+        _bLogo = a.Url;
+        CloseGalleryModal();
+    }
+
+    private void UseInChat(TemplateAssetDto a)
+        => _panel?.AppendToInput($"Usa la imagen \"{a.Alt ?? a.FileName}\" de la galeria ({a.FileName}).");
+
+    private static string Or(string? v, string fallback) => string.IsNullOrWhiteSpace(v) ? fallback : v;
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { return "?"; }
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return string.Concat(parts.Take(2).Select(p => char.ToUpperInvariant(p[0])));
+    }
+
+    // ---------- Borrado / bajas ----------
 
     private async Task DeleteAsync(EmailTemplateDto t)
     {
@@ -195,6 +743,36 @@ else
         finally { _busy = false; }
     }
 
-    private string PreviewSubject() => EmailTemplateService.RenderTemplate(_fAsunto, SampleFields, htmlEscapeValues: false);
-    private string PreviewBody() => EmailTemplateService.RenderTemplate(_fCuerpo, SampleFields, htmlEscapeValues: true);
+    private async Task ToggleBajasAsync()
+    {
+        _bajasOpen = !_bajasOpen;
+        if (_bajasOpen) { _bajas = (await Bajas.ListAsync()).ToList(); }
+    }
+
+    private async Task RemoveBajaAsync(EmailUnsubscribeDto b)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Quitar la baja de {b.Email}? Volvera a recibir correos del motor de acciones.")) { return; }
+        _busy = true;
+        try
+        {
+            await Bajas.RemoveAsync(b.Id);
+            _bajas = (await Bajas.ListAsync()).ToList();
+        }
+        finally { _busy = false; }
+    }
+
+    // Documento completo para un iframe: si el cuerpo ya trae <html>, va tal cual; si es un fragmento, se envuelve.
+    private static string PreviewDocFor(string? cuerpo)
+    {
+        var body = EmailTemplateService.RenderTemplate(cuerpo ?? string.Empty, EmailTemplateService.SampleFields, htmlEscapeValues: true);
+        if (body.Contains("<html", StringComparison.OrdinalIgnoreCase)) { return body; }
+        return "<!doctype html><html><head><meta charset=\"utf-8\"></head><body style=\"margin:0;padding:12px;font-family:Arial,Helvetica,sans-serif;\">" + body + "</body></html>";
+    }
+
+    private async Task<Guid?> ActorAsync()
+    {
+        if (AuthState is null) { return null; }
+        var st = await AuthState;
+        return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
+    }
 }

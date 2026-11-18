@@ -112,8 +112,13 @@ public sealed class FlowSequenceRunner(
         var tramos = spec.Tramos();
         var live = new Live
         {
-            FlowId = flowId, ScheduleId = scheduleId, Name = name, Trigger = trigger,
-            StartedAt = _clock.GetUtcNow(), Total = tramos.Count, Cts = new CancellationTokenSource(),
+            FlowId = flowId,
+            ScheduleId = scheduleId,
+            Name = name,
+            Trigger = trigger,
+            StartedAt = _clock.GetUtcNow(),
+            Total = tramos.Count,
+            Cts = new CancellationTokenSource(),
         };
         if (!_live.TryAdd(flowId, live))
         {

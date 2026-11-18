@@ -70,7 +70,14 @@ public class FlowSequenceSpecTests
     {
         var spec = new FlowSequenceSpec
         {
-            VarDesde = "D", VarLargo = "L", Desde = 2, Hasta = 30, Paso = 4, PausaMin = 7, ReintentoMin = 15, Reintentos = 2,
+            VarDesde = "D",
+            VarLargo = "L",
+            Desde = 2,
+            Hasta = 30,
+            Paso = 4,
+            PausaMin = 7,
+            ReintentoMin = 15,
+            Reintentos = 2,
         };
 
         var back = FlowSequenceSpec.Parse(spec.ToJson());

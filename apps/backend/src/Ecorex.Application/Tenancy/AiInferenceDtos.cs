@@ -61,8 +61,10 @@ public sealed record AiInlineDocument(string Base64, string Mime, string? FileNa
 /// <summary>Respuesta del proveedor en modo herramientas: texto final (si lo hay) y/o herramientas a ejecutar.
 /// <paramref name="CachedInputTokens"/> son los tokens de entrada que el proveedor sirvio DESDE CACHE (prefijo
 /// repetido: system prompt + tools) y factura mas barato; 0 si no hubo cache o el proveedor no lo reporta.</summary>
+/// <param name="Notice">Aviso no fatal del cliente (p.ej. el modelo no acepto imagenes y se reintento sin
+/// ellas, ADR-0174); el servicio lo deja en la bitacora de prompts.</param>
 public sealed record AiCompletion(bool Ok, string? Text, string? Error, int InputTokens, int OutputTokens,
-    IReadOnlyList<AiToolCall> ToolCalls, int CachedInputTokens = 0);
+    IReadOnlyList<AiToolCall> ToolCalls, int CachedInputTokens = 0, string? Notice = null);
 
 /// <summary>Parte de un prompt MULTIMODAL: texto O imagen O audio O documento (PDF), cada uno base64 + mime.
 /// Para clasificacion/lectura por vision (Gemini y Claude aceptan PDF nativo).</summary>

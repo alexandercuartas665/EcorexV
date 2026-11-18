@@ -35,4 +35,10 @@ public class EmailConfig : BaseEntity
     public bool IsEnabled { get; set; }
 
     public DateTimeOffset? LastValidatedAt { get; set; }
+
+    /// <summary>
+    /// Token secreto de la URL del webhook de eventos del servidor GLOBAL (ADR-0188). Los eventos que llegan
+    /// por esta URL traen el tenant en sus argumentos (ecx_tenant) porque la cuenta global envia por todos.
+    /// </summary>
+    public string? EventWebhookToken { get; set; }
 }

@@ -61,7 +61,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     private readonly ILogger<ContactWorkflowDispatcher> _logger;
     // Bajas de correo + {enlace_baja} (ADR-0175). Opcional para no romper los dobles de prueba existentes.
     private readonly IEmailUnsubscribeService? _unsubscribes;
-    private HashSet<string>? _unsubscribedCache;
+    private Dictionary<string, string>? _unsubscribedCache;
 
     public ContactWorkflowDispatcher(
         IApplicationDbContext db, ITenantContext tenant, IWhatsAppConnectorService whatsapp,
@@ -200,11 +200,15 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                     foreach (var contact in batch)
                     {
                         if (cancellationToken.IsCancellationRequested) { break; }
+                        // Id asignado ANTES de ejecutar: viaja en el correo (ecx_run) para correlacionar los
+                        // eventos de entrega del proveedor con esta fila (ADR-0188).
+                        var runId = Guid.CreateVersion7();
                         var (status, channel, externalRef, error) =
-                            await ExecuteStepAsync(step.StepType, step.ParamsJson, schedule, contact, cancellationToken);
+                            await ExecuteStepAsync(step.StepType, step.ParamsJson, schedule, contact, runId, cancellationToken);
 
                         var run = new ContactWorkflowRun
                         {
+                            Id = runId,
                             TenantId = tenantId,
                             ContactWorkflowStepId = step.Id,
                             ContactWorkflowScheduleId = schedule.Id,
@@ -274,7 +278,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         }
 
         var (status, channel, externalRef, error) =
-            await ExecuteStepAsync(type, paramsJson, schedule, contact, cancellationToken);
+            await ExecuteStepAsync(type, paramsJson, schedule, contact, run.Id, cancellationToken);
         run.Status = status;
         run.Channel = channel;
         run.ExternalRef = Truncate(externalRef, 200);
@@ -296,7 +300,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
 
     private async Task<(ContactWorkflowRunStatus Status, string Channel, string? ExternalRef, string? Error)> ExecuteStepAsync(
         ContactWorkflowStepType type, string? paramsJson, ScheduleRow schedule, SegmentContact contact,
-        CancellationToken cancellationToken)
+        Guid runId, CancellationToken cancellationToken)
     {
         var actor = _tenant.UserId ?? Guid.Empty;
         switch (type)
@@ -309,7 +313,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 return await ExecuteWhatsAppAsync(paramsJson, schedule, contact, actor, cancellationToken);
 
             case ContactWorkflowStepType.Email:
-                return await ExecuteEmailAsync(paramsJson, schedule, contact, cancellationToken);
+                return await ExecuteEmailAsync(paramsJson, schedule, contact, runId, cancellationToken);
 
             case ContactWorkflowStepType.Llamada:
                 return await ExecuteLlamadaAsync(paramsJson, contact, actor, cancellationToken);
@@ -482,7 +486,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     }
 
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteEmailAsync(
-        string? paramsJson, ScheduleRow schedule, SegmentContact contact, CancellationToken cancellationToken)
+        string? paramsJson, ScheduleRow schedule, SegmentContact contact, Guid runId, CancellationToken cancellationToken)
     {
         const string channel = "email";
         var to = contact.Email?.Trim();
@@ -502,10 +506,11 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             return (ContactWorkflowRunStatus.Skipped, channel, null, "La plantilla de correo no existe o esta inactiva.");
         }
 
-        // Baja de correos (ADR-0175): quien abrio su {enlace_baja} no vuelve a recibir correos del motor.
-        if (await IsUnsubscribedAsync(to, cancellationToken))
+        // Baja de correos (ADR-0175): quien abrio su {enlace_baja} no vuelve a recibir correos del motor. Tambien
+        // los suprimidos por el proveedor: rebote definitivo, spam o baja en SendGrid (ADR-0188).
+        if (await SuppressionOriginAsync(to, cancellationToken) is { } origen)
         {
-            return (ContactWorkflowRunStatus.Skipped, channel, null, "El contacto se dio de baja de los correos.");
+            return (ContactWorkflowRunStatus.Skipped, channel, null, SendGridEvents.SkipReasonFor(origen));
         }
 
         // Merge de las variables con los datos del contacto: asunto en texto plano, cuerpo en HTML (escapa
@@ -516,10 +521,11 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         var htmlBody = EmailTemplateService.RenderTemplate(tpl.CuerpoHtml, fields, htmlEscapeValues: true);
 
         // Remitente comercial de la campana (ADR-0185); null = el del servidor de correo configurado.
-        var sender = EmailSenderFor(paramsJson);
+        // Lleva los ids de correlacion para los eventos de entrega del proveedor (ADR-0188).
+        var sender = WithTracking(EmailSenderFor(paramsJson), _tenant.TenantId, runId);
         var result = await _email.SendAsync(to, subject, htmlBody, sender, cancellationToken);
         return result.Ok
-            ? (ContactWorkflowRunStatus.Sent, channel, null, null)
+            ? (ContactWorkflowRunStatus.Sent, channel, result.MessageId, null)
             : (ContactWorkflowRunStatus.Failed, channel, null, result.Error ?? "Fallo el envio de correo.");
     }
 
@@ -553,11 +559,23 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             Firma: contact.Firma, EnlaceBaja: enlace);
     }
 
-    private async Task<bool> IsUnsubscribedAsync(string email, CancellationToken cancellationToken)
+    /// <summary>Origen de la baja del correo (enlace, manual, rebote, spam, proveedor) o null si puede recibir.</summary>
+    private async Task<string?> SuppressionOriginAsync(string email, CancellationToken cancellationToken)
     {
-        if (_unsubscribes is null) { return false; }
-        _unsubscribedCache ??= await _unsubscribes.GetUnsubscribedSetAsync(cancellationToken);
-        return _unsubscribedCache.Contains(EmailUnsubscribeService.Normalize(email));
+        if (_unsubscribes is null) { return null; }
+        _unsubscribedCache ??= await _unsubscribes.GetSuppressionsAsync(cancellationToken);
+        return _unsubscribedCache.TryGetValue(EmailUnsubscribeService.Normalize(email), out var origen) ? origen : null;
+    }
+
+    /// <summary>
+    /// Remitente del envio con los argumentos de correlacion (ecx_tenant, ecx_run) que el proveedor devuelve en
+    /// sus eventos de entrega (ADR-0188). Sin remitente propio se crea uno vacio (usa el del servidor).
+    /// </summary>
+    public static EmailSenderOverride WithTracking(EmailSenderOverride? sender, Guid? tenantId, Guid runId)
+    {
+        var args = new Dictionary<string, string>(StringComparer.Ordinal) { [SendGridEvents.RunArg] = runId.ToString() };
+        if (tenantId is Guid tid) { args[SendGridEvents.TenantArg] = tid.ToString(); }
+        return (sender ?? new EmailSenderOverride(null, null, null)) with { CustomArgs = args };
     }
 
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteLlamadaAsync(

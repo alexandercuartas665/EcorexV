@@ -441,6 +441,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         configurationBuilder.Properties<OportunidadEstadoTipo>().HaveConversion<string>().HaveMaxLength(20);
         configurationBuilder.Properties<ContactWorkflowStepType>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<ContactWorkflowRunStatus>().HaveConversion<string>().HaveMaxLength(40);
+        configurationBuilder.Properties<EmailDeliveryStatus>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<CitaTipo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AgendaVinculo>().HaveConversion<string>().HaveMaxLength(40);
         configurationBuilder.Properties<AgendaNovedadTipo>().HaveConversion<string>().HaveMaxLength(40);
@@ -654,6 +655,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.SmtpUser).HasMaxLength(200);
             b.Property(x => x.FromEmail).HasMaxLength(200);
             b.Property(x => x.FromName).HasMaxLength(160);
+            b.Property(x => x.EventWebhookToken).HasMaxLength(64);
         });
 
         // Almacenamiento global (Azure Blob). Singleton de plataforma; la cadena va cifrada.
@@ -671,6 +673,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.SmtpUser).HasMaxLength(200);
             b.Property(x => x.FromEmail).HasMaxLength(200);
             b.Property(x => x.FromName).HasMaxLength(160);
+            b.Property(x => x.EventWebhookToken).HasMaxLength(64);
             b.HasIndex(x => x.TenantId).IsUnique();
         });
 
@@ -3398,6 +3401,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Channel).HasMaxLength(40).IsRequired();
             b.Property(x => x.ExternalRef).HasMaxLength(200);
             b.Property(x => x.Error).HasMaxLength(600);
+            // Estado real de entrega del correo (ADR-0188); default None para las filas existentes.
+            b.Property(x => x.DeliveryStatus).HasDefaultValue(EmailDeliveryStatus.None);
+            b.Property(x => x.DeliveryDetail).HasMaxLength(300);
             // Reintento sobre la misma fila: default 1 para las filas existentes; token de concurrencia para
             // que dos instancias del worker no reintenten (ni envien) dos veces el mismo contacto.
             b.Property(x => x.Attempts).HasDefaultValue(1).IsConcurrencyToken();

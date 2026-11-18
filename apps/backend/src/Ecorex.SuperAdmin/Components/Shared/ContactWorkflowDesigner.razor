@@ -424,7 +424,7 @@
                             <div class="cw-runs-wrap">
                                 <table class="cw-runs-table">
                                     <thead>
-                                        <tr><th>Fecha</th><th>Contacto</th><th>Paso</th><th>Estado</th><th>Detalle</th></tr>
+                                        <tr><th>Fecha</th><th>Contacto</th><th>Paso</th><th>Estado</th><th title="Lo que reporta SendGrid despues del envio (requiere el webhook de eventos)">Entrega</th><th>Detalle</th></tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var r in _runs)
@@ -434,7 +434,17 @@
                                                 <td>@r.Contacto</td>
                                                 <td>@r.Paso <span class="cw-runs-ch">@r.Canal</span></td>
                                                 <td><span class="cw-run-st @RunCss(r.Estado)">@RunLabel(r.Estado)</span>@if (r.Intentos > 1) { <span class="cw-runs-ch">x@(r.Intentos)</span> }</td>
-                                                <td class="cw-runs-err">@r.Error</td>
+                                                <td>
+                                                    @if (r.Entrega != EmailDeliveryStatus.None)
+                                                    {
+                                                        <span class="cw-run-st @DeliveryCss(r.Entrega)" title="@DeliveryTitle(r)">@DeliveryLabel(r.Entrega)</span>
+                                                    }
+                                                    else if (r.Canal == "email" && r.Estado == ContactWorkflowRunStatus.Sent)
+                                                    {
+                                                        <span class="cw-runs-ch" title="Sin eventos del proveedor: configura el webhook de SendGrid en Configuracion">-</span>
+                                                    }
+                                                </td>
+                                                <td class="cw-runs-err">@(r.Error ?? (r.Entrega is EmailDeliveryStatus.Bounced or EmailDeliveryStatus.Dropped or EmailDeliveryStatus.Deferred ? r.EntregaDetalle : null))</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -871,6 +881,38 @@
         ContactWorkflowRunStatus.Failed => "err",
         _ => "warn"
     };
+
+    // Estado real de entrega del correo segun el webhook de SendGrid (ADR-0188).
+    private static string DeliveryLabel(EmailDeliveryStatus st) => st switch
+    {
+        EmailDeliveryStatus.Processed => "En cola",
+        EmailDeliveryStatus.Deferred => "Aplazado",
+        EmailDeliveryStatus.Delivered => "Entregado",
+        EmailDeliveryStatus.Opened => "Abierto",
+        EmailDeliveryStatus.Clicked => "Clic",
+        EmailDeliveryStatus.Unsubscribed => "Se dio de baja",
+        EmailDeliveryStatus.SpamReport => "Spam",
+        EmailDeliveryStatus.Bounced => "Rebote",
+        EmailDeliveryStatus.Dropped => "No enviado",
+        _ => ""
+    };
+
+    private static string DeliveryCss(EmailDeliveryStatus st) => st switch
+    {
+        EmailDeliveryStatus.Delivered or EmailDeliveryStatus.Opened or EmailDeliveryStatus.Clicked => "ok",
+        EmailDeliveryStatus.Bounced or EmailDeliveryStatus.Dropped or EmailDeliveryStatus.SpamReport => "err",
+        EmailDeliveryStatus.Processed => "mute",
+        _ => "warn"
+    };
+
+    private static string DeliveryTitle(ContactWorkflowRunDto r)
+    {
+        var parts = new List<string>();
+        if (r.AbiertoLocal is DateTime a) { parts.Add("Abierto " + a.ToString("dd/MM HH:mm")); }
+        if (r.ClicLocal is DateTime c) { parts.Add("Clic " + c.ToString("dd/MM HH:mm")); }
+        if (!string.IsNullOrWhiteSpace(r.EntregaDetalle)) { parts.Add(r.EntregaDetalle!); }
+        return string.Join(" · ", parts);
+    }
 
     private static void SetModo(StepVM s, object? val) => s.Modo = val?.ToString() == "ia" ? "ia" : "crm";
 

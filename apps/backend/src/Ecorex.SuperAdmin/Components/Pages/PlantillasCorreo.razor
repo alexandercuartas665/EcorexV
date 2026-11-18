@@ -126,7 +126,7 @@ else
         </button>
         @if (_bajasOpen)
         {
-            <p class="text-muted small" style="margin:6px 0 8px;">Contactos que abrieron el enlace {enlace_baja} de un correo. El motor de acciones ya no les envia correos. Quitar una baja solo si el contacto pidio volver a recibirlos.</p>
+            <p class="text-muted small" style="margin:6px 0 8px;">Contactos que abrieron el enlace {enlace_baja} de un correo, y correos que SendGrid reporto como rebote, spam o baja (webhook de eventos). El motor de acciones ya no les envia correos. Quitar una baja solo si el contacto pidio volver a recibirlos o si corregiste la direccion.</p>
             @if (_bajas is null || _bajas.Count == 0)
             {
                 <p class="text-muted small">Nadie se ha dado de baja.</p>
@@ -138,7 +138,7 @@ else
                     var bb = b;
                     <div class="pc-baja-row">
                         <span class="pc-baja-mail">@bb.Email</span>
-                        <span class="text-muted small">@bb.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm") - @bb.Origen@(string.IsNullOrWhiteSpace(bb.Motivo) ? "" : " - " + bb.Motivo)</span>
+                        <span class="text-muted small">@bb.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm") - @SendGridEvents.OrigenLabel(bb.Origen)@(string.IsNullOrWhiteSpace(bb.Motivo) ? "" : " - " + bb.Motivo)</span>
                         <button class="btn btn-sm btn-outline-secondary" @onclick="() => RemoveBajaAsync(bb)" disabled="@_busy">Quitar</button>
                     </div>
                 }

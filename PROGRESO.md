@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.351: eventos de entrega de SendGrid y bajas automaticas por rebote/spam (ADR-0188) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.call_center, rama feat/whatsapp-sync-estado-ycloud). Pedido del usuario: usar
+  SendGrid en SOLDARCO y saber que pasa con cada correo (puntos 1 y 2 de los pendientes).
+- HECHO: `SmtpEmailSender` agrega X-SMTPAPI unique_args (ecx_tenant + ecx_run) si el host es SendGrid y devuelve el id
+  "queued as" (ExternalRef). El motor asigna el Id de la ejecucion antes de enviar. Webhook publico
+  `POST /webhooks/sendgrid/{token}` (token aleatorio por SMTP del tenant o del global, regenerable). Estado real en
+  `ContactWorkflowRun` (DeliveryStatus con precedencia, apertura/clic, detalle) -> columna "Entrega" en "Ultimas
+  ejecuciones". Rebote definitivo, spam y baja del proveedor van a `EmailUnsubscribe` (origenes rebote/spam/proveedor);
+  un bloqueo temporal no; group_resubscribe solo levanta bajas del proveedor. Panel "Eventos de entrega (SendGrid)" en
+  /configuracion y /servidor-correo con URL, copiar, regenerar y pasos. Migracion dual `AddEmailDeliveryEvents`.
+- NOTA: el {enlace_baja} propio (ADR-0175) ya existia: el punto 3 de los pendientes (enlace de baja) estaba hecho.
+- SIGUIENTE: integrar/desplegar (ECOREX.desarrollo). En SOLDARCO: autenticar soldarco.com en SendGrid, guardar el SMTP
+  en /configuracion (usuario apikey; la API key la pone el usuario), generar la URL del webhook y pegarla en SendGrid
+  (Event Webhook + Open/Click Tracking).
+
 ## 2026-11-18 - v0.16.350: formularios de la tarea padre en un salto de flujo (ADR-0187) - SIN DEPLOY
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339).

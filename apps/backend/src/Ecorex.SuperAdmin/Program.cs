@@ -1007,6 +1007,8 @@ app.MapAgentEndpoints();
 // Motor de Reportes y BI (ADR-0051, Ola 1): catalogo + datasource tenant-safe como JSON.
 Ecorex.SuperAdmin.Endpoints.ReportingEndpoints.MapReportingEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.RetellWebhookEndpoints.MapRetellWebhook(app);
+// Eventos de entrega de correo de SendGrid (ADR-0188): estado real de las campanas + bajas por rebote/spam.
+Ecorex.SuperAdmin.Endpoints.SendGridWebhookEndpoints.MapSendGridWebhook(app);
 // Web Reporting API de Bold (Ola 2): controllers del visor/diseniador RDL.
 app.MapControllers();
 

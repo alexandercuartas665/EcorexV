@@ -42,6 +42,14 @@ public interface IEmailUnsubscribeService
     /// <summary>Correos dados de baja del tenant activo (normalizados).</summary>
     Task<HashSet<string>> GetUnsubscribedSetAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Correos suprimidos del tenant activo -> origen de la baja (enlace, manual, rebote, spam, proveedor; ADR-0188).</summary>
+    async Task<Dictionary<string, string>> GetSuppressionsAsync(CancellationToken cancellationToken = default)
+    {
+        // Por defecto (dobles de prueba): todas como baja por enlace.
+        var set = await GetUnsubscribedSetAsync(cancellationToken);
+        return set.ToDictionary(e => e, _ => "enlace", StringComparer.OrdinalIgnoreCase);
+    }
+
     Task<IReadOnlyList<EmailUnsubscribeDto>> ListAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Quita una baja (el contacto pidio volver a recibir correos). Borrado fisico permitido: no es
@@ -118,6 +126,14 @@ public sealed class EmailUnsubscribeService : IEmailUnsubscribeService
     {
         var list = await _db.EmailUnsubscribes.AsNoTracking().Select(u => u.Email).ToListAsync(cancellationToken);
         return new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<Dictionary<string, string>> GetSuppressionsAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await _db.EmailUnsubscribes.AsNoTracking().Select(u => new { u.Email, u.Origen }).ToListAsync(cancellationToken);
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var u in list) { map.TryAdd(u.Email, u.Origen); }
+        return map;
     }
 
     public async Task<IReadOnlyList<EmailUnsubscribeDto>> ListAsync(CancellationToken cancellationToken = default)

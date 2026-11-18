@@ -55,4 +55,22 @@ public class ContactWorkflowRun : TenantEntity
     /// dos instancias del worker toman el mismo reintento, solo una gana el UPDATE (ADR-0056, 2026-11-15).
     /// </summary>
     public int Attempts { get; set; } = 1;
+
+    /// <summary>
+    /// Estado real de entrega del correo segun el webhook del proveedor (ADR-0188). None = sin eventos.
+    /// Solo aplica al canal email; un evento solo sube el estado (ver <see cref="EmailDeliveryStatus"/>).
+    /// </summary>
+    public EmailDeliveryStatus DeliveryStatus { get; set; } = EmailDeliveryStatus.None;
+
+    /// <summary>Instante (UTC) del ultimo evento que cambio <see cref="DeliveryStatus"/>.</summary>
+    public DateTimeOffset? DeliveryUpdatedAtUtc { get; set; }
+
+    /// <summary>Primera apertura reportada (UTC).</summary>
+    public DateTimeOffset? OpenedAtUtc { get; set; }
+
+    /// <summary>Primer clic reportado (UTC).</summary>
+    public DateTimeOffset? ClickedAtUtc { get; set; }
+
+    /// <summary>Motivo del rebote/descarte/aplazamiento que dio el proveedor (sin datos sensibles).</summary>
+    public string? DeliveryDetail { get; set; }
 }

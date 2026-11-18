@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). Rama adelantada por
+  fast-forward al tronco a7c06aaf (v0.16.347) antes de empezar.
+- HECHO: sin migracion: adjuntos en el gestor unificado de archivos (modulo maqueta-cerebro, Ref1 = proyecto).
+  MockupBrainAssets (formatos PNG/JPG/GIF/WEBP/BMP/PDF + firma de bytes, nombre seguro/unico, llave por nombre).
+  IMockupBrainService: ListAssetsAsync, UploadAssetAsync; ImportVaultAsync guarda imagenes/PDF del vault despues de
+  la transaccion de notas (omitir o sobrescribir por nombre); ZIP del vault hasta 80 MB. MockupMarkdown: embebe
+  ![[foto.png]], ![[foto.png|300]] y ![alt](ruta) -> img del gestor (solo /archivo/...), PDF como enlace, faltante
+  marcado; imagenes externas quedan como enlace. UI: "Adjuntar imagen" en el editor (inserta ![[nombre]] en su
+  propia linea), adjuntos en el autocompletado, resultado de importacion con adjuntos. JS ?v=2.
+- PRUEBAS: Application MockupBrainLinksTests 20/20 (firma, formatos, vault con adjuntos), SuperAdmin
+  MockupMarkdownTests 5/5 + MaquetaClaudeGuideTests 3/3; dual MockupBrain* + McpMaquetas_* 24/24 (PG + SQL Server,
+  incluye importar con adjuntos y subir con firma/numeracion); dotnet format verde. E2E 5285: subir PNG desde el editor ->
+  ![[violeta.png]] insertado, nota guardada, /archivo/{id} 200 image/png 240x120 (con la pane oculta el img lazy no
+  pinta; se verifico cargandolo). Re-subir el mismo nombre -> violeta (2).png en su propia linea. Quedan 2 adjuntos
+  de prueba en el cerebro LOCAL de tronox-sgdea (violeta.png huerfano: aun no hay borrar adjunto).
+- SIGUIENTE: dev principal integra (renumera si choca). Pendiente menor: borrar adjuntos y exponerlos por el MCP.
+
 ## 2026-11-18 - v0.16.347: integra feat/maquetas-cerebro (cerebro digital + chat desde Claude por MCP, ADR-0183) - SIN DEPLOY
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 28b1af2f (7e88a4bc ola 3 cerebro digital,

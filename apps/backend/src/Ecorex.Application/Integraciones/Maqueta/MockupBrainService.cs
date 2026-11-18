@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using Ecorex.Application.Common;
 using Ecorex.Application.Mcp;
+using Ecorex.Application.Storage;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
@@ -35,7 +36,10 @@ public sealed record MockupBrainEdgeDto(string Source, string Target);
 public sealed record MockupBrainGraphDto(IReadOnlyList<MockupBrainNodeDto> Nodes, IReadOnlyList<MockupBrainEdgeDto> Edges);
 
 /// <summary>Resultado de importar un vault de Obsidian.</summary>
-public sealed record MockupBrainImportResult(int Created, int Updated, int Skipped, int IgnoredFiles, int Links, IReadOnlyList<string> Warnings);
+/// <param name="AssetsCreated">Adjuntos (imagenes/PDF) guardados en el gestor de archivos (ola 3b).</param>
+/// <param name="AssetsSkipped">Adjuntos omitidos porque ya existia uno con el mismo nombre (sin "sobrescribir").</param>
+public sealed record MockupBrainImportResult(int Created, int Updated, int Skipped, int IgnoredFiles, int Links, IReadOnlyList<string> Warnings,
+    int AssetsCreated = 0, int AssetsSkipped = 0);
 
 /// <summary>
 /// Cerebro digital de un proyecto de maqueta (ADR-0183): notas markdown enlazadas al estilo Obsidian, con backlinks y
@@ -67,13 +71,21 @@ public interface IMockupBrainService
 
     /// <summary>Id de la tarjeta por numero (T00046) dentro del tenant, para abrirla desde un enlace. Null si no existe.</summary>
     Task<Guid?> FindTaskIdAsync(string number, CancellationToken ct = default);
+
+    /// <summary>Adjuntos (imagenes/PDF) del cerebro del proyecto, por nombre (ola 3b).</summary>
+    Task<IReadOnlyList<MockupBrainAssetDto>> ListAssetsAsync(string slug, CancellationToken ct = default);
+
+    /// <summary>Sube un adjunto (imagen o PDF, max 10 MB, firma verificada). Si el nombre existe, se numera.</summary>
+    Task<TaskCoreResult<MockupBrainAssetDto>> UploadAssetAsync(string slug, string fileName, byte[] content, McpActor actor,
+        CancellationToken ct = default);
 }
 
 public sealed class MockupBrainService : IMockupBrainService
 {
     public const int MaxBodyLength = 200_000;
     public const int MaxNotesPerProject = 5_000;
-    public const int MaxVaultZipBytes = 30 * 1024 * 1024;
+    /// <summary>Tope del ZIP del vault (con imagenes desde la ola 3b).</summary>
+    public const int MaxVaultZipBytes = 80 * 1024 * 1024;
     public const int MaxVaultNotes = 3_000;
     public const int MaxLinksPerNote = 500;
 
@@ -81,11 +93,13 @@ public sealed class MockupBrainService : IMockupBrainService
 
     private readonly IApplicationDbContext _db;
     private readonly IAuditWriter _audit;
+    private readonly IFileStorageService _files;
 
-    public MockupBrainService(IApplicationDbContext db, IAuditWriter audit)
+    public MockupBrainService(IApplicationDbContext db, IAuditWriter audit, IFileStorageService files)
     {
         _db = db;
         _audit = audit;
+        _files = files;
     }
 
     // ------------------------------------------------------------------ lectura
@@ -393,7 +407,85 @@ public sealed class MockupBrainService : IMockupBrainService
         {
             return TaskCoreResult<MockupBrainImportResult>.Conflict("Otra persona cambio el cerebro durante la importacion; intenta de nuevo.");
         }
-        return TaskCoreResult<MockupBrainImportResult>.Ok(new MockupBrainImportResult(created, updated, skipped, read.IgnoredFiles, links, warnings));
+
+        // Ola 3b: adjuntos al gestor de archivos DESPUES de confirmar las notas (el binario no participa de la
+        // transaccion de BD). Si uno falla, las notas quedan y la imagen se ve como "no encontrada": se avisa.
+        int assetsCreated = 0, assetsSkipped = 0;
+        if (read.Assets.Count > 0)
+        {
+            var current = (await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct))
+                .GroupBy(f => f.FileName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+            foreach (var asset in read.Assets)
+            {
+                if (current.TryGetValue(asset.Name, out var olds))
+                {
+                    if (!overwrite) { assetsSkipped++; continue; }
+                    foreach (var old in olds) { await _files.DeleteAsync(old.Id, ct); }
+                }
+                try
+                {
+                    await _files.SaveAsync(new FileStorageSaveRequest(MockupBrainAssets.Module, project.Id.ToString(), null, asset.Name,
+                        asset.ContentType, asset.Content), ct);
+                    assetsCreated++;
+                }
+                catch (Exception ex) when (ex is IOException or InvalidOperationException)
+                {
+                    warnings.Add($"No se pudo guardar el adjunto '{asset.Path}': {ex.Message}");
+                }
+            }
+            _audit.Write(actor.PlatformUserId, "maqueta.nota.import-adjuntos", nameof(MockupProject), project.Id,
+                previousValue: null, newValue: new { proyecto = project.Slug, assetsCreated, assetsSkipped, overwrite },
+                tenantId: actor.TenantId, reason: AuditReason);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return TaskCoreResult<MockupBrainImportResult>.Ok(new MockupBrainImportResult(created, updated, skipped, read.IgnoredFiles, links, warnings,
+            assetsCreated, assetsSkipped));
+    }
+
+    public async Task<IReadOnlyList<MockupBrainAssetDto>> ListAssetsAsync(string slug, CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(slug, ct);
+        if (project is null) { return Array.Empty<MockupBrainAssetDto>(); }
+        var files = await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct);
+        return files
+            .Where(f => MockupBrainAssets.ContentTypeFor(f.FileName) is not null)
+            .OrderBy(f => f.FileName, StringComparer.OrdinalIgnoreCase)
+            .Select(f => new MockupBrainAssetDto(f.Id, f.FileName, MockupBrainAssets.ContentTypeFor(f.FileName)!, f.SizeBytes, f.Url))
+            .ToList();
+    }
+
+    public async Task<TaskCoreResult<MockupBrainAssetDto>> UploadAssetAsync(string slug, string fileName, byte[] content, McpActor actor,
+        CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(slug, ct);
+        if (project is null) { return TaskCoreResult<MockupBrainAssetDto>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        var name = MockupBrainAssets.SafeName(fileName);
+        var type = MockupBrainAssets.ContentTypeFor(name);
+        if (name is null || type is null)
+        {
+            return TaskCoreResult<MockupBrainAssetDto>.Invalid("Solo se adjuntan imagenes PNG, JPG, GIF, WEBP o BMP y documentos PDF.");
+        }
+        if (content is null || content.Length == 0) { return TaskCoreResult<MockupBrainAssetDto>.Invalid("El archivo esta vacio."); }
+        if (content.Length > MockupBrainAssets.MaxAssetBytes)
+        {
+            return TaskCoreResult<MockupBrainAssetDto>.Invalid($"El adjunto supera {MockupBrainAssets.MaxAssetBytes / (1024 * 1024)} MB.");
+        }
+        if (!MockupBrainAssets.MatchesSignature(content, type))
+        {
+            return TaskCoreResult<MockupBrainAssetDto>.Invalid("El contenido del archivo no corresponde a su extension.");
+        }
+
+        var taken = (await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct))
+            .Select(f => f.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        name = MockupBrainAssets.UniqueName(name, taken);
+        var stored = await _files.SaveAsync(new FileStorageSaveRequest(MockupBrainAssets.Module, project.Id.ToString(), null, name, type, content), ct);
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.adjunto", nameof(MockupProject), project.Id,
+            previousValue: null, newValue: new { proyecto = project.Slug, nombre = name, bytes = content.Length },
+            tenantId: actor.TenantId, reason: AuditReason);
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<MockupBrainAssetDto>.Ok(new MockupBrainAssetDto(stored.Id, stored.FileName, type, stored.SizeBytes, stored.Url));
     }
 
     public async Task<Guid?> FindTaskIdAsync(string number, CancellationToken ct = default)
@@ -408,7 +500,11 @@ public sealed class MockupBrainService : IMockupBrainService
     /// <summary>Nota leida del vault.</summary>
     public sealed record VaultNote(string Title, string Body, string Path);
 
-    public sealed record VaultRead(string? Error, IReadOnlyList<VaultNote> Notes, int IgnoredFiles, IReadOnlyList<string> Warnings);
+    /// <summary>Adjunto leido del vault (imagen o PDF ya validado por extension y firma).</summary>
+    public sealed record VaultAsset(string Name, string Path, string ContentType, byte[] Content);
+
+    public sealed record VaultRead(string? Error, IReadOnlyList<VaultNote> Notes, int IgnoredFiles, IReadOnlyList<string> Warnings,
+        IReadOnlyList<VaultAsset> Assets);
 
     /// <summary>
     /// Lee los .md de un ZIP de vault de Obsidian (PURO, sin BD): el titulo es el nombre del archivo (asi enlaza Obsidian).
@@ -422,6 +518,8 @@ public sealed class MockupBrainService : IMockupBrainService
         var notes = new List<VaultNote>();
         var warnings = new List<string>();
         var keys = new HashSet<string>(StringComparer.Ordinal);
+        var assets = new List<VaultAsset>();
+        var assetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ignored = 0;
         try
         {
@@ -433,7 +531,25 @@ public sealed class MockupBrainService : IMockupBrainService
                 if (path is null) { return Fail($"Ruta no permitida en el ZIP: '{e.FullName}'."); }
                 if (path.Length == 0 || path.EndsWith('/')) { continue; }
                 if (MockupService.IsHiddenPath(path)) { continue; }
-                if (!path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) { ignored++; continue; }
+                if (!path.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Ola 3b: imagenes y PDF del vault van al gestor de archivos (los embebe ![[nombre]]).
+                    var type = MockupBrainAssets.ContentTypeFor(path);
+                    if (type is null) { ignored++; continue; }
+                    if (assets.Count >= MockupBrainAssets.MaxAssetsPerImport) { warnings.Add($"'{path}': tope de {MockupBrainAssets.MaxAssetsPerImport} adjuntos; se omitio."); continue; }
+                    if (e.Length > MockupBrainAssets.MaxAssetBytes) { warnings.Add($"'{path}' supera {MockupBrainAssets.MaxAssetBytes / (1024 * 1024)} MB; se omitio."); continue; }
+                    var assetName = MockupBrainAssets.SafeName(path)!;
+                    if (!assetNames.Add(assetName)) { warnings.Add($"'{path}' repite el nombre de otro adjunto ('{assetName}'); se omitio."); continue; }
+                    byte[] bytes;
+                    using (var ms = new MemoryStream())
+                    {
+                        using (var s = e.Open()) { s.CopyTo(ms); }
+                        bytes = ms.ToArray();
+                    }
+                    if (!MockupBrainAssets.MatchesSignature(bytes, type)) { warnings.Add($"'{path}' no es un {type} valido; se omitio."); continue; }
+                    assets.Add(new VaultAsset(assetName, path, type, bytes));
+                    continue;
+                }
                 if (notes.Count >= MaxVaultNotes) { return Fail($"El vault trae mas de {MaxVaultNotes} notas (tope por importacion)."); }
                 if (e.Length > MaxBodyLength * 4L) { warnings.Add($"'{path}' es demasiado grande; se omitio."); continue; }
 
@@ -473,10 +589,10 @@ public sealed class MockupBrainService : IMockupBrainService
             return Fail("El archivo no es un ZIP valido.");
         }
         if (notes.Count == 0) { return Fail("El ZIP no trae notas .md."); }
-        if (ignored > 0) { warnings.Add($"Se ignoraron {ignored} archivos que no son notas .md (imagenes, PDF, adjuntos)."); }
-        return new VaultRead(null, notes, ignored, warnings);
+        if (ignored > 0) { warnings.Add($"Se ignoraron {ignored} archivos que no son notas .md ni adjuntos permitidos (imagenes PNG/JPG/GIF/WEBP/BMP o PDF)."); }
+        return new VaultRead(null, notes, ignored, warnings, assets);
 
-        static VaultRead Fail(string error) => new(error, Array.Empty<VaultNote>(), 0, Array.Empty<string>());
+        static VaultRead Fail(string error) => new(error, Array.Empty<VaultNote>(), 0, Array.Empty<string>(), Array.Empty<VaultAsset>());
     }
 
     // ------------------------------------------------------------------ helpers

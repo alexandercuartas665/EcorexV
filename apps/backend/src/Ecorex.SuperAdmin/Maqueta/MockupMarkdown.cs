@@ -17,6 +17,9 @@ public static partial class MockupMarkdown
     /// <summary>Dice si un destino existe (para pintar los fantasmas): (tipo, llave) -> existe.</summary>
     public delegate bool LinkExists(string kind, string key);
 
+    /// <summary>URL de un adjunto del cerebro por su referencia (nombre o ruta), o null si no existe (ola 3b).</summary>
+    public delegate string? AssetUrl(string reference);
+
     [GeneratedRegex(@"^(#{1,6})\s+(.*?)\s*#*\s*$")]
     private static partial Regex Heading();
 
@@ -37,6 +40,9 @@ public static partial class MockupMarkdown
 
     [GeneratedRegex(@"\[([^\[\]\n]+)\]\((https?://[^\s()]+)\)")]
     private static partial Regex MdLink();
+
+    [GeneratedRegex(@"!\[([^\[\]\n]*)\]\(<?([^\s()<>]+)>?\)")]
+    private static partial Regex MdImage();
 
     [GeneratedRegex(@"(?<![\w/""'=])https?://[^\s<>()\[\]]+[^\s<>()\[\].,;:!?""']")]
     private static partial Regex BareUrl();
@@ -59,7 +65,7 @@ public static partial class MockupMarkdown
     [GeneratedRegex("\u0001(\\d+)\u0002")]
     private static partial Regex Placeholder();
 
-    public static string ToHtml(string? markdown, LinkExists? exists = null)
+    public static string ToHtml(string? markdown, LinkExists? exists = null, AssetUrl? assets = null)
     {
         var lines = (markdown ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var html = new StringBuilder();
@@ -81,7 +87,7 @@ public static partial class MockupMarkdown
         void FlushPara()
         {
             if (para.Count == 0) { return; }
-            html.Append("<p>").Append(string.Join("<br>", para.Select(p => Inline(p, exists)))).Append("</p>");
+            html.Append("<p>").Append(string.Join("<br>", para.Select(p => Inline(p, exists, assets)))).Append("</p>");
             para.Clear();
         }
 
@@ -137,7 +143,7 @@ public static partial class MockupMarkdown
                 FlushPara();
                 CloseList();
                 var level = h.Groups[1].Value.Length;
-                html.Append("<h").Append(level).Append('>').Append(Inline(h.Groups[2].Value, exists)).Append("</h").Append(level).Append('>');
+                html.Append("<h").Append(level).Append('>').Append(Inline(h.Groups[2].Value, exists, assets)).Append("</h").Append(level).Append('>');
                 continue;
             }
 
@@ -158,12 +164,12 @@ public static partial class MockupMarkdown
                 if (callout.Success)
                 {
                     html.Append("<div class=\"mb-callout\"><div class=\"mb-callout-title\">")
-                        .Append(Inline(callout.Groups[2].Value.Length > 0 ? callout.Groups[2].Value : callout.Groups[1].Value, exists))
-                        .Append("</div>").Append(ToHtml(string.Join('\n', quote.Skip(1)), exists)).Append("</div>");
+                        .Append(Inline(callout.Groups[2].Value.Length > 0 ? callout.Groups[2].Value : callout.Groups[1].Value, exists, assets))
+                        .Append("</div>").Append(ToHtml(string.Join('\n', quote.Skip(1)), exists, assets)).Append("</div>");
                 }
                 else
                 {
-                    html.Append("<blockquote>").Append(ToHtml(string.Join('\n', quote), exists)).Append("</blockquote>");
+                    html.Append("<blockquote>").Append(ToHtml(string.Join('\n', quote), exists, assets)).Append("</blockquote>");
                 }
                 continue;
             }
@@ -175,7 +181,7 @@ public static partial class MockupMarkdown
                 OpenList("ul");
                 var done = t.Groups[2].Value is "x" or "X";
                 html.Append(done ? "<li class=\"mb-task done\"><i class=\"fa-regular fa-square-check\"></i> " : "<li class=\"mb-task\"><i class=\"fa-regular fa-square\"></i> ")
-                    .Append(Inline(t.Groups[3].Value, exists)).Append("</li>");
+                    .Append(Inline(t.Groups[3].Value, exists, assets)).Append("</li>");
                 continue;
             }
 
@@ -184,7 +190,7 @@ public static partial class MockupMarkdown
             {
                 FlushPara();
                 OpenList("ul");
-                html.Append("<li>").Append(Inline(b.Groups[2].Value, exists)).Append("</li>");
+                html.Append("<li>").Append(Inline(b.Groups[2].Value, exists, assets)).Append("</li>");
                 continue;
             }
 
@@ -193,7 +199,7 @@ public static partial class MockupMarkdown
             {
                 FlushPara();
                 OpenList("ol");
-                html.Append("<li>").Append(Inline(o.Groups[2].Value, exists)).Append("</li>");
+                html.Append("<li>").Append(Inline(o.Groups[2].Value, exists, assets)).Append("</li>");
                 continue;
             }
 
@@ -207,7 +213,7 @@ public static partial class MockupMarkdown
 
     /// <summary>Formato en linea. Los tokens (codigo, enlaces, URLs, etiquetas) se apartan con marcadores ANTES de
     /// codificar, asi su HTML no se re-procesa ni se puede inyectar nada.</summary>
-    public static string Inline(string text, LinkExists? exists = null)
+    public static string Inline(string text, LinkExists? exists = null, AssetUrl? assets = null)
     {
         var tokens = new List<string>();
         string Hold(string html)
@@ -218,7 +224,8 @@ public static partial class MockupMarkdown
 
         var s = (text ?? string.Empty).Replace("\u0001", string.Empty).Replace("\u0002", string.Empty);
         s = CodeSpan().Replace(s, m => Hold("<code>" + Enc(m.Groups[1].Value) + "</code>"));
-        s = MockupBrainLinks.WikiLink().Replace(s, m => Hold(WikiHtml(m, exists)));
+        s = MockupBrainLinks.WikiLink().Replace(s, m => Hold(WikiHtml(m, exists, assets)));
+        s = MdImage().Replace(s, m => Hold(MdImageHtml(m.Groups[1].Value, m.Groups[2].Value, assets)));
         s = MdLink().Replace(s, m => Hold(ExternalLink(m.Groups[2].Value, m.Groups[1].Value)));
         s = BareUrl().Replace(s, m => Hold(ExternalLink(m.Value, m.Value)));
         s = MockupBrainLinks.TagPattern().Replace(s, m =>
@@ -243,7 +250,7 @@ public static partial class MockupMarkdown
         return s;
     }
 
-    private static string WikiHtml(Match m, LinkExists? exists)
+    private static string WikiHtml(Match m, LinkExists? exists, AssetUrl? assets)
     {
         var inner = m.Groups[2].Value;
         var pipe = inner.IndexOf('|');
@@ -251,7 +258,8 @@ public static partial class MockupMarkdown
         var shown = pipe >= 0 ? inner[(pipe + 1)..].Trim() : target.Trim();
         if (m.Groups[1].Value == "!")
         {
-            return $"<span class=\"mb-embed\" title=\"Adjunto de Obsidian (no se importa)\"><i class=\"fa-regular fa-file\"></i> {Enc(target.Trim())}</span>";
+            // ![[foto.png]] o ![[foto.png|300]]: el alias numerico es el ancho (sintaxis de Obsidian).
+            return EmbedHtml(target.Trim(), pipe >= 0 ? inner[(pipe + 1)..].Trim() : null, assets);
         }
         var link = MockupBrainLinks.Classify(target);
         if (link is null) { return Enc(m.Value); }
@@ -269,6 +277,40 @@ public static partial class MockupMarkdown
             _ => ok ? "Abrir la nota" : "Nota pendiente: clic para crearla"
         };
         return $"<a href=\"#\" class=\"mb-wl k-{link.Kind}{(ok ? string.Empty : " missing")}\" data-kind=\"{link.Kind}\" data-key=\"{Enc(link.Kind == MockupBrainLinkKinds.Note ? link.Label : link.Key)}\" title=\"{title}\">{icon}{Enc(shown)}</a>";
+    }
+
+    /// <summary>Adjunto embebido: imagen -> img (src del gestor de archivos); PDF -> enlace; sin resolver -> aviso.</summary>
+    private static string EmbedHtml(string reference, string? alias, AssetUrl? assets)
+    {
+        var url = assets?.Invoke(reference);
+        var name = reference.Replace('\\', '/').Split('/').Last();
+        if (url is null || !url.StartsWith("/archivo/", StringComparison.Ordinal))
+        {
+            return $"<span class=\"mb-embed missing\" title=\"Adjunto no encontrado en el cerebro: subelo o importalo\"><i class=\"fa-regular fa-file\"></i> {Enc(name)}</span>";
+        }
+        if (!MockupBrainAssets.IsImageName(name))
+        {
+            return $"<a class=\"mb-file\" href=\"{Enc(url)}\" target=\"_blank\" rel=\"noopener\"><i class=\"fa-regular fa-file-pdf\"></i> {Enc(name)}</a>";
+        }
+        var width = string.Empty;
+        if (alias is not null)
+        {
+            var w = alias.Split('x')[0];
+            if (int.TryParse(w, out var px) && px is > 0 and <= 4000) { width = $" width=\"{px}\""; }
+        }
+        var alt = alias is not null && width.Length == 0 ? alias : name;
+        return $"<img class=\"mb-img\" src=\"{Enc(url)}\" alt=\"{Enc(alt)}\" loading=\"lazy\"{width}>";
+    }
+
+    /// <summary>![alt](ruta): si la ruta es un adjunto del cerebro se embebe; una URL externa queda como enlace (no se
+    /// cargan imagenes de terceros dentro de la app).</summary>
+    private static string MdImageHtml(string alt, string target, AssetUrl? assets)
+    {
+        if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExternalLink(target, string.IsNullOrWhiteSpace(alt) ? target : alt);
+        }
+        return EmbedHtml(target, string.IsNullOrWhiteSpace(alt) ? null : alt, assets);
     }
 
     private static string ExternalLink(string url, string text)

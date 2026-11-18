@@ -126,9 +126,15 @@ archiva el autor de la nota o un Owner/Admin (soft-delete).
    "Pantalla - {titulo}" con el enlace a la pantalla abierta.
 5. **Renombrar** una nota actualiza los `[[enlaces]]` de las demas. Si otra persona la cambio mientras la editabas,
    al guardar avisa (concurrencia optimista) y ofrece recargarla. `Ctrl+S` guarda.
-6. **Importar Obsidian**: icono de importar en la lista. ZIP de la carpeta del vault (max 30 MB, 3.000 notas): cada
-   `.md` es una nota con el nombre del archivo como titulo. Se ignoran `.obsidian/` y adjuntos (imagenes, PDF). Las
-   notas con titulo existente se omiten salvo marcar "sobrescribir". Todo o nada (una transaccion).
+6. **Importar Obsidian**: icono de importar en la lista. ZIP de la carpeta del vault (max 80 MB, 3.000 notas): cada
+   `.md` es una nota con el nombre del archivo como titulo. Las imagenes (PNG, JPG, GIF, WEBP, BMP) y los PDF se suben
+   como adjuntos (max 10 MB cada uno) y se ven donde la nota los embebe (`![[foto.png]]`, `![[foto.png|300]]`,
+   `![alt](img/foto.png)`). Se ignoran `.obsidian/`, SVG y otros formatos. Las notas y adjuntos con nombre existente
+   se omiten salvo marcar "sobrescribir". Las notas entran todas o ninguna (una transaccion); los adjuntos se
+   guardan despues y, si alguno falla, se avisa.
+6b. **Adjuntar imagen** (ola 3b): en el editor de la nota, "Adjuntar imagen" sube una imagen o PDF y pone
+   `![[nombre]]` en su propia linea. Al escribir `[[` el autocompletado sugiere tambien los adjuntos. Las imagenes
+   de internet (`![x](https://...)`) no se cargan dentro de ECOREX: quedan como enlace.
 7. **Con Claude (plan Max)**: el mismo MCP de maquetas (seccion 7) trae `listar_notas`, `buscar_notas`, `ver_nota`,
    `grafo_cerebro`, `crear_nota` y `editar_nota`. Ejemplo: "lee el cerebro de tronox-sgdea, dime que decisiones
    estan sueltas y guarda un resumen en la nota 'Estado del proyecto'". Las escrituras quedan "(via IA)".

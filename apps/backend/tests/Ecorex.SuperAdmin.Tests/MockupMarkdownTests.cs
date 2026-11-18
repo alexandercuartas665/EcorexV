@@ -55,6 +55,32 @@ public sealed class MockupMarkdownTests
     }
 
     [Fact]
+    public void Adjuntos_ImagenesPdfYFaltantes_SinCargarImagenesExternas()
+    {
+        static string? Assets(string reference) => reference.Replace("%20", " ").Split('/').Last().ToLowerInvariant() switch
+        {
+            "foto.png" => "/archivo/11111111-1111-1111-1111-111111111111",
+            "mi foto.png" => "/archivo/22222222-2222-2222-2222-222222222222",
+            "manual.pdf" => "/archivo/33333333-3333-3333-3333-333333333333",
+            "trampa.png" => "javascript:alert(1)",
+            _ => null
+        };
+
+        var html = MockupMarkdown.ToHtml(
+            "![[foto.png|300]] ![[Manual.pdf]] ![[falta.png]] ![[trampa.png]]\n![captura](img/Mi%20Foto.png) ![x](https://evil.test/p.png)",
+            null, Assets);
+
+        Assert.Contains("<img class=\"mb-img\" src=\"/archivo/11111111-1111-1111-1111-111111111111\" alt=\"foto.png\" loading=\"lazy\" width=\"300\">", html);
+        Assert.Contains("<a class=\"mb-file\" href=\"/archivo/33333333-3333-3333-3333-333333333333\"", html);
+        Assert.Contains("<span class=\"mb-embed missing\"", html);
+        Assert.Contains("falta.png</span>", html);
+        Assert.DoesNotContain("javascript:", html);
+        Assert.Contains("src=\"/archivo/22222222-2222-2222-2222-222222222222\" alt=\"captura\"", html);
+        Assert.DoesNotContain("<img class=\"mb-img\" src=\"https://", html);
+        Assert.Contains("href=\"https://evil.test/p.png\"", html);
+    }
+
+    [Fact]
     public void Frontmatter_YCallout_DeObsidian()
     {
         var html = MockupMarkdown.ToHtml("---\ntags: [a]\n---\n> [!nota] Importante\n> detalle");

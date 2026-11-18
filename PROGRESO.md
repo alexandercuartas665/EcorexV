@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.346 (cont.): ola 4 = chatear con la maqueta desde Claude (plan Max) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro). OK del usuario: "Si, ola 4".
+- HECHO: sin chat de IA dentro del sistema (plan Max = sin llave API; ECOREX no llama a la IA, no aplica
+  AiUsageLog). MaquetaClaudeGuide (pasos + comando de Claude Code + prompts de ejemplo personalizables). Conectar IA:
+  seccion plegable "Chatea con tus maquetas desde Claude" (?guia=maquetas la abre y preselecciona el conector
+  Maquetas); el texto del token de maquetas menciona el cerebro. Pestana Cerebro: boton "Chatear con Claude sobre
+  esta maqueta" con modal de pasos y prompts ya armados con proyecto, nota y pantalla abiertas (copiar). ADR-0183
+  punto 8, docs/integraciones/maqueta-solicitudes.md seccion 9.
+- PRUEBAS: MaquetaClaudeGuideTests 3/3 (SuperAdmin.Tests 11/11 del filtro). E2E 5285: modal en el Cerebro con
+  ?nota= (prompts con tronox-sgdea y la nota abierta, comando con la URL del MCP, enlace a /conectar-ia?guia=maquetas)
+  y Conectar IA con la guia abierta y el conector Maquetas preseleccionado.
+
 ## 2026-11-18 - v0.16.346: cerebro digital de la maqueta (ola 3, ADR-0183) - SIN DEPLOY, rama feat/maquetas-cerebro
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, worktree .claude/worktrees/maquetas-cerebro, puerto 5285).

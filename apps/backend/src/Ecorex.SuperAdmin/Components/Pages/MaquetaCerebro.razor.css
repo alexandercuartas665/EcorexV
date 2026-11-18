@@ -168,6 +168,92 @@
     justify-content: center;
 }
 
+/* Ola 4: chatear con Claude (plan del usuario) via el MCP de maquetas. */
+.mb-claude {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 30px;
+    border: 1px dashed var(--t-violet, #7c3aed);
+    border-radius: 9px;
+    background: var(--t-violet-bg, #eee8fd);
+    color: var(--t-violet, #7c3aed);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.mb-claude:hover {
+    border-style: solid;
+}
+
+.mb-modal.claude {
+    width: min(720px, 94vw);
+    max-height: 88vh;
+}
+
+.mb-modal.claude .mb-modal-body {
+    overflow-y: auto;
+}
+
+.mb-steps {
+    margin: 0;
+    padding-left: 18px;
+    line-height: 1.7;
+}
+
+.mb-steps a {
+    color: var(--t-blue, #2563eb);
+    font-weight: 600;
+}
+
+.mb-copy {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 4px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--surface-3, #f2f2f3);
+}
+
+.mb-copy code {
+    flex: 1;
+    font-size: 11.5px;
+    word-break: break-all;
+    color: var(--ink, #1b1b1e);
+}
+
+.mb-prompts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mb-prompt {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 10px;
+}
+
+.mb-prompt > div {
+    flex: 1;
+}
+
+.mb-prompt-title {
+    font-weight: 650;
+    color: var(--ink, #1b1b1e);
+}
+
+.mb-prompt-text {
+    font-size: 12.5px;
+    color: var(--ink-2, #5c5c66);
+}
+
 .mb-notes {
     flex: 1;
     overflow-y: auto;

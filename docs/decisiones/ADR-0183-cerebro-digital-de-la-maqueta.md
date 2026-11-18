@@ -63,11 +63,18 @@ Respuestas del usuario (2026-11-18) a las preguntas del hand-off:
    (lectura) y `crear_nota`, `editar_nota` (agregar al final o reemplazar con `version`; `nuevo_titulo` renombra).
    Las escrituras quedan a nombre del usuario "(via IA)" y auditadas por el host (`mcp.maquetas.*`). Esta es la via
    para usar el plan Claude Max: Claude Desktop/Code conectado al MCP piensa con el cerebro y guarda conclusiones.
+8. **Ola 4 = chat desde Claude, no dentro del sistema** (plan Max: sin llave de API, sin AI Gateway ni AiUsageLog
+   porque ECOREX no llama a la IA). Se guia al usuario en dos lugares con `MaquetaClaudeGuide` (pasos + prompts):
+   - **Conectar IA** (`/conectar-ia`, `?guia=maquetas` la abre y preselecciona el conector Maquetas): seccion
+     "Chatea con tus maquetas desde Claude" con los pasos, el comando de Claude Code y prompts de ejemplo.
+   - **Pestana Cerebro**: boton "Chatear con Claude sobre esta maqueta" con los mismos pasos y prompts ya armados con
+     el proyecto, la nota y la pantalla abiertas, para copiar y pegar en Claude.
+   Si mas adelante hay creditos de API, el chat dentro del panel reutilizaria las mismas herramientas del MCP.
 
 ## Consecuencias
 
 - El cerebro solo existe para maquetas de la nube (las locales de disco, solo Development, no tienen proyecto en BD).
 - Las pantallas enlazadas se validan contra la version abierta en la UI (el servicio no conoce la cache del sitio).
 - Topes: 5.000 notas por proyecto, 200.000 caracteres por nota, 500 enlaces por nota.
-- Ola 4 (chat dentro del sistema) no aplica con plan Max; queda documentar en Conectar IA como chatear con la
-  maqueta y el cerebro desde Claude Desktop/Code (con OK del usuario).
+- La conversacion con la IA ocurre fuera de ECOREX (Claude Desktop/Code) y la paga el plan del usuario; ECOREX solo
+  audita las escrituras del MCP. No hay chat de IA dentro del panel mientras no haya creditos de API.

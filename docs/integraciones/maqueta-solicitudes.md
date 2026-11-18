@@ -132,3 +132,17 @@ archiva el autor de la nota o un Owner/Admin (soft-delete).
 7. **Con Claude (plan Max)**: el mismo MCP de maquetas (seccion 7) trae `listar_notas`, `buscar_notas`, `ver_nota`,
    `grafo_cerebro`, `crear_nota` y `editar_nota`. Ejemplo: "lee el cerebro de tronox-sgdea, dime que decisiones
    estan sueltas y guarda un resumen en la nota 'Estado del proyecto'". Las escrituras quedan "(via IA)".
+
+## 9. Chatear con la maqueta desde Claude (ola 4, plan Max/Pro)
+
+No hay chat de IA dentro de ECOREX: con el plan de Claude del usuario no existe llave de API para el servidor. La
+conversacion ocurre en Claude Desktop o Claude Code conectado al MCP de maquetas (seccion 7), y la paga el plan.
+
+1. **Conectar IA** -> seccion "Chatea con tus maquetas desde Claude" (enlace directo `/conectar-ia?guia=maquetas`,
+   que deja preseleccionado el conector Maquetas). Genera el token y conecta Claude con la configuracion que aparece
+   (Claude Desktop: `claude_desktop_config.json` y reiniciar; Claude Code: el comando `claude mcp add`).
+2. **Pestana Cerebro** -> boton "Chatear con Claude sobre esta maqueta": los mismos pasos y prompts listos para
+   copiar, ya con el identificador del proyecto, la nota y la pantalla abiertas. Ejemplos: ponerse al dia,
+   profundizar en la nota abierta, pensar una pantalla, ordenar el cerebro, guardar una conclusion.
+3. Claude no cambia la maqueta publicada: lo que concluya lo guarda como notas del cerebro o como comentarios de
+   solicitudes; los cambios de archivos se aplican en la carpeta local (seccion 7).

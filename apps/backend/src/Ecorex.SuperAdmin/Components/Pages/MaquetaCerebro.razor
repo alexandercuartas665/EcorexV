@@ -9,6 +9,7 @@
 @using Ecorex.SuperAdmin.Maqueta
 @inject IServiceScopeFactory ScopeFactory
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 
 <div class="mb-shell">
     <aside class="mb-list">
@@ -26,6 +27,9 @@
                 <button class="mb-btn" title="Grafo completo del proyecto" @onclick="OpenGraphAsync"><i class="fa-solid fa-diagram-project"></i> Grafo</button>
                 <button class="mb-icon" title="Importar un vault de Obsidian (.zip con notas .md)" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i></button>
             </div>
+            <button class="mb-claude" title="Piensa con Claude sobre esta maqueta y su cerebro (tu plan de Claude)" @onclick="() => _showClaude = true">
+                <i class="fa-regular fa-comments"></i> Chatear con Claude sobre esta maqueta
+            </button>
         </div>
         <div class="mb-notes">
             @if (_loadingList)
@@ -215,6 +219,46 @@
     </div>
 }
 
+@if (_showClaude)
+{
+    @* Ola 4 (ADR-0183): con el plan de Claude del usuario el chat vive en Claude Desktop/Code via el MCP de maquetas. *@
+    <div class="mb-overlay" @onclick="() => _showClaude = false">
+        <div class="mb-modal claude" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-regular fa-comments"></i> Chatea con @ProjectName desde Claude</h3>
+                <button class="mb-icon" title="Cerrar" @onclick="() => _showClaude = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-modal-body">
+                <p>Claude Desktop o Claude Code, conectado al MCP de maquetas, lee las pantallas, las solicitudes y este cerebro, piensa contigo y guarda las conclusiones como notas aqui. La conversacion usa tu plan de Claude; lo que escriba queda a tu nombre "(via IA)".</p>
+                <ol class="mb-steps">
+                    <li>Genera tu token en <a href="/conectar-ia?guia=maquetas" target="_blank" rel="noopener">Conectar IA</a> (conector <b>Maquetas</b>). Si ya lo tienes, salta este paso.</li>
+                    <li>Conecta Claude. En Claude Code:
+                        <div class="mb-copy">
+                            <code>@MaquetaClaudeGuide.ClaudeCodeCommand(McpUrl)</code>
+                            <button class="mb-link" @onclick="() => CopyAsync(MaquetaClaudeGuide.ClaudeCodeCommand(McpUrl))">Copiar</button>
+                        </div>
+                        En Claude Desktop usa la configuracion que te da Conectar IA al generar el token.
+                    </li>
+                    <li>Pidele algo como esto (ya va con el identificador <code>@Slug</code>):</li>
+                </ol>
+                <div class="mb-prompts">
+                    @foreach (var (title, prompt) in MaquetaClaudeGuide.Prompts(Slug, _current?.Title, CurrentFile))
+                    {
+                        <div class="mb-prompt">
+                            <div>
+                                <div class="mb-prompt-title">@title</div>
+                                <div class="mb-prompt-text">@prompt</div>
+                            </div>
+                            <button class="mb-btn" @onclick="() => CopyAsync(prompt)"><i class="fa-regular fa-copy"></i> Copiar</button>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="mb-modal-foot">Claude no cambia la maqueta publicada: los ajustes se piden como solicitudes y se aplican en la carpeta local (seccion 7 de la guia de maquetas).</div>
+        </div>
+    </div>
+}
+
 @if (_showImport)
 {
     <div class="mb-overlay" @onclick="() => { if (!_importing) { _showImport = false; } }">
@@ -305,6 +349,10 @@
     private bool _showTags = true;
     private bool _showMissing = true;
     private bool _showOrphans = true;
+
+    private bool _showClaude;
+
+    private string McpUrl => Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.Route;
 
     private bool _showImport;
     private IBrowserFile? _vault;
@@ -833,6 +881,19 @@
         if (d.TotalHours < 1) { return $"hace {(int)d.TotalMinutes} min"; }
         if (d.TotalDays < 1) { return $"hace {(int)d.TotalHours} h"; }
         return $"hace {(int)d.TotalDays} d";
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            await OnToast.InvokeAsync("Copiado. Pegalo en Claude.");
+        }
+        catch (JSException)
+        {
+            await OnToast.InvokeAsync("No se pudo copiar; seleccionalo y copialo a mano.");
+        }
     }
 
     private async Task<McpActor?> ResolveActorAsync(IServiceProvider sp)

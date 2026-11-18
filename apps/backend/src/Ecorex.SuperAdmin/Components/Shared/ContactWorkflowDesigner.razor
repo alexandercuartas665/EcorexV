@@ -229,12 +229,25 @@
                                             {
                                                 <span class="cw-email-hint">Esta linea no tiene plantillas aprobadas por Meta. Importalas o crealas en "Plantillas de WhatsApp".</span>
                                             }
+                                            @{ var pend = PendingFor(waLine!.Id); }
+                                            @if (pend.Count > 0)
+                                            {
+                                                @* ADR-0184: las sometidas aun no se pueden usar; se listan para que el usuario sepa que vienen. *@
+                                                <span class="cw-email-hint">
+                                                    @foreach (var p in pend)
+                                                    {
+                                                        <span style="display:block;">@p.Name: @WhatsAppTemplateStatusSync.Label(p.Status)@(string.IsNullOrWhiteSpace(p.RejectionReason) ? "" : " (" + p.RejectionReason + ")")</span>
+                                                    }
+                                                    Las sometidas aparecen aqui solas al aprobarse (el sistema consulta a Meta cada 10 minutos).
+                                                    <button type="button" class="btn btn-link btn-sm p-0" @onclick="RefreshWaStatusAsync" disabled="@_waSyncing">@(_waSyncing ? "Consultando..." : "Consultar ahora")</button>
+                                                </span>
+                                            }
                                         </div>
                                         @if (tpl is not null)
                                         {
                                             <div class="cw-email-prev">
                                                 <div class="cw-email-prev-lbl">PLANTILLA &#183; @tpl.Name</div>
-                                                <div class="cw-email-body" style="white-space:pre-wrap;">@tpl.BodyText</div>
+                                                <div class="cw-email-body" style="white-space:pre-wrap;">@((MarkupString)WhatsAppTextFormat.ToHtml(tpl.BodyText))</div>
                                                 @if (tpl.Variables.Count > 0)
                                                 {
                                                     <div class="cw-wa-vars">
@@ -304,6 +317,20 @@
                                         {
                                             <span class="cw-email-hint">No hay plantillas activas. Crealas en "Plantillas de correo".</span>
                                         }
+                                    </div>
+                                    @* Remitente comercial de la campana (ADR-0185). Vacio = el del servidor de correo. *@
+                                    <div class="cw-field" style="margin-top:10px;">
+                                        <label>Remitente de la campana (opcional)</label>
+                                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
+                                            <input type="text" placeholder="Nombre visible (ej. Comercial SOLDARCO)" maxlength="120" @bind="st.EmailRemitenteNombre" />
+                                            <input type="email" placeholder="Correo remitente (ej. comercial@@tuempresa.com)" maxlength="200" @bind="st.EmailRemitenteCorreo" />
+                                            <input type="email" placeholder="Responder a (opcional)" maxlength="200" @bind="st.EmailResponderA" />
+                                        </div>
+                                        <span class="cw-email-hint">
+                                            El correo remitente se usa tal cual solo si es del mismo dominio del servidor de correo configurado
+                                            (Configuracion &gt; Servidor de correo saliente); si no, el envio sale del servidor y las respuestas
+                                            llegan a ese correo.
+                                        </span>
                                     </div>
                                     @{
                                         var sel = _templates.FirstOrDefault(t => t.Id.ToString() == st.EmailTemplateId);
@@ -459,6 +486,8 @@
     // Paso WhatsApp: lineas del tenant y plantillas APROBADAS (para lineas YCloud/Cloud).
     private List<WhatsAppLineDto> _lines = new();
     private List<WhatsAppTemplateDto> _waTemplates = new();
+    private List<WhatsAppTemplateDto> _waPending = new();
+    private bool _waSyncing;
     // Panel "Ultimas ejecuciones".
     private List<ContactWorkflowRunDto> _runs = new();
     private bool _runsBusy;
@@ -487,10 +516,7 @@
         _agents = (await AiAgentSvc.ListAsync()).ToList();
         _forms = (await FormDefSvc.ListAsync()).ToList();
         _lines = (await WaLineSvc.ListAsync()).ToList();
-        _waTemplates = (await WaTemplateSvc.ListAsync())
-            .Where(t => t.IsActive && t.Status == WhatsAppTemplateStatus.Approved)
-            .OrderBy(t => t.Name)
-            .ToList();
+        await LoadWaTemplatesAsync();
 
         var wf = await WorkflowSvc.GetByFiltroAsync(filtroId);
         if (wf is not null)
@@ -534,6 +560,9 @@
                 }
                 // La plantilla del paso E-mail es la de sus ventanas (todas comparten la misma).
                 vm.EmailTemplateId = vm.Schedules.FirstOrDefault()?.TemplateId;
+                vm.EmailRemitenteNombre = s.Email?.RemitenteNombre;
+                vm.EmailRemitenteCorreo = s.Email?.RemitenteCorreo;
+                vm.EmailResponderA = s.Email?.ResponderA;
                 if (s.StepType == ContactWorkflowStepType.WhatsApp)
                 {
                     // Config nueva en ParamsJson; compatibilidad con pasos viejos (texto en TemplateId de la
@@ -640,7 +669,10 @@
                     h.PackageSize,
                     h.Id)).ToList(),
                 s.StepType == ContactWorkflowStepType.WhatsApp ? BuildWhatsApp(s) : null,
-                s.Id)).ToList();
+                s.Id,
+                s.StepType == ContactWorkflowStepType.Email
+                    ? new ContactWorkflowEmailParams(s.EmailRemitenteNombre, s.EmailRemitenteCorreo, s.EmailResponderA)
+                    : null)).ToList();
 
             var req = new SaveContactWorkflowRequest(null, _activo, steps);
             var res = await WorkflowSvc.SaveAsync(_filtroId, req);
@@ -732,6 +764,28 @@
         var estado = l.Status == WhatsAppLineStatus.Connected ? "" : " - desconectada";
         var numero = string.IsNullOrWhiteSpace(l.PhoneNumber) ? "" : $" ({l.PhoneNumber})";
         return $"{l.InstanceName}{numero} - {l.Provider}{estado}";
+    }
+
+    private async Task LoadWaTemplatesAsync()
+    {
+        var all = (await WaTemplateSvc.ListAsync()).Where(t => t.IsActive).OrderBy(t => t.Name).ToList();
+        _waTemplates = all.Where(t => t.Status == WhatsAppTemplateStatus.Approved).ToList();
+        _waPending = all.Where(t => t.Status is WhatsAppTemplateStatus.Submitted or WhatsAppTemplateStatus.Rejected or WhatsAppTemplateStatus.Paused).ToList();
+    }
+
+    // Plantillas de la linea que aun NO se pueden usar (en revision, rechazadas o pausadas por Meta).
+    private List<WhatsAppTemplateDto> PendingFor(Guid lineId) => _waPending.Where(t => t.WhatsAppLineId == lineId).ToList();
+
+    // ADR-0184: consulta ya en Meta el estado de las sometidas y recarga las listas del paso.
+    private async Task RefreshWaStatusAsync()
+    {
+        _waSyncing = true;
+        try
+        {
+            await WaTemplateSvc.SyncPendingAsync();
+            await LoadWaTemplatesAsync();
+        }
+        finally { _waSyncing = false; }
     }
 
     // Plantillas aprobadas de la linea; si la linea no tiene propias, todas las aprobadas del tenant.
@@ -858,6 +912,10 @@
         public List<Guid> FormulariosPermitidos { get; } = new();
         // Paso E-mail: plantilla seleccionada (Id como texto). Se replica a todas sus ventanas al guardar.
         public string? EmailTemplateId { get; set; }
+        // Paso E-mail: remitente comercial de la campana (ADR-0185).
+        public string? EmailRemitenteNombre { get; set; }
+        public string? EmailRemitenteCorreo { get; set; }
+        public string? EmailResponderA { get; set; }
         // Paso WhatsApp: linea, texto libre (Evolution/Emulator) o plantilla aprobada + mapeo (YCloud/Cloud).
         public Guid? WaLineaId { get; set; }
         public string? WaTexto { get; set; }

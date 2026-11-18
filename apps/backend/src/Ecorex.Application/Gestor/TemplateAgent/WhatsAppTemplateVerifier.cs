@@ -8,7 +8,8 @@ namespace Ecorex.Application.Gestor.TemplateAgent;
 public sealed record WhatsAppDraft(
     string? Nombre, string? Idioma, WhatsAppTemplateCategory Categoria,
     WhatsAppTemplateHeaderType? TipoEncabezado, string? Encabezado, string? EncabezadoMediaUrl,
-    string? Cuerpo, string? Pie, IReadOnlyList<WhatsAppTemplateVariable> Variables);
+    string? Cuerpo, string? Pie, IReadOnlyList<WhatsAppTemplateVariable> Variables,
+    IReadOnlyList<WhatsAppTemplateButtonDto>? Botones = null);
 
 /// <summary>
 /// Verificador DETERMINISTA de plantillas HSM de WhatsApp (ADR-0175, fase 2): anticipa los rechazos tipicos de
@@ -71,10 +72,21 @@ public static class WhatsAppTemplateVerifier
             {
                 issues.Add(new("error", "encabezado", "El encabezado de imagen/documento necesita una URL https publica de ejemplo.", "Sube la imagen en el editor o quita el encabezado."));
             }
+            else if (d.TipoEncabezado == WhatsAppTemplateHeaderType.Image
+                && !Regex.IsMatch(url, @"\.(png|jpe?g)(\?.*)?$", RegexOptions.IgnoreCase))
+            {
+                issues.Add(new("error", "encabezado", "La imagen del encabezado debe ser JPG o PNG (Meta no acepta GIF, WebP ni SVG).", "Usa una imagen JPG/PNG de la galeria."));
+            }
         }
         var pie = (d.Pie ?? string.Empty).Trim();
         if (pie.Length > 60) { issues.Add(new("error", "pie", $"El pie tiene {pie.Length} caracteres (max 60).", "Acortalo.")); }
         if (Token.IsMatch(pie)) { issues.Add(new("error", "pie", "El pie no admite variables.", "Quita las variables del pie.")); }
+
+        // --- Botones (ADR-0186) ---
+        foreach (var p in WhatsAppTemplateButtons.Problems(d.Botones))
+        {
+            issues.Add(new("error", "botones", p, "Corrige el boton (max 25 caracteres, URL https, telefono +57...)."));
+        }
 
         // --- Cuerpo ---
         var trimmed = body.Trim();

@@ -69,7 +69,8 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             s.Schedules.Select(h => new ContactWorkflowScheduleDto(
                 h.Id, h.StartDate, h.EndDate, h.StartTime, h.EndTime, h.ActiveDays,
                 h.TemplateId, h.AccountId, h.RepeatEvery, h.PackageSize)).ToList(),
-            s.StepType == ContactWorkflowStepType.WhatsApp ? DeserializeWhatsApp(s.ParamsJson) : null)).ToList();
+            s.StepType == ContactWorkflowStepType.WhatsApp ? DeserializeWhatsApp(s.ParamsJson) : null,
+            s.StepType == ContactWorkflowStepType.Email ? DeserializeEmail(s.ParamsJson) : null)).ToList();
 
         return new ContactWorkflowDto(wf.Id, wf.TerceroFiltroId, wf.Nombre, wf.Activo, steps);
     }
@@ -145,6 +146,7 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             {
                 ContactWorkflowStepType.Llamada => SerializeCall(s.Call),
                 ContactWorkflowStepType.WhatsApp => SerializeWhatsApp(s.WhatsApp),
+                ContactWorkflowStepType.Email => SerializeEmail(s.Email),
                 _ => null
             };
             var label = string.IsNullOrWhiteSpace(s.Label) ? DefaultLabel(s.StepType) : s.Label.Trim();
@@ -294,6 +296,24 @@ public sealed class ContactWorkflowService : IContactWorkflowService
         }
         return JsonSerializer.Serialize(
             new ContactWorkflowWhatsAppParams(wa.LineaId, texto, wa.PlantillaId, vars is { Count: > 0 } ? vars : null), JsonOpts);
+    }
+
+    /// <summary>Remitente del paso E-mail (ADR-0185). Null si no se configuro nada (usa el del servidor).</summary>
+    internal static string? SerializeEmail(ContactWorkflowEmailParams? email)
+    {
+        if (email is null) { return null; }
+        static string? Clean(string? v, int max) => string.IsNullOrWhiteSpace(v) ? null : SurrogateText.SafeTruncate(v.Trim(), max);
+        var p = new ContactWorkflowEmailParams(Clean(email.RemitenteNombre, 120), Clean(email.RemitenteCorreo, 200), Clean(email.ResponderA, 200));
+        return p.RemitenteNombre is null && p.RemitenteCorreo is null && p.ResponderA is null
+            ? null
+            : JsonSerializer.Serialize(p, JsonOpts);
+    }
+
+    internal static ContactWorkflowEmailParams? DeserializeEmail(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+        try { return JsonSerializer.Deserialize<ContactWorkflowEmailParams>(json, JsonOpts); }
+        catch (JsonException) { return null; }
     }
 
     private static ContactWorkflowWhatsAppParams? DeserializeWhatsApp(string? json)

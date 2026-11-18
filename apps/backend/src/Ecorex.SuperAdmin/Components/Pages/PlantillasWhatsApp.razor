@@ -6,6 +6,7 @@
 @using Ecorex.SuperAdmin.Components.Shared.Confidentiality
 @inject IWhatsAppTemplateService TemplateSvc
 @inject IWhatsAppLineService LineSvc
+@inject ITemplateAssetService GalleryAssets
 @inject IWebHostEnvironment Env
 @inject IConfiguration Config
 @inject NavigationManager Nav
@@ -41,6 +42,10 @@
         @if (YCloudLines.Count > 0)
         {
             <button class="btn btn-outline-primary" @onclick="OpenImport" disabled="@_busy" title="Traer las plantillas que ya existen en tu cuenta de YCloud">Importar desde YCloud</button>
+            @if (_templates.Any(x => x.IsActive && x.Status == WhatsAppTemplateStatus.Submitted && x.Provider == WhatsAppProvider.YCloud))
+            {
+                <button class="btn btn-outline-primary" @onclick="SyncPendingAsync" disabled="@_busy" title="Consultar ya en Meta el estado de las plantillas en revision (el sistema lo hace solo cada 10 minutos)">Actualizar estados</button>
+            }
         }
         <button class="btn btn-outline-primary" @onclick="@(() => OpenAgentAsync(null))" title="Redactar una plantilla con el agente de IA (verifica las reglas de Meta)">Agente IA</button>
         <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nueva plantilla</button>
@@ -52,8 +57,8 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
     <div>
         <strong>Lineas YCloud:</strong> "Someter" CREA la plantilla en YCloud via API (queda en revision
-        de Meta). Para ver si quedo <em>Aprobada</em>/<em>Rechazada</em>, usa "Importar de YCloud" (reconcilia
-        el estado).<br />
+        de Meta). El sistema consulta solo cada 10 minutos si quedo <em>Aprobada</em>/<em>Rechazada</em>
+        (con el motivo); para verlo ya, usa "Estado" en la plantilla o "Actualizar estados".<br />
         <strong>Lineas Evolution:</strong> no hay HSM de Meta: "Someter" deja la plantilla <em>Aprobada</em> y
         lista de una. Al enviarla (desde un flujo/agente) se renderiza a texto libre con sus variables. Puedes
         usar variables/emojis sin esperar aprobacion.
@@ -121,6 +126,10 @@ else
                         {
                             <button class="btn btn-sm btn-outline-primary" @onclick="@(() => SubmitAsync(t))" disabled="@_busy">Someter</button>
                         }
+                        @if (t.IsActive && t.Provider == WhatsAppProvider.YCloud && t.Status != WhatsAppTemplateStatus.Draft)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SyncOneAsync(t))" disabled="@_busy" title="Consultar en Meta el estado de aprobacion de esta plantilla">Estado</button>
+                        }
                         @if (t.IsActive)
                         {
                             <button class="btn btn-sm btn-outline-success" @onclick="@(() => OpenTest(t))" disabled="@_busy" title="Enviar la plantilla a un numero de prueba">Probar</button>
@@ -135,6 +144,10 @@ else
             }
         </tbody>
     </table>
+    @if (_pageInfo is not null)
+    {
+        <div class="wa-sync-info" role="status">@_pageInfo</div>
+    }
     @if (_pageError is not null)
     {
         <div class="tk-field-error">@_pageError</div>
@@ -163,7 +176,17 @@ else
             </div>
             <div class="wa-agent-grid">
                 <div class="wa-agent-prev">
-                    @if (_agentTpl is null)
+                    @* Pestanas: vista previa | galeria (ADR-0186). La galeria es la misma de los correos (JPG/PNG para WhatsApp). *@
+                    <div class="wa-agent-tabs">
+                        <button class="wa-agent-tab @(_agentTab == "prev" ? "on" : "")" @onclick="@(() => _agentTab = "prev")">Vista previa</button>
+                        <button class="wa-agent-tab @(_agentTab == "galeria" ? "on" : "")" @onclick="@(() => _agentTab = "galeria")">Galeria @if (_galleryCount > 0) { <span class="wa-agent-tab-n">@_galleryCount</span> }</button>
+                    </div>
+                    @if (_agentTab == "galeria")
+                    {
+                        <p class="text-muted small" style="margin:0;">Sube imagenes JPG o PNG (ideal horizontal 1200 x 628, menos de 5 MB). Con "Usar en el chat" se la pides al agente como encabezado de la plantilla.</p>
+                        <TemplateGalleryPanel OnUseInChat="UseImageInChat" OnCountChanged="n => _galleryCount = n" />
+                    }
+                    else if (_agentTpl is null)
                     {
                         <p class="text-muted small">Describe el mensaje en el chat. El agente arma el borrador (nombre, categoria, cuerpo, variables con ejemplos), lo verifica contra las reglas de Meta y te pide confirmar. Someter a Meta es una confirmacion aparte.</p>
                     }
@@ -177,16 +200,29 @@ else
                                 {
                                     <div class="wa-bubble-h">@_agentTpl.HeaderText</div>
                                 }
+                                else if (!string.IsNullOrWhiteSpace(_agentTpl.HeaderMediaUrl) && _agentTpl.HeaderType == WhatsAppTemplateHeaderType.Image)
+                                {
+                                    <img class="wa-bubble-img" src="@_agentTpl.HeaderMediaUrl" alt="Imagen del encabezado" />
+                                }
                                 else if (!string.IsNullOrWhiteSpace(_agentTpl.HeaderMediaUrl))
                                 {
                                     <div class="wa-bubble-media">[@_agentTpl.HeaderType]</div>
                                 }
-                                <div class="wa-bubble-b">@BodyWithExamples(_agentTpl)</div>
+                                <div class="wa-bubble-b">@((MarkupString)WhatsAppTextFormat.ToHtml(BodyWithExamples(_agentTpl)))</div>
                                 @if (!string.IsNullOrWhiteSpace(_agentTpl.FooterText))
                                 {
                                     <div class="wa-bubble-f">@_agentTpl.FooterText</div>
                                 }
                             </div>
+                            @if (_agentTpl.Buttons.Count > 0)
+                            {
+                                <div class="wa-bubble-btns">
+                                    @foreach (var b in _agentTpl.Buttons)
+                                    {
+                                        <div class="wa-bubble-btn" title="@(b.Url ?? b.PhoneNumber)">@ButtonIcon(b.Type) @b.Text</div>
+                                    }
+                                </div>
+                            }
                         </div>
                         <div class="wa-agent-meta">
                             <span><b>Categoria:</b> @_agentTpl.Category</span>
@@ -211,10 +247,10 @@ else
                     }
                 </div>
                 <div class="wa-agent-chat">
-                    <TemplateAgentChatPanel @key="_agentKey" Kind="Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp" TemplateId="_agentTemplateId"
+                    <TemplateAgentChatPanel @ref="_agentPanel" @key="_agentKey" Kind="Ecorex.Domain.Enums.TemplateAgentKind.WhatsApp" TemplateId="_agentTemplateId"
                                             OnTemplateChanged="OnAgentChangedAsync" IrreversibleDetail="@AgentPreviewText()"
                                             Subtitle="Describe el mensaje; el agente lo redacta con las reglas de Meta. Someter a Meta se confirma aparte."
-                                            Placeholder="Ej. Aviso de que el pedido esta listo para recoger en bodega..."
+                                            Placeholder="Ej. Promocion de soldaduras con la foto del catalogo y botones Ver catalogo / Me interesa..."
                                             Greeting="Hola. Cuentame que mensaje de WhatsApp necesitas (para que, a quien y que datos lleva) y lo redacto como plantilla lista para aprobar en Meta." />
                 </div>
             </div>
@@ -517,6 +553,7 @@ else
     .wa-banner { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin-bottom: 16px; border-radius: 10px; background: var(--surface-2, var(--accent)); border: 1px solid var(--line, var(--border)); color: var(--ink-2, var(--muted-foreground)); font-size: 13px; }
     .wa-banner svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--t-blue, var(--primary)); }
     .wa-banner strong { color: var(--ink, var(--foreground)); }
+    .wa-sync-info { margin: 10px 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--surface-2, var(--accent)); border: 1px solid var(--line, var(--border)); color: var(--ink, var(--foreground)); }
     .wa-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
     .wa-badge { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
     .wa-badge.wa-draft { background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
@@ -539,6 +576,7 @@ else
     private bool _busy;
     private bool _includeInactive;
     private string? _pageError;
+    private string? _pageInfo;
 
     private IReadOnlyList<WhatsAppTemplateDto> _templates = [];
     private IReadOnlyList<WhatsAppLineDto> _lines = [];
@@ -599,6 +637,9 @@ else
     private Guid _agentKey = Guid.NewGuid();
     private Guid? _agentTemplateId;
     private WhatsAppTemplateDto? _agentTpl;
+    private TemplateAgentChatPanel? _agentPanel;
+    private string _agentTab = "prev";
+    private int _galleryCount;
     private List<TemplateSnapshotDto> _agentVersions = new();
 
     private async Task OpenAgentAsync(Guid? id)
@@ -606,7 +647,10 @@ else
         _agentTemplateId = id;
         _agentTpl = id is Guid tid ? await TemplateSvc.GetAsync(tid) : null;
         _agentKey = Guid.NewGuid();
+        _agentTab = "prev";
         await LoadAgentVersionsAsync();
+        // Contador de la pestana Galeria desde que se abre el panel (antes solo aparecia al abrir la pestana).
+        try { _galleryCount = (await GalleryAssets.ListAsync()).Count(a => a.MimeType is "image/png" or "image/jpeg"); } catch { _galleryCount = 0; }
         _agentOpen = true;
     }
 
@@ -656,7 +700,21 @@ else
 
     private WhatsAppDraft AgentDraft() => new(
         _agentTpl!.Name, _agentTpl.Language, _agentTpl.Category, _agentTpl.HeaderType, _agentTpl.HeaderText, _agentTpl.HeaderMediaUrl,
-        _agentTpl.BodyText, _agentTpl.FooterText, _agentTpl.Variables);
+        _agentTpl.BodyText, _agentTpl.FooterText, _agentTpl.Variables, _agentTpl.Buttons);
+
+    // Galeria -> chat (ADR-0186): deja la peticion escrita en el chat para que el agente use esa imagen.
+    private void UseImageInChat(TemplateAssetDto a)
+    {
+        _agentPanel?.AppendToInput($"Usa la imagen \"{a.Alt ?? a.FileName}\" de la galeria ({a.FileName}) como encabezado.");
+        _agentTab = "prev";
+    }
+
+    private static string ButtonIcon(string type) => type switch
+    {
+        WhatsAppTemplateButtons.Url => "\u2197",
+        WhatsAppTemplateButtons.Phone => "\u260E",
+        _ => "\u21A9"
+    };
 
     private static string VerifyTitle(TemplateVerifyResult vr)
         => vr.Errors == 0 && vr.Warnings == 0 ? "Verificacion Meta: todo en orden." : $"Verificacion Meta: {vr.Errors} error(es), {vr.Warnings} aviso(s)";
@@ -668,8 +726,11 @@ else
         var nl = Environment.NewLine;
         return _agentTpl.Name + " (" + _agentTpl.Category + ", " + _agentTpl.Language + ") - linea " + _agentTpl.WhatsAppLineName + nl + nl
             + (string.IsNullOrWhiteSpace(_agentTpl.HeaderText) ? "" : _agentTpl.HeaderText + nl + nl)
+            + (_agentTpl.HeaderType == WhatsAppTemplateHeaderType.Image && !string.IsNullOrWhiteSpace(_agentTpl.HeaderMediaUrl) ? "[Imagen] " + _agentTpl.HeaderMediaUrl + nl + nl : "")
             + BodyWithExamples(_agentTpl)
-            + (string.IsNullOrWhiteSpace(_agentTpl.FooterText) ? "" : nl + nl + _agentTpl.FooterText);
+            + (string.IsNullOrWhiteSpace(_agentTpl.FooterText) ? "" : nl + nl + _agentTpl.FooterText)
+            + (_agentTpl.Buttons.Count == 0 ? "" : nl + nl + string.Join(nl, _agentTpl.Buttons.Select(b => "[ " + b.Text + " ]"
+                + (b.Url is not null ? " -> " + b.Url : b.PhoneNumber is not null ? " -> " + b.PhoneNumber : ""))));
     }
 
     private static string BodyWithExamples(WhatsAppTemplateDto t)
@@ -951,6 +1012,64 @@ else
         }
         _busy = false;
     }
+
+    // ADR-0184: estado de aprobacion desde YCloud/Meta (una plantilla o todas las que estan en revision).
+    private async Task SyncOneAsync(WhatsAppTemplateDto template)
+    {
+        _busy = true;
+        _pageError = null;
+        _pageInfo = null;
+        var result = await TemplateSvc.SyncStatusAsync(template.Id);
+        if (!result.IsOk || result.Value is null)
+        {
+            _pageError = result.Error;
+        }
+        else
+        {
+            _pageInfo = DescribeSync(result.Value, template.Name);
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task SyncPendingAsync()
+    {
+        _busy = true;
+        _pageError = null;
+        _pageInfo = null;
+        var result = await TemplateSvc.SyncPendingAsync();
+        if (!result.IsOk || result.Value is null)
+        {
+            _pageError = result.Error;
+        }
+        else
+        {
+            _pageInfo = DescribeSync(result.Value, null);
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private string DescribeSync(WhatsAppStatusSyncReport r, string? single)
+    {
+        var parts = new List<string>();
+        if (r.Changes.Count == 0)
+        {
+            parts.Add(single is null
+                ? $"Revisadas {r.Checked} plantilla(s): siguen igual."
+                : $"'{single}': sin cambios, sigue {WhatsAppTemplateStatusSync.Label(StatusOf(single))}.");
+        }
+        foreach (var c in r.Changes)
+        {
+            var reason = string.IsNullOrWhiteSpace(c.Reason) ? "" : $" (motivo: {c.Reason})";
+            parts.Add($"'{c.Name}': {WhatsAppTemplateStatusSync.Label(c.From)} -> {WhatsAppTemplateStatusSync.Label(c.To)}{reason}.");
+        }
+        parts.AddRange(r.Messages);
+        return string.Join(" ", parts);
+    }
+
+    private WhatsAppTemplateStatus StatusOf(string name)
+        => _templates.FirstOrDefault(x => x.Name == name)?.Status ?? WhatsAppTemplateStatus.Submitted;
 
     private async Task ToggleActiveAsync(WhatsAppTemplateDto template)
     {

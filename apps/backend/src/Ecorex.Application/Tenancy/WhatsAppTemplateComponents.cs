@@ -29,7 +29,7 @@ public static class WhatsAppTemplateComponents
         _ => null
     };
 
-    /// <summary>Arreglo de componentes (HEADER? + BODY + FOOTER?) listo para enviar como 'components'.</summary>
+    /// <summary>Arreglo de componentes (HEADER? + BODY + FOOTER? + BUTTONS?) listo para enviar como 'components'.</summary>
     public static IReadOnlyList<object> Build(WhatsAppTemplate t)
     {
         var comps = new List<object>();
@@ -61,6 +61,12 @@ public static class WhatsAppTemplateComponents
         if (!string.IsNullOrWhiteSpace(t.FooterText))
         {
             comps.Add(new { type = "FOOTER", text = t.FooterText!.Trim() });
+        }
+
+        // BUTTONS (ADR-0186): respuestas rapidas, sitio web fijo y llamar.
+        if (WhatsAppTemplateButtons.MetaComponent(WhatsAppTemplateButtons.FromJson(t.ButtonsJson)) is { } buttons)
+        {
+            comps.Add(buttons);
         }
 
         return comps;

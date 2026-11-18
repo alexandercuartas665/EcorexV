@@ -2,6 +2,36 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) (SIN deploy)
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 40e3c671 (sesion
+  ECOREX.call_center). La rama decia v0.16.348 (ya usada y desplegada por maquetas-cerebro ola 3b) -> renumerada a
+  v0.16.349 (AppVersion y lineas Version de ADR-0184/0185/0186; ADRs sin choque). Sin migraciones. Conflicto solo en
+  PROGRESO (resuelto). Las entradas originales de la sesion siguen abajo.
+
+- Rama feat/whatsapp-sync-estado-ycloud (desde main b226f078). `SyncStatusAsync` deja de ser stub: reconciliador
+  puro `WhatsAppTemplateStatusSync` (solo estado/motivo/id/ReviewedAt, nunca contenido), `SyncPendingAsync` por
+  tenant (un listado de YCloud por linea), worker `WhatsAppTemplateStatusWorker` cada 10 min, herramienta del
+  agente `check_meta_status`, botones "Estado"/"Actualizar estados" en Plantillas WhatsApp y, en el paso WhatsApp
+  del gestor de contactos, lista de plantillas en revision/rechazadas con "Consultar ahora". Sin migraciones.
+- Prueba en prod 2026-11-18: los 2 correos programados (filtro "PRUEBA acuartas 8 y 9 AM") salieron Sent a las
+  08:00 y 09:00 Bogota. Remitente actual de SOLDARCO = SMTP global (soporte@bitcode.com.co, nombre "soporte"):
+  SOLDARCO no tiene SMTP propio en /configuracion.
+- Remitente comercial por campana (ADR-0185, misma version): el paso E-mail del gestor de contactos acepta nombre
+  visible, correo remitente (solo como From si es del dominio del servidor; si no, va como Reply-To) y "responder
+  a". `IEmailSender` gana sobrecarga con `EmailSenderOverride` (metodo por defecto: los fakes no cambian).
+  El usuario eligio ambas vias: A) SMTP propio de SOLDARCO en /configuracion (lo configura el usuario, la clave
+  no la escribe el agente) y B) este cambio.
+- Imagen de la galeria + botones en plantillas WhatsApp (ADR-0186, misma version): pestana Galeria en el panel del
+  agente (mismo TemplateGalleryPanel de correos), herramienta list_images (JPG/PNG), argumentos imagen_url y
+  botones (respuesta rapida, sitio web https fijo, llamar) con reglas de Meta, componente BUTTONS al someter,
+  arnes con "diseno de alto impacto", vista previa con imagen y botones, y el motor manda la media del encabezado
+  en cada envio. Sin migraciones.
+- Renumerada a v0.16.348 al integrar main (v0.16.347 = maquetas-cerebro). Vista previa con formato real de
+  WhatsApp (*negrita*, _cursiva_, ~tachado~) en el panel del agente y en el paso WhatsApp del gestor.
+- Siguiente (tras deploy de la sesion principal): E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
+  WhatsApp programado desde el gestor de contactos.
+
 ## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - DESPLEGADA (incluye v0.16.347)
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 474d3888 unida al tronco como

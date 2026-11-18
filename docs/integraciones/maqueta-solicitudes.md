@@ -58,3 +58,21 @@ Con `MaquetaHub` activo (por defecto en `appsettings.Development.json`, proyecto
 | `MaquetaHub:Enabled` | `false` (`true` en Development) | Activa el area /maqueta |
 | `MaquetaHub:AllowOutsideDevelopment` | `false` | Permite activarla fuera de Development |
 | `MaquetaHub:Projects` | `[]` | `{ Id, Nombre, RutaFisica }` por maqueta |
+
+## 5. Maquetas en la nube (ADR-0179)
+
+1. En ECOREX (prod o local) abrir `/maqueta` con un Owner/Admin -> **+ Nuevo proyecto** (nombre; el identificador de
+   URL se sugiere solo, ej. `tronox-sgdea`).
+2. **Versiones** -> subir el ZIP de la carpeta de la maqueta (con `anotador/` para poder anotar). Cada subida es una
+   version nueva y queda como actual; en la tabla se puede **Ver** una version (`/maqueta/<slug>~<n>/...`) o **Usar esta**.
+3. Cualquier usuario de la empresa abre `/maqueta`, elige el proyecto y anota; las tarjetas llegan con su sesion.
+
+Subir una version desde el PC (script o Claude Code), con un token "Maqueta (anotaciones)" de un Owner/Admin:
+
+```bash
+curl -X POST "https://app2.bitcode.com.co/api/maqueta/proyectos/tronox-sgdea/versiones?notas=Ajustes%20RQ07" \
+  -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/zip" --data-binary "@tronox-maqueta.zip"
+```
+
+Respuesta `201 {"proyecto","version","archivos","entrada","anotador","url"}`; `400` ZIP invalido, `401` token,
+`403` no es Owner/Admin, `404` proyecto inexistente, `413` mayor a 100 MB.

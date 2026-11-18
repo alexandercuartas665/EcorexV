@@ -20,9 +20,12 @@ namespace Ecorex.SuperAdmin.Endpoints;
 ///   MaquetaIntegration:AllowedOrigins (coma); por defecto localhost/127.0.0.1:8096. Preflight OPTIONS -> 204.
 /// - AISLAMIENTO: la resolucion por hash es la unica lectura cross-tenant; luego AmbientTenantContext.Begin + scope
 ///   DI propio y el filtro global aisla todo lo demas.
-/// - SESION (ADR-0178): solo con el hub /maqueta activo (Development/flag), si NO llega Bearer se acepta la cookie de
-///   sesion de ECOREX del usuario logueado (el anotador corre bajo el mismo origen). Anti-CSRF: Content-Type JSON y,
-///   si el navegador manda Origin / Sec-Fetch-Site, deben ser del mismo origen. Un Bearer invalido NO cae a sesion.
+/// - SESION (ADR-0178/0179): si NO llega Bearer se acepta la cookie de sesion de ECOREX del usuario logueado (el
+///   anotador corre bajo el mismo origen: hub local o maquetas en la nube /maqueta/{slug}/). Anti-CSRF: Content-Type
+///   JSON y, si el navegador manda Origin / Sec-Fetch-Site, deben ser del mismo origen. Un Bearer invalido NO cae a
+///   sesion.
+/// - SUBIDA DE VERSIONES (ADR-0179): POST /api/maqueta/proyectos/{slug}/versiones con Bearer integ:maqueta de un
+///   Owner/Admin; cuerpo = el ZIP (application/zip u octet-stream) o multipart con un archivo; ?notas= opcional.
 /// - Respuesta: 201 {id, url, estado:"creada"} o 200 {..., estado:"actualizada"} (reenvio del mismo idLocal);
 ///   error 4xx/5xx {error}.
 /// </summary>
@@ -64,7 +67,90 @@ public static class MaquetaSolicitudesEndpoints
         app.MapPost(Route, (HttpContext http, IServiceScopeFactory scopes, ILoggerFactory logs, CancellationToken ct) =>
                 HandleAsync(http, scopes, logs, allowed, ct))
             .DisableAntiforgery().AllowAnonymous().WithTags("maqueta");
+
+        app.MapPost(VersionsRoute, (string slug, HttpContext http, IServiceScopeFactory scopes, ILoggerFactory logs, CancellationToken ct) =>
+                UploadVersionAsync(slug, http, scopes, logs, ct))
+            .DisableAntiforgery().AllowAnonymous().WithTags("maqueta");
         return app;
+    }
+
+    /// <summary>Subida de una version de maqueta (ADR-0179). Solo Bearer (scripts/MCP): la UI sube por Blazor.</summary>
+    public const string VersionsRoute = "/api/maqueta/proyectos/{slug}/versiones";
+
+    private static async Task<IResult> UploadVersionAsync(string slug, HttpContext http, IServiceScopeFactory scopes, ILoggerFactory logs, CancellationToken ct)
+    {
+        var bearer = ExtractBearer(http.Request);
+        if (bearer is null) { return Unauthorized(http, "falta Authorization: Bearer <token>"); }
+        McpActor? actor;
+        await using (var authScope = scopes.CreateAsyncScope())
+        {
+            actor = await authScope.ServiceProvider.GetRequiredService<IPersonalAccessTokenService>()
+                .ResolveAsync(bearer, TenantApiToken.ScopeMaqueta, ct);
+        }
+        if (actor is null) { return Unauthorized(http, "token invalido, revocado, de otra integracion o de usuario inactivo"); }
+
+        var sizeFeature = http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        if (sizeFeature is { IsReadOnly: false }) { sizeFeature.MaxRequestBodySize = MockupService.MaxZipBytes + (1024 * 1024); }
+        if (http.Request.ContentLength is > MockupService.MaxZipBytes + (1024 * 1024))
+        {
+            return Error("El ZIP es demasiado grande.", StatusCodes.Status413PayloadTooLarge);
+        }
+
+        byte[] zip;
+        string? notes = http.Request.Query["notas"].ToString();
+        try
+        {
+            if (http.Request.HasFormContentType)
+            {
+                var form = await http.Request.ReadFormAsync(ct);
+                var file = form.Files.FirstOrDefault();
+                if (file is null) { return Error("Falta el archivo ZIP.", StatusCodes.Status400BadRequest); }
+                if (form.TryGetValue("notas", out var n) && !string.IsNullOrWhiteSpace(n)) { notes = n.ToString(); }
+                using var ms = new MemoryStream();
+                await file.CopyToAsync(ms, ct);
+                zip = ms.ToArray();
+            }
+            else
+            {
+                using var ms = new MemoryStream();
+                await http.Request.Body.CopyToAsync(ms, ct);
+                zip = ms.ToArray();
+            }
+        }
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException)
+        {
+            return Error("El ZIP es demasiado grande.", StatusCodes.Status413PayloadTooLarge);
+        }
+
+        using var ambient = AmbientTenantContext.Begin(actor.TenantId, actor.PlatformUserId);
+        await using var reqScope = scopes.CreateAsyncScope();
+        TaskCoreResult<MockupVersionDto> res;
+        try
+        {
+            res = await reqScope.ServiceProvider.GetRequiredService<IMockupService>()
+                .UploadVersionAsync(slug, zip, notes, actor.DisplayName, actor.IsOwnerOrAdmin, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logs.CreateLogger("Ecorex.Maqueta").LogError(ex, "Fallo al subir la version de la maqueta {Slug} del tenant {TenantId}", slug, actor.TenantId);
+            return Error("No se pudo guardar la version.", StatusCodes.Status500InternalServerError);
+        }
+        if (!res.IsOk || res.Value is null)
+        {
+            var status = res.Status switch
+            {
+                TaskCoreStatus.NotFound => StatusCodes.Status404NotFound,
+                TaskCoreStatus.Conflict => StatusCodes.Status409Conflict,
+                TaskCoreStatus.Forbidden => StatusCodes.Status403Forbidden,
+                _ => StatusCodes.Status400BadRequest
+            };
+            return Error(res.Error ?? "Version invalida.", status);
+        }
+
+        var v = res.Value;
+        var url = $"{http.Request.Scheme}://{http.Request.Host}{MaquetaHub.PathPrefix}/{slug.Trim().ToLowerInvariant()}/{v.EntryPath}";
+        return Results.Json(new { proyecto = slug, version = v.Number, archivos = v.FileCount, entrada = v.EntryPath, anotador = v.HasAnotador, url },
+            Json, statusCode: StatusCodes.Status201Created);
     }
 
     private static async Task<IResult> HandleAsync(HttpContext http, IServiceScopeFactory scopes, ILoggerFactory logs,
@@ -84,8 +170,7 @@ public static class MaquetaSolicitudesEndpoints
         }
         else
         {
-            var hub = http.RequestServices.GetService<MaquetaHubRegistry>();
-            if (hub is not { IsActive: true } || http.User.Identity?.IsAuthenticated != true)
+            if (http.User.Identity?.IsAuthenticated != true)
             {
                 return Unauthorized(http, "falta Authorization: Bearer <token>");
             }

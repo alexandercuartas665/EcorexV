@@ -41,6 +41,9 @@ public interface IApplicationDbContext
     DbSet<TemplateSnapshot> TemplateSnapshots => throw new NotSupportedException();
     // Marca de correo (ADR-0177), mismo patron de implementacion por defecto.
     DbSet<EmailBrand> EmailBrands => throw new NotSupportedException();
+    // Maquetas en la nube (ADR-0179), mismo patron de implementacion por defecto.
+    DbSet<MockupProject> MockupProjects => throw new NotSupportedException();
+    DbSet<MockupVersion> MockupVersions => throw new NotSupportedException();
     DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }

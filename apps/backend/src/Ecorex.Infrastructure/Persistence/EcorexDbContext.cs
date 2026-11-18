@@ -381,6 +381,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     // ADR-0176: vinculo tarea <-> registro de un sistema externo (idempotencia de integraciones).
     public DbSet<ExternalTaskLink> ExternalTaskLinks => Set<ExternalTaskLink>();
 
+    // ADR-0179: maquetas en la nube (proyecto + versiones inmutables por ZIP).
+    public DbSet<MockupProject> MockupProjects => Set<MockupProject>();
+    public DbSet<MockupVersion> MockupVersions => Set<MockupVersion>();
+
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
     /// </summary>
@@ -4014,6 +4018,25 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasIndex(x => new { x.TenantId, x.Source, x.ExternalKey }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TaskItemId });
             b.HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ADR-0179: maquetas en la nube. Slug unico por tenant; versiones correlativas por proyecto.
+        modelBuilder.Entity<MockupProject>(b =>
+        {
+            b.Property(x => x.Slug).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+        });
+        modelBuilder.Entity<MockupVersion>(b =>
+        {
+            b.Property(x => x.RootPrefix).HasMaxLength(200);
+            b.Property(x => x.EntryPath).HasMaxLength(300).IsRequired();
+            b.Property(x => x.Notes).HasMaxLength(600);
+            b.Property(x => x.UploadedByName).HasMaxLength(150);
+            b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.Number }).IsUnique();
+            b.HasOne(x => x.MockupProject).WithMany(p => p.Versions).HasForeignKey(x => x.MockupProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ImportProcess>(b =>

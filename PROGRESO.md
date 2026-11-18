@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-17 - v0.16.342: maquetas en la NUBE (proyectos + versiones por ZIP en /maqueta/{slug}/) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0179. Ola 1 de 2 (la ola 2 es el MCP para el PC local).
+- PEDIDO: que las maquetas funcionen en la nube, poder subir varias y trabajar los detalles alli; despues, un MCP que
+  conecte con el PC local para aplicar los cambios. Decisiones del usuario: MISMO dominio app2 (riesgo de XSS
+  almacenado aceptado y documentado), suben solo Owner/Admin y ven todos, nube primero y MCP despues.
+- HECHO: entidades MockupProject/MockupVersion + migracion dual aditiva AddMockupProjects (PG 20261118032218, SQL
+  Server 20261118032229). MockupService: crear proyecto (slug unico por tenant), subir version (ZIP validado: topes,
+  sin '..'/absolutas, sin ocultos, quita carpeta raiz, detecta anotador/index), version actual, archivar (soft-delete),
+  resolver para servir. /maqueta/{slug}/... (actual) y /maqueta/{slug}~{n}/... (version n): descompresion UNA vez a
+  cache en disco + StaticFileMiddleware por version, detras del login y bajo el filtro de tenant. Launcher /maqueta:
+  lista maquetas de la nube (+ locales en dev), Nuevo proyecto, panel Versiones (subir ZIP, Ver, Usar esta, archivar).
+  POST /api/maqueta/proyectos/{slug}/versiones (Bearer integ:maqueta de Owner/Admin; ZIP o multipart; ?notas=).
+  POST /api/maqueta/solicitudes acepta la sesion sin Bearer en cualquier entorno (anti-CSRF igual). Auditoria
+  maqueta-nube.
+- VERIFICADO: build 0 errores; format limpio; has-pending-model-changes limpio en ambos motores; MockupZipInspection
+  10/10; MaquetaHubTests 13/13; MockupProjects + MaquetaSolicitudes 12/12 dual; Application 1524/1524; SuperAdmin
+  269/269; Domain 35/35. E2E local :5275 (BITCODE): proyecto "TRONOX SGDEA" creado por UI; v1 por API (ZIP directo) y
+  v2 (multipart), 275 archivos con anotador; 404/400/401 de la API; /maqueta?p=tronox-sgdea carga el anotador y la
+  maqueta desde la version en la nube; anotacion por sesion desde el anotador -> 201 T00045; "Usar esta" v1 OK;
+  token de prueba revocado (401 despues). Auditoria maqueta-nube registrada.
+- PENDIENTE: deploy SOLO con OK del usuario (lleva migracion). Ola 2: MCP de maquetas para el PC local. Ajuste del
+  kit del anotador (postear sin token al mismo origen) por la sesion de la maqueta. Item de menu "Maquetas" si se pide.
+
 ## 2026-11-17 - v0.16.341: hub de maquetas /maqueta (hospeda el anotador + envio por sesion) - SIN DEPLOY
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0178. Pedido de la sesion de la maqueta.

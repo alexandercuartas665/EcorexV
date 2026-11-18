@@ -257,6 +257,9 @@ builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecore
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMaquetaSolicitudService, Ecorex.Application.Integraciones.Maqueta.MaquetaSolicitudService>();
 // Hub de maquetas /maqueta (ADR-0178): registro de proyectos (seccion MaquetaHub). Inactivo salvo Development/flag.
 builder.Services.AddMaquetaHub(builder.Configuration, builder.Environment.IsDevelopment());
+// Maquetas en la nube (ADR-0179): proyectos/versiones por ZIP + cache en disco para servirlas en /maqueta/{slug}/.
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupService, Ecorex.Application.Integraciones.Maqueta.MockupService>();
+builder.Services.AddSingleton<MockupSiteCache>();
 // Galeria de imagenes de plantillas (ADR-0177): sube al gestor unificado (por eso se registra aqui, no en Application).
 builder.Services.AddScoped<Ecorex.Application.Gestor.ITemplateGalleryService, Ecorex.Application.Gestor.TemplateGalleryService>();
 // Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.

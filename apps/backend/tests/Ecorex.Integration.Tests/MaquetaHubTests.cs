@@ -11,6 +11,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Ecorex.Application.Integraciones.Maqueta;
+using Ecorex.Application.Storage;
+using Ecorex.Application.Tenancy;
 using superadmin::Ecorex.SuperAdmin.Maqueta;
 
 namespace Ecorex.Integration.Tests;
@@ -110,6 +113,55 @@ public sealed class MaquetaHubTests : IDisposable
     }
 
     [Fact]
+    public async Task MaquetaEnLaNube_SeSirveDesdeLaCache_PorVersion_YSinOcultos()
+    {
+        var files = new MockupProjectsTestsBase.MemoryFileStorage();
+        var z1 = await files.SaveAsync(new FileStorageSaveRequest("maqueta-sitio", "p", "1", "v1.zip", "application/zip", MockupProjectsTestsBase.SiteZip("v1")));
+        var z2 = await files.SaveAsync(new FileStorageSaveRequest("maqueta-sitio", "p", "2", "v2.zip", "application/zip", MockupProjectsTestsBase.SiteZip("v2")));
+        var tenant = Guid.NewGuid();
+        var fake = new FakeMockups(new Dictionary<int, MockupServeTarget>
+        {
+            [1] = new(tenant, Guid.NewGuid(), z1.Id, "site/", MockupService.AnotadorEntry),
+            [2] = new(tenant, Guid.NewGuid(), z2.Id, "site/", MockupService.AnotadorEntry)
+        }, currentNumber: 2);
+
+        await using var app = await StartAsync(MaquetaHub.Resolve(Options(enabled: false), isDevelopment: false), fake, files);
+        var client = app.GetTestClient();
+
+        // Version actual (v2) y una anterior por ~n.
+        var current = await client.SendAsync(Get("/maqueta/nube/anotador/anotador.html", user: "tenant"));
+        Assert.Equal(HttpStatusCode.OK, current.StatusCode);
+        Assert.Equal("<html>anotador v2</html>", await current.Content.ReadAsStringAsync());
+        Assert.Equal("nosniff", current.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("<html>v1</html>", await (await client.SendAsync(Get("/maqueta/nube~1/index.html", user: "tenant"))).Content.ReadAsStringAsync());
+
+        // Ocultos (.env, marcador .ok), proyecto inexistente, version inexistente y anonimo.
+        Assert.Equal("fallthrough", await (await client.SendAsync(Get("/maqueta/nube/.env", user: "tenant"))).Content.ReadAsStringAsync());
+        Assert.Equal("fallthrough", await (await client.SendAsync(Get("/maqueta/nube/.ok", user: "tenant"))).Content.ReadAsStringAsync());
+        Assert.Equal("fallthrough", await (await client.SendAsync(Get("/maqueta/otra/index.html", user: "tenant"))).Content.ReadAsStringAsync());
+        Assert.Equal("fallthrough", await (await client.SendAsync(Get("/maqueta/nube~7/index.html", user: "tenant"))).Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Redirect, (await client.SendAsync(Get("/maqueta/nube/index.html", user: null))).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/maqueta/tronox/index.html", true, "tronox", null, "/index.html")]
+    [InlineData("/maqueta/tronox~3/anotador/anotador.html", true, "tronox", 3, "/anotador/anotador.html")]
+    [InlineData("/maqueta/TRONOX/a.css", true, "tronox", null, "/a.css")]
+    [InlineData("/maqueta/tronox", false, "", null, "")]
+    [InlineData("/maqueta/tronox~x/a.html", false, "", null, "")]
+    [InlineData("/maqueta/tronox~0/a.html", false, "", null, "")]
+    [InlineData("/maqueta/../x/a.html", false, "", null, "")]
+    [InlineData("/otra/tronox/a.html", false, "", null, "")]
+    public void RutaDeLaNube_SeInterpreta(string path, bool ok, string slug, int? number, string sub)
+    {
+        Assert.Equal(ok, MaquetaHub.TryParseCloudPath(new PathString(path), out var s, out var n, out var rest));
+        if (!ok) { return; }
+        Assert.Equal(slug, s);
+        Assert.Equal(number, n);
+        Assert.Equal(sub, rest.Value);
+    }
+
+    [Fact]
     public async Task HubInactivo_NoSirveNada()
     {
         await using var app = await StartAsync(MaquetaHub.Resolve(Options(enabled: true), isDevelopment: false));
@@ -130,12 +182,16 @@ public sealed class MaquetaHubTests : IDisposable
         return req;
     }
 
-    private static async Task<WebApplication> StartAsync(MaquetaHubRegistry registry)
+    private async Task<WebApplication> StartAsync(MaquetaHubRegistry registry, IMockupService? mockups = null, IFileStorageService? files = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+        builder.Configuration["MaquetaNube:CacheDir"] = Path.Combine(_base, "cache");
         builder.Services.AddSingleton(registry);
+        builder.Services.AddSingleton(mockups ?? new FakeMockups(new Dictionary<int, MockupServeTarget>(), 0));
+        builder.Services.AddSingleton(files ?? new MockupProjectsTestsBase.MemoryFileStorage());
+        builder.Services.AddSingleton<MockupSiteCache>();
         builder.Services.AddAuthentication(TestAuthHandler.Scheme)
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.Scheme, _ => { });
         builder.Services.AddAuthorization();
@@ -146,6 +202,20 @@ public sealed class MaquetaHubTests : IDisposable
         app.Run(ctx => ctx.Response.WriteAsync("fallthrough"));
         await app.StartAsync();
         return app;
+    }
+
+    /// <summary>Doble de IMockupService: solo resuelve el slug "nube" (actual o por numero).</summary>
+    private sealed class FakeMockups(Dictionary<int, MockupServeTarget> versions, int currentNumber) : IMockupService
+    {
+        public Task<MockupServeTarget?> ResolveForServingAsync(string slug, int? versionNumber, CancellationToken ct = default)
+            => Task.FromResult(slug == "nube" && versions.TryGetValue(versionNumber ?? currentNumber, out var t) ? t : null);
+
+        public Task<IReadOnlyList<MockupProjectDto>> ListProjectsAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<MockupVersionDto>> ListVersionsAsync(Guid projectId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<MockupProjectDto>> CreateProjectAsync(string name, string? slug, string? description, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<MockupVersionDto>> UploadVersionAsync(string projectSlug, byte[] zip, string? notes, string uploaderName, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<bool>> SetCurrentVersionAsync(Guid projectId, Guid versionId, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<TaskCoreResult<bool>> ArchiveProjectAsync(Guid projectId, bool isOwnerOrAdmin, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     /// <summary>Autenticacion de prueba: cabecera X-Test-User = "tenant" (con tenant_id) o "platform" (sin tenant).</summary>

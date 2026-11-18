@@ -118,19 +118,20 @@ public static partial class MaquetaHub
     }
 
     /// <summary>
-    /// Middleware del area /maqueta/{id}/...: va DESPUES de UseAuthentication/UseAuthorization. Si el hub no esta
-    /// activo no registra nada (las rutas caen al 404 normal). Exige sesion de un usuario de tenant; sirve solo
+    /// Middleware del area /maqueta/{id}/...: va DESPUES de UseAuthentication/UseAuthorization. Siempre activo para
+    /// las maquetas en la NUBE (ADR-0179); las de disco local solo si el hub esta activo (ADR-0178). Exige sesion de un usuario de tenant; sirve solo
     /// archivos dentro de la carpeta del proyecto (PhysicalFileProvider rechaza '..' y rutas absolutas; se excluyen
     /// ocultos y dot-files como .git/.env), solo tipos conocidos y sin listado de directorios.
     /// </summary>
     public static WebApplication UseMaquetaHub(this WebApplication app)
     {
         var registry = app.Services.GetRequiredService<MaquetaHubRegistry>();
-        if (!registry.IsActive) { return app; }
-
-        var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MaquetaHub");
-        log.LogInformation("MaquetaHub activo: {Count} proyecto(s) en {Prefix}/{{id}}: {Ids}",
-            registry.Projects.Count, PathPrefix, string.Join(", ", registry.Projects.Select(p => p.Id)));
+        if (registry.IsActive)
+        {
+            var log = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MaquetaHub");
+            log.LogInformation("MaquetaHub activo: {Count} proyecto(s) en {Prefix}/{{id}}: {Ids}",
+                registry.Projects.Count, PathPrefix, string.Join(", ", registry.Projects.Select(p => p.Id)));
+        }
 
         app.UseWhen(IsHubFileRequest, branch =>
         {
@@ -156,6 +157,7 @@ public static partial class MaquetaHub
                 await next();
             });
 
+            // 1) Maquetas de DISCO local (solo Development/bandera, ADR-0178).
             foreach (var project in registry.Projects)
             {
                 branch.UseStaticFiles(new StaticFileOptions
@@ -172,8 +174,60 @@ public static partial class MaquetaHub
                     }
                 });
             }
+
+            // 2) Maquetas en la NUBE del tenant de la sesion (ADR-0179): /maqueta/{slug}/... o /maqueta/{slug}~{n}/...
+            branch.Use(ServeCloudMockupAsync);
         });
         return app;
+    }
+
+    /// <summary>
+    /// Sirve un archivo de la version de maqueta del tenant de la sesion. Si el slug no existe en el tenant (o el
+    /// archivo no es servible), sigue el pipeline (404 normal). Nunca cruza tenants: la resolucion corre bajo el filtro
+    /// global con el tenant de la cookie.
+    /// </summary>
+    private static async Task ServeCloudMockupAsync(HttpContext ctx, RequestDelegate next)
+    {
+        if (!HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method)) { await next(ctx); return; }
+        if (!TryParseCloudPath(ctx.Request.Path, out var slug, out var versionNumber, out var subPath)) { await next(ctx); return; }
+
+        var mockups = ctx.RequestServices.GetRequiredService<Ecorex.Application.Integraciones.Maqueta.IMockupService>();
+        var target = await mockups.ResolveForServingAsync(slug, versionNumber, ctx.RequestAborted);
+        if (target is null) { await next(ctx); return; }
+
+        var cache = ctx.RequestServices.GetRequiredService<MockupSiteCache>();
+        var files = ctx.RequestServices.GetRequiredService<Ecorex.Application.Storage.IFileStorageService>();
+        var root = await cache.EnsureExtractedAsync(target, files);
+        if (!await cache.TryServeAsync(ctx, target.VersionId, root, subPath)) { await next(ctx); }
+    }
+
+    /// <summary>
+    /// /maqueta/{slug}/{resto} -> (slug, null, /resto); /maqueta/{slug}~{n}/{resto} -> (slug, n, /resto).
+    /// </summary>
+    public static bool TryParseCloudPath(PathString path, out string slug, out int? versionNumber, out PathString subPath)
+    {
+        slug = string.Empty;
+        versionNumber = null;
+        subPath = PathString.Empty;
+        if (!path.StartsWithSegments(PathPrefix, StringComparison.OrdinalIgnoreCase, out var rest) || !rest.HasValue) { return false; }
+        var value = rest.Value!;
+        var slash = value.IndexOf('/', 1);
+        if (slash < 0) { return false; }
+        var segment = value[1..slash].ToLowerInvariant();
+        subPath = new PathString(value[slash..]);
+        var tilde = segment.IndexOf('~');
+        if (tilde >= 0)
+        {
+            if (!int.TryParse(segment[(tilde + 1)..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) || n <= 0)
+            {
+                return false;
+            }
+            versionNumber = n;
+            segment = segment[..tilde];
+        }
+        if (!IsValidId(segment)) { return false; }
+        slug = segment;
+        return true;
     }
 
     /// <summary>/maqueta/{algo}... (la pagina launcher /maqueta exacta NO entra: la atiende Blazor).</summary>

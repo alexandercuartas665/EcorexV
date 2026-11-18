@@ -2,8 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-17 - v0.16.339: marca de correo, galeria de imagenes y selector de estilos del agente (SIN DEPLOY)
+## 2026-11-17 - v0.16.339: marca de correo, galeria de imagenes y selector de estilos del agente (DESPLEGADA 2026-11-17, junto con v0.16.338)
 
+- DEPLOY 2026-11-17 ~19:45 Bogota (OK del usuario: "Despliega las dos versiones juntas"): merge 12fd3e12 (tronco + main),
+  CI publish-image verde, deploy-prod-fast.ps1 -Version 0.16.339. Footer /login = v0.16.339; migraciones
+  AddExternalTaskLink y AddEmailBrandGalleryStyles aplicadas en prod; contenedor sin reinicios ni errores; en prod
+  OPTIONS /api/maqueta/solicitudes -> 204 y POST sin token -> 401. Rollback: imagen anterior
+  sha256:679a70a88266fab3253616562a1f80c80ef7915c3699b1ad9448f32a52c262f7.
 - AGENTE: Claude Opus 5.5. ADR-0177 (renumerado al integrar: v0.16.338/ADR-0176 ya eran de la maqueta). Rama feat/plantillas-marca-galeria-estilos (desde el tronco 9dbc0ed6).
 - PEDIDO del usuario: logo y color de marca en los correos, una pequena galeria para cargar imagenes y un selector de
   estilos para que la IA afine el detalle.
@@ -36,7 +41,7 @@
 - NOTA: en el nucleo, cuando el modelo llama verify_email y save_template en la misma vuelta, la tarjeta de propuesta
   lista "verify_email" tambien (cosmetico, previo a este cambio).
 
-## 2026-11-17 - v0.16.338: integracion maqueta TRONOX -> tarjetas (POST /api/maqueta/solicitudes)
+## 2026-11-17 - v0.16.338: integracion maqueta TRONOX -> tarjetas (POST /api/maqueta/solicitudes) (DESPLEGADA 2026-11-17 dentro de v0.16.339)
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0176. Rama feat/maqueta-solicitudes.
 - MOTIVO: el admin de anotaciones de la maqueta TRONOX (http://localhost:8096) ya llama a un contrato fijo

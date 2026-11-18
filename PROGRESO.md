@@ -2,12 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - SIN DEPLOY
+## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - DESPLEGADA (incluye v0.16.347)
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 474d3888 unida al tronco como
   v0.16.348 (sin choque de version ni de ADR; sin migraciones; merge sin conflictos). Verificado en el tronco: build
   verde, dotnet format verde, unitarias Application 1563 + SuperAdmin 287 + Domain 35, integracion dual Mockup|Maqueta
   53/53 (PG + SQL Server).
+- DEPLOY: 2026-11-18 12:57 Bogota con OK del usuario, via rapida GHCR (CI 44360591643 verde). Incluye v0.16.347:
+  migracion AddMockupBrain aplicada en prod (mockup_notes + mockup_note_links presentes). Footer /login v0.16.348,
+  Restarts=0, sin errores en logs. Imagen nueva sha256:161bba49f15896d410f27ef5b1ecff279d10f4a7425cbbfc5b9c3cb0b7939f75;
+  rollback: sha256:1059f06b5bf6aaaec253008658fea943d32d1335ea61b15a19f6332389fec015 (v0.16.346).
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). Rama adelantada por
   fast-forward al tronco a7c06aaf (v0.16.347) antes de empezar.
 - HECHO: sin migracion: adjuntos en el gestor unificado de archivos (modulo maqueta-cerebro, Ref1 = proyecto).

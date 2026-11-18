@@ -247,7 +247,7 @@
                                         {
                                             <div class="cw-email-prev">
                                                 <div class="cw-email-prev-lbl">PLANTILLA &#183; @tpl.Name</div>
-                                                <div class="cw-email-body" style="white-space:pre-wrap;">@tpl.BodyText</div>
+                                                <div class="cw-email-body" style="white-space:pre-wrap;">@((MarkupString)WhatsAppTextFormat.ToHtml(tpl.BodyText))</div>
                                                 @if (tpl.Variables.Count > 0)
                                                 {
                                                     <div class="cw-wa-vars">

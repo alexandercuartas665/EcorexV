@@ -6,6 +6,7 @@
 @using Ecorex.SuperAdmin.Components.Shared.Confidentiality
 @inject IWhatsAppTemplateService TemplateSvc
 @inject IWhatsAppLineService LineSvc
+@inject ITemplateAssetService GalleryAssets
 @inject IWebHostEnvironment Env
 @inject IConfiguration Config
 @inject NavigationManager Nav
@@ -207,7 +208,7 @@ else
                                 {
                                     <div class="wa-bubble-media">[@_agentTpl.HeaderType]</div>
                                 }
-                                <div class="wa-bubble-b">@BodyWithExamples(_agentTpl)</div>
+                                <div class="wa-bubble-b">@((MarkupString)WhatsAppTextFormat.ToHtml(BodyWithExamples(_agentTpl)))</div>
                                 @if (!string.IsNullOrWhiteSpace(_agentTpl.FooterText))
                                 {
                                     <div class="wa-bubble-f">@_agentTpl.FooterText</div>
@@ -646,7 +647,10 @@ else
         _agentTemplateId = id;
         _agentTpl = id is Guid tid ? await TemplateSvc.GetAsync(tid) : null;
         _agentKey = Guid.NewGuid();
+        _agentTab = "prev";
         await LoadAgentVersionsAsync();
+        // Contador de la pestana Galeria desde que se abre el panel (antes solo aparecia al abrir la pestana).
+        try { _galleryCount = (await GalleryAssets.ListAsync()).Count(a => a.MimeType is "image/png" or "image/jpeg"); } catch { _galleryCount = 0; }
         _agentOpen = true;
     }
 

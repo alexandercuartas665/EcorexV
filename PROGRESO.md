@@ -2,12 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.351: cerebro digital, borrar adjuntos y adjuntos por MCP (ADR-0183 punto 9) - SIN DEPLOY
+## 2026-11-18 - v0.16.351: cerebro digital, borrar adjuntos y adjuntos por MCP (ADR-0183 punto 9) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 6b7a29ee unida al tronco como
   v0.16.351 (sin choque de version ni de ADR; sin migraciones). Conflicto solo en PROGRESO (resuelto).
   Verificado en el tronco: build + format verdes; unitarias Application 1593, SuperAdmin 293, Domain 35; integracion
   dual Mockup|Maqueta|Auth.WhatsAppLine 55/55 (PG + SQL Server).
+- DEPLOY: 2026-11-18 ~18:30 Bogota con OK del usuario, via rapida GHCR (CI 44417493977, commit 38f9c944). Footer
+  /login v0.16.351, Restarts=0, sin errores en logs. Imagen nueva sha256:a8ac0237346ff5994d66fa00cdbb0d0b02db3b3effed6bcffd29a62be1976534;
+  rollback sha256:22a40189a3b6dd5a88da07bfdea84d63a809495d859a4eb3fab38f1e3df8a69b (v0.16.350).
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). OK del usuario: "Si,
   hazlo" (borrar adjuntos y exponerlos por el MCP). Rama al dia con el tronco (v0.16.350, ADR-0187) por merge;
   renumerada a v0.16.351 (la 0.16.350 la usa ADR-0187).

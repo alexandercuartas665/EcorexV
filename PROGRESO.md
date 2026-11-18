@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.350: formularios de la tarea padre en un salto de flujo (ADR-0187) - SIN DEPLOY
+## 2026-11-18 - v0.16.350: formularios de la tarea padre en un salto de flujo (ADR-0187) - DESPLEGADA
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339).
 - PROBLEMA (AGROMETALICAS, prod): T00886 (FLW-007 GESTION COMERCIAL IA) salto a FLW-F15A6C creando la hija T00894.
@@ -19,6 +19,9 @@
   ajenos y tareas sin padre; el salto copia solo lo exigido por el flujo destino).
 - SIGUIENTE: deploy con OK del usuario; en T00894 pulsar "Traer a esta tarea" en la COT heredada (otras hijas de
   FLW-007 -> FLW-F15A6C sin COT propia en prod: T00474, T00648).
+- DEPLOY: 2026-11-18 ~17:10 Bogota con OK del usuario, via rapida GHCR (CI 44404353412, commit 0e114f65). Footer
+  /login v0.16.350, Restarts=0, sin errores en logs. Imagen nueva sha256:22a40189a3b6dd5a88da07bfdea84d63a809495d859a4eb3fab38f1e3df8a69b;
+  rollback sha256:e05c3662dbf6fc95329d4d4814be851ffdd603d552ec5d4be3a25f099d84d3c1 (v0.16.349).
 
 ## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) - DESPLEGADA
 

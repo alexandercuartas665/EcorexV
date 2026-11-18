@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.346: integra feat/agentes-sistema (responder ofertas de portales desde la tarea, ADR-0181)
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama feat/agentes-sistema hasta 89d44fff (c3df28dd feat(dron)
+  responder ofertas de portales desde la tarea + 01a193b8 docs(progreso) DRON Ingenios). Merge limpio con main 79c169e6.
+  Trae: Crear actividad con vencimiento/camposFijos/prellenado; reglas por fila de grilla (FormGridRowRules:
+  requiredWhen/requiredUnless/maxCol, validadas al enviar); verbo EJECUTAR_DRON (lanza un flujo del dron desde un
+  boton con {{TAREA}} y {{FORM}}). Sin migraciones. La rama no subia version: queda v0.16.346. La configuracion
+  (formulario, boton, flujo 'Responder oferta - pdpartner') vive solo en la BD local; en prod el codigo queda listo
+  sin uso. Pendiente de la sesion de agentes: paso Guardar contra el portal real (Fase 0).
+
 ## 2026-11-18 - Hand-off: cerebro digital + chat con la maqueta (ola 3/4) a una sesion nueva
 
 - AGENTE: Claude Opus 5.5 (dev principal). Sin codigo. El usuario pidio un "cerebro digital" tipo Obsidian por
@@ -89,6 +99,37 @@
   temas, Seleccionar + captura -> T00046 en "Maqueta TRONOX SGDEA - Ajustes" con la captura adjunta, Abrir tarjeta,
   cambiar pantalla/tema y "Ver en la maqueta" (vuelve a index y resalta el elemento); maqueta local (dev) tambien abre en el editor.
 - SIGUIENTE: deploy con OK del usuario; ola 2 = MCP de maquetas para el PC local.
+## 2026-11-18 - Responder ofertas de portales desde la tarea (ADR-0181) (rama feat/agentes-sistema, SIN release ni deploy)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas; el usuario pidio construirlo aqui porque la sesion principal
+  estaba ocupada). Pedido: poder llenar los datos del pedido del portal (pdpartner/INCAUCA) y que el dron los pase.
+- DECISIONES DEL USUARIO: se llena en la tarea ECOREX; el dron deja la oferta GUARDADA sin enviar (el clic de Enviar
+  lo da una persona); prellenado con la ultima cotizacion del mismo codigo; boton en el formulario; re-envio reescribe;
+  "No cotiza" + motivo; responsable fijo Saul (editable); plazo de la oferta = vencimiento; COP + vigencia 30 dias;
+  diseno para varios portales.
+- FASE 0 (solo lectura, local con DEV_LOCAL): pdpartner tiene el estado "Diligenciadas sin finalizar" (guarda
+  borradores); ids por fila de GVDilCot (TxtMarca_i, TxtCantCot_i, TxtVrUnit_i, TxtDiasEnt_i, TxtDcto_i, TxtIva_i,
+  btnTotal_i, CBNotCot_i + DDLMotNoCot_i AGOTADO/NO LO VENDE/NO LO DISTRIBUYE). Hoy no hay pendientes: faltan los ids
+  de Guardar/Finalizar (flujo local "FASE0 - Inspeccion oferta pdpartner" listo para leerlos).
+- HECHO (codigo): Crear actividad gana vencimiento (fin del dia en la zona del tenant), camposFijos ({hoy+N}) y
+  prellenado desde un Contenedor historico (ultima fila por clave, sin el mismo registro, solo con valor), editables
+  en el editor del paso. FormGridRowRules: requiredWhen / requiredUnless / maxCol por fila, validadas al enviar y por
+  FormFieldValidator.ValidateGridValue. Verbo EJECUTAR_DRON (SuperAdmin): boton valida grilla y campos, confirma con
+  el modal de la app, lanza el flujo en 2do plano con {{TAREA}} y {{FORM}} y deja comentario (a nombre de quien
+  pulso) + ultima captura en la tarea.
+- CONFIG LOCAL (BD 5442, SOLDARCO): grilla FRM-INCAUCA-PED con No cotiza/motivo y reglas; boton "Pasar oferta al
+  portal" (regla 0f0a5e00-...-fd02); Crear actividad con Saul/vencimiento/fijos/prellenado; lector de pendientes ya
+  no guarda "Seleccione..."; flujo "Responder oferta - pdpartner" (0f0a5e00-...-fa01): login, pendientes, abrir por
+  PETOF, llenar cabecera + filas por item+codigo (SIN guardar: falta el boton Guardar de la Fase 0).
+- VERIFICADO: build 0 errores; format limpio; Application.Tests 1540/1540; SuperAdmin.Tests 275/275 (nuevos
+  FormGridRowRulesTests y OfertaPortalTests). E2E local en :5281 (sin workers) sobre T00061: grilla incompleta ->
+  "La columna 'Cant. cotizada' es obligatoria (fila 1), salvo que marques 'No cotiza'"; marcada No cotiza -> modal de
+  confirmacion -> "se esta ejecutando" -> comentario en la tarea (agente offline en esa instancia: DEV_LOCAL esta
+  conectado a la app 5263 de otra sesion).
+- NO VERIFICADO: corrida real contra el portal (necesita la app con este codigo donde este el agente y una oferta
+  pendiente) y el prellenado/vencimiento con una corrida de Crear actividad.
+- SIGUIENTE: Fase 0 con la proxima oferta pendiente (ids de Guardar/Finalizar y si CBNotCot/btnTotal hacen
+  postback) -> paso Guardar; luego llevar config a prod (SQL idempotente) con OK del usuario; fase 3 cierre automatico.
 
 ## 2026-11-17 - v0.16.342: maquetas en la NUBE (proyectos + versiones por ZIP en /maqueta/{slug}/) (DESPLEGADO 2026-11-18)
 
@@ -296,6 +337,13 @@
 - OJO DRON DIAN: un Navigate que no responde en 60 s (visto 5 veces en la BD local en "IR A BUSCADOR"/"ENTRAR CON ENLACE DIAN") ahora deja la corrida en Error en vez de Ok; es correcto (la pagina no cargo).
 - VERIFICADO: build Release 0 errores; SuperAdmin.Tests 263 verdes (nuevos FlowStepOutcomeTests 14, con los textos reales de prod y los benignos del DRON DIAN); dotnet format limpio en los archivos tocados.
 - SIGUIENTE: deploy con OK del usuario (no en domingo 01:00-13:00 ni lun-sab 06:00-09:00 Bogota por las secuencias del DRON DIAN).
+## 2026-11-16 - DRON PLATAFORMAS INGENIOS (B0005) programado en PROD: consulta de pedidos lun-sab cada 2 h (config, sin codigo, v0.16.333)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas). Pedido del usuario: "programa la consulta a plataformas".
+- HECHO: una fila nueva en import_processes (54ca6207-...) para el flujo 7e834d75-... en transaccion, INSERT idempotente por nombre: "Consulta de pedidos (lun-sab cada 2 h)", desencadenador Semanal lun-sab, 09:30 Bogota repitiendo cada 120 min durante 9 h (09:30, 11:30, 13:30, 15:30, 17:30), sin secuencia (una corrida por ventana). Mismo agente que el DRON DIAN (AGENTE.soldarco_server6, SERVER06, Colmena 1.9.8, en linea): las ventanas evitan la Diaria DIAN (06:00-09:00 lun-sab) y el barrido del domingo; no hay candado por agente, solo por flujo.
+- VERIFICADO: el despachador de prod la tomo sin deshabilitarla (proxima 2026-11-16 13:30 Bogota). Pasos de B0005 en prod iguales a local salvo lineaId del Notificar. Corrida local previa: 0 pedidos pendientes, 17 concluidas.
+- OJO: la ultima corrida de B0005 en prod fue el 2026-10-06 (Error en ENSAMBLADO con codigo viejo); en local v0.16.324+ el flujo corre completo. Confirmar la corrida de las 13:30.
+- RAMA: feat/agentes-sistema avanzada a main c4398c8c sin checkout (el worktree ECOREX.agentes estaba en feat/flujo-secuencia-tramos, en uso por otra sesion).
 
 ## 2026-11-16 - DRON DIAN SOLDARCO: programaciones por tramos activas en PROD (config, sin codigo, v0.16.333)
 

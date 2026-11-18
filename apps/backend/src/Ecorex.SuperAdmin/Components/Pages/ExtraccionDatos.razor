@@ -491,6 +491,11 @@
                                         <div class="xd-prop"><label>No crear si la ruta... (opcional)</label><input class="xd-input mono" placeholder="DETALLE.cabecera.estado" @bind="_caSaltarRuta" /></div>
                                         <div class="xd-prop"><label>...vale</label><input class="xd-input" placeholder="Concluida" @bind="_caSaltarValor" /></div>
                                     </div>
+                                    <div class="xd-prop"><label>Vencimiento de la tarea (ruta o plantilla de fecha, opcional)</label><input class="xd-input mono" placeholder="DETALLE.cabecera.plazoOferta" @bind="_caVence" /></div>
+                                    <div class="xd-prop"><label>Valores fijos: codigo -&gt; valor (JSON, acepta {hoy+N}; no pisa lo leido)</label>
+                                        <textarea class="xd-input xd-code-input" rows="3" placeholder='{"moneda":"PESO COLOMBIANO","vigencia_precios":"{hoy+30}"}' @bind="_caFijos"></textarea></div>
+                                    <div class="xd-prop"><label>Prellenar la grilla con la ultima respuesta del mismo codigo (JSON, opcional)</label>
+                                        <textarea class="xd-input xd-code-input" rows="5" placeholder='{"contenedorId":"...","claveGrilla":"codigo","columnaClave":"CODIGO","ordenColumna":"PETOF","excluirColumna":"PETOF","requiereColumna":"VLR_UNI","columnas":{"marca":"MARCA","vlr_uni":"VLR_UNI"}}' @bind="_caPrellenado"></textarea></div>
                                 }
                                 else if (_sKind == ScrapeStepKind.Notificar)
                                 {
@@ -1316,6 +1321,7 @@
     private string _caSub = "", _caTitulo = "", _caDesc = "", _caClave = "", _caCont = "", _caColClave = "", _caColTarea = "";
     private string _caResp = "", _caSolic = "", _caDoc = "", _caCampos = "", _caGrilla = "", _caItems = "", _caCols = "";
     private string _caSaltarRuta = "", _caSaltarValor = "", _caFormFields = "";
+    private string _caVence = "", _caFijos = "", _caPrellenado = "";
     private IReadOnlyList<Ecorex.Application.Actividades.ActividadSubcategoriaDto> _caConceptos = [];
     private IReadOnlyList<Ecorex.Application.Tenancy.TenantUserDto> _caUsuarios = [];
 
@@ -2170,6 +2176,7 @@
         _caSub = _caTitulo = _caDesc = _caClave = _caCont = _caColClave = _caColTarea = "";
         _caResp = _caSolic = _caDoc = _caCampos = _caGrilla = _caItems = _caCols = "";
         _caSaltarRuta = _caSaltarValor = _caFormFields = "";
+        _caVence = _caFijos = _caPrellenado = "";
         if (s?.Kind != ScrapeStepKind.CrearActividad) { return; }
         var cfg = ScrapeCrearActividad.Parse(s.MappingJson);
         if (cfg is null) { return; }
@@ -2182,6 +2189,11 @@
         _caGrilla = cfg.GrillaCampo ?? ""; _caItems = cfg.ItemsRuta ?? "";
         _caCols = cfg.GrillaColumnas is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(cfg.GrillaColumnas, pretty) : "";
         _caSaltarRuta = cfg.SaltarSiRuta ?? ""; _caSaltarValor = cfg.SaltarSiValor ?? "";
+        _caVence = cfg.Vencimiento ?? "";
+        _caFijos = cfg.CamposFijos is { Count: > 0 } ? System.Text.Json.JsonSerializer.Serialize(cfg.CamposFijos, pretty) : "";
+        _caPrellenado = cfg.Prellenado is not null
+            ? System.Text.Json.JsonSerializer.Serialize(cfg.Prellenado, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull })
+            : "";
     }
 
     // Arma la config del paso "Crear actividad" desde el editor. Devuelve null y fija _stepError si algo no cuadra.
@@ -2189,11 +2201,18 @@
     {
         if (!Guid.TryParse(_caSub, out var sub)) { _stepError = "Elige el concepto de la actividad."; return null; }
         if (string.IsNullOrWhiteSpace(_caClave)) { _stepError = "Indica la clave del registro (ej. DETALLE.cabecera.petof)."; return null; }
-        Dictionary<string, string>? campos = null, cols = null;
+        Dictionary<string, string>? campos = null, cols = null, fijos = null;
+        ScrapeCrearActividad.PrellenadoConfig? prellenado = null;
         try
         {
             if (!string.IsNullOrWhiteSpace(_caCampos)) { campos = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(_caCampos); }
             if (!string.IsNullOrWhiteSpace(_caCols)) { cols = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(_caCols); }
+            if (!string.IsNullOrWhiteSpace(_caFijos)) { fijos = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(_caFijos); }
+            if (!string.IsNullOrWhiteSpace(_caPrellenado))
+            {
+                prellenado = System.Text.Json.JsonSerializer.Deserialize<ScrapeCrearActividad.PrellenadoConfig>(_caPrellenado,
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            }
         }
         catch (System.Text.Json.JsonException ex) { _stepError = "JSON invalido en el mapeo: " + ex.Message; return null; }
         return ScrapeCrearActividad.Serialize(new ScrapeCrearActividad.Config
@@ -2204,6 +2223,7 @@
             ResponsableId = ParseGuid(_caResp), Solicitante = NullIfBlank(_caSolic), DocumentoSolicitante = NullIfBlank(_caDoc),
             Campos = campos, GrillaCampo = NullIfBlank(_caGrilla), ItemsRuta = NullIfBlank(_caItems), GrillaColumnas = cols,
             SaltarSiRuta = NullIfBlank(_caSaltarRuta), SaltarSiValor = NullIfBlank(_caSaltarValor),
+            Vencimiento = NullIfBlank(_caVence), CamposFijos = fijos, Prellenado = prellenado,
         });
     }
 

@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-17 - v0.16.340: item de menu "Plantillas de correo" en todos los tenants
+## 2026-11-17 - v0.16.340: item de menu "Plantillas de correo" en todos los tenants (DESPLEGADA 2026-11-17)
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). Sin ADR (backfill de menu, mismo patron que
   "Plantillas de documento" / "Configuracion de voz").
@@ -13,6 +13,10 @@
   ANCLA al item "Plantillas WhatsApp" (no a la seccion "ia", porque varios tenants la renombraron o movieron), lo
   inserta justo debajo corriendo un puesto a los hermanos siguientes y hereda su visibilidad. Las vistas sin
   Plantillas WhatsApp (menus recortados por cargo) no se tocan. En prod alcanza 15 vistas de los 11 tenants.
+- DEPLOY 2026-11-17 ~20:15 Bogota (OK del usuario): CI publish-image verde, deploy-prod-fast.ps1 -Version 0.16.340.
+  Footer = v0.16.340; contenedor sin reinicios ni errores. En prod (solo lectura): las 15 vistas con Plantillas
+  WhatsApp de los 11 tenants tienen ahora "Plantillas de correo" justo debajo (1 por vista, visible); las 10 vistas
+  recortadas quedaron intactas. Rollback: sha256:2b1fae2ea6090aed2fe0e7c433c21e3f0c725a8f344196f523afd2521c51ebf0.
 - PRUEBA: PlantillasCorreoMenuBackfillTests (dual PG/SQL Server): posicion, seccion renombrada, oculto heredado,
   vista recortada intacta, dos corridas sin duplicar.
 

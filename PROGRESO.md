@@ -2,8 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.344: integra feat/compras-ux-4-pulidos (comparador, IVA/descuento, bolsa + OC en un paso, imprimir OC con {oc.*})
+## 2026-11-18 - v0.16.344: integra feat/compras-ux-4-pulidos (comparador, IVA/descuento, bolsa + OC en un paso, imprimir OC con {oc.*}) (DESPLEGADO 2026-11-18)
 
+- DEPLOY 2026-11-18 06:36 Bogota junto con v0.16.343 (OK del usuario: "Dale realiza el deploy yo corro a mano los
+  drones"; se hizo dentro de la ventana del DRON diario, el usuario relanza el DRON a mano). Via rapida GHCR, imagen
+  de 6c56a966. Footer /login = v0.16.344; migraciones AddComprasIvaDescuento y AddMockupProjectBoard aplicadas
+  (la de compras, con fecha anterior, se aplico sin problema; simulado antes en BD de prueba); item Maquetas en las
+  16 vistas de menu con Administrar actividades; Restarts=0, sin errores en logs. Rollback:
+  sha256:f9a14b22049b51aa95f645c58b5bd6b3f2326d91b09dceb024a6d8e84a7c948c.
 - INTEGRACION (dev principal ECOREX.desarrollo, 2026-11-18): rama feat/compras-ux-4-pulidos hasta 6537fbb4 (5 commits:
   fee1802a 4 pulidos del comparador, 1cd91f7c Ola A backend IVA por producto + descuento % o valor (ComprasFiscal),
   1d473155 Ola A UI, 3b3dfce2 Ola B bolsa del producto + OC en un paso, 6537fbb4 imprimir OC). La rama decia
@@ -32,7 +38,7 @@
 - PENDIENTE: validacion del usuario. Opcional a su pedido: auto-redactar el documento al generar la OC, enviar al
   proveedor (correo/WhatsApp), y/o sembrar la plantilla para todos los tenants. Sin push ni deploy (esperar OK de version).
 
-## 2026-11-18 - v0.16.343: editor de maquetas EN EL SISTEMA + maqueta HTML puro + galeria de tarjetas - SIN DEPLOY
+## 2026-11-18 - v0.16.343: editor de maquetas EN EL SISTEMA + maqueta HTML puro + galeria de tarjetas (DESPLEGADO 2026-11-18 junto con v0.16.344)
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0180.
 - PEDIDO: la carga de maquetas desde el tenant cliente, cada proyecto como tarjeta, la herramienta tipo Lovable

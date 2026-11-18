@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) - DESPLEGADA (SIN deploy)
+## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 40e3c671 (sesion
   ECOREX.call_center). La rama decia v0.16.348 (ya usada y desplegada por maquetas-cerebro ola 3b) -> renumerada a

@@ -22,8 +22,42 @@ public class MockupZipInspectionTests
         Assert.Null(r.Error);
         Assert.Equal("tronox.maqueta/", r.RootPrefix);
         Assert.True(r.HasAnotador);
-        Assert.Equal(MockupService.AnotadorEntry, r.EntryPath);
+        // ADR-0180: la maqueta es HTML puro; el kit anotador/ heredado se conserva pero la entrada es index.html.
+        Assert.Equal("index.html", r.EntryPath);
         Assert.Equal(3, r.FileCount);
+    }
+
+    [Fact]
+    public void SoloKitAnotador_SinOtrasPaginas_UsaElKitComoEntrada()
+    {
+        var r = MockupService.InspectZip(Zip(("anotador/anotador.html", "<html/>"), ("anotador/anotador.js", ""), ("leeme.txt", "")));
+        Assert.Null(r.Error);
+        Assert.Equal(MockupService.AnotadorEntry, r.EntryPath);
+
+        var conOtra = MockupService.InspectZip(Zip(("anotador/anotador.html", "<html/>"), ("pantallas/inicio.html", "<html/>")));
+        Assert.Equal("pantallas/inicio.html", conOtra.EntryPath);
+    }
+
+    [Fact]
+    public void SourceYTableroPorDefecto_DelProyecto()
+    {
+        Assert.Equal("maqueta-tronox-sgdea", MockupService.SourceFor(" TRONOX-SGDEA "));
+        Assert.Equal("Maqueta TRONOX SGDEA - Ajustes", MockupService.DefaultBoardFor("TRONOX SGDEA"));
+        Assert.Equal(150, MockupService.DefaultBoardFor(new string('x', 300)).Length);
+    }
+
+    [Fact]
+    public void Metadata_LeePantallaArchivoYSelector_YToleraBasura()
+    {
+        var (pantalla, archivo, selector) = MockupService.ReadMetadata(
+            "{\"pantalla\":\"Dependencias\",\"archivoMaqueta\":\"rq01-dependencias.html\",\"elemento\":{\"selector\":\"#guardar\"}}");
+        Assert.Equal("Dependencias", pantalla);
+        Assert.Equal("rq01-dependencias.html", archivo);
+        Assert.Equal("#guardar", selector);
+
+        Assert.Equal((null, null, null), MockupService.ReadMetadata("no es json"));
+        Assert.Equal((null, null, null), MockupService.ReadMetadata(null));
+        Assert.Equal((null, null, null), MockupService.ReadMetadata("[1,2]"));
     }
 
     [Fact]

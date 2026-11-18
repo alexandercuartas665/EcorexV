@@ -4026,6 +4026,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Slug).HasMaxLength(40).IsRequired();
             b.Property(x => x.Name).HasMaxLength(150).IsRequired();
             b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.BoardName).HasMaxLength(150);
             b.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
         });
         modelBuilder.Entity<MockupVersion>(b =>

@@ -15,6 +15,9 @@ public class MockupProject : TenantEntity
 
     public string? Description { get; set; }
 
+    /// <summary>Tablero de actividades (por nombre) donde caen las solicitudes del editor (ADR-0180). Se crea si no existe.</summary>
+    public string? BoardName { get; set; }
+
     /// <summary>Version que se sirve en /maqueta/{Slug}/. Null hasta la primera subida.</summary>
     public Guid? CurrentVersionId { get; set; }
 

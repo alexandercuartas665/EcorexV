@@ -1,21 +1,36 @@
 using System.IO.Compression;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
 using Ecorex.Application.Storage;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
+using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Application.Integraciones.Maqueta;
 
 /// <summary>Proyecto de maqueta para la UI y el MCP (nunca expone el id del ZIP).</summary>
+/// <param name="BoardName">Tablero donde caen las solicitudes del editor (ADR-0180).</param>
+/// <param name="OpenRequests">Solicitudes del editor aun abiertas (ni terminadas ni cerradas).</param>
+/// <param name="TotalRequests">Solicitudes del editor en total.</param>
+/// <param name="CurrentFileCount">Archivos de la version actual.</param>
 public sealed record MockupProjectDto(
     Guid Id, string Slug, string Name, string? Description, int? CurrentVersionNumber, string? EntryPath,
-    bool HasAnotador, int VersionCount, DateTimeOffset? LastUploadAt);
+    bool HasAnotador, int VersionCount, DateTimeOffset? LastUploadAt,
+    string? BoardName = null, int OpenRequests = 0, int TotalRequests = 0, int? CurrentFileCount = null);
 
 public sealed record MockupVersionDto(
     Guid Id, int Number, bool IsCurrent, long SizeBytes, int FileCount, string EntryPath, bool HasAnotador,
     string? Notes, string? UploadedByName, DateTimeOffset CreatedAt);
+
+/// <summary>Solicitud (tarjeta) nacida en el editor de un proyecto de maqueta (ADR-0180).</summary>
+public sealed record MockupSolicitudDto(
+    Guid TaskId, string Number, string Title, TaskItemStatus Status, string? ColumnName, TaskPriority Priority,
+    DateTimeOffset CreatedAt, string? Pantalla, string? Archivo, string? Selector)
+{
+    public bool IsOpen => Status is not (TaskItemStatus.Done or TaskItemStatus.Closed);
+}
 
 /// <summary>Lo que necesita el middleware para servir una version (resuelto ya dentro del tenant).</summary>
 public sealed record MockupServeTarget(Guid TenantId, Guid VersionId, Guid ZipFileId, string? RootPrefix, string EntryPath);
@@ -28,6 +43,16 @@ public sealed record MockupServeTarget(Guid TenantId, Guid VersionId, Guid ZipFi
 public interface IMockupService
 {
     Task<IReadOnlyList<MockupProjectDto>> ListProjectsAsync(CancellationToken ct = default);
+
+    /// <summary>Proyecto activo por slug (null si no existe o esta archivado).</summary>
+    Task<MockupProjectDto?> GetProjectAsync(string slug, CancellationToken ct = default);
+
+    /// <summary>Cambia nombre, descripcion y tablero destino (Owner/Admin). El slug no cambia (es la URL).</summary>
+    Task<TaskCoreResult<MockupProjectDto>> UpdateProjectAsync(Guid projectId, string name, string? description, string? boardName,
+        bool isOwnerOrAdmin, CancellationToken ct = default);
+
+    /// <summary>Solicitudes creadas desde el editor del proyecto (origen <c>maqueta-{slug}</c>), mas recientes primero.</summary>
+    Task<IReadOnlyList<MockupSolicitudDto>> ListSolicitudesAsync(string slug, CancellationToken ct = default);
 
     Task<IReadOnlyList<MockupVersionDto>> ListVersionsAsync(Guid projectId, CancellationToken ct = default);
 
@@ -55,7 +80,21 @@ public sealed partial class MockupService : IMockupService
     public const long MaxUncompressedBytes = 400L * 1024 * 1024;
     public const int MaxEntries = 10_000;
 
+    /// <summary>Kit anotador heredado dentro del ZIP. Ya no es la entrada: el editor vive en ECOREX (ADR-0180).</summary>
     public const string AnotadorEntry = "anotador/anotador.html";
+
+    /// <summary>Prefijo del origen (ExternalTaskLink.Source) de las solicitudes del editor: maqueta-{slug}.</summary>
+    public const string SourcePrefix = "maqueta-";
+
+    /// <summary>Origen de las solicitudes del editor para un proyecto.</summary>
+    public static string SourceFor(string slug) => SourcePrefix + (slug ?? string.Empty).Trim().ToLowerInvariant();
+
+    /// <summary>Tablero por defecto de un proyecto: "Maqueta {Nombre} - Ajustes" (max 150).</summary>
+    public static string DefaultBoardFor(string name)
+    {
+        var board = $"Maqueta {(name ?? string.Empty).Trim()} - Ajustes";
+        return board.Length > 150 ? board[..150] : board;
+    }
 
     private const string AuditReason = "maqueta-nube";
 
@@ -104,6 +143,7 @@ public sealed partial class MockupService : IMockupService
                 p.Slug,
                 p.Name,
                 p.Description,
+                p.BoardName,
                 p.CurrentVersionId,
                 Count = p.Versions.Count,
                 Last = p.Versions.Max(v => (DateTimeOffset?)v.CreatedAt)
@@ -112,13 +152,106 @@ public sealed partial class MockupService : IMockupService
         var currentIds = rows.Where(r => r.CurrentVersionId != null).Select(r => r.CurrentVersionId!.Value).ToList();
         var current = await _db.MockupVersions.AsNoTracking()
             .Where(v => currentIds.Contains(v.Id))
-            .Select(v => new { v.Id, v.Number, v.EntryPath, v.HasAnotador })
+            .Select(v => new { v.Id, v.Number, v.EntryPath, v.HasAnotador, v.FileCount })
             .ToDictionaryAsync(v => v.Id, ct);
+
+        // Conteo de solicitudes del editor por proyecto (origen maqueta-{slug}); el join aplica el filtro de tareas.
+        var sources = rows.Select(r => SourceFor(r.Slug)).ToList();
+        var links = await (from l in _db.ExternalTaskLinks.AsNoTracking()
+                           where sources.Contains(l.Source)
+                           join t in _db.TaskItems.AsNoTracking() on l.TaskItemId equals t.Id
+                           select new { l.Source, t.Status })
+            .ToListAsync(ct);
+        var counts = links.GroupBy(l => l.Source).ToDictionary(g => g.Key,
+            g => (Open: g.Count(x => x.Status is not (TaskItemStatus.Done or TaskItemStatus.Closed)), Total: g.Count()));
+
         return rows.Select(r =>
         {
             var cur = r.CurrentVersionId is Guid id && current.TryGetValue(id, out var c) ? c : null;
-            return new MockupProjectDto(r.Id, r.Slug, r.Name, r.Description, cur?.Number, cur?.EntryPath, cur?.HasAnotador ?? false, r.Count, r.Last);
+            var cnt = counts.TryGetValue(SourceFor(r.Slug), out var k) ? k : (Open: 0, Total: 0);
+            return new MockupProjectDto(r.Id, r.Slug, r.Name, r.Description, cur?.Number, cur?.EntryPath, cur?.HasAnotador ?? false, r.Count, r.Last,
+                r.BoardName ?? DefaultBoardFor(r.Name), cnt.Open, cnt.Total, cur?.FileCount);
         }).ToList();
+    }
+
+    public async Task<MockupProjectDto?> GetProjectAsync(string slug, CancellationToken ct = default)
+    {
+        var clean = (slug ?? string.Empty).Trim().ToLowerInvariant();
+        if (!IsValidSlug(clean)) { return null; }
+        return (await ListProjectsAsync(ct)).FirstOrDefault(p => p.Slug == clean);
+    }
+
+    public async Task<TaskCoreResult<MockupProjectDto>> UpdateProjectAsync(Guid projectId, string name, string? description, string? boardName,
+        bool isOwnerOrAdmin, CancellationToken ct = default)
+    {
+        if (!isOwnerOrAdmin) { return TaskCoreResult<MockupProjectDto>.Forbidden("Solo Owner/Admin configura proyectos de maqueta."); }
+        var project = await _db.MockupProjects.FirstOrDefaultAsync(p => p.Id == projectId && p.DeletedAt == null, ct);
+        if (project is null) { return TaskCoreResult<MockupProjectDto>.NotFound("Proyecto no encontrado."); }
+        var cleanName = (name ?? string.Empty).Trim();
+        if (cleanName.Length == 0) { return TaskCoreResult<MockupProjectDto>.Invalid("El nombre es obligatorio."); }
+        if (cleanName.Length > 150) { cleanName = cleanName[..150]; }
+        var desc = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+        if (desc is { Length: > 600 }) { desc = desc[..600]; }
+        var board = string.IsNullOrWhiteSpace(boardName) ? DefaultBoardFor(cleanName) : boardName.Trim();
+        if (board.Length > 150) { board = board[..150]; }
+
+        var previous = new { project.Name, project.Description, project.BoardName };
+        project.Name = cleanName;
+        project.Description = desc;
+        project.BoardName = board;
+        _audit.Write(_tenant.UserId ?? Guid.Empty, "maqueta.proyecto.update", nameof(MockupProject), project.Id,
+            previousValue: previous, newValue: new { project.Name, project.Description, project.BoardName }, tenantId: project.TenantId, reason: AuditReason);
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<MockupProjectDto>.Ok((await GetProjectAsync(project.Slug, ct))!);
+    }
+
+    public async Task<IReadOnlyList<MockupSolicitudDto>> ListSolicitudesAsync(string slug, CancellationToken ct = default)
+    {
+        if (!IsValidSlug(slug)) { return Array.Empty<MockupSolicitudDto>(); }
+        var source = SourceFor(slug);
+        var rows = await (from l in _db.ExternalTaskLinks.AsNoTracking()
+                          where l.Source == source
+                          join t in _db.TaskItems.AsNoTracking() on l.TaskItemId equals t.Id
+                          orderby t.CreatedAt descending
+                          select new
+                          {
+                              t.Id,
+                              t.Number,
+                              t.Title,
+                              t.Status,
+                              Column = t.Column != null ? t.Column.Name : null,
+                              t.Priority,
+                              t.CreatedAt,
+                              l.MetadataJson
+                          })
+            .Take(500)
+            .ToListAsync(ct);
+        return rows.Select(r =>
+        {
+            var (pantalla, archivo, selector) = ReadMetadata(r.MetadataJson);
+            return new MockupSolicitudDto(r.Id, r.Number, r.Title, r.Status, r.Column, r.Priority, r.CreatedAt, pantalla, archivo, selector);
+        }).ToList();
+    }
+
+    /// <summary>Pantalla, archivo y selector guardados en el metadata (camelCase) de la solicitud.</summary>
+    public static (string? Pantalla, string? Archivo, string? Selector) ReadMetadata(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return (null, null, null); }
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return (null, null, null); }
+            var selector = root.TryGetProperty("elemento", out var el) && el.ValueKind == JsonValueKind.Object ? Str(el, "selector") : null;
+            return (Str(root, "pantalla"), Str(root, "archivoMaqueta"), selector);
+        }
+        catch (JsonException)
+        {
+            return (null, null, null);
+        }
+
+        static string? Str(JsonElement e, string name)
+            => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     }
 
     public async Task<IReadOnlyList<MockupVersionDto>> ListVersionsAsync(Guid projectId, CancellationToken ct = default)
@@ -149,12 +282,13 @@ public sealed partial class MockupService : IMockupService
 
         var desc = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
         if (desc is { Length: > 600 }) { desc = desc[..600]; }
-        var project = new MockupProject { TenantId = tenantId, Slug = cleanSlug, Name = cleanName, Description = desc };
+        var project = new MockupProject { TenantId = tenantId, Slug = cleanSlug, Name = cleanName, Description = desc, BoardName = DefaultBoardFor(cleanName) };
         _db.MockupProjects.Add(project);
         _audit.Write(_tenant.UserId ?? Guid.Empty, "maqueta.proyecto.create", nameof(MockupProject), project.Id,
             previousValue: null, newValue: new { project.Slug, project.Name }, tenantId: tenantId, reason: AuditReason);
         await _db.SaveChangesAsync(ct);
-        return TaskCoreResult<MockupProjectDto>.Ok(new MockupProjectDto(project.Id, project.Slug, project.Name, project.Description, null, null, false, 0, null));
+        return TaskCoreResult<MockupProjectDto>.Ok(new MockupProjectDto(project.Id, project.Slug, project.Name, project.Description, null, null, false, 0, null,
+            project.BoardName));
     }
 
     public async Task<TaskCoreResult<MockupVersionDto>> UploadVersionAsync(string projectSlug, byte[] zip, string? notes, string uploaderName,
@@ -302,9 +436,12 @@ public sealed partial class MockupService : IMockupService
         var served = root is null ? files : files.Select(f => f[root.Length..]).ToList();
         var set = new HashSet<string>(served, StringComparer.OrdinalIgnoreCase);
         var hasAnotador = set.Contains(AnotadorEntry);
-        string? entry = hasAnotador ? AnotadorEntry
-            : set.Contains("index.html") ? "index.html"
-            : served.Where(f => f.EndsWith(".html", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f.Count(c => c == '/')).ThenBy(f => f).FirstOrDefault();
+        // La maqueta es HTML puro y el editor vive en ECOREX (ADR-0180): la entrada es index.html (o la primera
+        // pagina fuera del kit anotador/ heredado, que si viene se conserva pero ya no es la entrada).
+        string? entry = set.Contains("index.html") ? "index.html"
+            : served.Where(f => f.EndsWith(".html", StringComparison.OrdinalIgnoreCase) && !f.StartsWith("anotador/", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f.Count(c => c == '/')).ThenBy(f => f).FirstOrDefault()
+              ?? (hasAnotador ? AnotadorEntry : null);
         if (entry is null) { return Fail("El ZIP no trae ninguna pagina .html."); }
         return new ZipInspection(null, served.Count, root, entry, hasAnotador);
 

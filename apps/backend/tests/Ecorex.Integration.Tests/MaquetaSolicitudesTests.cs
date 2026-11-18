@@ -129,6 +129,61 @@ public abstract class MaquetaSolicitudesTestsBase
     }
 
     [Fact]
+    public async Task EditorDelProyecto_TableroPropio_ListaSusSolicitudes_YCuentaAbiertas()
+    {
+        var seed = await SeedTenantAsync("Maqueta Editor", withActivityType: true);
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var files = new FakeFileStorage();
+        var svc = Build(ctx, seed, files);
+        var mockups = new MockupService(ctx, new TestTenantContext(seed.TenantId, seed.OwnerPlatformId), files, new AuditWriter(ctx));
+        var actor = await svc.ResolveSessionActorAsync(seed.OwnerPlatformId);
+        Assert.NotNull(actor);
+
+        // El proyecto nace con su tablero por defecto; solo Owner/Admin lo cambia.
+        var project = (await mockups.CreateProjectAsync("TRONOX SGDEA", null, null, isOwnerOrAdmin: true)).Value!;
+        Assert.Equal("Maqueta TRONOX SGDEA - Ajustes", project.BoardName);
+        Assert.Equal(TaskCoreStatus.Forbidden, (await mockups.UpdateProjectAsync(project.Id, "X", null, "Otro", isOwnerOrAdmin: false)).Status);
+        var updated = await mockups.UpdateProjectAsync(project.Id, "TRONOX SGDEA", "Maqueta", "Ajustes SGDEA", isOwnerOrAdmin: true);
+        Assert.True(updated.IsOk, updated.Error);
+        Assert.Equal("Ajustes SGDEA", updated.Value!.BoardName);
+        var reset = await mockups.UpdateProjectAsync(project.Id, "TRONOX SGDEA", null, "  ", isOwnerOrAdmin: true);
+        Assert.Equal("Maqueta TRONOX SGDEA - Ajustes", reset.Value!.BoardName);
+
+        // Dos solicitudes desde el editor (origen maqueta-{slug}) y una de otra maqueta.
+        var mine1 = Request("ed-1", "Cambiar el boton", "Alta", null);
+        mine1.Origen = MockupService.SourceFor(project.Slug);
+        mine1.Tablero = reset.Value.BoardName;
+        var mine2 = Request("ed-2", "Falta el filtro", "Baja", null);
+        mine2.Origen = MockupService.SourceFor(project.Slug);
+        mine2.Tablero = reset.Value.BoardName;
+        Assert.True((await svc.RecibirAsync(mine1, actor!)).IsOk);
+        var second = await svc.RecibirAsync(mine2, actor!);
+        Assert.True(second.IsOk, second.Error);
+        Assert.True((await svc.RecibirAsync(Request("otro-1", "De otra maqueta", "Media", null), actor!)).IsOk);
+
+        var list = await mockups.ListSolicitudesAsync(project.Slug);
+        Assert.Equal(2, list.Count);
+        Assert.All(list, s => Assert.True(s.IsOpen));
+        var s1 = list.Single(s => s.Title == "Cambiar el boton");
+        Assert.Equal("rq07-terceros.html", s1.Archivo);
+        Assert.Equal("button.btn", s1.Selector);
+        Assert.Equal("Catalogo de Terceros", s1.Pantalla);
+        Assert.Equal(TaskPriority.High, s1.Priority);
+        var board = await ctx.TaskBoards.AsNoTracking().SingleAsync(b => b.Id == second.Value!.BoardId);
+        Assert.Equal("Maqueta TRONOX SGDEA - Ajustes", board.Name);
+
+        // Al cerrar una, el conteo de abiertas de la galeria baja.
+        var task = await ctx.TaskItems.SingleAsync(t => t.Id == second.Value!.TaskId);
+        task.Status = TaskItemStatus.Closed;
+        await ctx.SaveChangesAsync();
+        var card = Assert.Single(await mockups.ListProjectsAsync());
+        Assert.Equal(2, card.TotalRequests);
+        Assert.Equal(1, card.OpenRequests);
+        Assert.Single(await mockups.ListSolicitudesAsync(project.Slug), s => s.IsOpen);
+        Assert.Empty(await mockups.ListSolicitudesAsync("no-existe"));
+    }
+
+    [Fact]
     public async Task SesionDelHub_ResuelveActorDelTenant_YAuditaCanalHub()
     {
         var seed = await SeedTenantAsync("Maqueta Sesion", withActivityType: true);

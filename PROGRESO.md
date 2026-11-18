@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.343: editor de maquetas EN EL SISTEMA + maqueta HTML puro + galeria de tarjetas - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0180.
+- PEDIDO: la carga de maquetas desde el tenant cliente, cada proyecto como tarjeta, la herramienta tipo Lovable
+  dentro del sistema y la maqueta como HTML puro separado del editor. Decisiones del usuario: "Solo galeria de
+  tarjetas" (no una tarea por proyecto) y "Menu + Owner/Admin" (todos ven y anotan).
+- HECHO: editor Blazor /maqueta/{slug} (MaquetaEditor) con agente propio inyectado en el iframe mismo-origen
+  (wwwroot/js/maqueta-agente.js + maqueta-editor.js; html2canvas 1.4.1 MIT en wwwroot/lib): pantallas, recargar,
+  escritorio/movil, temas (si la maqueta trae anotador.config.js), Seleccionar -> captura + selector -> Crear tarjeta
+  (MaquetaSolicitudService con el actor de la sesion, origen maqueta-{slug}); panel de solicitudes del proyecto con
+  "Ver en la maqueta" (abre la pantalla y resalta el elemento) y "Abrir tarjeta" (TaskDetailModal). Galeria /maqueta
+  con tarjetas (vista previa viva, version, archivos, solicitudes abiertas/total) y panel Versiones (configuracion
+  con tablero destino, subir ZIP, abrir/usar version, archivar). MockupProject.BoardName (migracion dual aditiva
+  AddMockupProjectBoard, PG 20261118094430 / SQL Server 20261118094705), UpdateProjectAsync, ListSolicitudesAsync,
+  conteos en ListProjectsAsync. InspectZip: entrada index.html (el kit anotador/ ya no es la entrada). Menu
+  "Maquetas" en Sistema - Actividades + backfill idempotente para todos los tenants (EnsureMenuItemAfterAsync
+  generaliza el de Plantillas de correo). Respuesta de subida por API agrega "editor".
+- PRUEBAS: unitarias (ZIP/origen/tablero/metadata, MockupPages) y dual (editor: tablero propio, lista y conteos;
+  backfill de menu). E2E local 5275 (BITCODE): galeria con 2 tarjetas, editor carga 122 pantallas con titulos y
+  temas, Seleccionar + captura -> T00046 en "Maqueta TRONOX SGDEA - Ajustes" con la captura adjunta, Abrir tarjeta,
+  cambiar pantalla/tema y "Ver en la maqueta" (vuelve a index y resalta el elemento); maqueta local (dev) tambien abre en el editor.
+- SIGUIENTE: deploy con OK del usuario; ola 2 = MCP de maquetas para el PC local.
+
 ## 2026-11-17 - v0.16.342: maquetas en la NUBE (proyectos + versiones por ZIP en /maqueta/{slug}/) (DESPLEGADO 2026-11-18)
 
 - DEPLOY 2026-11-18 04:05 Bogota (OK del usuario: "Dale deploy"), via rapida GHCR, imagen del commit 2e312592. Footer

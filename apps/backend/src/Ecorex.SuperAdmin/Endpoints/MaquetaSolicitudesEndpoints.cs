@@ -148,8 +148,10 @@ public static class MaquetaSolicitudesEndpoints
         }
 
         var v = res.Value;
-        var url = $"{http.Request.Scheme}://{http.Request.Host}{MaquetaHub.PathPrefix}/{slug.Trim().ToLowerInvariant()}/{v.EntryPath}";
-        return Results.Json(new { proyecto = slug, version = v.Number, archivos = v.FileCount, entrada = v.EntryPath, anotador = v.HasAnotador, url },
+        var origin = $"{http.Request.Scheme}://{http.Request.Host}{MaquetaHub.PathPrefix}/{slug.Trim().ToLowerInvariant()}";
+        var url = $"{origin}/{v.EntryPath}";
+        // editor = el editor del sistema (ADR-0180); url = la maqueta en HTML puro.
+        return Results.Json(new { proyecto = slug, version = v.Number, archivos = v.FileCount, entrada = v.EntryPath, anotador = v.HasAnotador, url, editor = origin },
             Json, statusCode: StatusCodes.Status201Created);
     }
 

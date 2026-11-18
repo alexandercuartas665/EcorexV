@@ -43,7 +43,8 @@ public abstract class MockupProjectsTestsBase
         Assert.True(v1.IsOk, v1.Error);
         Assert.Equal(1, v1.Value!.Number);
         Assert.True(v1.Value.HasAnotador);
-        Assert.Equal(MockupService.AnotadorEntry, v1.Value.EntryPath);
+        // ADR-0180: el kit anotador/ heredado ya no es la entrada; la maqueta es HTML puro.
+        Assert.Equal("index.html", v1.Value.EntryPath);
         var v2 = await svc.UploadVersionAsync("tronox-sgdea", SiteZip("v2"), null, "Ana", true);
         Assert.Equal(2, v2.Value!.Number);
         Assert.Equal(2, files.Saved.Count);

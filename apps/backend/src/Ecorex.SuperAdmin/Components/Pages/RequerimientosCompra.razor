@@ -343,7 +343,10 @@ else
                                     @switch (c.Key)
                                     {
                                         case "producto":
-                                            <strong>@(grp[0].ItemNombre ?? grp[0].Descripcion)@(string.IsNullOrWhiteSpace(grp[0].ItemSku) ? "" : $" ({grp[0].ItemSku})")</strong>
+                                            <span class="req-openable" @onclick="() => OpenPlanificarGrupoAsync(grp)" title="Abrir la planificacion de este producto">
+                                                <span class="req-open-chev">&rsaquo;</span>
+                                                <strong>@(grp[0].ItemNombre ?? grp[0].Descripcion)@(string.IsNullOrWhiteSpace(grp[0].ItemSku) ? "" : $" ({grp[0].ItemSku})")</strong>
+                                            </span>
                                             <span class="req-consol-n" title="@it.Count necesidades consolidadas en esta linea">×@it.Count</span>
                                             break;
                                         case "cantidad": <strong>@Fmt(it.Sums!["cantidad"])</strong> break;
@@ -441,7 +444,12 @@ else
                                 <td class="@(c.Num ? "num" : null) @(c.Key == "acciones" ? "req-acts" : null)">
                                     @switch (c.Key)
                                     {
-                                        case "producto": <text>@(ppr.ItemNombre ?? ppr.Descripcion)@(string.IsNullOrWhiteSpace(ppr.ItemSku) ? "" : $" ({ppr.ItemSku})")</text> break;
+                                        case "producto":
+                                            <span class="req-openable" @onclick="() => OpenPlanificarAsync(ppr)" title="Abrir la planificacion de esta necesidad">
+                                                <span class="req-open-chev">&rsaquo;</span>
+                                                <span>@(ppr.ItemNombre ?? ppr.Descripcion)@(string.IsNullOrWhiteSpace(ppr.ItemSku) ? "" : $" ({ppr.ItemSku})")</span>
+                                            </span>
+                                            break;
                                         case "area": <text>@ppr.Area</text> break;
                                         case "origen": <text>@ppr.OrigenNombre</text> break;
                                         case "unidad": <text>@ppr.UnidadMedida</text> break;
@@ -469,7 +477,7 @@ else
                     }
                     else if (it.R is { } r)
                     {
-                        <tr>
+                        <tr class="req-row">
                             <td class="cd-exp-cell">
                                 @if (r.CantidadHijos > 0)
                                 {
@@ -485,7 +493,10 @@ else
                                     @switch (c.Key)
                                     {
                                         case "producto":
-                                            <text>@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</text>
+                                            <span class="req-openable" @onclick="() => OpenPlanificarAsync(r)" title="Abrir la planificacion de esta necesidad">
+                                                <span class="req-open-chev">&rsaquo;</span>
+                                                <span>@(r.ItemNombre ?? r.Descripcion)@(string.IsNullOrWhiteSpace(r.ItemSku) ? "" : $" ({r.ItemSku})")</span>
+                                            </span>
                                             @if (r.ForzarDividir)
                                             {
                                                 <span class="req-dividido" title="Este registro no se consolida con los del mismo producto (se planifica aparte)">dividido</span>
@@ -773,8 +784,12 @@ else
                     @if (!string.IsNullOrWhiteSpace(PlanUnidad)) { <span>Unidad: <strong>@PlanUnidad</strong></span> }
                     <span>Cantidad total: <strong>@Fmt(TotalPlan)</strong>@_uSuf</span>
                     <span>Planificada: <strong>@Fmt(PlanificadaActual)</strong>@_uSuf</span>
+                    @if (ComprometidoActual > 0)
+                    {
+                        <span style="color:#b45309;" title="Cantidad ya enviada a orden de compra o gestionada: queda reservada y no se puede re-pedir (liberala para volver a editarla).">Comprometido (OC): <strong>@Fmt(ComprometidoActual)</strong>@_uSuf</span>
+                    }
                     <span style="color:@(RestanteActual < 0 ? "#b91c1c" : "#b45309")">Sin planificar: <strong>@Fmt(RestanteActual)</strong>@_uSuf</span>
-                    <span style="color:var(--brand,#4f46e5);">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => h.Cantidad * h.Precio))</strong></span>
+                    <span style="color:var(--brand,#4f46e5);" title="Total con descuento e IVA incluidos">Monto planificado: <strong>@Fmt(_pHijos.Sum(h => FiscalHi(h).Total))</strong></span>
                 </div>
 
                 @if (_planTab == "cotizacion")
@@ -907,8 +922,28 @@ else
                                                 <button class="btn btn-link btn-sm" style="padding:0 0 0 4px;" title="Usar este precio" @onclick="() => UsarUltimoPrecio(hi)">usar</button>
                                             </div>
                                         }
+                                        <div style="display:flex;align-items:center;gap:4px;margin-top:4px;justify-content:flex-end;flex-wrap:wrap;">
+                                            <span style="font-size:11px;color:var(--ink-3,#6b7280);">IVA</span>
+                                            <input type="number" step="any" min="0" max="100" style="width:54px;height:26px;padding:0 6px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" title="IVA % de la linea" @bind="hi.Iva" @bind:after="StateHasChanged" disabled="@HiLocked(hi)" />
+                                            <span style="font-size:11px;color:var(--ink-3,#6b7280);">%</span>
+                                            <select style="height:26px;padding:0 4px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;font-size:11px;" title="Tipo de descuento" @bind="hi.DescTipo" @bind:after="StateHasChanged" disabled="@HiLocked(hi)">
+                                                <option value="">sin desc</option>
+                                                <option value="pct">desc %</option>
+                                                <option value="val">desc $</option>
+                                            </select>
+                                            @if (!string.IsNullOrEmpty(hi.DescTipo))
+                                            {
+                                                <input type="number" step="any" min="0" style="width:70px;height:26px;padding:0 6px;border:1px solid var(--line-2,#e5e7eb);border-radius:6px;text-align:right;" title="@(hi.DescTipo == "val" ? "Descuento en $" : "Descuento en %")" @bind="hi.DescNum" @bind:after="StateHasChanged" disabled="@HiLocked(hi)" />
+                                            }
+                                        </div>
                                     </td>
-                                    <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(hi.Cantidad * hi.Precio)</td>
+                                    <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;">
+                                        @{ var hf = FiscalHi(hi); }
+                                        <strong title="@($"Subtotal {Fmt(hf.Subtotal)}{(hf.DescuentoMonto > 0m ? $" - desc {Fmt(hf.DescuentoMonto)}" : "")} + IVA {hf.IvaPct.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}% ({Fmt(hf.IvaMonto)})")">@Fmt(hf.Total)</strong>
+                                        <div style="font-size:10.5px;color:var(--ink-3,#6b7280);white-space:nowrap;">
+                                            @Fmt(hf.Subtotal)@(hf.DescuentoMonto > 0m ? $" -{Fmt(hf.DescuentoMonto)}" : "") +IVA @Fmt(hf.IvaMonto)
+                                        </div>
+                                    </td>
                                     <td style="padding:5px 8px;text-align:right;white-space:nowrap;">
                                         <div style="display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-items:center;">
                                             @if (hi.CotizacionTaskItemId is not null)
@@ -1073,7 +1108,7 @@ else
                         {
                             var _lin = g.ToList();
                             var _prim = _lin[0];
-                            var _sub = _lin.Sum(x => x.Cantidad * x.Precio);
+                            var _sub = _lin.Sum(x => x.Fiscal.Total);   // Ola A: total con descuento + IVA
                             <div style="border:1px solid var(--line-2,#e5e7eb);border-radius:10px;margin-bottom:14px;overflow:hidden;">
                                 <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:10px 14px;background:var(--surface-2,#f8fafc);border-bottom:1px solid var(--line-2,#e5e7eb);">
                                     <div>
@@ -1104,6 +1139,7 @@ else
                                             <th style="padding:6px 10px;font-weight:600;">Despacho</th>
                                             <th style="padding:6px 10px;font-weight:600;">Entrega</th>
                                             <th style="padding:6px 10px;font-weight:600;text-align:right;">Precio unit.</th>
+                                            <th style="padding:6px 10px;font-weight:600;text-align:right;">IVA / desc.</th>
                                             <th style="padding:6px 10px;font-weight:600;text-align:right;">Total</th>
                                             <th style="padding:6px 10px;font-weight:600;">Estado</th>
                                         </tr>
@@ -1121,7 +1157,11 @@ else
                                                 <td style="padding:6px 10px;">@(string.IsNullOrWhiteSpace(l.Despacho) ? "-" : l.Despacho)</td>
                                                 <td style="padding:6px 10px;">@EntregaTexto(l.Entrega)</td>
                                                 <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(l.Precio)</td>
-                                                <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">@Fmt(l.Cantidad * l.Precio)</td>
+                                                @{ var lf = l.Fiscal; }
+                                                <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:11px;color:var(--ink-3,#6b7280);">
+                                                    IVA @lf.IvaPct.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)% @Fmt(lf.IvaMonto)@(lf.DescuentoMonto > 0m ? $" · -{Fmt(lf.DescuentoMonto)}" : "")
+                                                </td>
+                                                <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;" title="@($"Subtotal {Fmt(lf.Subtotal)}{(lf.DescuentoMonto > 0m ? $" - desc {Fmt(lf.DescuentoMonto)}" : "")} + IVA {Fmt(lf.IvaMonto)}")">@Fmt(lf.Total)</td>
                                                 <td style="padding:6px 10px;">
                                                     @if (l.TaskItemId is not null)
                                                     {
@@ -1151,7 +1191,7 @@ else
                                     </tbody>
                                     <tfoot>
                                         <tr style="border-top:2px solid var(--line-2,#e5e7eb);background:var(--surface-2,#f8fafc);">
-                                            <td colspan="@(_ocShowCol1 ? 6 : 5)" style="padding:7px 10px;text-align:right;font-weight:700;">Total @g.Key</td>
+                                            <td colspan="@(_ocShowCol1 ? 7 : 6)" style="padding:7px 10px;text-align:right;font-weight:700;">Total @g.Key (con IVA)</td>
                                             <td style="padding:7px 10px;text-align:right;font-weight:800;font-variant-numeric:tabular-nums;">@Fmt(_sub)</td>
                                             <td></td>
                                         </tr>
@@ -1164,7 +1204,7 @@ else
                             <div style="font-size:12.5px;color:var(--brand,#4f46e5);font-weight:700;">
                                 @(string.IsNullOrWhiteSpace(_ocProvFilter) ? $"Total general ({_ocGrupos.Count} proveedor{(_ocGrupos.Count == 1 ? "" : "es")})" : $"Total {_ocProvFilter}")
                             </div>
-                            <div style="font-size:18px;font-weight:800;color:var(--brand,#4f46e5);font-variant-numeric:tabular-nums;">@Fmt(_ocVisibles.Sum(x => x.Cantidad * x.Precio))</div>
+                            <div style="font-size:18px;font-weight:800;color:var(--brand,#4f46e5);font-variant-numeric:tabular-nums;" title="Total con descuento e IVA incluidos">@Fmt(_ocVisibles.Sum(x => x.Fiscal.Total))</div>
                         </div>
 
                         @if (_ocSinProv > 0 && string.IsNullOrWhiteSpace(_ocProvFilter))
@@ -1266,8 +1306,9 @@ else
                         <button class="btn btn-outline-primary btn-sm" style="margin-right:auto;" title="Crea la actividad de cotizacion de todas las lineas marcadas" @onclick="CotizarSeleccionadasAsync" disabled="@(_busy || SelCount == 0)">Cotizar seleccionadas@(SelCount > 0 ? $" ({SelCount})" : "")</button>
                         <button class="btn btn-primary btn-sm" title="Agrupa las lineas marcadas POR PROVEEDOR y crea una Solicitud de Cotizacion (RFQ) por proveedor, con su tarea de flujo. Idempotente." @onclick="CotizarPorProveedorAsync" disabled="@(_busy || SelCount == 0)">Cotizar por proveedor (RFQ)@(SelCount > 0 ? $" ({SelCount})" : "")</button>
                     }
-                    <button class="btn btn-outline-primary btn-sm" @onclick='() => _planTab = "oc"' disabled="@_busy" title="Ver la orden de compra consolidada por proveedor">Orden de compra &rarr;</button>
-                    <button class="btn btn-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                    <button class="btn btn-outline-primary btn-sm" @onclick="GuardarPlanAsync" disabled="@_busy">Guardar planificacion</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick='() => _planTab = "oc"' disabled="@_busy" title="Ver la orden de compra consolidada por proveedor">Ver orden de compra &rarr;</button>
+                    <button class="btn btn-primary btn-sm" @onclick="EnviarTodoOcAsync" disabled="@(_busy || ListasParaOc == 0)" title="Guarda, envia a orden de compra todas las lineas con proveedor y abre la pestana Orden de compra para gestionarla.">Generar orden de compra@(ListasParaOc > 0 ? $" ({ListasParaOc})" : "")</button>
                 }
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showPlan = false" disabled="@_busy">Cancelar</button>
             </div>
@@ -1912,6 +1953,11 @@ else
         public string Despacho = "";
         public string Entrega = "";
         public decimal Precio;
+        // Ola A fiscal.
+        public decimal Iva = ComprasFiscal.IvaDefault;
+        public decimal? DescPct;
+        public decimal? DescValor;
+        public LineaFiscal Fiscal => ComprasFiscal.Calcular(Precio, Cantidad, Iva, DescPct, DescValor);
         public Guid? TaskItemId;
         public Guid? CotizacionTaskItemId;
         public RequerimientoEstado Estado = RequerimientoEstado.Planificado;
@@ -1937,6 +1983,9 @@ else
                 Despacho = l.Despacho,
                 Entrega = l.Entrega,
                 Precio = l.PrecioUnitario,
+                Iva = l.IvaPct,
+                DescPct = l.DescuentoPct,
+                DescValor = l.DescuentoValor,
                 TaskItemId = l.TaskItemId,
                 CotizacionTaskItemId = l.CotizacionTaskItemId,
                 Estado = l.Estado,
@@ -1964,6 +2013,9 @@ else
                 Despacho = h.Despacho,
                 Entrega = h.Entrega,
                 Precio = h.Precio,
+                Iva = h.Iva,
+                DescPct = h.DescTipo == "pct" ? h.DescNum : null,
+                DescValor = h.DescTipo == "val" ? h.DescNum : null,
                 TaskItemId = h.TaskItemId,
                 CotizacionTaskItemId = h.CotizacionTaskItemId,
                 Estado = h.Estado,
@@ -2044,6 +2096,10 @@ else
         public string? Email;
         public string? Telefono;
         public decimal Precio;
+        // Ola A fiscal: IVA % de la linea (inicia del item/oferta) y descuento por % o valor.
+        public decimal Iva = ComprasFiscal.IvaDefault;
+        public string DescTipo = "";       // "" | "pct" | "val"
+        public decimal? DescNum;
         public Guid? TaskItemId;
         public Guid? CotizacionTaskItemId;
         public RequerimientoEstado Estado = RequerimientoEstado.Planificado;
@@ -2064,6 +2120,9 @@ else
         Prov = h.ProveedorId?.ToString() ?? "",
         ProvNombre = h.ProveedorNombre ?? "",
         Precio = h.PrecioUnitario,
+        Iva = h.IvaPct,
+        DescTipo = h.DescuentoValor is > 0m ? "val" : (h.DescuentoPct is > 0m ? "pct" : ""),
+        DescNum = h.DescuentoValor is > 0m ? h.DescuentoValor : (h.DescuentoPct is > 0m ? h.DescuentoPct : null),
         TaskItemId = h.TaskItemId,
         CotizacionTaskItemId = h.CotizacionTaskItemId,
         Estado = h.Estado,
@@ -2083,6 +2142,12 @@ else
     private decimal TotalPlan => _planIsGroup ? _planRegs.Sum(r => r.Cantidad) : _planCantidadPadre;
     private decimal PlanificadaActual => _pHijos.Sum(h => h.Cantidad);
     private decimal RestanteActual => TotalPlan - PlanificadaActual;
+    // Bolsa del producto (Ola B): cantidad ya COMPROMETIDA en orden de compra (enviada o gestionada). Esta
+    // cantidad queda reservada: no se puede re-pedir ni editar hasta liberarla (si aun no se gestiono).
+    private decimal ComprometidoActual => _pHijos.Where(HiComprometido).Sum(h => h.Cantidad);
+    private static bool HiComprometido(HijoEdit h) => h.TaskItemId is not null || h.Estado == RequerimientoEstado.EnOrdenCompra;
+    // Lineas listas para enviar a orden de compra: con cantidad y proveedor, aun editables (no comprometidas).
+    private int ListasParaOc => _pHijos.Count(h => h.Cantidad > 0 && !string.IsNullOrWhiteSpace(h.Prov) && !HiComprometido(h));
     // Unidad de medida del producto que se planifica (primera no vacia entre las necesidades; mismo producto = misma unidad).
     private string PlanUnidad => _planRegs.Select(r => r.UnidadMedida).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u))?.Trim() ?? "";
 
@@ -3816,6 +3881,10 @@ else
             row.Prov = c.ProveedorId.ToString();
             row.ProvNombre = c.ProveedorNombre ?? "";
             row.Precio = c.PrecioUnitario;
+            // Ola A: arrastra IVA y descuento de la oferta a la linea.
+            row.Iva = c.IvaPct;
+            row.DescTipo = c.DescuentoValor is > 0m ? "val" : (c.DescuentoPct is > 0m ? "pct" : "");
+            row.DescNum = c.DescuentoValor is > 0m ? c.DescuentoValor : (c.DescuentoPct is > 0m ? c.DescuentoPct : null);
             row.Entrega = c.TiempoEntrega;
             row.Despacho = c.CaracteristicasDespacho;
             row.ContactoId = c.ProveedorContactoId;
@@ -3850,7 +3919,15 @@ else
         h.Despacho, h.Entrega,
         Guid.TryParse(h.Prov, out var pv) ? pv : null,
         h.Precio,
-        h.ContactoId);
+        h.ContactoId,
+        h.Iva,
+        h.DescTipo == "pct" ? h.DescNum : null,
+        h.DescTipo == "val" ? h.DescNum : null);
+
+    // Ola A: desglose fiscal de una linea en edicion (subtotal, descuento, base, IVA, total). Sin flete a nivel linea.
+    private static LineaFiscal FiscalHi(HijoEdit h)
+        => ComprasFiscal.Calcular(h.Precio, h.Cantidad, h.Iva,
+            h.DescTipo == "pct" ? h.DescNum : null, h.DescTipo == "val" ? h.DescNum : null);
 
     private async Task GuardarPlanAsync()
     {
@@ -3946,6 +4023,62 @@ else
             var res = await Svc.EnviarAOrdenCompraAsync(hid);
             if (!res.Ok) { _planError = res.Error ?? "No se pudo enviar a orden de compra."; }
             else { _msg = "Linea enviada a orden de compra (bloqueada)."; await RefreshPlanTrasMutacionAsync(); }
+        }
+        catch (Exception ex) { _planError = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Generar orden de compra en UN paso: guarda el plan (para que toda linea tenga Id), envia a orden de compra
+    // todas las lineas con proveedor aun editables y abre la pestana Orden de compra para gestionarlas.
+    private async Task EnviarTodoOcAsync()
+    {
+        _planError = null; _busy = true;
+        try
+        {
+            // 1) Guardar primero: asigna Id a las lineas nuevas y aplica el guard de la bolsa (comprometido inmutable).
+            if (_planIsGroup)
+            {
+                var conCantidad = _pHijos.Where(h => h.Cantidad > 0).ToList();
+                if (conCantidad.Count == 0) { _planError = "Indica al menos una cantidad a planificar."; return; }
+                foreach (var g in conCantidad.GroupBy(h => h.ReqId))
+                {
+                    var rq = new GuardarHijosRequest(g.Key, g.Select(ToHijoInput).ToList());
+                    var pl = await Svc.GuardarHijosAsync(rq);
+                    if (pl is null) { _planError = "No se pudo guardar una de las necesidades."; return; }
+                }
+                await BuildGroupHijosAsync(_planRegs);
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+            else
+            {
+                var rq = new GuardarHijosRequest(_planReqId, _pHijos.Select(ToHijoInput).ToList());
+                var pl = await Svc.GuardarHijosAsync(rq);
+                if (pl is null) { _planError = "No se pudo guardar."; return; }
+                _pHijos = pl.Hijos.Select(h => MapHijo(h, _planReqId)).ToList();
+                foreach (var hh in _pHijos) { await FillContactoAsync(hh); }
+                await LoadHijoDynValuesAsync();
+            }
+
+            // 2) Enviar a orden de compra toda linea lista: guardada, con proveedor, editable (no comprometida).
+            var listas = _pHijos.Where(h => h.Id is Guid && !string.IsNullOrWhiteSpace(h.Prov) && !HiComprometido(h)).ToList();
+            var enviadas = 0; string? primerError = null;
+            foreach (var h in listas)
+            {
+                var res = await Svc.EnviarAOrdenCompraAsync(h.Id!.Value);
+                if (res.Ok) { enviadas++; } else { primerError ??= res.Error; }
+            }
+
+            await RefreshPlanTrasMutacionAsync();
+            _planTab = "oc";
+            if (enviadas > 0)
+            {
+                _msg = $"{enviadas} linea(s) en orden de compra. Revisa por proveedor y pulsa \"Gestionar compra\" para emitirla.";
+            }
+            else
+            {
+                _planError = primerError ?? "No hay lineas listas: asigna un proveedor (y cantidad) a cada linea que quieras ordenar.";
+            }
         }
         catch (Exception ex) { _planError = ex.Message; }
         finally { _busy = false; }

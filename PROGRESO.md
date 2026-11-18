@@ -2,6 +2,36 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.344: integra feat/compras-ux-4-pulidos (comparador, IVA/descuento, bolsa + OC en un paso, imprimir OC con {oc.*})
+
+- INTEGRACION (dev principal ECOREX.desarrollo, 2026-11-18): rama feat/compras-ux-4-pulidos hasta 6537fbb4 (5 commits:
+  fee1802a 4 pulidos del comparador, 1cd91f7c Ola A backend IVA por producto + descuento % o valor (ComprasFiscal),
+  1d473155 Ola A UI, 3b3dfce2 Ola B bolsa del producto + OC en un paso, 6537fbb4 imprimir OC). La rama decia
+  v0.16.337 (ya usada en el tronco) -> renumerada a v0.16.344. Trae la migracion dual aditiva AddComprasIvaDescuento
+  (PG 20261117195901 / SQL Server 20261117200134). La entrada original de la sesion Compras UX sigue abajo.
+
+- AGENTE: Claude Opus 4.8 (sesion Compras UX, :5265). Sin migracion (solo motor de tokens + datos sembrados).
+- CONTEXTO: al generar la OC (Gestionar compra) se crea una actividad por proveedor con la descripcion en texto;
+  NO imprimia un documento con plantilla. El motor de Plantillas de documento + render PDF (Puppeteer) ya existia,
+  pero sus tokens solo cubrian tarea/empresa/tercero/formulario. Faltaba exponer la OC como tokens estructurados.
+- HECHO: TaskDocumentComposerService.RenderPlantillaAsync ahora AUMENTA el mapa de tokens con {oc.*} cuando la
+  actividad tiene lineas de compra ancladas (requerimiento_compra_hijos.TaskItemId == task.Id): {oc.numero},
+  {oc.proveedor}, {oc.items}, {oc.subtotal}, {oc.descuento}, {oc.iva}, {oc.total}, {oc.lineas_html} (filas <tr>) y
+  {oc.tabla_html} (tabla completa con totales). Aritmetica via ComprasFiscal (Ola A), misma fuente que comparador /
+  canasta / planificacion. Los tokens se resuelven al redactar (quedan horneados en el documento versionado), asi
+  que no pesan en las notificaciones de WhatsApp (el resolver general NotifyTokenResolver no se toco). Catalogo de
+  tokens del editor (DocumentTemplateService) suma la categoria "Orden de compra".
+- DATO (tenant ANDINAS, dev): plantilla "Orden de compra" + grupo "Compras" (con membrete {empresa.*}) sembrados y
+  ligados al concepto de la actividad de OC (actividad_subcategoria_plantilla_grupos). Cada tenant adopta la plantilla
+  asignando el grupo a su concepto de compras (como ya funciona el sistema de plantillas); NO se baked en DatabaseSeeder
+  porque la subcategoria de la OC sale de la config/matriz del tenant (sin id fijo).
+- VERIFICADO E2E: build 0 errores. OC T00006 (Bomba 2 x 980.000, desc 5% = 98.000, IVA 19% = 353.780, total 2.215.780)
+  -> Documentos desde plantilla -> "Orden de compra" renderizo la tabla y los totales exactos, sin tokens {oc.*}
+  sueltos -> guardado v1 -> PDF (endpoint /plantillas-doc/documento/{id}/pdf) HTTP 200 application/pdf 63.6 KB con
+  membrete congelado. PDF enviado al usuario.
+- PENDIENTE: validacion del usuario. Opcional a su pedido: auto-redactar el documento al generar la OC, enviar al
+  proveedor (correo/WhatsApp), y/o sembrar la plantilla para todos los tenants. Sin push ni deploy (esperar OK de version).
+
 ## 2026-11-18 - v0.16.343: editor de maquetas EN EL SISTEMA + maqueta HTML puro + galeria de tarjetas - SIN DEPLOY
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0180.

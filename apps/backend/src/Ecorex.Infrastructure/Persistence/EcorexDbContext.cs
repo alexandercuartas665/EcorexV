@@ -3299,6 +3299,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Estado).HasConversion<int>();
             b.Property(x => x.Cantidad).HasPrecision(18, 4);
             b.Property(x => x.PrecioUnitario).HasPrecision(18, 4);
+            b.Property(x => x.IvaPct).HasPrecision(5, 2);
+            b.Property(x => x.DescuentoPct).HasPrecision(5, 2);
+            b.Property(x => x.DescuentoValor).HasPrecision(18, 4);
             // FK al padre. Restrict: el borrado del padre lo maneja el servicio (sin cascada implicita).
             b.HasOne(x => x.Requerimiento).WithMany(r => r.Hijos)
                 .HasForeignKey(x => x.RequerimientoId).OnDelete(DeleteBehavior.Restrict);
@@ -3314,6 +3317,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Notas).HasMaxLength(1000);
             b.Property(x => x.Fuente).HasConversion<int>();
             b.Property(x => x.PrecioUnitario).HasPrecision(18, 4);
+            b.Property(x => x.IvaPct).HasPrecision(5, 2);
+            b.Property(x => x.DescuentoPct).HasPrecision(5, 2);
+            b.Property(x => x.DescuentoValor).HasPrecision(18, 4);
             // Busqueda tipica: las ofertas de un producto. Y una oferta por (tenant, producto, proveedor).
             b.HasIndex(x => new { x.TenantId, x.ClaveProducto });
             b.HasIndex(x => new { x.TenantId, x.ClaveProducto, x.ProveedorId }).IsUnique();
@@ -3493,6 +3499,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Description).HasMaxLength(2000);
             b.Property(x => x.Specifications).HasColumnType(longTextColumnType);
             b.Property(x => x.Price).HasPrecision(14, 2);
+            b.Property(x => x.IvaRate).HasPrecision(5, 2);
             b.Property(x => x.FieldValuesJson).HasColumnType(jsonColumnType);
             // "Datos tienda": pares etiqueta/valor ad-hoc del propio item (jsonb en PG / nvarchar(max) en SQL Server).
             b.Property(x => x.DatosTiendaJson).HasColumnType(jsonColumnType);

@@ -35,6 +35,67 @@
         <div class="rqc-msg rqc-ai"><span class="rqc-ai-chip">IA</span> @_resumen</div>
     }
 
+    @* Punto #5 (UX): recomendacion a primer plano. Elige la mejor oferta por costo total con flete y
+       explica el porque (credito, confiabilidad, entrega). Si el agente de IA ya evaluo, manda su ganador. *@
+    @if (RecoActual() is { } reco)
+    {
+        <div class="rqc-reco">
+            <div class="rqc-reco-main">
+                <span class="rqc-reco-ic">&#10024;</span>
+                <div class="rqc-reco-body">
+                    <div class="rqc-reco-lbl">@(reco.Fuente == "ia" ? "Recomendado por IA" : "Recomendacion del comparador")</div>
+                    <div class="rqc-reco-prov">@(string.IsNullOrWhiteSpace(reco.Oferta.ProveedorNombre) ? "(proveedor)" : reco.Oferta.ProveedorNombre)</div>
+                </div>
+                <div class="rqc-reco-price">
+                    <span class="rqc-reco-total">@Money(TotalLanded(reco.Oferta))</span>
+                    <small>@(reco.Oferta.FleteMonto > 0m ? "total con flete" : "total")</small>
+                </div>
+            </div>
+            <ul class="rqc-reco-reasons">
+                @foreach (var rz in reco.Razones)
+                {
+                    <li class="@(rz.Tipo == "warn" ? "warn" : "ok")"><span class="rqc-reco-tick">@(rz.Tipo == "warn" ? "!" : "✓")</span><span>@rz.Txt</span></li>
+                }
+            </ul>
+            <div class="rqc-reco-actions">
+                <button class="btn btn-primary btn-sm" @onclick="() => UsarAsync(reco.Oferta)" disabled="@_busy">Usar recomendado</button>
+                @if (!_evaluado)
+                {
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="EvaluarAsync" disabled="@(_busyEval || _ofertas.Count == 0)"
+                            title="Pide al agente de IA una segunda opinion">@(_busyEval ? "Evaluando..." : "Evaluar con IA")</button>
+                }
+            </div>
+        </div>
+    }
+
+    @* Punto #1 (UX): resumen de la canasta a primer plano (antes quedaba enterrado bajo el comparador). *@
+    @if (ShowBasket && _basket is { ArticulosEnCanasta: > 0 })
+    {
+        <div class="rqc-basket-top">
+            <div class="rqc-basket-top-head">
+                <strong>Canasta: comparacion total por proveedor</strong>
+                <span class="rqc-basket-top-meta">@_basket.ArticulosEnCanasta articulo(s) &middot; mejor canasta posible <strong>@Money(_basket.MejorCanastaTotal)</strong></span>
+                <button class="btn btn-outline-secondary btn-sm rqc-basket-top-btn" @onclick='() => SetViewAsync("graficos")'
+                        title="Abre la vista de graficas de la canasta (mas abajo)">Ver graficas &#8595;</button>
+            </div>
+            <div class="rqc-basket-top-bars">
+                @foreach (var row in ChartRows().Take(3))
+                {
+                    <div class="rqc-basket-top-row">
+                        <div class="rqc-basket-top-lbl" title="@row.Name">
+                            <span>@row.Name</span>
+                            @if (row.Cov is { } cov) { <span class="rqc-chart-cov @(row.CovPartial ? "partial" : "")">@cov</span> }
+                        </div>
+                        <div class="rqc-chart-track">
+                            <div class="rqc-chart-bar @row.Cls" style="width:@FmtPct(row.Pct)%;"></div>
+                            <div class="rqc-chart-val">@row.Val</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
     @if (_ofertas.Count > 0)
     {
         <div class="rqc-deadline">
@@ -146,18 +207,20 @@
                     }
 
                     <div class="rqc-price">
+                        @{ var fz = Fiscal(oc); }
                         <span class="rqc-unit">@Money(o.PrecioUnitario)<small>/u</small></span>
-                        @if (o.FleteMonto > 0m)
-                        {
-                            <span class="rqc-total">Total con flete <strong>@Money(TotalLanded(oc))</strong></span>
-                            <span class="rqc-flete" title="@FleteTip(oc)">
-                                +flete @Money(FleteTotal(oc))@(oc.FleteEsPorUnidad ? " (por u)" : "")
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="rqc-total">Total @Money(o.PrecioUnitario * Cantidad)</span>
-                        }
+                        <span class="rqc-total" title="@($"Subtotal {Money(fz.Subtotal)}{(fz.DescuentoMonto > 0m ? $" - desc {Money(fz.DescuentoMonto)}" : "")} + IVA {fz.IvaPct.ToString("0.##", Inv)}% ({Money(fz.IvaMonto)}){(fz.Flete > 0m ? $" + flete {Money(fz.Flete)}" : "")}")">Total <strong>@Money(fz.Total)</strong></span>
+                        <span class="rqc-fiscal">
+                            @if (fz.DescuentoMonto > 0m)
+                            {
+                                <span class="rqc-desc" title="Descuento aplicado al subtotal">-desc @Money(fz.DescuentoMonto)</span>
+                            }
+                            <span class="rqc-ivamark" title="IVA sobre la base gravable">IVA @fz.IvaPct.ToString("0.##", Inv)% @Money(fz.IvaMonto)</span>
+                            @if (fz.Flete > 0m)
+                            {
+                                <span class="rqc-flete" title="@FleteTip(oc)">+flete @Money(fz.Flete)@(oc.FleteEsPorUnidad ? " (por u)" : "")</span>
+                            }
+                        </span>
                         @if (_oppRate > 0m && Efectivo(oc) is { } ef)
                         {
                             <span class="rqc-efectivo @(EsMejorEfectivo(oc) ? "best" : "")"
@@ -382,6 +445,19 @@
                         <option value="true">por unidad</option>
                     </select>
                 </label>
+                <label class="rqc-f">IVA %
+                    <input type="number" step="any" min="0" max="100" class="form-control form-control-sm" @bind="_fIva" title="IVA de la oferta. Inicia con el del producto (Inventario) o 19% si no esta definido." />
+                </label>
+                <label class="rqc-f">Descuento
+                    <select class="form-select form-select-sm" @bind="_fDescTipo">
+                        <option value="">sin descuento</option>
+                        <option value="pct">porcentaje (%)</option>
+                        <option value="val">valor ($)</option>
+                    </select>
+                </label>
+                <label class="rqc-f">@(_fDescTipo == "val" ? "Descuento ($)" : "Descuento (%)")
+                    <input type="number" step="any" min="0" class="form-control form-control-sm" @bind="_fDescNum" disabled="@(string.IsNullOrEmpty(_fDescTipo))" placeholder="@(string.IsNullOrEmpty(_fDescTipo) ? "elige un tipo" : "0")" />
+                </label>
                 <label class="rqc-f">Fecha/hora cotizado
                     <input type="datetime-local" class="form-control form-control-sm" @bind="_fFechaCotiz" />
                 </label>
@@ -489,6 +565,9 @@
     private decimal _fPrecio;
     private decimal _fFleteMonto;        // punto #4: flete de la oferta
     private bool _fFletePorUnidad;       // true = por unidad (x cantidad); false = fijo por orden
+    private decimal _fIva = ComprasFiscal.IvaDefault;   // Ola A: IVA % de la oferta
+    private string _fDescTipo = "";      // "" | "pct" | "val"
+    private decimal? _fDescNum;          // monto del descuento segun el tipo
     private string _fEntrega = "";
     private string _fDespacho = "";
     private string _fPago = "";
@@ -516,6 +595,81 @@
     private const string PrefKey = "req.cotiz.basket.view";
     private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
     private static bool IsChart(string s) => s is "total" or "cobertura" or "precio" or "gana" or "mapa";
+
+    // ---- Punto #5 (UX): recomendacion a primer plano ----
+    // Elige la mejor oferta por costo total con flete (landed) con desempates por confiabilidad, credito y
+    // rapidez, y arma el "porque". Si el agente de IA ya evaluo, su ganador manda. Null con menos de 2 ofertas.
+    private sealed record RecoRazon(string Tipo, string Txt);   // Tipo: "ok" | "warn"
+    private sealed record RecoVm(CotizacionDto Oferta, string Fuente, IReadOnlyList<RecoRazon> Razones);
+
+    private RecoVm? RecoActual()
+    {
+        var cands = _ofertas.Where(o => o.PrecioUnitario > 0m).ToList();
+        if (cands.Count < 2) { return null; }
+
+        // Si el agente ya evaluo y su ganador tiene una oferta con precio, esa es la recomendacion.
+        if (_evaluado && _ganador is { } gid)
+        {
+            var win = cands.FirstOrDefault(o => o.ProveedorId == gid);
+            if (win is not null)
+            {
+                var motivo = _rank.TryGetValue(gid, out var rk) ? rk.Item2 : null;
+                return new RecoVm(win, "ia", RazonesDe(win, cands, motivo));
+            }
+        }
+
+        // Deterministico: menor total con flete; desempata confiabilidad, luego credito, luego rapidez.
+        var best = cands
+            .OrderBy(TotalLanded)
+            .ThenByDescending(o => _scores.TryGetValue(o.ProveedorId, out var s) ? s.General : 0m)
+            .ThenByDescending(o => ParseCreditDays(o.CondicionesPago) ?? 0)
+            .ThenBy(o => ParseDeliveryDays(o.TiempoEntrega) ?? int.MaxValue)
+            .First();
+        return new RecoVm(best, "auto", RazonesDe(best, cands, null));
+    }
+
+    private IReadOnlyList<RecoRazon> RazonesDe(CotizacionDto o, List<CotizacionDto> cands, string? iaMotivo)
+    {
+        var rs = new List<RecoRazon>();
+        if (EsMejorLanded(o) || (!_anyFlete && o.PrecioUnitario > 0m && o.PrecioUnitario == _minPrecio))
+        { rs.Add(new("ok", $"Mejor precio total ({Money(TotalLanded(o))}{(o.FleteMonto > 0m ? " con flete" : "")}).")); }
+        else
+        { rs.Add(new("ok", $"Precio total competitivo ({Money(TotalLanded(o))}).")); }
+
+        var cd = ParseCreditDays(o.CondicionesPago);
+        if (EsMejorCredito(cd)) { rs.Add(new("ok", $"Mejor credito: {cd} dias (mejor flujo de caja).")); }
+
+        if (_scores.TryGetValue(o.ProveedorId, out var sc))
+        {
+            if (sc.General >= 4m) { rs.Add(new("ok", $"Confiabilidad alta ({sc.General.ToString("0.0", Inv)} con {sc.Calificaciones} calificacion(es)).")); }
+            else if (sc.General > 0m && sc.General < 3m) { rs.Add(new("warn", $"Confiabilidad baja ({sc.General.ToString("0.0", Inv)}): valida antes de comprometer.")); }
+        }
+
+        if (_targetDate is { } td)
+        {
+            var sm = Semaforo(ParseDeliveryDays(o.TiempoEntrega), td);
+            if (sm.Cls == "late")
+            {
+                var alt = cands
+                    .Where(x => x.ProveedorId != o.ProveedorId
+                                && ParseDeliveryDays(x.TiempoEntrega) is not null
+                                && Semaforo(ParseDeliveryDays(x.TiempoEntrega), td).Cls != "late")
+                    .OrderBy(x => ParseDeliveryDays(x.TiempoEntrega) ?? int.MaxValue)
+                    .FirstOrDefault();
+                if (alt is not null)
+                {
+                    var extra = TotalLanded(alt) - TotalLanded(o);
+                    var extraTxt = extra > 0m ? $" por +{Money(extra)}" : "";
+                    rs.Add(new("warn", $"Entrega {sm.Txt}: si urge, {Dash(alt.ProveedorNombre)} llega a tiempo{extraTxt}."));
+                }
+                else { rs.Add(new("warn", $"Entrega {sm.Txt} frente a tu fecha.")); }
+            }
+            else if (sm.Cls == "ok") { rs.Add(new("ok", $"Entrega a tiempo ({sm.Txt}).")); }
+        }
+
+        if (!string.IsNullOrWhiteSpace(iaMotivo)) { rs.Add(new("ok", iaMotivo!)); }
+        return rs;
+    }
 
     // El mas barato entre los proveedores que cubren TODA la canasta (la lista viene ordenada: cubre-todo
     // primero, total asc), para marcar "Mejor total". Null si ninguno cubre todos los articulos.
@@ -768,9 +922,13 @@
         RecalcEfectivo();
     }
 
-    // ---- Punto #4: landed cost (total con flete) ----
+    // ---- Punto #4 + Ola A: landed cost con descuento + IVA + flete ----
     private decimal FleteTotal(CotizacionDto o) => o.FleteEsPorUnidad ? o.FleteMonto * Cantidad : o.FleteMonto;
-    private decimal TotalLanded(CotizacionDto o) => o.PrecioUnitario * Cantidad + FleteTotal(o);
+    /// <summary>Desglose fiscal de la oferta (subtotal, descuento, base, IVA, flete, total). Fuente unica.</summary>
+    private LineaFiscal Fiscal(CotizacionDto o)
+        => ComprasFiscal.Calcular(o.PrecioUnitario, Cantidad, o.IvaPct, o.DescuentoPct, o.DescuentoValor, o.FleteMonto, o.FleteEsPorUnidad);
+    /// <summary>Total real de la oferta: base gravable (subtotal - descuento) + IVA + flete.</summary>
+    private decimal TotalLanded(CotizacionDto o) => Fiscal(o).Total;
     private bool EsMejorLanded(CotizacionDto o)
         => _anyFlete && _minLanded is { } mn && o.PrecioUnitario > 0m && TotalLanded(o) == mn;
 
@@ -957,6 +1115,9 @@
     {
         _editId = null; _fProv = ""; _fProvNombre = ""; _fPrecio = 0m;
         _fFleteMonto = 0m; _fFletePorUnidad = false;
+        // IVA por defecto: el de las ofertas ya cargadas del mismo producto (que arrastran el del item), si no 19%.
+        _fIva = _ofertas.Select(x => (decimal?)x.IvaPct).FirstOrDefault() ?? ComprasFiscal.IvaDefault;
+        _fDescTipo = ""; _fDescNum = null;
         _fEntrega = ""; _fDespacho = ""; _fPago = ""; _fVigencia = null; _fNotas = "";
         _fFechaCotiz = DateTime.Now; _fContactoId = ""; _fNewContNombre = ""; _fNewContTel = ""; _fNewContMail = "";
         _contactos = new();
@@ -970,6 +1131,10 @@
         _fProvNombre = o.ProveedorNombre ?? "";
         _fPrecio = o.PrecioUnitario;
         _fFleteMonto = o.FleteMonto; _fFletePorUnidad = o.FleteEsPorUnidad;
+        _fIva = o.IvaPct;
+        if (o.DescuentoValor is > 0m) { _fDescTipo = "val"; _fDescNum = o.DescuentoValor; }
+        else if (o.DescuentoPct is > 0m) { _fDescTipo = "pct"; _fDescNum = o.DescuentoPct; }
+        else { _fDescTipo = ""; _fDescNum = null; }
         _fEntrega = o.TiempoEntrega;
         _fDespacho = o.CaracteristicasDespacho;
         _fPago = o.CondicionesPago;
@@ -1032,7 +1197,10 @@
                 // guardado fallaba en BD ("Cannot write DateTimeOffset with Offset=-05:00").
                 _fFechaCotiz is { } fc ? new DateTimeOffset(fc).ToUniversalTime() : null,
                 RequerimientoCotizacionFuente.Manual,
-                _fFleteMonto, _fFletePorUnidad);
+                _fFleteMonto, _fFletePorUnidad,
+                _fIva,
+                _fDescTipo == "pct" ? _fDescNum : null,
+                _fDescTipo == "val" ? _fDescNum : null);
             _ofertas = (await Svc.GuardarCotizacionAsync(req, Cantidad)).ToList();
             RecalcMin();
             _evaluado = false; _ganador = null; _rank = new();

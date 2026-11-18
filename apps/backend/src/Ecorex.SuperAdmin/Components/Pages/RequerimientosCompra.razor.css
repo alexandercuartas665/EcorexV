@@ -399,6 +399,16 @@ tr.req-consol:hover > td { background: var(--brand-soft, #eef2ff); }
     vertical-align: middle;
 }
 
+/* UX: el nombre del producto abre la planificacion de un clic (antes la accion estaba oculta tras scroll) */
+.req-openable {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+}
+.req-openable:hover { color: var(--brand, #4f46e5); text-decoration: underline; text-underline-offset: 2px; }
+.req-open-chev { color: var(--brand, #4f46e5); font-weight: 800; }
+
 /* Pestanas del modal Planificar grupo (Detalle / Planificacion) */
 .req-pgtab {
     appearance: none;

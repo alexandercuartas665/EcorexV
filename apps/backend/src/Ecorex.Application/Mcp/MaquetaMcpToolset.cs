@@ -37,7 +37,8 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
 
     private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal)
     {
-        "listar_proyectos", "listar_solicitudes", "ver_solicitud", "listar_versiones", "como_publicar_version"
+        "listar_proyectos", "listar_solicitudes", "ver_solicitud", "listar_versiones", "como_publicar_version",
+        "listar_notas", "buscar_notas", "ver_nota", "grafo_cerebro"
     };
 
     private static readonly HashSet<string> Destructive = new(StringComparer.Ordinal);
@@ -78,19 +79,49 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             "Marca la solicitud como RESUELTA (tarjeta terminada) y deja una nota con lo que se hizo. Hazlo despues de " +
             "aplicar el cambio en la maqueta (idealmente despues de publicar la version, indicandola en la nota).",
             """{"type":"object","properties":{"numero":{"type":"string"},"nota":{"type":"string","description":"Que se cambio (archivo, version publicada)"},"motivo_cierre":{"type":"string","description":"Concepto de cierre si el tablero lo exige"}},"required":["numero","nota"],"additionalProperties":false}"""),
+
+        // Cerebro digital del proyecto (ADR-0183): notas markdown enlazadas tipo Obsidian.
+        new("listar_notas",
+            "Lista las notas del CEREBRO DIGITAL del proyecto (notas tipo Obsidian sobre lo que se esta construyendo en la " +
+            "maqueta): titulo, resumen, enlaces salientes y cuantas notas la enlazan. Mas recientes primero.",
+            """{"type":"object","properties":{"proyecto":{"type":"string"}},"additionalProperties":false}"""),
+        new("buscar_notas",
+            "Busca notas del cerebro digital por texto en el titulo o en el contenido.",
+            """{"type":"object","properties":{"proyecto":{"type":"string"},"texto":{"type":"string"}},"required":["texto"],"additionalProperties":false}"""),
+        new("ver_nota",
+            "Contenido completo de una nota del cerebro (markdown), su version, sus enlaces salientes ya resueltos (notas, " +
+            "pantallas .html de la maqueta, tarjetas T00000, etiquetas) y las notas que la enlazan (backlinks).",
+            """{"type":"object","properties":{"proyecto":{"type":"string"},"titulo":{"type":"string"}},"required":["titulo"],"additionalProperties":false}"""),
+        new("crear_nota",
+            "Crea una nota en el cerebro digital del proyecto. Sintaxis de enlaces: [[Titulo de nota]], [[Titulo|texto]], " +
+            "[[pantalla.html]] (pantalla de la maqueta), [[T00046]] (solicitud) y #etiqueta. Un enlace a una nota que no " +
+            "existe queda como nodo pendiente. Usala para guardar conclusiones, decisiones y preguntas abiertas.",
+            """{"type":"object","properties":{"proyecto":{"type":"string"},"titulo":{"type":"string","description":"Max 200, sin [ ] | # ^"},"contenido":{"type":"string","description":"Markdown"}},"required":["titulo","contenido"],"additionalProperties":false}"""),
+        new("editar_nota",
+            "Edita una nota del cerebro: modo 'agregar' (por defecto) anade el contenido al final; 'reemplazar' sustituye " +
+            "todo el cuerpo (pasa la 'version' que te dio ver_nota para no pisar cambios ajenos). 'nuevo_titulo' la " +
+            "renombra y actualiza los [[enlaces]] de las demas notas.",
+            """{"type":"object","properties":{"proyecto":{"type":"string"},"titulo":{"type":"string"},"contenido":{"type":"string"},"modo":{"type":"string","enum":["agregar","reemplazar"]},"nuevo_titulo":{"type":"string"},"version":{"type":"integer"}},"required":["titulo"],"additionalProperties":false}"""),
+        new("grafo_cerebro",
+            "Resumen del grafo del cerebro digital: nodos (notas, pantallas, tarjetas, etiquetas y notas pendientes por " +
+            "crear) con su grado de conexion, y las aristas. Sirve para ver de que trata el proyecto y que esta suelto.",
+            """{"type":"object","properties":{"proyecto":{"type":"string"}},"additionalProperties":false}"""),
     };
 
     private readonly IApplicationDbContext _db;
     private readonly IMockupService _mockups;
     private readonly ITableroMcpToolset _tablero;
     private readonly IFileStorageService _files;
+    private readonly IMockupBrainService _brain;
 
-    public MaquetaMcpToolset(IApplicationDbContext db, IMockupService mockups, ITableroMcpToolset tablero, IFileStorageService files)
+    public MaquetaMcpToolset(IApplicationDbContext db, IMockupService mockups, ITableroMcpToolset tablero, IFileStorageService files,
+        IMockupBrainService brain)
     {
         _db = db;
         _mockups = mockups;
         _tablero = tablero;
         _files = files;
+        _brain = brain;
     }
 
     public IReadOnlySet<string> ReadOnlyTools => ReadOnly;
@@ -123,6 +154,14 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             "comentar_solicitud" => await DelegateAsync(args, actor, "comentar", "texto", cancellationToken),
             "mover_solicitud" => await DelegateAsync(args, actor, "mover_tarea", null, cancellationToken),
             "resolver_solicitud" => await ResolveAsync(args, actor, cancellationToken),
+            "listar_notas" => await ListNotesAsync(args, null, cancellationToken),
+            "buscar_notas" => Str(args, "texto") is { } texto
+                ? await ListNotesAsync(args, texto, cancellationToken)
+                : Err("'texto' es obligatorio."),
+            "ver_nota" => await ViewNoteAsync(args, cancellationToken),
+            "crear_nota" => await CreateNoteAsync(args, actor, cancellationToken),
+            "editar_nota" => await EditNoteAsync(args, actor, cancellationToken),
+            "grafo_cerebro" => await GraphAsync(args, cancellationToken),
             _ => Err($"Herramienta desconocida: {toolName}")
         };
     }
@@ -331,6 +370,140 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         if (Str(args, "motivo_cierre") is { } motivo) { close["motivo_cierre"] = motivo; }
         return await _tablero.ExecuteAsync("terminar_tarea", close.ToJsonString(), actor, ct);
     }
+
+    // ------------------------------------------------------------------ cerebro digital (ADR-0183)
+
+    private async Task<McpToolResult> ListNotesAsync(JsonElement args, string? texto, CancellationToken ct)
+    {
+        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        if (error is not null) { return Err(error); }
+        var notes = await _brain.ListNotesAsync(slug!, texto, ct);
+        return Ok(new
+        {
+            ok = true,
+            proyecto = slug,
+            buscar = texto,
+            total = notes.Count,
+            notas = notes.Take(MaxList).Select(n => new
+            {
+                titulo = n.Title,
+                resumen = n.Snippet,
+                enlaces = n.OutLinks,
+                la_enlazan = n.BackLinks,
+                actualizada = n.UpdatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'"),
+                por = n.UpdatedByName
+            }),
+            nota = notes.Count == 0
+                ? (texto is null ? "El cerebro de este proyecto esta vacio: crea la primera nota con crear_nota." : "Ninguna nota coincide.")
+                : null,
+            cerebro = Url($"/maqueta/{slug}?tab=cerebro")
+        });
+    }
+
+    private async Task<McpToolResult> ViewNoteAsync(JsonElement args, CancellationToken ct)
+    {
+        var titulo = Str(args, "titulo");
+        if (titulo is null) { return Err("'titulo' es obligatorio."); }
+        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        if (error is not null) { return Err(error); }
+        var note = await _brain.GetNoteAsync(slug!, null, titulo, ct);
+        return note is null
+            ? Err($"No existe la nota '{titulo}' en el cerebro de '{slug}'. Usa listar_notas o buscar_notas.")
+            : Ok(NotePayload(slug!, note));
+    }
+
+    private async Task<McpToolResult> CreateNoteAsync(JsonElement args, McpActor actor, CancellationToken ct)
+    {
+        var titulo = Str(args, "titulo");
+        if (titulo is null) { return Err("'titulo' es obligatorio."); }
+        var contenido = RawStr(args, "contenido") ?? string.Empty;
+        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        if (error is not null) { return Err(error); }
+        var res = await _brain.SaveNoteAsync(slug!, null, titulo, contenido, null, ViaIa(actor), ct);
+        return res.IsOk ? Ok(NotePayload(slug!, res.Value!)) : Err(res.Error ?? "No se pudo crear la nota.");
+    }
+
+    private async Task<McpToolResult> EditNoteAsync(JsonElement args, McpActor actor, CancellationToken ct)
+    {
+        var titulo = Str(args, "titulo");
+        if (titulo is null) { return Err("'titulo' es obligatorio."); }
+        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        if (error is not null) { return Err(error); }
+        var note = await _brain.GetNoteAsync(slug!, null, titulo, ct);
+        if (note is null) { return Err($"No existe la nota '{titulo}'. Usa crear_nota."); }
+
+        var contenido = RawStr(args, "contenido");
+        var modo = (Str(args, "modo") ?? "agregar").ToLowerInvariant();
+        long? version = args.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n) ? n : null;
+        if (modo == "reemplazar" && contenido is not null && version is null)
+        {
+            return Err("Para reemplazar el cuerpo pasa 'version' (la que devolvio ver_nota), asi no pisas cambios ajenos.");
+        }
+        var body = contenido is null ? note.Body
+            : modo == "reemplazar" ? contenido
+            : note.Body.TrimEnd() + (note.Body.Trim().Length > 0 ? "\n\n" : string.Empty) + contenido;
+        var res = await _brain.SaveNoteAsync(slug!, note.Id, Str(args, "nuevo_titulo") ?? note.Title, body, version ?? note.Version, ViaIa(actor), ct);
+        return res.IsOk ? Ok(NotePayload(slug!, res.Value!)) : Err(res.Error ?? "No se pudo editar la nota.");
+    }
+
+    private async Task<McpToolResult> GraphAsync(JsonElement args, CancellationToken ct)
+    {
+        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        if (error is not null) { return Err(error); }
+        var graph = await _brain.GetGraphAsync(slug!, ct);
+        if (graph is null) { return Err($"No existe el proyecto de maqueta '{slug}'."); }
+        var labels = graph.Nodes.ToDictionary(n => n.Id, n => n.Label);
+        return Ok(new
+        {
+            ok = true,
+            proyecto = slug,
+            nodos = graph.Nodes.Count,
+            aristas = graph.Edges.Count,
+            por_tipo = graph.Nodes.GroupBy(n => n.Kind).ToDictionary(g => TipoNodo(g.Key), g => g.Count()),
+            mas_conectados = graph.Nodes.OrderByDescending(n => n.Degree).Take(15)
+                .Select(n => new { tipo = TipoNodo(n.Kind), nombre = n.Label, conexiones = n.Degree }),
+            notas_sueltas = graph.Nodes.Where(n => n.Kind == "note" && n.Degree == 0).Select(n => n.Label).Take(50),
+            notas_pendientes = graph.Nodes.Where(n => n.Kind == "missing").Select(n => n.Label).Take(50),
+            enlaces = graph.Edges.Take(400).Select(e => new { de = labels.GetValueOrDefault(e.Source), a = labels.GetValueOrDefault(e.Target) })
+        });
+    }
+
+    private object NotePayload(string slug, MockupNoteDto note) => new
+    {
+        ok = true,
+        proyecto = slug,
+        titulo = note.Title,
+        version = note.Version,
+        contenido = note.Body,
+        autor = note.AuthorName,
+        actualizada = note.UpdatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'"),
+        por = note.UpdatedByName,
+        enlaces = note.Links.Select(l => new
+        {
+            tipo = TipoNodo(l.Kind == MockupBrainLinkKinds.Note && !l.Exists ? "missing" : l.Kind),
+            destino = l.Label,
+            existe = l.Exists
+        }),
+        la_enlazan = note.Backlinks.Select(b => new { titulo = b.Title, resumen = b.Snippet }),
+        abrir = Url($"/maqueta/{slug}?tab=cerebro&nota={Uri.EscapeDataString(note.Title)}")
+    };
+
+    private static McpActor ViaIa(McpActor actor)
+        => actor.DisplayName.EndsWith("(via IA)", StringComparison.Ordinal) ? actor : actor with { DisplayName = actor.DisplayName + " (via IA)" };
+
+    private static string TipoNodo(string kind) => kind switch
+    {
+        "note" => "nota",
+        "page" => "pantalla",
+        "task" => "tarjeta",
+        "tag" => "etiqueta",
+        "missing" => "nota pendiente",
+        _ => kind
+    };
+
+    /// <summary>Texto tal cual (sin recortar espacios ni saltos), o null si no viene.</summary>
+    private static string? RawStr(JsonElement args, string name)
+        => args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     // ------------------------------------------------------------------ helpers
 

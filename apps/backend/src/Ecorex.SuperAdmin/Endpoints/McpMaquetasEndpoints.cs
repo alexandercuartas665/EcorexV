@@ -24,7 +24,11 @@ public static class McpMaquetasEndpoints
         "-> cuando el usuario lo apruebe, publica la version con el comando de como_publicar_version -> resolver_solicitud " +
         "indicando la version publicada. Opcional: mover_solicitud a 'En progreso' al empezar. La maqueta es HTML puro: no " +
         "agregues el kit anotador ni scripts de ECOREX. Nunca escribas el token en archivos ni en el chat. Confirma con el " +
-        "usuario antes de publicar una version (queda como actual para toda la empresa).";
+        "usuario antes de publicar una version (queda como actual para toda la empresa). CEREBRO DIGITAL (ADR-0183): cada " +
+        "proyecto tiene notas markdown enlazadas tipo Obsidian sobre lo que se esta construyendo. Para pensar con el " +
+        "usuario: grafo_cerebro y listar_notas/buscar_notas -> ver_nota (contenido + backlinks); guarda conclusiones, " +
+        "decisiones y preguntas abiertas con crear_nota o editar_nota (modo agregar). Enlaza con [[Titulo de nota]], " +
+        "[[pantalla.html]], [[T00046]] y #etiqueta.";
 
     public static WebApplication MapMcpMaquetasEndpoints(this WebApplication app)
     {

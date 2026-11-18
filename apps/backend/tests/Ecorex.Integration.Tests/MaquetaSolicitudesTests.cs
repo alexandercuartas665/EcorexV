@@ -320,7 +320,55 @@ public abstract class MaquetaSolicitudesTestsBase
         var flowDesign = new WorkflowDesignService(ctx, engine);
         var inbox = new WorkflowInboxService(ctx, tenantCtx, new NodeAssigneeResolver(ctx), engine, flowDesign, new NoOpAgentStepRunner());
         var tablero = new TableroMcpToolset(ctx, boards, tasks, inbox);
-        return new MaquetaMcpToolset(ctx, new MockupService(ctx, tenantCtx, files, new AuditWriter(ctx)), tablero, files);
+        return new MaquetaMcpToolset(ctx, new MockupService(ctx, tenantCtx, files, new AuditWriter(ctx)), tablero, files,
+            new MockupBrainService(ctx, new AuditWriter(ctx)));
+    }
+
+    /// <summary>ADR-0183: el MCP de maquetas lee y escribe el cerebro digital (notas enlazadas) del proyecto.</summary>
+    [Fact]
+    public async Task McpMaquetas_CerebroDigital_CreaEditaVeYGrafo()
+    {
+        var seed = await SeedTenantAsync("Maqueta Cerebro MCP", withActivityType: false);
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var files = new FakeFileStorage();
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var mockups = new MockupService(ctx, tenantCtx, files, new AuditWriter(ctx));
+        Assert.True((await mockups.CreateProjectAsync("TRONOX SGDEA", null, null, isOwnerOrAdmin: true)).IsOk);
+        var actor = Actor(seed);
+        var mcp = BuildMcp(ctx, tenantCtx, files);
+        mcp.PublicBaseUrl = "https://app.test";
+        Assert.True(mcp.ReadOnlyTools.All(t => mcp.GetSpecs().Any(s => s.Name == t)));
+        Assert.Contains("ver_nota", mcp.ReadOnlyTools);
+        Assert.DoesNotContain("crear_nota", mcp.ReadOnlyTools);
+
+        var vacio = await mcp.ExecuteAsync("listar_notas", "{}", actor);
+        Assert.False(vacio.IsError, vacio.Json);
+        Assert.Contains("vacio", vacio.Json);
+
+        var creada = await mcp.ExecuteAsync("crear_nota", JsonSerializer.Serialize(new { titulo = "Decisiones", contenido = "Menu en [[rq07-terceros.html]] y ver [[Pendientes]] #ux" }), actor);
+        Assert.False(creada.IsError, creada.Json);
+        Assert.Contains("\"tipo\":\"nota pendiente\"", creada.Json);
+        Assert.Contains("(via IA)", creada.Json);
+        Assert.True((await mcp.ExecuteAsync("crear_nota", JsonSerializer.Serialize(new { titulo = "decisiones", contenido = "x" }), actor)).IsError);
+
+        var agregada = await mcp.ExecuteAsync("editar_nota", JsonSerializer.Serialize(new { titulo = "Decisiones", contenido = "Conclusion: usar tabs." }), actor);
+        Assert.False(agregada.IsError, agregada.Json);
+        Assert.Contains("Conclusion: usar tabs.", agregada.Json);
+        Assert.Contains("#ux", agregada.Json);
+        Assert.True((await mcp.ExecuteAsync("editar_nota", JsonSerializer.Serialize(new { titulo = "Decisiones", contenido = "todo", modo = "reemplazar" }), actor)).IsError);
+
+        Assert.False((await mcp.ExecuteAsync("crear_nota", JsonSerializer.Serialize(new { titulo = "Pendientes", contenido = "Volver a [[Decisiones]]" }), actor)).IsError);
+        var vista = await mcp.ExecuteAsync("ver_nota", JsonSerializer.Serialize(new { titulo = "decisiones" }), actor);
+        Assert.False(vista.IsError, vista.Json);
+        Assert.Contains("\"la_enlazan\":[{\"titulo\":\"Pendientes\"", vista.Json);
+        Assert.Contains("https://app.test/maqueta/tronox-sgdea?tab=cerebro", vista.Json);
+
+        var hits = await mcp.ExecuteAsync("buscar_notas", JsonSerializer.Serialize(new { texto = "tabs" }), actor);
+        Assert.Contains("\"total\":1", hits.Json);
+        var grafo = await mcp.ExecuteAsync("grafo_cerebro", "{}", actor);
+        Assert.False(grafo.IsError, grafo.Json);
+        Assert.Contains("\"pantalla\":1", grafo.Json);
+        Assert.Contains("\"notas_pendientes\":[]", grafo.Json);
     }
 
     private static McpActor Actor(SeedData s) => new(s.TenantId, s.OwnerUserId, s.OwnerPlatformId, "Owner Maqueta", true, Guid.NewGuid());

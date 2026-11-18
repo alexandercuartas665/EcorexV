@@ -85,12 +85,12 @@ Respuestas del usuario (2026-11-18) a las preguntas del hand-off:
      nombre de archivo (sin carpeta ni mayusculas) contra los adjuntos del proyecto -> `<img src="/archivo/{id}">`;
      el PDF sale como enlace; solo se aceptan URLs `/archivo/...` del resolutor. Las imagenes EXTERNAS
      (`![x](https://...)`) NO se cargan dentro de la app: quedan como enlace.
-   - **Panel Adjuntos** (v0.16.350): miniatura, tamano y en que notas se embebe cada adjunto
+   - **Panel Adjuntos** (v0.16.351): miniatura, tamano y en que notas se embebe cada adjunto
      (`MockupBrainAssets.Embeds` sobre los cuerpos, sin codigo ni externos), Insertar en la nota abierta, Subir y
      **Borrar**. El gestor de archivos no tiene papelera, asi que borrar es DEFINITIVO: solo Owner/Admin, solo
      adjuntos del modulo/Ref1 del proyecto (no cualquier archivo por id), confirmacion que nombra las notas
      afectadas (ahi queda "no encontrado") y auditoria `maqueta.nota.adjunto-borrar` con nombre, bytes y notas.
-   - **MCP** (v0.16.350): `listar_adjuntos` (nombre, tipo, KB, notas que lo embeben) y `ver_adjunto` (devuelve la
+   - **MCP** (v0.16.351): `listar_adjuntos` (nombre, tipo, KB, notas que lo embeben) y `ver_adjunto` (devuelve la
      imagen como bloque image para que Claude la mire; PNG/JPEG/GIF/WEBP hasta 4 MB; BMP y PDF solo se describen
      porque los clientes MCP no los aceptan como imagen), ambas de lectura. `ver_nota` agrega `adjuntos` con los
      que embebe la nota y si existen. Como el cliente MCP no tiene la sesion de `/archivo`, la imagen viaja en la

@@ -39,9 +39,10 @@ public sealed class ChatIngestTests : IClassFixture<EcorexApiFactory>
         var bad = await PostWebhook(anon, payload with { ExternalMessageId = $"msg-{Guid.NewGuid():N}" }, "token-malo");
         Assert.Equal(HttpStatusCode.Unauthorized, bad.StatusCode);
 
-        // El asesor autenticado ve la conversacion con un solo mensaje (idempotencia)
+        // El asesor autenticado ve la conversacion con un solo mensaje (idempotencia). El hilo guarda el
+        // MSISDN canonico (ADR-0125 v2: normalizar al ingerir), no el texto tal como llego en el webhook.
         var conversations = await admin.GetFromJsonAsync<List<ConversationDto>>("/tenant/conversations");
-        var convo = conversations!.Single(c => c.ContactPhone == "+573001234567");
+        var convo = conversations!.Single(c => c.ContactPhone == "573001234567");
         var messages = await admin.GetFromJsonAsync<List<MessageDto>>($"/tenant/conversations/{convo.Id}/messages");
         Assert.Single(messages!);
     }

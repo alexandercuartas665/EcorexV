@@ -309,7 +309,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 return await ExecuteWhatsAppAsync(paramsJson, schedule, contact, actor, cancellationToken);
 
             case ContactWorkflowStepType.Email:
-                return await ExecuteEmailAsync(schedule, contact, cancellationToken);
+                return await ExecuteEmailAsync(paramsJson, schedule, contact, cancellationToken);
 
             case ContactWorkflowStepType.Llamada:
                 return await ExecuteLlamadaAsync(paramsJson, contact, actor, cancellationToken);
@@ -395,7 +395,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         }
         var tpl = await _db.WhatsAppTemplates.AsNoTracking()
             .Where(t => t.Id == tplId)
-            .Select(t => new { t.Name, t.Language, t.Status, t.IsActive, t.VariablesJson })
+            .Select(t => new { t.Name, t.Language, t.Status, t.IsActive, t.VariablesJson, t.HeaderType, t.HeaderMediaUrl })
             .FirstOrDefaultAsync(cancellationToken);
         if (tpl is null || !tpl.IsActive)
         {
@@ -423,11 +423,31 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             values.Add(value);
         }
 
+        // Encabezado de imagen/documento/video (ADR-0186): Meta exige la media en CADA envio, no solo al aprobar.
+        var (headerType, headerUrl) = HeaderMediaFor(tpl.HeaderType, tpl.HeaderMediaUrl);
+        if (WhatsAppTemplateComponents.MediaHeaderFormat(tpl.HeaderType) is not null && headerUrl is null)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null,
+                $"La plantilla '{tpl.Name}' tiene encabezado de {tpl.HeaderType} pero no tiene archivo guardado; subelo en Plantillas WhatsApp.");
+        }
         var result = await _whatsapp.SendTemplateAsync(lineId, phone, tpl.Name, tpl.Language, values, actor,
-            cancellationToken: cancellationToken);
+            headerType, headerUrl, cancellationToken: cancellationToken);
         return result.Ok
             ? (ContactWorkflowRunStatus.Sent, channel, result.MessageId, null)
             : (ContactWorkflowRunStatus.Failed, channel, null, result.Error ?? "Fallo el envio de la plantilla de WhatsApp.");
+    }
+
+    /// <summary>Tipo ("image"/"document"/"video") y URL del encabezado de media de la plantilla, o (null, null).</summary>
+    public static (string? Type, string? Url) HeaderMediaFor(WhatsAppTemplateHeaderType? headerType, string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) { return (null, null); }
+        return headerType switch
+        {
+            WhatsAppTemplateHeaderType.Image => ("image", url.Trim()),
+            WhatsAppTemplateHeaderType.Document => ("document", url.Trim()),
+            WhatsAppTemplateHeaderType.Video => ("video", url.Trim()),
+            _ => (null, null)
+        };
     }
 
     /// <summary>Tokens de VariablesJson ([{ "Token": "cliente", ... }]) en orden; la caja de la propiedad no importa.</summary>
@@ -462,7 +482,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     }
 
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteEmailAsync(
-        ScheduleRow schedule, SegmentContact contact, CancellationToken cancellationToken)
+        string? paramsJson, ScheduleRow schedule, SegmentContact contact, CancellationToken cancellationToken)
     {
         const string channel = "email";
         var to = contact.Email?.Trim();
@@ -495,7 +515,9 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         if (string.IsNullOrWhiteSpace(subject)) { subject = tpl.Nombre; }
         var htmlBody = EmailTemplateService.RenderTemplate(tpl.CuerpoHtml, fields, htmlEscapeValues: true);
 
-        var result = await _email.SendAsync(to, subject, htmlBody, cancellationToken);
+        // Remitente comercial de la campana (ADR-0185); null = el del servidor de correo configurado.
+        var sender = EmailSenderFor(paramsJson);
+        var result = await _email.SendAsync(to, subject, htmlBody, sender, cancellationToken);
         return result.Ok
             ? (ContactWorkflowRunStatus.Sent, channel, null, null)
             : (ContactWorkflowRunStatus.Failed, channel, null, result.Error ?? "Fallo el envio de correo.");
@@ -684,6 +706,23 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         catch (JsonException)
         {
             return Array.Empty<FiltroCriterio>();
+        }
+    }
+
+    public static EmailSenderOverride? EmailSenderFor(string? paramsJson)
+    {
+        if (string.IsNullOrWhiteSpace(paramsJson)) { return null; }
+        try
+        {
+            var p = JsonSerializer.Deserialize<ContactWorkflowEmailParams>(paramsJson, JsonOpts);
+            return p is null || (string.IsNullOrWhiteSpace(p.RemitenteNombre) && string.IsNullOrWhiteSpace(p.RemitenteCorreo)
+                && string.IsNullOrWhiteSpace(p.ResponderA))
+                ? null
+                : new EmailSenderOverride(p.RemitenteNombre, p.RemitenteCorreo, p.ResponderA);
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

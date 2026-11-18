@@ -70,7 +70,46 @@ public sealed class SmtpEmailSender : IEmailSender
         return text.Length <= 500 ? text : text[..500];
     }
 
-    public async Task<EmailSendResult> SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Remitente efectivo de un envio (ADR-0185). El nombre visible del remitente propio gana; la direccion propia
+    /// solo se usa como From si es del MISMO dominio que la configurada (dominio autenticado en el servidor); si no,
+    /// se usa la configurada y la propia pasa a Reply-To (las respuestas llegan al comercial sin romper SPF/DKIM).
+    /// </summary>
+    public static (string FromName, string FromEmail, string? ReplyTo) ResolveSender(
+        string configFromEmail, string? configFromName, EmailSenderOverride? sender)
+    {
+        var fromEmail = configFromEmail.Trim();
+        var fromName = string.IsNullOrWhiteSpace(configFromName) ? fromEmail : configFromName.Trim();
+        string? replyTo = null;
+        if (sender is null) { return (fromName, fromEmail, replyTo); }
+
+        if (!string.IsNullOrWhiteSpace(sender.FromName)) { fromName = sender.FromName.Trim(); }
+        var own = ValidEmail(sender.FromEmail);
+        if (own is not null)
+        {
+            if (string.Equals(Domain(own), Domain(fromEmail), StringComparison.OrdinalIgnoreCase)) { fromEmail = own; }
+            else { replyTo = own; }
+        }
+        var reply = ValidEmail(sender.ReplyTo);
+        if (reply is not null) { replyTo = reply; }
+        if (replyTo is not null && string.Equals(replyTo, fromEmail, StringComparison.OrdinalIgnoreCase)) { replyTo = null; }
+        return (fromName, fromEmail, replyTo);
+    }
+
+    private static string Domain(string email) => email[(email.LastIndexOf('@') + 1)..];
+
+    private static string? ValidEmail(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { return null; }
+        var v = value.Trim();
+        return MailboxAddress.TryParse(v, out var mb) && mb.Address.Contains('@') && mb.Address.IndexOf('@') > 0
+            && mb.Address.LastIndexOf('@') < mb.Address.Length - 1 ? mb.Address : null;
+    }
+
+    public Task<EmailSendResult> SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
+        => SendAsync(toEmail, subject, htmlBody, sender: null, cancellationToken);
+
+    public async Task<EmailSendResult> SendAsync(string toEmail, string subject, string htmlBody, EmailSenderOverride? sender, CancellationToken cancellationToken = default)
     {
         // 1) Config del tenant activo (el filtro global la acota; sin tenant en contexto no hay filas).
         //    2) Si no hay/esta deshabilitada, el servidor global de plataforma.
@@ -107,7 +146,9 @@ public sealed class SmtpEmailSender : IEmailSender
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress(cfg.FromName ?? cfg.FromEmail, cfg.FromEmail));
+            var (fromName, fromEmail, replyTo) = ResolveSender(cfg.FromEmail, cfg.FromName, sender);
+            message.From.Add(new MailboxAddress(fromName, fromEmail));
+            if (replyTo is not null) { message.ReplyTo.Add(MailboxAddress.Parse(replyTo)); }
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = subject;
             message.Body = new BodyBuilder { HtmlBody = htmlBody }.ToMessageBody();

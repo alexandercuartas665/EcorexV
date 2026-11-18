@@ -261,6 +261,8 @@ builder.Services.AddMaquetaHub(builder.Configuration, builder.Environment.IsDeve
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupService, Ecorex.Application.Integraciones.Maqueta.MockupService>();
 // Cerebro digital de la maqueta (ADR-0183): notas enlazadas tipo Obsidian, backlinks, grafo e importacion de vault.
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupBrainService, Ecorex.Application.Integraciones.Maqueta.MockupBrainService>();
+// MCP de maquetas (ADR-0182): aqui y no en Application porque depende de IMockupService/IMockupBrainService.
+builder.Services.AddScoped<Ecorex.Application.Mcp.IMaquetaMcpToolset, Ecorex.Application.Mcp.MaquetaMcpToolset>();
 builder.Services.AddSingleton<MockupSiteCache>();
 // Galeria de imagenes de plantillas (ADR-0177): sube al gestor unificado (por eso se registra aqui, no en Application).
 builder.Services.AddScoped<Ecorex.Application.Gestor.ITemplateGalleryService, Ecorex.Application.Gestor.TemplateGalleryService>();
@@ -301,6 +303,9 @@ if (!disableWorkers)
     // Motor de acciones por filtro de contactos (ADR-0056, Fase 2): dispara las ventanas vigentes de cada
     // ContactWorkflow activo (dedupe/rate). Mismo motivo para vivir aqui que los workers de arriba.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactWorkflowWorker>();
+    // Estado de aprobacion de plantillas WhatsApp sometidas a Meta via YCloud (ADR-0184): cada 10 min pasa las
+    // que estan en revision a Aprobada/Rechazada/Pausada, para que aparezcan solas en el paso WhatsApp del motor.
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WhatsAppTemplateStatusWorker>();
     // Auto-run de las busquedas de contactos programadas (Bolsa 000740): corre las que vencieron via el
     // mismo IContactSearchRunner que "Correr ahora". Config ContactSearchScheduler:Enabled/TickSeconds.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactSearchScheduleWorker>();

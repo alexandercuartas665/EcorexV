@@ -14,8 +14,8 @@ namespace Ecorex.Application.Tenancy;
 /// Integracion con YCloud (ADR-0029): para lineas YCloud, Submit CREA la plantilla de verdad via API
 /// (compila el cuerpo tokens {{x}} -> {{1}}..{{n}} + ejemplos, ver WhatsAppTemplateComponents) y guarda
 /// ProviderTemplateId + estado. Para otros proveedores (Cloud/Evolution/Emulator) o lineas sin
-/// credenciales, Submit conserva la transicion LOCAL (stub). SyncStatus sigue en stub: la reconciliacion
-/// de aprobacion se hace re-importando (ImportFromYCloudAsync).
+/// credenciales, Submit conserva la transicion LOCAL (stub). SyncStatus/SyncPending (ADR-0184) traen el
+/// estado de aprobacion desde YCloud (solo estado; el contenido lo reconcilia ImportFromYCloudAsync).
 /// </summary>
 public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
 {
@@ -326,11 +326,108 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         return WhatsAppTemplateStatus.Submitted; // PENDING / IN_APPEAL / vacio
     }
 
-    public Task<WhatsAppTemplateResult<bool>> SyncStatusAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<WhatsAppTemplateResult<WhatsAppStatusSyncReport>> SyncStatusAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        // STUB (ADR-0029): sin integracion real con Meta no hay estado remoto que consultar.
-        return Task.FromResult(WhatsAppTemplateResult<bool>.NotImplemented(
-            "La sincronizacion con el proveedor no esta implementada (sin integracion real con Meta)."));
+        var t = await _db.WhatsAppTemplates.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (t is null)
+        {
+            return WhatsAppTemplateResult<WhatsAppStatusSyncReport>.NotFound("La plantilla no existe.");
+        }
+        if (t.Provider != WhatsAppProvider.YCloud)
+        {
+            return WhatsAppTemplateResult<WhatsAppStatusSyncReport>.Invalid(
+                "Solo las plantillas de lineas YCloud tienen estado de aprobacion en Meta para consultar.");
+        }
+        var report = await SyncCoreAsync([t], cancellationToken);
+        return WhatsAppTemplateResult<WhatsAppStatusSyncReport>.Ok(report);
+    }
+
+    public async Task<WhatsAppTemplateResult<WhatsAppStatusSyncReport>> SyncPendingAsync(CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is null)
+        {
+            return WhatsAppTemplateResult<WhatsAppStatusSyncReport>.Invalid("No hay tenant activo.");
+        }
+        var pending = await _db.WhatsAppTemplates
+            .Where(t => t.IsActive && t.Status == WhatsAppTemplateStatus.Submitted && t.Provider == WhatsAppProvider.YCloud)
+            .ToListAsync(cancellationToken);
+        if (pending.Count == 0)
+        {
+            return WhatsAppTemplateResult<WhatsAppStatusSyncReport>.Ok(WhatsAppStatusSyncReport.Empty);
+        }
+        return WhatsAppTemplateResult<WhatsAppStatusSyncReport>.Ok(await SyncCoreAsync(pending, cancellationToken));
+    }
+
+    public async Task<IReadOnlyList<Guid>> FindTenantsWithPendingTemplatesAsync(CancellationToken cancellationToken = default)
+        // IgnoreQueryFilters: barrido de PLATAFORMA del worker (solo ids). Cada sincronizacion posterior va
+        // acotada al tenant dueno via AmbientTenantContext + filtro global.
+        => await _db.WhatsAppTemplates.IgnoreQueryFilters()
+            .Where(t => t.IsActive && t.Status == WhatsAppTemplateStatus.Submitted && t.Provider == WhatsAppProvider.YCloud)
+            .Select(t => t.TenantId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+    /// <summary>Una llamada de listado por linea YCloud; reconcilia solo el estado de las plantillas pedidas.</summary>
+    private async Task<WhatsAppStatusSyncReport> SyncCoreAsync(IReadOnlyList<WhatsAppTemplate> templates, CancellationToken cancellationToken)
+    {
+        var changes = new List<WhatsAppStatusChange>();
+        var messages = new List<string>();
+        var checkedCount = 0;
+        var now = _timeProvider.GetUtcNow();
+
+        var lineIds = templates.Select(t => t.WhatsAppLineId).Distinct().ToList();
+        var lines = await _db.WhatsAppLines.AsNoTracking()
+            .Where(l => lineIds.Contains(l.Id))
+            .ToDictionaryAsync(l => l.Id, cancellationToken);
+
+        foreach (var group in templates.GroupBy(t => t.WhatsAppLineId))
+        {
+            if (!lines.TryGetValue(group.Key, out var line)
+                || line.Provider != WhatsAppProvider.YCloud
+                || string.IsNullOrWhiteSpace(line.YCloudApiKeyEncrypted)
+                || string.IsNullOrWhiteSpace(line.YCloudWabaId))
+            {
+                messages.Add($"{group.Count()} plantilla(s) sin linea YCloud configurada (API key + WABA): no se consulto su estado.");
+                continue;
+            }
+
+            string apiKey;
+            try { apiKey = _secretProtector.Unprotect(line.YCloudApiKeyEncrypted!); }
+            catch
+            {
+                messages.Add($"Linea {line.InstanceName}: no se pudo leer la API key.");
+                continue;
+            }
+
+            var listed = await _ycloud.ListTemplatesAsync(apiKey, line.YCloudWabaId!, cancellationToken);
+            if (!listed.IsSuccess)
+            {
+                messages.Add($"Linea {line.InstanceName}: YCloud no respondio ({listed.Error ?? "error desconocido"}).");
+                continue;
+            }
+
+            foreach (var t in group)
+            {
+                checkedCount++;
+                var remote = WhatsAppTemplateStatusSync.FindRemote(t, listed.Items);
+                if (remote is null)
+                {
+                    messages.Add($"'{t.Name}' ({t.Language}) no aparece en la cuenta de YCloud (pudo borrarse en Meta).");
+                    continue;
+                }
+                var change = WhatsAppTemplateStatusSync.Apply(t, remote, now);
+                if (change is null) { continue; }
+                changes.Add(change);
+                _audit.Write(_tenantContext.UserId ?? Guid.Empty, "wa-template.status-sync", nameof(WhatsAppTemplate), t.Id,
+                    previousValue: new { Status = change.From.ToString() },
+                    newValue: new { Status = change.To.ToString(), change.Reason, t.ProviderTemplateId },
+                    tenantId: t.TenantId);
+            }
+        }
+
+        // Tambien persiste el id del proveedor completado en silencio (sin cambio de estado).
+        await _db.SaveChangesAsync(cancellationToken);
+        return new WhatsAppStatusSyncReport(checkedCount, changes, messages);
     }
 
     public async Task<WhatsAppTemplateResult<WhatsAppImportReport>> ImportFromYCloudAsync(
@@ -542,6 +639,11 @@ public sealed class WhatsAppTemplateService : IWhatsAppTemplateService
         template.BodyText = request.BodyText.Trim();
         template.FooterText = string.IsNullOrWhiteSpace(request.FooterText) ? null : request.FooterText.Trim();
         template.VariablesJson = JsonSerializer.Serialize(request.Variables ?? Array.Empty<WhatsAppTemplateVariable>());
+        // Botones (ADR-0186): null = conservar los actuales (editor manual, restaurar versiones viejas).
+        if (request.Buttons is not null)
+        {
+            template.ButtonsJson = WhatsAppTemplateButtons.ToJson(WhatsAppTemplateButtons.Normalize(request.Buttons));
+        }
         template.WhatsAppLineId = line.Id;
         template.Provider = line.Provider;
         template.WabaId = line.CloudBusinessAccountId;

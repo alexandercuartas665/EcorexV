@@ -2,10 +2,11 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.350: cerebro digital, borrar adjuntos y adjuntos por MCP (ADR-0183 punto 9) - SIN DEPLOY
+## 2026-11-18 - v0.16.351: cerebro digital, borrar adjuntos y adjuntos por MCP (ADR-0183 punto 9) - SIN DEPLOY
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). OK del usuario: "Si,
-  hazlo" (borrar adjuntos y exponerlos por el MCP). Rama al dia con el tronco (v0.16.349) por merge.
+  hazlo" (borrar adjuntos y exponerlos por el MCP). Rama al dia con el tronco (v0.16.350, ADR-0187) por merge;
+  renumerada a v0.16.351 (la 0.16.350 la usa ADR-0187).
 - HECHO: MockupBrainAssets.Embeds (llaves de ![[...]] y ![alt](ruta), sin codigo ni externos).
   IMockupBrainService.ListAssetsAsync(withUsage) con las notas que embeben cada adjunto y DeleteAssetAsync (solo
   Owner/Admin, solo del modulo/Ref1 del proyecto, definitivo, auditoria maqueta.nota.adjunto-borrar). UI: panel
@@ -17,8 +18,73 @@
   ("en 1 nota" / "sin usar"), borrar el huerfano violeta.png de la prueba anterior (ok), aviso al borrar uno en
   uso nombrando la nota (cancelado, no borra), Insertar pone ![[...]] en su propia linea (descartado sin guardar).
 
-## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - SIN DEPLOY
+## 2026-11-18 - v0.16.350: formularios de la tarea padre en un salto de flujo (ADR-0187) - SIN DEPLOY
 
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339).
+- PROBLEMA (AGROMETALICAS, prod): T00886 (FLW-007 GESTION COMERCIAL IA) salto a FLW-F15A6C creando la hija T00894.
+  La COT del padre (T00886-1, Borrador con datos) se veia en la hija como "Tarea padre" sin poder editarla, y el paso
+  "Se prepara la cotizacion para el cliente" (COT obligatorio) bloqueaba: el obligatorio busca por el numero de la
+  HIJA. Ademas la tarjeta pintaba "true" (el subtitulo "cliente" tomaba una casilla si/no).
+- HECHO: IFormResponseService.CopyParentFormToTaskAsync (copia editable "{hija}-{n}" con todo el Data; solo
+  formularios del padre de esa tarea; tarea abierta y con padre). ChildTaskStarter copia al saltar SOLO los
+  formularios del padre que el flujo DESTINO exige (obligatorios en algun nodo); asi cotizacion -> OT (FLW-002, 152
+  hijas) no duplica. TaskDetailModal: boton "Traer a esta tarea" en la tarjeta heredada (si aun no hay uno propio) y
+  los heredados abren siempre en consulta. ResolveFieldCodeAsync ignora Toggle/MultiCheck/Heading/Literal.
+  Sin migraciones.
+- PRUEBAS: ParentFormCopyTests dual 6/6 (copia editable con datos + subtitulo sin "true"; rechaza formularios
+  ajenos y tareas sin padre; el salto copia solo lo exigido por el flujo destino).
+- SIGUIENTE: deploy con OK del usuario; en T00894 pulsar "Traer a esta tarea" en la COT heredada (otras hijas de
+  FLW-007 -> FLW-F15A6C sin COT propia en prod: T00474, T00648).
+
+## 2026-11-18 - v0.16.349: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) - DESPLEGADA
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 40e3c671 (sesion
+  ECOREX.call_center). La rama decia v0.16.348 (ya usada y desplegada por maquetas-cerebro ola 3b) -> renumerada a
+  v0.16.349 (AppVersion y lineas Version de ADR-0184/0185/0186; ADRs sin choque). Sin migraciones. Conflicto solo en
+  PROGRESO (resuelto). Las entradas originales de la sesion siguen abajo.
+- PRUEBAS en el tronco: build + format verdes; unitarias Application 1592, SuperAdmin 293, Domain 35; integracion dual
+  WhatsApp|Template|Plantilla|McpMaquetas|Auth 89/89 tras 3 arreglos: (1) b536a5c5 IMaquetaMcpToolset se registraba en
+  Application pero sus dependencias solo en SuperAdmin -> Ecorex.Api no arrancaba (bug de v0.16.345; prod no afectado);
+  (2) WhatsAppTemplatesTests: SyncStatusAsync ya no es stub (Invalid para lineas no YCloud); (3) 3f94293e ChatIngestTests
+  espera el MSISDN canonico (ADR-0125 v2), falla vieja oculta por (1).
+- DEPLOY: 2026-11-18 ~14:45 Bogota con OK del usuario, via rapida GHCR (CI 44380444000, commit 3f94293e). Footer /login
+  v0.16.349, Restarts=0, sin errores en logs, WhatsAppTemplateStatusWorker arrancado. Imagen nueva
+  sha256:e05c3662dbf6fc95329d4d4814be851ffdd603d552ec5d4be3a25f099d84d3c1; rollback
+  sha256:161bba49f15896d410f27ef5b1ecff279d10f4a7425cbbfc5b9c3cb0b7939f75 (v0.16.348).
+
+- Rama feat/whatsapp-sync-estado-ycloud (desde main b226f078). `SyncStatusAsync` deja de ser stub: reconciliador
+  puro `WhatsAppTemplateStatusSync` (solo estado/motivo/id/ReviewedAt, nunca contenido), `SyncPendingAsync` por
+  tenant (un listado de YCloud por linea), worker `WhatsAppTemplateStatusWorker` cada 10 min, herramienta del
+  agente `check_meta_status`, botones "Estado"/"Actualizar estados" en Plantillas WhatsApp y, en el paso WhatsApp
+  del gestor de contactos, lista de plantillas en revision/rechazadas con "Consultar ahora". Sin migraciones.
+- Prueba en prod 2026-11-18: los 2 correos programados (filtro "PRUEBA acuartas 8 y 9 AM") salieron Sent a las
+  08:00 y 09:00 Bogota. Remitente actual de SOLDARCO = SMTP global (soporte@bitcode.com.co, nombre "soporte"):
+  SOLDARCO no tiene SMTP propio en /configuracion.
+- Remitente comercial por campana (ADR-0185, misma version): el paso E-mail del gestor de contactos acepta nombre
+  visible, correo remitente (solo como From si es del dominio del servidor; si no, va como Reply-To) y "responder
+  a". `IEmailSender` gana sobrecarga con `EmailSenderOverride` (metodo por defecto: los fakes no cambian).
+  El usuario eligio ambas vias: A) SMTP propio de SOLDARCO en /configuracion (lo configura el usuario, la clave
+  no la escribe el agente) y B) este cambio.
+- Imagen de la galeria + botones en plantillas WhatsApp (ADR-0186, misma version): pestana Galeria en el panel del
+  agente (mismo TemplateGalleryPanel de correos), herramienta list_images (JPG/PNG), argumentos imagen_url y
+  botones (respuesta rapida, sitio web https fijo, llamar) con reglas de Meta, componente BUTTONS al someter,
+  arnes con "diseno de alto impacto", vista previa con imagen y botones, y el motor manda la media del encabezado
+  en cada envio. Sin migraciones.
+- Renumerada a v0.16.348 al integrar main (v0.16.347 = maquetas-cerebro). Vista previa con formato real de
+  WhatsApp (*negrita*, _cursiva_, ~tachado~) en el panel del agente y en el paso WhatsApp del gestor.
+- Siguiente (tras deploy de la sesion principal): E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
+  WhatsApp programado desde el gestor de contactos.
+
+## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - DESPLEGADA (incluye v0.16.347)
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 474d3888 unida al tronco como
+  v0.16.348 (sin choque de version ni de ADR; sin migraciones; merge sin conflictos). Verificado en el tronco: build
+  verde, dotnet format verde, unitarias Application 1563 + SuperAdmin 287 + Domain 35, integracion dual Mockup|Maqueta
+  53/53 (PG + SQL Server).
+- DEPLOY: 2026-11-18 12:57 Bogota con OK del usuario, via rapida GHCR (CI 44360591643 verde). Incluye v0.16.347:
+  migracion AddMockupBrain aplicada en prod (mockup_notes + mockup_note_links presentes). Footer /login v0.16.348,
+  Restarts=0, sin errores en logs. Imagen nueva sha256:161bba49f15896d410f27ef5b1ecff279d10f4a7425cbbfc5b9c3cb0b7939f75;
+  rollback: sha256:1059f06b5bf6aaaec253008658fea943d32d1335ea61b15a19f6332389fec015 (v0.16.346).
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). Rama adelantada por
   fast-forward al tronco a7c06aaf (v0.16.347) antes de empezar.
 - HECHO: sin migracion: adjuntos en el gestor unificado de archivos (modulo maqueta-cerebro, Ref1 = proyecto).

@@ -95,9 +95,9 @@ public abstract class WhatsAppTemplatesTestsBase
         var reSubmit = await RunAsync(seed, s => s.SubmitAsync(created.Value.Id));
         Assert.Equal(WhatsAppTemplateServiceStatus.Invalid, reSubmit.Status);
 
-        // SyncStatus es un stub NotImplemented (sin integracion real con Meta).
+        // SyncStatus consulta YCloud (ADR-0184): una plantilla de linea que no es YCloud no tiene estado en Meta.
         var sync = await RunAsync(seed, s => s.SyncStatusAsync(created.Value.Id));
-        Assert.Equal(WhatsAppTemplateServiceStatus.NotImplemented, sync.Status);
+        Assert.Equal(WhatsAppTemplateServiceStatus.Invalid, sync.Status);
     }
 
     [Fact]

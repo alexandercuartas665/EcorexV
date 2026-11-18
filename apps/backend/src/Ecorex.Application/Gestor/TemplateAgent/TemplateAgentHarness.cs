@@ -155,10 +155,21 @@ public static class TemplateAgentHarness
         sb.AppendLine(editingExisting
             ? "- Hay una plantilla abierta: llama get_whatsapp_template antes de proponer cambios. Si su estado no es editable (Sometida/Aprobada), propon una plantilla NUEVA con otro nombre (p.ej. sufijo _v2)."
             : "- No hay plantilla abierta: es NUEVA. Llama list_whatsapp_context para ver las lineas; si hay varias y el usuario no dijo cual, preferi la que 'somete_a_meta' y dilo.");
+        sb.AppendLine("- Si despues de guardar el resultado trae errores de verificacion que tu no puedes corregir (p.ej. la imagen no es https porque el sistema corre en un ambiente local), DILO claramente y NO ofrezcas someter a Meta hasta que se resuelvan.");
         sb.AppendLine("- Antes de guardar corre verify_whatsapp sobre tu borrador y corrige TODOS los errores. Luego propon save_whatsapp_draft (el usuario confirma en una tarjeta: NO pidas permiso antes ni pegues el borrador entero en el chat; muestra solo la vista previa corta).");
         sb.AppendLine("- submit_to_meta es IRREVERSIBLE (crea la plantilla en Meta y entra a revision). Proponla SOLO cuando el usuario pida explicitamente someter/enviar a Meta, y solo con el borrador guardado y verificado. Nunca la combines con otras acciones en el mismo turno.");
-        sb.AppendLine("- El encabezado de imagen o documento lo sube el usuario en el editor manual; tu solo manejas encabezado de TEXTO.");
+        sb.AppendLine("- Si el usuario pregunta si Meta ya aprobo/rechazo la plantilla (o esta Sometida), usa check_meta_status y explica el estado; si fue rechazada, explica el motivo en palabras simples y propon como corregirla.");
+        sb.AppendLine("- IMAGEN: la galeria del tenant tiene las imagenes que sube el usuario. Consultala con list_images cuando la plantilla pueda llevar imagen o el usuario la mencione, y ponla con imagen_url (solo JPG/PNG de la galeria o una URL https que el usuario escriba; nunca inventes URLs). Si no hay imagenes, pide que suba una con el boton Galeria. El encabezado de DOCUMENTO o video lo sube el usuario en el editor manual.");
+        sb.AppendLine("- BOTONES: con 'botones' puedes agregar respuestas rapidas (respuesta_rapida), sitio web con URL https fija (sitio_web) y llamar (llamar, telefono +57...). Para sitio_web y llamar usa SOLO datos que el usuario o la empresa te den; si faltan, pregunta.");
         sb.AppendLine(Honesty);
+        sb.AppendLine();
+        sb.AppendLine("DISENO DE ALTO IMPACTO (REGLA POR DEFECTO, salvo que el usuario pida algo simple):");
+        sb.AppendLine("- Marketing: encabezado con IMAGEN de la galeria si hay una adecuada (producto, banner); si no, encabezado de texto corto y llamativo.");
+        sb.AppendLine("- Cuerpo escaneable: saludo personal con {{nombre}}; 1 linea de gancho; 2-4 beneficios en lineas cortas con un emoji pertinente al inicio de cada una (p.ej. un check, un camion, un reloj); *negrita* solo en lo clave (precio, plazo, nombre del producto); cierre con una pregunta o invitacion clara. Max ~600 caracteres: mejor corto.");
+        sb.AppendLine("- Emojis: 3 a 6 en total, nunca seguidos ni en el encabezado de una plantilla Utility. Sin MAYUSCULAS sostenidas ni signos repetidos (!!!).");
+        sb.AppendLine("- Botones (aumentan la respuesta): Marketing con 1 accion principal (sitio_web 'Ver catalogo' o llamar) y/o 1-2 respuestas rapidas ('Me interesa', 'Mas informacion'). Utility: respuestas rapidas utiles ('Confirmar', 'Reprogramar') o ninguno. Textos de boton de 2-3 palabras, verbo primero.");
+        sb.AppendLine("- Pie corto con la marca o 'Responde STOP para no recibir mas mensajes' en Marketing.");
+        sb.AppendLine("- Al proponer, muestra la vista previa corta tal como se veria (imagen, cuerpo, botones) y ofrece 1 variante alternativa si el usuario no dio detalles.");
         sb.AppendLine();
         sb.AppendLine("REGLAS DE META (si no se cumplen, rechaza):");
         sb.AppendLine("- nombre: snake_case en minusculas (letras, numeros, guion bajo), unico. idioma: es, es_CO, en_US...");

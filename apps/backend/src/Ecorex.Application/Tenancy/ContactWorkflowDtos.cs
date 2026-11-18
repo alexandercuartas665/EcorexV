@@ -22,7 +22,19 @@ public sealed record ContactWorkflowStepDto(
     ContactWorkflowCallParams? Call,
     IReadOnlyList<ContactWorkflowScheduleDto> Schedules,
     // Paso WhatsApp: linea + contenido (texto libre o plantilla aprobada). Null en otros tipos.
-    ContactWorkflowWhatsAppParams? WhatsApp = null);
+    ContactWorkflowWhatsAppParams? WhatsApp = null,
+    // Paso E-mail: remitente de la campana (ADR-0185). Null = remitente del servidor configurado.
+    ContactWorkflowEmailParams? Email = null);
+
+/// <summary>
+/// Parametros del paso E-mail (ParamsJson, ADR-0185): remitente COMERCIAL de la campana. <see cref="RemitenteNombre"/>
+/// es el nombre visible; <see cref="RemitenteCorreo"/> se usa como From solo si es del dominio del servidor
+/// configurado (si no, va como Reply-To); <see cref="ResponderA"/> = a donde llegan las respuestas.
+/// </summary>
+public sealed record ContactWorkflowEmailParams(
+    string? RemitenteNombre = null,
+    string? RemitenteCorreo = null,
+    string? ResponderA = null);
 
 /// <summary>
 /// Parametros del paso WhatsApp (contenido de ParamsJson, 2026-11-15). El contenido depende del proveedor
@@ -154,7 +166,9 @@ public sealed record SaveContactWorkflowStepRequest(
     ContactWorkflowWhatsAppParams? WhatsApp = null,
     // Id del paso existente: se ACTUALIZA en sitio (conserva su historial de ejecuciones y el dedupe del dia).
     // Null = paso nuevo.
-    Guid? Id = null);
+    Guid? Id = null,
+    // Paso E-mail: remitente de la campana (ADR-0185).
+    ContactWorkflowEmailParams? Email = null);
 
 public sealed record SaveContactWorkflowScheduleRequest(
     DateOnly? StartDate,

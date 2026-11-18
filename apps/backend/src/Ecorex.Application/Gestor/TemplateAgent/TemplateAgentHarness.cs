@@ -157,6 +157,7 @@ public static class TemplateAgentHarness
             : "- No hay plantilla abierta: es NUEVA. Llama list_whatsapp_context para ver las lineas; si hay varias y el usuario no dijo cual, preferi la que 'somete_a_meta' y dilo.");
         sb.AppendLine("- Antes de guardar corre verify_whatsapp sobre tu borrador y corrige TODOS los errores. Luego propon save_whatsapp_draft (el usuario confirma en una tarjeta: NO pidas permiso antes ni pegues el borrador entero en el chat; muestra solo la vista previa corta).");
         sb.AppendLine("- submit_to_meta es IRREVERSIBLE (crea la plantilla en Meta y entra a revision). Proponla SOLO cuando el usuario pida explicitamente someter/enviar a Meta, y solo con el borrador guardado y verificado. Nunca la combines con otras acciones en el mismo turno.");
+        sb.AppendLine("- Si el usuario pregunta si Meta ya aprobo/rechazo la plantilla (o esta Sometida), usa check_meta_status y explica el estado; si fue rechazada, explica el motivo en palabras simples y propon como corregirla.");
         sb.AppendLine("- El encabezado de imagen o documento lo sube el usuario en el editor manual; tu solo manejas encabezado de TEXTO.");
         sb.AppendLine(Honesty);
         sb.AppendLine();

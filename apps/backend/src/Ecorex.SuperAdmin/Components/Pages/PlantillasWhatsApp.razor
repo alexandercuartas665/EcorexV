@@ -41,6 +41,10 @@
         @if (YCloudLines.Count > 0)
         {
             <button class="btn btn-outline-primary" @onclick="OpenImport" disabled="@_busy" title="Traer las plantillas que ya existen en tu cuenta de YCloud">Importar desde YCloud</button>
+            @if (_templates.Any(x => x.IsActive && x.Status == WhatsAppTemplateStatus.Submitted && x.Provider == WhatsAppProvider.YCloud))
+            {
+                <button class="btn btn-outline-primary" @onclick="SyncPendingAsync" disabled="@_busy" title="Consultar ya en Meta el estado de las plantillas en revision (el sistema lo hace solo cada 10 minutos)">Actualizar estados</button>
+            }
         }
         <button class="btn btn-outline-primary" @onclick="@(() => OpenAgentAsync(null))" title="Redactar una plantilla con el agente de IA (verifica las reglas de Meta)">Agente IA</button>
         <button class="btn btn-primary" @onclick="@(() => OpenEditorAsync(null))">+ Nueva plantilla</button>
@@ -52,8 +56,8 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
     <div>
         <strong>Lineas YCloud:</strong> "Someter" CREA la plantilla en YCloud via API (queda en revision
-        de Meta). Para ver si quedo <em>Aprobada</em>/<em>Rechazada</em>, usa "Importar de YCloud" (reconcilia
-        el estado).<br />
+        de Meta). El sistema consulta solo cada 10 minutos si quedo <em>Aprobada</em>/<em>Rechazada</em>
+        (con el motivo); para verlo ya, usa "Estado" en la plantilla o "Actualizar estados".<br />
         <strong>Lineas Evolution:</strong> no hay HSM de Meta: "Someter" deja la plantilla <em>Aprobada</em> y
         lista de una. Al enviarla (desde un flujo/agente) se renderiza a texto libre con sus variables. Puedes
         usar variables/emojis sin esperar aprobacion.
@@ -121,6 +125,10 @@ else
                         {
                             <button class="btn btn-sm btn-outline-primary" @onclick="@(() => SubmitAsync(t))" disabled="@_busy">Someter</button>
                         }
+                        @if (t.IsActive && t.Provider == WhatsAppProvider.YCloud && t.Status != WhatsAppTemplateStatus.Draft)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => SyncOneAsync(t))" disabled="@_busy" title="Consultar en Meta el estado de aprobacion de esta plantilla">Estado</button>
+                        }
                         @if (t.IsActive)
                         {
                             <button class="btn btn-sm btn-outline-success" @onclick="@(() => OpenTest(t))" disabled="@_busy" title="Enviar la plantilla a un numero de prueba">Probar</button>
@@ -135,6 +143,10 @@ else
             }
         </tbody>
     </table>
+    @if (_pageInfo is not null)
+    {
+        <div class="wa-sync-info" role="status">@_pageInfo</div>
+    }
     @if (_pageError is not null)
     {
         <div class="tk-field-error">@_pageError</div>
@@ -517,6 +529,7 @@ else
     .wa-banner { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; margin-bottom: 16px; border-radius: 10px; background: var(--surface-2, var(--accent)); border: 1px solid var(--line, var(--border)); color: var(--ink-2, var(--muted-foreground)); font-size: 13px; }
     .wa-banner svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--t-blue, var(--primary)); }
     .wa-banner strong { color: var(--ink, var(--foreground)); }
+    .wa-sync-info { margin: 10px 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--surface-2, var(--accent)); border: 1px solid var(--line, var(--border)); color: var(--ink, var(--foreground)); }
     .wa-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
     .wa-badge { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
     .wa-badge.wa-draft { background: var(--surface-2, var(--accent)); color: var(--ink-2, var(--muted-foreground)); }
@@ -539,6 +552,7 @@ else
     private bool _busy;
     private bool _includeInactive;
     private string? _pageError;
+    private string? _pageInfo;
 
     private IReadOnlyList<WhatsAppTemplateDto> _templates = [];
     private IReadOnlyList<WhatsAppLineDto> _lines = [];
@@ -951,6 +965,64 @@ else
         }
         _busy = false;
     }
+
+    // ADR-0184: estado de aprobacion desde YCloud/Meta (una plantilla o todas las que estan en revision).
+    private async Task SyncOneAsync(WhatsAppTemplateDto template)
+    {
+        _busy = true;
+        _pageError = null;
+        _pageInfo = null;
+        var result = await TemplateSvc.SyncStatusAsync(template.Id);
+        if (!result.IsOk || result.Value is null)
+        {
+            _pageError = result.Error;
+        }
+        else
+        {
+            _pageInfo = DescribeSync(result.Value, template.Name);
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private async Task SyncPendingAsync()
+    {
+        _busy = true;
+        _pageError = null;
+        _pageInfo = null;
+        var result = await TemplateSvc.SyncPendingAsync();
+        if (!result.IsOk || result.Value is null)
+        {
+            _pageError = result.Error;
+        }
+        else
+        {
+            _pageInfo = DescribeSync(result.Value, null);
+            await ReloadAsync();
+        }
+        _busy = false;
+    }
+
+    private string DescribeSync(WhatsAppStatusSyncReport r, string? single)
+    {
+        var parts = new List<string>();
+        if (r.Changes.Count == 0)
+        {
+            parts.Add(single is null
+                ? $"Revisadas {r.Checked} plantilla(s): siguen igual."
+                : $"'{single}': sin cambios, sigue {WhatsAppTemplateStatusSync.Label(StatusOf(single))}.");
+        }
+        foreach (var c in r.Changes)
+        {
+            var reason = string.IsNullOrWhiteSpace(c.Reason) ? "" : $" (motivo: {c.Reason})";
+            parts.Add($"'{c.Name}': {WhatsAppTemplateStatusSync.Label(c.From)} -> {WhatsAppTemplateStatusSync.Label(c.To)}{reason}.");
+        }
+        parts.AddRange(r.Messages);
+        return string.Join(" ", parts);
+    }
+
+    private WhatsAppTemplateStatus StatusOf(string name)
+        => _templates.FirstOrDefault(x => x.Name == name)?.Status ?? WhatsAppTemplateStatus.Submitted;
 
     private async Task ToggleActiveAsync(WhatsAppTemplateDto template)
     {

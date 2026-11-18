@@ -9,6 +9,8 @@ namespace Ecorex.Application.Gestor.TemplateAgent;
 /// <summary>
 /// Herramientas del agente para PLANTILLAS DE WHATSAPP (HSM) (ADR-0175, fase 2):
 ///  - get_whatsapp_template / list_whatsapp_context / verify_whatsapp: solo lectura (sin gate);
+///  - check_meta_status: consulta en YCloud si Meta ya aprobo/rechazo la plantilla (ADR-0184). Sin gate: solo
+///    reconcilia el ESTADO con el del proveedor, no cambia el contenido;
 ///  - save_whatsapp_draft: crea o actualiza el BORRADOR via IWhatsAppTemplateService (validacion, unicidad,
 ///    auditoria) -> gate + version previa;
 ///  - submit_to_meta: somete el borrador guardado (YCloud lo crea en Meta). IRREVERSIBLE: ademas del gate exige
@@ -17,7 +19,7 @@ namespace Ecorex.Application.Gestor.TemplateAgent;
 public sealed class WhatsAppTemplateAgentToolset : ITemplateAgentToolset
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal) { "get_whatsapp_template", "list_whatsapp_context", "verify_whatsapp" };
+    private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal) { "get_whatsapp_template", "list_whatsapp_context", "verify_whatsapp", "check_meta_status" };
     private static readonly HashSet<string> Mutating = new(StringComparer.Ordinal) { "save_whatsapp_draft" };
     private static readonly HashSet<string> Irreversible = new(StringComparer.Ordinal) { "submit_to_meta" };
 
@@ -54,6 +56,7 @@ public sealed class WhatsAppTemplateAgentToolset : ITemplateAgentToolset
         new AiToolSpec("list_whatsapp_context", "Lista las lineas de WhatsApp del tenant (id, proveedor, estado) y los nombres de variable que el motor de acciones llena solo.", """{"type":"object","properties":{}}"""),
         new AiToolSpec("verify_whatsapp", "Verifica un borrador (o la plantilla guardada si no se pasan argumentos) contra las reglas de Meta. Usala antes de guardar.", DraftSchema.Replace("\"required\":[\"nombre\",\"categoria\",\"cuerpo\",\"variables\"]", "\"required\":[]")),
         new AiToolSpec("save_whatsapp_draft", "Guarda el BORRADOR completo de la plantilla (crea si es nueva). No la envia a Meta. Requiere confirmacion.", DraftSchema),
+        new AiToolSpec("check_meta_status", "Consulta en YCloud/Meta el estado de aprobacion de la plantilla abierta (en revision, aprobada, rechazada con motivo, pausada) y lo actualiza en el sistema.", """{"type":"object","properties":{}}"""),
         new AiToolSpec("submit_to_meta", "Somete el borrador GUARDADO a Meta para aprobacion (via YCloud). IRREVERSIBLE: el usuario lo confirma aparte. Solo cuando el usuario lo pida explicitamente.", """{"type":"object","properties":{}}"""),
     };
 
@@ -128,6 +131,8 @@ public sealed class WhatsAppTemplateAgentToolset : ITemplateAgentToolset
                 return await SaveAsync(context, root, cancellationToken);
             case "submit_to_meta":
                 return await SubmitAsync(context, cancellationToken);
+            case "check_meta_status":
+                return await CheckStatusAsync(context, cancellationToken);
             default:
                 return Fail($"Herramienta desconocida: {toolName}.");
         }
@@ -192,8 +197,34 @@ public sealed class WhatsAppTemplateAgentToolset : ITemplateAgentToolset
             estado = r.Value.Status.ToString(),
             proveedor = r.Value.Provider?.ToString(),
             nota = r.Value.Provider == WhatsAppProvider.YCloud
-                ? "Quedo en revision de Meta. Para ver si fue aprobada usa 'Importar desde YCloud' en Plantillas WhatsApp."
+                ? "Quedo en revision de Meta. El sistema consulta el estado solo cada 10 minutos; usa check_meta_status para verlo ya."
                 : "La linea no es YCloud: no hay revision de Meta.",
+        });
+    }
+
+    private async Task<string> CheckStatusAsync(TemplateAgentToolContext context, CancellationToken ct)
+    {
+        if (context.TemplateId is not Guid id) { return Fail("No hay plantilla abierta."); }
+        var r = await _templates.SyncStatusAsync(id, ct);
+        if (!r.IsOk || r.Value is null) { return Fail(r.Error ?? "No se pudo consultar el estado."); }
+        var t = await _templates.GetAsync(id, ct);
+        if (t is null) { return Fail("La plantilla ya no existe."); }
+        var change = r.Value.Changes.FirstOrDefault();
+        if (change is not null) { context.TemplateChanged = true; }
+        return Ok(new
+        {
+            estado = t.Status.ToString(),
+            estado_texto = WhatsAppTemplateStatusSync.Label(t.Status),
+            cambio = change is null ? null : $"{WhatsAppTemplateStatusSync.Label(change.From)} -> {WhatsAppTemplateStatusSync.Label(change.To)}",
+            motivo_rechazo = t.RejectionReason,
+            avisos = r.Value.Messages,
+            nota = t.Status switch
+            {
+                WhatsAppTemplateStatus.Approved => "Aprobada: ya se puede usar en el paso WhatsApp del gestor de contactos y en los flujos.",
+                WhatsAppTemplateStatus.Rejected => "Rechazada: corrige segun el motivo, guarda el borrador (vuelve a borrador) y sometela de nuevo.",
+                WhatsAppTemplateStatus.Submitted => "Sigue en revision de Meta (suele tardar de minutos a 24 h).",
+                _ => null,
+            },
         });
     }
 

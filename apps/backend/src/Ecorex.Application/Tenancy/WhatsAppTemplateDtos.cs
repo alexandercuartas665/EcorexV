@@ -63,6 +63,19 @@ public sealed record WhatsAppTemplateVariableDef(string Token, string Label, str
 public sealed record WhatsAppImportReport(
     int Imported, int Updated, int Unchanged, int Skipped, IReadOnlyList<string> Messages);
 
+/// <summary>Un cambio de estado de aprobacion detectado al sincronizar con el proveedor (ADR-0184).</summary>
+public sealed record WhatsAppStatusChange(
+    Guid TemplateId, string Name, string Language,
+    WhatsAppTemplateStatus From, WhatsAppTemplateStatus To, string? Reason);
+
+/// <summary>Resultado de sincronizar el estado de aprobacion con YCloud/Meta (ADR-0184): cuantas plantillas
+/// se revisaron, los cambios aplicados y las que el proveedor ya no lista (posible borrado en Meta).</summary>
+public sealed record WhatsAppStatusSyncReport(
+    int Checked, IReadOnlyList<WhatsAppStatusChange> Changes, IReadOnlyList<string> Messages)
+{
+    public static readonly WhatsAppStatusSyncReport Empty = new(0, Array.Empty<WhatsAppStatusChange>(), Array.Empty<string>());
+}
+
 /// <summary>Catalogo de variables de sesion que el editor puede insertar.</summary>
 public static class WhatsAppTemplateVariableCatalog
 {

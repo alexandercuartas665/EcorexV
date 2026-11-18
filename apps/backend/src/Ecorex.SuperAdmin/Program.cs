@@ -299,6 +299,9 @@ if (!disableWorkers)
     // Motor de acciones por filtro de contactos (ADR-0056, Fase 2): dispara las ventanas vigentes de cada
     // ContactWorkflow activo (dedupe/rate). Mismo motivo para vivir aqui que los workers de arriba.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactWorkflowWorker>();
+    // Estado de aprobacion de plantillas WhatsApp sometidas a Meta via YCloud (ADR-0184): cada 10 min pasa las
+    // que estan en revision a Aprobada/Rechazada/Pausada, para que aparezcan solas en el paso WhatsApp del motor.
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WhatsAppTemplateStatusWorker>();
     // Auto-run de las busquedas de contactos programadas (Bolsa 000740): corre las que vencieron via el
     // mismo IContactSearchRunner que "Correr ahora". Config ContactSearchScheduler:Enabled/TickSeconds.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactSearchScheduleWorker>();

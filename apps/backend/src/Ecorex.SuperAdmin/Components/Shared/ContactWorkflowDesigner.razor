@@ -229,6 +229,19 @@
                                             {
                                                 <span class="cw-email-hint">Esta linea no tiene plantillas aprobadas por Meta. Importalas o crealas en "Plantillas de WhatsApp".</span>
                                             }
+                                            @{ var pend = PendingFor(waLine!.Id); }
+                                            @if (pend.Count > 0)
+                                            {
+                                                @* ADR-0184: las sometidas aun no se pueden usar; se listan para que el usuario sepa que vienen. *@
+                                                <span class="cw-email-hint">
+                                                    @foreach (var p in pend)
+                                                    {
+                                                        <span style="display:block;">@p.Name: @WhatsAppTemplateStatusSync.Label(p.Status)@(string.IsNullOrWhiteSpace(p.RejectionReason) ? "" : " (" + p.RejectionReason + ")")</span>
+                                                    }
+                                                    Las sometidas aparecen aqui solas al aprobarse (el sistema consulta a Meta cada 10 minutos).
+                                                    <button type="button" class="btn btn-link btn-sm p-0" @onclick="RefreshWaStatusAsync" disabled="@_waSyncing">@(_waSyncing ? "Consultando..." : "Consultar ahora")</button>
+                                                </span>
+                                            }
                                         </div>
                                         @if (tpl is not null)
                                         {
@@ -459,6 +472,8 @@
     // Paso WhatsApp: lineas del tenant y plantillas APROBADAS (para lineas YCloud/Cloud).
     private List<WhatsAppLineDto> _lines = new();
     private List<WhatsAppTemplateDto> _waTemplates = new();
+    private List<WhatsAppTemplateDto> _waPending = new();
+    private bool _waSyncing;
     // Panel "Ultimas ejecuciones".
     private List<ContactWorkflowRunDto> _runs = new();
     private bool _runsBusy;
@@ -487,10 +502,7 @@
         _agents = (await AiAgentSvc.ListAsync()).ToList();
         _forms = (await FormDefSvc.ListAsync()).ToList();
         _lines = (await WaLineSvc.ListAsync()).ToList();
-        _waTemplates = (await WaTemplateSvc.ListAsync())
-            .Where(t => t.IsActive && t.Status == WhatsAppTemplateStatus.Approved)
-            .OrderBy(t => t.Name)
-            .ToList();
+        await LoadWaTemplatesAsync();
 
         var wf = await WorkflowSvc.GetByFiltroAsync(filtroId);
         if (wf is not null)
@@ -732,6 +744,28 @@
         var estado = l.Status == WhatsAppLineStatus.Connected ? "" : " - desconectada";
         var numero = string.IsNullOrWhiteSpace(l.PhoneNumber) ? "" : $" ({l.PhoneNumber})";
         return $"{l.InstanceName}{numero} - {l.Provider}{estado}";
+    }
+
+    private async Task LoadWaTemplatesAsync()
+    {
+        var all = (await WaTemplateSvc.ListAsync()).Where(t => t.IsActive).OrderBy(t => t.Name).ToList();
+        _waTemplates = all.Where(t => t.Status == WhatsAppTemplateStatus.Approved).ToList();
+        _waPending = all.Where(t => t.Status is WhatsAppTemplateStatus.Submitted or WhatsAppTemplateStatus.Rejected or WhatsAppTemplateStatus.Paused).ToList();
+    }
+
+    // Plantillas de la linea que aun NO se pueden usar (en revision, rechazadas o pausadas por Meta).
+    private List<WhatsAppTemplateDto> PendingFor(Guid lineId) => _waPending.Where(t => t.WhatsAppLineId == lineId).ToList();
+
+    // ADR-0184: consulta ya en Meta el estado de las sometidas y recarga las listas del paso.
+    private async Task RefreshWaStatusAsync()
+    {
+        _waSyncing = true;
+        try
+        {
+            await WaTemplateSvc.SyncPendingAsync();
+            await LoadWaTemplatesAsync();
+        }
+        finally { _waSyncing = false; }
     }
 
     // Plantillas aprobadas de la linea; si la linea no tiene propias, todas las aprobadas del tenant.

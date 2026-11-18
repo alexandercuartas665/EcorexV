@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.347: estado de aprobacion de plantillas WhatsApp sincronizado con YCloud (ADR-0184) (SIN deploy)
+
+- Rama feat/whatsapp-sync-estado-ycloud (desde main b226f078). `SyncStatusAsync` deja de ser stub: reconciliador
+  puro `WhatsAppTemplateStatusSync` (solo estado/motivo/id/ReviewedAt, nunca contenido), `SyncPendingAsync` por
+  tenant (un listado de YCloud por linea), worker `WhatsAppTemplateStatusWorker` cada 10 min, herramienta del
+  agente `check_meta_status`, botones "Estado"/"Actualizar estados" en Plantillas WhatsApp y, en el paso WhatsApp
+  del gestor de contactos, lista de plantillas en revision/rechazadas con "Consultar ahora". Sin migraciones.
+- Prueba en prod 2026-11-18: los 2 correos programados (filtro "PRUEBA acuartas 8 y 9 AM") salieron Sent a las
+  08:00 y 09:00 Bogota. Remitente actual de SOLDARCO = SMTP global (soporte@bitcode.com.co, nombre "soporte"):
+  SOLDARCO no tiene SMTP propio en /configuracion.
+- Siguiente: E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
+  WhatsApp programado desde el gestor de contactos; remitente comercial del correo (decision del usuario).
+
 ## 2026-11-18 - v0.16.346: integra feat/agentes-sistema (responder ofertas de portales desde la tarea, ADR-0181) (DESPLEGADO 2026-11-18)
 
 - DEPLOY 2026-11-18 09:50 Bogota (OK del usuario: "Si, unela y luego despliega"). Via rapida GHCR, imagen de 1b70bffd.

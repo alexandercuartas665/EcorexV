@@ -2,8 +2,12 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-17 - v0.16.342: maquetas en la NUBE (proyectos + versiones por ZIP en /maqueta/{slug}/) - SIN DEPLOY
+## 2026-11-17 - v0.16.342: maquetas en la NUBE (proyectos + versiones por ZIP en /maqueta/{slug}/) (DESPLEGADO 2026-11-18)
 
+- DEPLOY 2026-11-18 04:05 Bogota (OK del usuario: "Dale deploy"), via rapida GHCR, imagen del commit 2e312592. Footer
+  /login = v0.16.342; migracion 20261118032218_AddMockupProjects aplicada (mockup_projects/mockup_versions vacias);
+  Restarts=0. /maqueta anonimo -> 302 a login; POST /api/maqueta/proyectos/x/versiones sin token -> 401. Rollback:
+  sha256:14b3c7e31c44b604981db6d9e492e5df9df1e3d66d99532d73ef9f00da27ad1d.
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0179. Ola 1 de 2 (la ola 2 es el MCP para el PC local).
 - PEDIDO: que las maquetas funcionen en la nube, poder subir varias y trabajar los detalles alli; despues, un MCP que
   conecte con el PC local para aplicar los cambios. Decisiones del usuario: MISMO dominio app2 (riesgo de XSS
@@ -26,7 +30,7 @@
 - PENDIENTE: deploy SOLO con OK del usuario (lleva migracion). Ola 2: MCP de maquetas para el PC local. Ajuste del
   kit del anotador (postear sin token al mismo origen) por la sesion de la maqueta. Item de menu "Maquetas" si se pide.
 
-## 2026-11-17 - v0.16.341: hub de maquetas /maqueta (hospeda el anotador + envio por sesion) - SIN DEPLOY
+## 2026-11-17 - v0.16.341: hub de maquetas /maqueta (hospeda el anotador + envio por sesion) (DESPLEGADO 2026-11-18 junto con v0.16.342)
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo). ADR-0178. Pedido de la sesion de la maqueta.
 - HECHO: registro `MaquetaHub` en appsettings (Enabled, AllowOutsideDevelopment, Projects[{Id,Nombre,RutaFisica}]);

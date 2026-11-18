@@ -11449,6 +11449,171 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("message_templates", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AuthorName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("author_name");
+
+                    b.Property<Guid?>("AuthorTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_tenant_user_id");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("ImportedFrom")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("imported_from");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<Guid>("MockupProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("mockup_project_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("TitleKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title_key");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UpdatedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("updated_by_name");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_notes");
+
+                    b.HasIndex("MockupProjectId")
+                        .HasDatabaseName("ix_mockup_notes_mockup_project_id");
+
+                    b.HasIndex("TenantId", "MockupProjectId", "TitleKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mockup_notes_tenant_id_mockup_project_id_title_key")
+                        .HasFilter("is_deleted = false");
+
+                    b.ToTable("mockup_notes", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNoteLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FromNoteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_note_id");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<Guid>("MockupProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("mockup_project_id");
+
+                    b.Property<string>("TargetKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("target_key");
+
+                    b.Property<string>("TargetKind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("target_kind");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_note_links");
+
+                    b.HasIndex("FromNoteId")
+                        .HasDatabaseName("ix_mockup_note_links_from_note_id");
+
+                    b.HasIndex("TenantId", "FromNoteId")
+                        .HasDatabaseName("ix_mockup_note_links_tenant_id_from_note_id");
+
+                    b.HasIndex("TenantId", "MockupProjectId", "TargetKind", "TargetKey")
+                        .HasDatabaseName("ix_mockup_note_links_tenant_id_mockup_project_id_target_kind_t");
+
+                    b.ToTable("mockup_note_links", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.MockupProject", b =>
                 {
                     b.Property<Guid>("Id")
@@ -22855,6 +23020,30 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_messages_conversations_conversation_id");
 
                     b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNote", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.MockupProject", "MockupProject")
+                        .WithMany()
+                        .HasForeignKey("MockupProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_notes_mockup_projects_mockup_project_id");
+
+                    b.Navigation("MockupProject");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNoteLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.MockupNote", "FromNote")
+                        .WithMany()
+                        .HasForeignKey("FromNoteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_note_links_mockup_notes_from_note_id");
+
+                    b.Navigation("FromNote");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.MockupVersion", b =>

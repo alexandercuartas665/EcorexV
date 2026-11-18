@@ -44,6 +44,9 @@ public interface IApplicationDbContext
     // Maquetas en la nube (ADR-0179), mismo patron de implementacion por defecto.
     DbSet<MockupProject> MockupProjects => throw new NotSupportedException();
     DbSet<MockupVersion> MockupVersions => throw new NotSupportedException();
+    // Cerebro digital de la maqueta (ADR-0183).
+    DbSet<MockupNote> MockupNotes => throw new NotSupportedException();
+    DbSet<MockupNoteLink> MockupNoteLinks => throw new NotSupportedException();
     DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }

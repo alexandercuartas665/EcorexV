@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.347: estado de aprobacion de plantillas WhatsApp sincronizado con YCloud (ADR-0184) (SIN deploy)
+## 2026-11-18 - v0.16.348: plantillas WhatsApp con estado YCloud, imagen de galeria y botones + remitente comercial (ADR-0184/0185/0186) (SIN deploy)
 
 - Rama feat/whatsapp-sync-estado-ycloud (desde main b226f078). `SyncStatusAsync` deja de ser stub: reconciliador
   puro `WhatsAppTemplateStatusSync` (solo estado/motivo/id/ReviewedAt, nunca contenido), `SyncPendingAsync` por
@@ -22,9 +22,57 @@
   botones (respuesta rapida, sitio web https fijo, llamar) con reglas de Meta, componente BUTTONS al someter,
   arnes con "diseno de alto impacto", vista previa con imagen y botones, y el motor manda la media del encabezado
   en cada envio. Sin migraciones.
-- Siguiente: E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
+- Renumerada a v0.16.348 al integrar main (v0.16.347 = maquetas-cerebro). Vista previa con formato real de
+  WhatsApp (*negrita*, _cursiva_, ~tachado~) en el panel del agente y en el paso WhatsApp del gestor.
+- Siguiente (tras deploy de la sesion principal): E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
   WhatsApp programado desde el gestor de contactos.
 
+## 2026-11-18 - v0.16.347: integra feat/maquetas-cerebro (cerebro digital + chat desde Claude por MCP, ADR-0183) - SIN DEPLOY
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 28b1af2f (7e88a4bc ola 3 cerebro digital,
+  28b1af2f ola 4 guia para chatear desde Claude por MCP). La rama decia v0.16.346 (ya usada por feat/agentes-sistema)
+  -> renumerada a v0.16.347; ADR-0183 sin choque. Trae la migracion dual aditiva AddMockupBrain (PG 20261118135022 /
+  SQL Server 20261118135307: tablas mockup_notes y mockup_note_links). Conflicto solo en PROGRESO (resuelto).
+  Las entradas originales de la sesion del cerebro siguen abajo.
+
+## 2026-11-18 - v0.16.347 (cont.): ola 4 = chatear con la maqueta desde Claude (plan Max)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro). OK del usuario: "Si, ola 4".
+- HECHO: sin chat de IA dentro del sistema (plan Max = sin llave API; ECOREX no llama a la IA, no aplica
+  AiUsageLog). MaquetaClaudeGuide (pasos + comando de Claude Code + prompts de ejemplo personalizables). Conectar IA:
+  seccion plegable "Chatea con tus maquetas desde Claude" (?guia=maquetas la abre y preselecciona el conector
+  Maquetas); el texto del token de maquetas menciona el cerebro. Pestana Cerebro: boton "Chatear con Claude sobre
+  esta maqueta" con modal de pasos y prompts ya armados con proyecto, nota y pantalla abiertas (copiar). ADR-0183
+  punto 8, docs/integraciones/maqueta-solicitudes.md seccion 9.
+- PRUEBAS: MaquetaClaudeGuideTests 3/3 (SuperAdmin.Tests 11/11 del filtro). E2E 5285: modal en el Cerebro con
+  ?nota= (prompts con tronox-sgdea y la nota abierta, comando con la URL del MCP, enlace a /conectar-ia?guia=maquetas)
+  y Conectar IA con la guia abierta y el conector Maquetas preseleccionado.
+
+## 2026-11-18 - v0.16.347: cerebro digital de la maqueta (ola 3, ADR-0183)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, worktree .claude/worktrees/maquetas-cerebro, puerto 5285).
+- RESPUESTAS DEL USUARIO (hand-off seccion 3): los $100 = plan Claude Max (no hay llave API: la IA usa el MCP);
+  un cerebro POR PROYECTO; importar el vault de Obsidian desde el inicio; todos escriben, archiva autor u Owner/Admin.
+- HECHO: MockupNote (ISoftDeletable + IVersioned, indice unico filtrado por titulo entre activas) + MockupNoteLink
+  (tabla derivada); migracion dual aditiva AddMockupBrain (PG 20261118135022, SQL Server 20261118135307).
+  MockupBrainLinks (parser puro [[nota]], [[nota|alias]], [[nota#seccion]], [[pantalla.html]], [[T00046]], #etiqueta;
+  ignora codigo y adjuntos; prohibe [ ] | # ^ / \ en titulos). IMockupBrainService: listar/buscar, ver con
+  backlinks, guardar con version (409), renombrar reescribe enlaces, archivar (soft-delete), grafo, importar vault
+  ZIP (todo o nada) y FindTaskIdAsync. UI: pestanas Maqueta | Cerebro en el editor (?tab=cerebro&nota=), lista +
+  editor markdown con autocompletado [[ y Ctrl+S + vista previa SANITIZADA (MockupMarkdown propio, sin Markdig) +
+  panel de backlinks/enlaces/grafo local + grafo completo ECharts force en modal + importar Obsidian + "Nota de esta
+  pantalla". JS wwwroot/js/maqueta-cerebro.js. MCP: listar_notas, buscar_notas, ver_nota, grafo_cerebro, crear_nota,
+  editar_nota (+ instrucciones del servidor). ADR-0183, docs/integraciones/maqueta-solicitudes.md seccion 8.
+- PRUEBAS: unitarias MockupBrainLinksTests 12/12 y MockupMarkdownTests 4/4 (incluye XSS); dual (PG + SQL Server)
+  MockupBrainTests + McpMaquetas_* 22/22; dotnet format whitespace/style verde. E2E en 5285 (proyecto tronox-sgdea,
+  BD local): crear nota con autocompletado de pantalla, enlace pendiente -> clic la crea, backlinks, grafo local y
+  completo, clic en pantalla vuelve a Maqueta en esa pantalla, [[T00046]] abre la tarjeta, renombrar reescribe el
+  enlace, importar ZIP de vault (2 notas, .obsidian ignorado), "Nota de esta pantalla". Quedaron 4 notas de prueba en
+  el cerebro de tronox-sgdea de la BD LOCAL (Prueba E2E cerebro, Flujo de radicacion PQRS, Inicio vault, Ideas de
+  navegacion).
+- SIGUIENTE: dev principal integra la rama (renumera version/ADR si choca) y despliega con OK del usuario. Ola 3b:
+  adjuntos (imagenes) del vault. Ola 4 (plan Max): documentar en Conectar IA como chatear con la maqueta y el
+  cerebro desde Claude Desktop/Code via el MCP (con OK del usuario).
 ## 2026-11-18 - v0.16.346: integra feat/agentes-sistema (responder ofertas de portales desde la tarea, ADR-0181) (DESPLEGADO 2026-11-18)
 
 - DEPLOY 2026-11-18 09:50 Bogota (OK del usuario: "Si, unela y luego despliega"). Via rapida GHCR, imagen de 1b70bffd.

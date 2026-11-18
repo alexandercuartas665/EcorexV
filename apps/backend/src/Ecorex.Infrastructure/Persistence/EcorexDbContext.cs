@@ -384,6 +384,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     // ADR-0179: maquetas en la nube (proyecto + versiones inmutables por ZIP).
     public DbSet<MockupProject> MockupProjects => Set<MockupProject>();
     public DbSet<MockupVersion> MockupVersions => Set<MockupVersion>();
+    // ADR-0183: cerebro digital (notas enlazadas) de cada proyecto de maqueta.
+    public DbSet<MockupNote> MockupNotes => Set<MockupNote>();
+    public DbSet<MockupNoteLink> MockupNoteLinks => Set<MockupNoteLink>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -4044,6 +4047,33 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.UploadedByName).HasMaxLength(150);
             b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.Number }).IsUnique();
             b.HasOne(x => x.MockupProject).WithMany(p => p.Versions).HasForeignKey(x => x.MockupProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ADR-0183: cerebro digital. Titulo unico por proyecto entre las notas ACTIVAS (indice filtrado); los enlaces
+        // son una tabla derivada que se reescribe al guardar la nota.
+        modelBuilder.Entity<MockupNote>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.TitleKey).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Body).IsRequired();
+            b.Property(x => x.AuthorName).HasMaxLength(150);
+            b.Property(x => x.UpdatedByName).HasMaxLength(150);
+            b.Property(x => x.ImportedFrom).HasMaxLength(400);
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.TitleKey }).IsUnique()
+                .HasFilter(isNpgsql ? "is_deleted = false" : "[is_deleted] = 0");
+            b.HasOne(x => x.MockupProject).WithMany().HasForeignKey(x => x.MockupProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<MockupNoteLink>(b =>
+        {
+            b.Property(x => x.TargetKind).HasMaxLength(10).IsRequired();
+            b.Property(x => x.TargetKey).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Label).HasMaxLength(200);
+            b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.TargetKind, x.TargetKey });
+            b.HasIndex(x => new { x.TenantId, x.FromNoteId });
+            b.HasOne(x => x.FromNote).WithMany().HasForeignKey(x => x.FromNoteId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

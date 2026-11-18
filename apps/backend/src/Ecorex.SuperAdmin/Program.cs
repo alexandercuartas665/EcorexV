@@ -259,6 +259,8 @@ builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMaquetaSoli
 builder.Services.AddMaquetaHub(builder.Configuration, builder.Environment.IsDevelopment());
 // Maquetas en la nube (ADR-0179): proyectos/versiones por ZIP + cache en disco para servirlas en /maqueta/{slug}/.
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupService, Ecorex.Application.Integraciones.Maqueta.MockupService>();
+// Cerebro digital de la maqueta (ADR-0183): notas enlazadas tipo Obsidian, backlinks, grafo e importacion de vault.
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupBrainService, Ecorex.Application.Integraciones.Maqueta.MockupBrainService>();
 builder.Services.AddSingleton<MockupSiteCache>();
 // Galeria de imagenes de plantillas (ADR-0177): sube al gestor unificado (por eso se registra aqui, no en Application).
 builder.Services.AddScoped<Ecorex.Application.Gestor.ITemplateGalleryService, Ecorex.Application.Gestor.TemplateGalleryService>();

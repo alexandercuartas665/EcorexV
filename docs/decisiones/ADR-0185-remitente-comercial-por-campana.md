@@ -2,7 +2,7 @@
 
 Fecha: 2026-11-18
 Estado: Aceptada
-Version: v0.16.347
+Version: v0.16.348
 Relacionado: ADR-0056/0170 (motor de acciones por filtro), ADR-0177 (marca de correo)
 
 ## Contexto

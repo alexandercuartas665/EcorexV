@@ -2,7 +2,7 @@
 
 Fecha: 2026-11-18
 Estado: Aceptada
-Version: v0.16.347
+Version: v0.16.348
 Relacionado: ADR-0029 (plantillas HSM), ADR-0175 (agente editor de plantillas), ADR-0056/0170 (motor de
 acciones, paso WhatsApp)
 

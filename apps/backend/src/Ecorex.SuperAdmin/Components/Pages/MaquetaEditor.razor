@@ -40,6 +40,14 @@ else
                 <span class="me-name">@_name</span>
                 <small>@(_versionLabel)</small>
             </div>
+            <div class="me-tabs" role="tablist">
+                <button role="tab" class="@(_tab == TabMaqueta ? "on" : null)" @onclick="() => SetTab(TabMaqueta)"><i class="fa-regular fa-window-maximize"></i> Maqueta</button>
+                <button role="tab" class="@(_tab == TabCerebro ? "on" : null)" disabled="@(_project is null)"
+                        title="@(_project is null ? "El cerebro digital esta disponible en las maquetas de la nube" : "Cerebro digital del proyecto: notas enlazadas y grafo")"
+                        @onclick="() => SetTab(TabCerebro)"><i class="fa-solid fa-brain"></i> Cerebro</button>
+            </div>
+            @if (_tab == TabMaqueta)
+            {
             <div class="me-url">
                 <i class="fa-regular fa-window-maximize"></i>
                 <select class="me-select" value="@_currentFile" @onchange="OnPageChanged" title="Pantalla de la maqueta">
@@ -72,18 +80,39 @@ else
                     }
                 </select>
             }
+            }
             <div class="me-spacer"></div>
-            <a class="me-icon" href="@FullUrl" target="_blank" rel="noopener" title="Abrir la pantalla sola (HTML puro)"><i class="fa-solid fa-up-right-from-square"></i></a>
+            @if (_tab == TabMaqueta)
+            {
+                <a class="me-icon" href="@FullUrl" target="_blank" rel="noopener" title="Abrir la pantalla sola (HTML puro)"><i class="fa-solid fa-up-right-from-square"></i></a>
+                @if (_project is not null)
+                {
+                    <button class="me-icon" title="Nota de esta pantalla en el cerebro digital" @onclick="PageNoteAsync"><i class="fa-regular fa-note-sticky"></i></button>
+                }
+            }
             @if (_isAdmin && _project is not null)
             {
                 <a class="me-btn" href="@($"/maqueta?gestionar={_project.Slug}")" title="Versiones y configuracion del proyecto"><i class="fa-solid fa-layer-group"></i> Versiones</a>
             }
-            <button class="me-btn primary @(_picking ? "on" : null)" @onclick="TogglePickAsync" disabled="@(!_agentOk)">
-                <i class="fa-solid fa-arrow-pointer"></i> @(_picking ? "Seleccionando..." : "Seleccionar")
-            </button>
+            @if (_tab == TabMaqueta)
+            {
+                <button class="me-btn primary @(_picking ? "on" : null)" @onclick="TogglePickAsync" disabled="@(!_agentOk)">
+                    <i class="fa-solid fa-arrow-pointer"></i> @(_picking ? "Seleccionando..." : "Seleccionar")
+                </button>
+            }
         </header>
 
-        <div class="me-main">
+        @if (_project is not null)
+        {
+            @* El cerebro se monta una sola vez y se oculta con CSS: cambiar de pestana no recarga el iframe ni pierde el borrador. *@
+            <div class="me-brain @(_tab == TabCerebro ? "on" : null)">
+                <MaquetaCerebro @ref="_brain" Slug="@Slug" ProjectName="@(_name ?? Slug)" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
+                                Active="@(_tab == TabCerebro)" Pages="_pages" Solicitudes="_solicitudes" CurrentFile="@_currentFile"
+                                InitialNote="@Nota" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast" />
+            </div>
+        }
+
+        <div class="me-main @(_tab == TabCerebro ? "off" : null)">
             <aside class="me-side">
                 <div class="me-side-head">
                     <div class="me-side-title">
@@ -225,6 +254,15 @@ else
     [Parameter] public string Slug { get; set; } = string.Empty;
     [SupplyParameterFromQuery(Name = "v")] public int? VersionNumber { get; set; }
     [SupplyParameterFromQuery(Name = "page")] public string? StartPage { get; set; }
+    /// <summary>Pestana inicial: "cerebro" abre el cerebro digital (ADR-0183).</summary>
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    /// <summary>Nota del cerebro a abrir (por titulo) al entrar con ?tab=cerebro.</summary>
+    [SupplyParameterFromQuery(Name = "nota")] public string? Nota { get; set; }
+
+    private const string TabMaqueta = "maqueta";
+    private const string TabCerebro = "cerebro";
+    private string _tab = TabMaqueta;
+    private MaquetaCerebro? _brain;
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private sealed record ThemeOption(string Id, string Name);
@@ -365,7 +403,37 @@ else
         }
 
         if (_error is null) { await LoadSolicitudesAsync(); }
+        if (_project is not null && string.Equals(Tab, TabCerebro, StringComparison.OrdinalIgnoreCase)) { _tab = TabCerebro; }
         _loading = false;
+    }
+
+    private void SetTab(string tab)
+    {
+        if (tab == TabCerebro && _project is null) { return; }
+        if (tab == TabCerebro && _picking) { _ = TogglePickAsync(); }
+        _tab = tab;
+    }
+
+    /// <summary>"Nota de esta pantalla": pasa al cerebro con la nota de la pantalla abierta (o un borrador nuevo).</summary>
+    private async Task PageNoteAsync()
+    {
+        if (_project is null || string.IsNullOrEmpty(_currentFile)) { return; }
+        _tab = TabCerebro;
+        StateHasChanged();
+        if (_brain is not null) { await _brain.OpenPageNoteAsync(_currentFile); }
+    }
+
+    /// <summary>Clic en un [[pantalla.html]] del cerebro: vuelve a la pestana Maqueta en esa pantalla.</summary>
+    private async Task OpenPageFromBrainAsync(string file)
+    {
+        _tab = TabMaqueta;
+        _currentFile = file;
+        if (_jsReady) { await JS.InvokeVoidAsync("ecxMaquetaEditor.load", file); }
+    }
+
+    private async Task OpenTaskFromBrainAsync(Guid taskId)
+    {
+        if (_taskModal is not null) { await _taskModal.OpenAsync(taskId); }
     }
 
     private void ApplySite(MockupSiteInfo site, string? entryPath)

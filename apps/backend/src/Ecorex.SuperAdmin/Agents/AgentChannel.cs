@@ -68,6 +68,9 @@ public static class AgentChannel
         services.AddSingleton<IFlowSequenceRunner, FlowSequenceRunner>();
         services.AddScoped<IFlowRunOverrideProvider, ConciliacionDianFlowOverrides>();
         services.AddScoped<IAiStepOrchestrator, AiStepOrchestrator>();
+        // Verbo EJECUTAR_DRON (ADR-0181): un boton del formulario de una tarea lanza un flujo del dron con sus datos.
+        // Vive aqui (no en Application) porque necesita el runtime del navegador (IBrowserRunService).
+        services.AddScoped<Ecorex.Application.Rules.IRuleVerb, EjecutarDronVerb>();
         // Busqueda web del agente de FLUJO (ADR-0091): reemplaza el no-op de Application con el canal Colmena real.
         services.AddScoped<Ecorex.Application.Workflows.IAgentBrowserFetch, AgentBrowserFetch>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();

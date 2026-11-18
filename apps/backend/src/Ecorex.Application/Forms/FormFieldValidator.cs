@@ -241,8 +241,15 @@ public static class FormFieldValidator
                 }
             }
         }
-        return null;
+        // ADR-0181: reglas que cruzan columnas de la misma fila (requiredWhen / requiredUnless / maxCol).
+        return Calc.FormGridRowRules.Validate(rows, optionsJson);
     }
+
+    /// <summary>Valida el valor de una grilla (GridDetail) con las mismas reglas del envio del formulario: formato,
+    /// requeridos y opciones por columna y reglas por fila. Para botones que deben exigir una grilla completa antes
+    /// de actuar (el borrador no se valida al guardar). Null = valida.</summary>
+    public static string? ValidateGridValue(string? value, string? optionsJson)
+        => string.IsNullOrWhiteSpace(value) ? null : ValidateGrid(value, optionsJson);
 
     private static string? ValidateText(string value, FormValidationRules? rules)
     {

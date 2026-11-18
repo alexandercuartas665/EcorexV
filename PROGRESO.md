@@ -2,6 +2,38 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - Responder ofertas de portales desde la tarea (ADR-0181) (rama feat/agentes-sistema, SIN release ni deploy)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas; el usuario pidio construirlo aqui porque la sesion principal
+  estaba ocupada). Pedido: poder llenar los datos del pedido del portal (pdpartner/INCAUCA) y que el dron los pase.
+- DECISIONES DEL USUARIO: se llena en la tarea ECOREX; el dron deja la oferta GUARDADA sin enviar (el clic de Enviar
+  lo da una persona); prellenado con la ultima cotizacion del mismo codigo; boton en el formulario; re-envio reescribe;
+  "No cotiza" + motivo; responsable fijo Saul (editable); plazo de la oferta = vencimiento; COP + vigencia 30 dias;
+  diseno para varios portales.
+- FASE 0 (solo lectura, local con DEV_LOCAL): pdpartner tiene el estado "Diligenciadas sin finalizar" (guarda
+  borradores); ids por fila de GVDilCot (TxtMarca_i, TxtCantCot_i, TxtVrUnit_i, TxtDiasEnt_i, TxtDcto_i, TxtIva_i,
+  btnTotal_i, CBNotCot_i + DDLMotNoCot_i AGOTADO/NO LO VENDE/NO LO DISTRIBUYE). Hoy no hay pendientes: faltan los ids
+  de Guardar/Finalizar (flujo local "FASE0 - Inspeccion oferta pdpartner" listo para leerlos).
+- HECHO (codigo): Crear actividad gana vencimiento (fin del dia en la zona del tenant), camposFijos ({hoy+N}) y
+  prellenado desde un Contenedor historico (ultima fila por clave, sin el mismo registro, solo con valor), editables
+  en el editor del paso. FormGridRowRules: requiredWhen / requiredUnless / maxCol por fila, validadas al enviar y por
+  FormFieldValidator.ValidateGridValue. Verbo EJECUTAR_DRON (SuperAdmin): boton valida grilla y campos, confirma con
+  el modal de la app, lanza el flujo en 2do plano con {{TAREA}} y {{FORM}} y deja comentario (a nombre de quien
+  pulso) + ultima captura en la tarea.
+- CONFIG LOCAL (BD 5442, SOLDARCO): grilla FRM-INCAUCA-PED con No cotiza/motivo y reglas; boton "Pasar oferta al
+  portal" (regla 0f0a5e00-...-fd02); Crear actividad con Saul/vencimiento/fijos/prellenado; lector de pendientes ya
+  no guarda "Seleccione..."; flujo "Responder oferta - pdpartner" (0f0a5e00-...-fa01): login, pendientes, abrir por
+  PETOF, llenar cabecera + filas por item+codigo (SIN guardar: falta el boton Guardar de la Fase 0).
+- VERIFICADO: build 0 errores; format limpio; Application.Tests 1540/1540; SuperAdmin.Tests 275/275 (nuevos
+  FormGridRowRulesTests y OfertaPortalTests). E2E local en :5281 (sin workers) sobre T00061: grilla incompleta ->
+  "La columna 'Cant. cotizada' es obligatoria (fila 1), salvo que marques 'No cotiza'"; marcada No cotiza -> modal de
+  confirmacion -> "se esta ejecutando" -> comentario en la tarea (agente offline en esa instancia: DEV_LOCAL esta
+  conectado a la app 5263 de otra sesion).
+- NO VERIFICADO: corrida real contra el portal (necesita la app con este codigo donde este el agente y una oferta
+  pendiente) y el prellenado/vencimiento con una corrida de Crear actividad.
+- SIGUIENTE: Fase 0 con la proxima oferta pendiente (ids de Guardar/Finalizar y si CBNotCot/btnTotal hacen
+  postback) -> paso Guardar; luego llevar config a prod (SQL idempotente) con OK del usuario; fase 3 cierre automatico.
+
 ## 2026-11-17 - v0.16.342: maquetas en la NUBE (proyectos + versiones por ZIP en /maqueta/{slug}/) (DESPLEGADO 2026-11-18)
 
 - DEPLOY 2026-11-18 04:05 Bogota (OK del usuario: "Dale deploy"), via rapida GHCR, imagen del commit 2e312592. Footer

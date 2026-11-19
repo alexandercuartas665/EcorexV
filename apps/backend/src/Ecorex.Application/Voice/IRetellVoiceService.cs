@@ -23,7 +23,10 @@ public sealed record VoicePlaceCallRequest(
     // modo simple el agente de Retell debe tenerlos definidos). Forman parte de la identidad del agente reutilizado.
     IReadOnlyList<RetellAnalysisField>? AnalysisFields = null,
     // Origen de la llamada (metadata "source" en Retell). Null = "ecorex-contact-workflow".
-    string? Source = null);
+    string? Source = null,
+    // Ola 5 (ADR-0190): forma del agente que se crea en modo compuesto (end_call, colgar en buzon, topes de
+    // silencio/duracion). Null = la forma de siempre (no altera a los demas consumidores ni sus agentes ya creados).
+    RetellAgentOptions? AgentOptions = null);
 
 /// <summary>Resultado de colocar la llamada. Retryable = fallo transitorio (5xx/red); un 4xx NUNCA es retryable.</summary>
 public sealed record VoicePlaceCallResult(bool Placed, string? CallId, string? Error, bool Retryable);

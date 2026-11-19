@@ -91,9 +91,12 @@ public sealed class RetellVoiceService : IRetellVoiceService
             var voiceId = string.IsNullOrWhiteSpace(cfg.VoiceId) ? DefaultVoiceId : cfg.VoiceId!;
             var language = string.IsNullOrWhiteSpace(cfg.Language) ? "es-419" : cfg.Language;
             var prompt = ComposePrompt(systemPrompt, request.PromptExtra, request.Objetivo);
-            var hash = PromptHash(prompt + AnalysisSignature(request.AnalysisFields), voiceId, language);
+            var hash = PromptHash(
+                prompt + AnalysisSignature(request.AnalysisFields) + RetellAgentOptions.Signature(request.AgentOptions),
+                voiceId, language);
 
-            var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId, request.AnalysisFields, cancellationToken);
+            var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId,
+                request.AnalysisFields, request.AgentOptions, cancellationToken);
             if (!ensure.Ok)
             {
                 return new VoicePlaceCallResult(false, null, ensure.Error, ensure.Retryable);
@@ -458,7 +461,8 @@ public sealed class RetellVoiceService : IRetellVoiceService
     private sealed record EnsureResult(bool Ok, string? AgentId, string? Error, bool Retryable);
 
     private async Task<EnsureResult> EnsureAgentAsync(string apiKey, string hash, string prompt, string voiceId,
-        string language, Guid? aiAgentId, IReadOnlyList<RetellAnalysisField>? analysis, CancellationToken ct)
+        string language, Guid? aiAgentId, IReadOnlyList<RetellAnalysisField>? analysis, RetellAgentOptions? options,
+        CancellationToken ct)
     {
         var existing = await _db.RetellAgentMaps.FirstOrDefaultAsync(m => m.PromptHash == hash, ct);
         if (existing is not null)
@@ -468,14 +472,18 @@ public sealed class RetellVoiceService : IRetellVoiceService
             return new EnsureResult(true, existing.RetellAgentId, null, false);
         }
 
-        var llm = await _retell.CreateLlmAsync(apiKey, new RetellCreateLlmRequest(GeneralPrompt: prompt), ct);
+        var llm = await _retell.CreateLlmAsync(apiKey, new RetellCreateLlmRequest(
+            GeneralPrompt: prompt, EndCallTool: options?.EndCallTool ?? false), ct);
         if (!llm.Ok || string.IsNullOrEmpty(llm.LlmId))
         {
             return new EnsureResult(false, null, llm.Error ?? $"Retell create-llm HTTP {llm.StatusCode}.", IsTransient(llm.StatusCode));
         }
 
         var agent = await _retell.CreateAgentAsync(apiKey, new RetellCreateAgentRequest(
-            LlmId: llm.LlmId!, VoiceId: voiceId, Language: language, AgentName: "ECOREX voz", PostCallAnalysis: analysis), ct);
+            LlmId: llm.LlmId!, VoiceId: voiceId, Language: language, AgentName: "ECOREX voz", PostCallAnalysis: analysis,
+            VoicemailHangup: options?.VoicemailHangup ?? false,
+            EndCallAfterSilenceMs: options?.EndCallAfterSilenceMs,
+            MaxCallDurationMs: options?.MaxCallDurationMs), ct);
         if (!agent.Ok || string.IsNullOrEmpty(agent.AgentId))
         {
             return new EnsureResult(false, null, agent.Error ?? $"Retell create-agent HTTP {agent.StatusCode}.", IsTransient(agent.StatusCode));
@@ -516,6 +524,23 @@ public sealed class RetellVoiceService : IRetellVoiceService
         return sb.ToString();
     }
 
+    /// <summary>Directiva del objetivo <see cref="ContactCallObjetivo.SeguimientoCierre"/> (Ola 5, ADR-0190).</summary>
+    public const string SeguimientoCierreDirective =
+        "Objetivo de la llamada: hacer el SEGUIMIENTO del caso con el contacto y obtener de el una decision clara.\n" +
+        "Reglas de esta llamada telefonica:\n" +
+        "1. Al saludar, presentate como asistente virtual de inteligencia artificial y di en una frase por que llamas.\n" +
+        "2. Habla en frases cortas, una idea por turno, y espera la respuesta. No leas listas, simbolos, enlaces ni codigos largos.\n" +
+        "3. No inventes datos. Si te piden un precio, valor, fecha, estado o compromiso que no este en estas instrucciones, " +
+        "di que un asesor lo contactara con el dato exacto.\n" +
+        "4. Una cortesia (\"gracias\", \"no gracias\", \"despues lo miro\") no es un rechazo: pregunta con tacto que decide. " +
+        "No insistas mas de dos veces.\n" +
+        "5. Si el contacto pide que lo llamen en otro momento, pregunta dia y hora y confirmalos.\n" +
+        "6. Si contesta un buzon de voz o una grabacion, cuelga sin dejar mensaje.\n" +
+        "7. Antes de despedirte, repite en una frase la decision del contacto (por ejemplo: acepta, no le interesa, " +
+        "quiere hablar con un asesor o pide que lo llamen luego).\n" +
+        "8. Nunca hables por el contacto ni des por dicha una respuesta que no dio.\n" +
+        "9. Despues de despedirte, cuelga la llamada.";
+
     public static string ObjetivoDirective(string? objetivo)
     {
         if (Enum.TryParse<ContactCallObjetivo>(objetivo, ignoreCase: true, out var o))
@@ -526,6 +551,11 @@ public sealed class RetellVoiceService : IRetellVoiceService
                     "Objetivo de la llamada: ofrecer el producto o servicio al contacto de forma clara y cordial, resolviendo dudas.",
                 ContactCallObjetivo.LlenarFormulario =>
                     "Objetivo de la llamada: recopilar del contacto los datos necesarios para completar el formulario indicado; confirma cada dato antes de cerrar.",
+                // Ola 5 (ADR-0190): conducta BASE de una llamada de seguimiento/cierre, igual para todo tenant. La
+                // persona (tono, negocio, restricciones propias) va en el SystemPrompt del agente de voz del nodo; el
+                // caso concreto, en la instruccion por llamada. La regla 7 deja la decision dicha en voz alta para que
+                // el agente del nodo la lea en el transcript y elija la ruta.
+                ContactCallObjetivo.SeguimientoCierre => SeguimientoCierreDirective,
                 _ => ""
             };
         }

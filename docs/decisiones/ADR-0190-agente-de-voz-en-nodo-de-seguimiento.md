@@ -36,7 +36,8 @@ Construir la capacidad POR OLAS, en un worktree, uniendo a main solo al final pr
 - **Ola 4:** bitacora de voz (opcion A: `AiAgentRunLog.ConversationId` nullable +
   `VoiceCallId`), transcript en dos destinos (bitacora + Message para SARA), pestana
   "Grabacion de llamadas", candado de voz a nivel contacto.
-- **Ola 5:** persona SARA-voz (guion), a cargo del usuario.
+- **Ola 5:** persona SARA-voz (guion; la config la aplica el usuario) + conducta base de la
+  llamada de seguimiento y forma del agente Retell (codigo, ver Consecuencias).
 - **Ola 6:** E2E con llamada real + merge a main.
 
 Modelo de prompts (ADR-0091, confirmado): en modo COMPUESTO el prompt del agente Retell
@@ -62,3 +63,20 @@ transcripcion.
   solo-voz no se crea una conversacion (el transcript completo queda en `VoiceCall` y en la
   bitacora). Extender el context builder de SARA para leer transcripts de voz sin WhatsApp
   previo queda pendiente (no bloquea esta ola).
+- Ola 5 (hecha en codigo; la persona es config): se separa en tres capas el prompt de la llamada
+  de seguimiento. (1) PERSONA del tenant = `SystemPrompt` del agente de voz del nodo (guion
+  SARA-voz en el vault, nota 03; se crea como `AiAgent` propio, NO se reusa la persona de
+  WhatsApp). (2) Instruccion por llamada (la escribe el agente del nodo). (3) Directiva de
+  objetivo `SeguimientoCierre` en codigo, igual para todo tenant: antes era vacia; ahora fija la
+  conducta base (identidad IA, frases cortas, no inventar precio/valor/estado -> asesor,
+  cortesia != rechazo, reprogramar con dia y hora, buzon -> colgar, decision dicha en voz alta
+  para el ruteo, no hablar por el cliente, colgar al despedirse).
+  Ademas, la llamada de un paso de flujo pide una FORMA de agente Retell (`RetellAgentOptions.
+  WorkflowCall`): herramienta `end_call` en el LLM, `voicemail_option = hangup` (sin esto el
+  agente le hablaba al buzon y Retell no reportaba el corte como buzon, asi que la politica de
+  reintento de la Ola 3 no se disparaba), corte por 20 s de silencio y tope de 10 min (costo).
+  Es OPCIONAL por peticion: los demas consumidores (recordatorio de agenda, cargador de
+  contactos, prueba de /config-voz) no la piden y conservan su agente y su hash. La forma entra
+  en el hash del agente, asi que las llamadas de flujo crean un agente Retell nuevo la primera
+  vez (los viejos quedan huerfanos; limpieza pendiente historica). Solo aplica en modo
+  COMPUESTO: con una linea en modo simple (agent_id fijo) Retell usa su propio prompt.

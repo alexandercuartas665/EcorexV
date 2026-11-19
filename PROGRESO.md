@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-19 - (version por asignar): agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - SIN DEPLOY
+
+- RAMA: worktree-voz-retell-fallback, puesta al dia por fast-forward con el tronco f4a593dc antes de empezar.
+- CODIGO: (1) directiva del objetivo SeguimientoCierre (antes vacia): conducta BASE de la llamada de seguimiento,
+  igual para todo tenant (identidad IA, frases cortas, no inventar precio/valor/estado -> asesor, cortesia no es
+  rechazo, reprogramar con dia y hora, buzon -> colgar, decision dicha en voz alta para el ruteo, colgar al despedirse).
+  (2) RetellAgentOptions.WorkflowCall: la llamada de un paso de flujo crea el agente Retell con end_call en
+  general_tools, voicemail_option hangup, end_call_after_silence_ms 20000 y max_call_duration_ms 600000. OPCIONAL por
+  peticion: agenda, cargador de contactos y la prueba de /config-voz no la piden y conservan agente y hash. La forma
+  entra en el hash (las llamadas de flujo provisionan un agente Retell nuevo la primera vez).
+- CONFIG (persona, no codigo): guion SARA-voz en el vault (Capa 3a voz, nota 03). Probado en la copia LOCAL (ecorex,
+  puerto 5279): creado el agente SARA.voz_seguimiento_v1 (apagado a proposito: no atiende lineas de WhatsApp; la
+  llamada no exige IsActive) y asignado como agente de voz del nodo "Agente seguimiento inteligente" del PROCESO
+  COMERCIAL v34 (2 llamadas, reintento 120 min, ventana 8-18). En PROD falta aplicarlo (lo decide el usuario).
+- PRUEBAS: build 0 errores; unitarias Application 1624, SuperAdmin 304 (5 nuevas: payload real a Retell con handler
+  falso), Domain 35; dotnet format sin cambios. Sin llamadas reales (linea de PRUEBA con clave falsa).
+- SIGUIENTE: integrar al tronco + deploy (OK del usuario); aplicar la persona en prod; Ola 6 (llamada real E2E, webhook
+  de Retell llegando a prod).
+
 ## 2026-11-19 - v0.16.356: agente de voz (Retell) en el nodo de seguimiento, Olas 0-4 (ADR-0190, antes ADR-0142) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama worktree-voz-retell-fallback (HEAD edbf9f27, 7 commits propios,

@@ -590,7 +590,10 @@ public sealed class WorkflowAgentStepRunner : IWorkflowAgentStepRunner
             FormulariosPermitidos: formIds,
             ContactVariables: BuildContactVariables(context),
             // Ola 2 (ADR-0190): linea de voz del nodo. Null = la por defecto del tenant (comportamiento actual).
-            RetellVoiceLineId: context.Assignment?.VoiceLineId), cancellationToken);
+            RetellVoiceLineId: context.Assignment?.VoiceLineId,
+            // Ola 5 (ADR-0190): el agente de una llamada de flujo puede colgar (end_call), cuelga en buzon y tiene
+            // topes de silencio/duracion. Solo aplica en modo compuesto (linea sin agent_id fijo de Retell).
+            AgentOptions: Voice.RetellAgentOptions.WorkflowCall), cancellationToken);
 
         if (!placed.Placed || string.IsNullOrWhiteSpace(placed.CallId))
         {

@@ -1,5 +1,6 @@
 using Ecorex.Application.Admin;
 using Ecorex.Application.Common;
+using Ecorex.Application.Pdf;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -36,15 +37,17 @@ public sealed class FormAiIntakeService : IFormAiIntakeService
     private readonly IAiProviderClient _client;
     private readonly ISecretProtector _secret;
     private readonly IAiUsageService _usage;
+    private readonly IPdfRasterizer? _rasterizer;
 
     public FormAiIntakeService(IApplicationDbContext db, IFormDefinitionService formDefs, IAiProviderClient client,
-        ISecretProtector secret, IAiUsageService usage)
+        ISecretProtector secret, IAiUsageService usage, IPdfRasterizer? rasterizer = null)
     {
         _db = db;
         _formDefs = formDefs;
         _client = client;
         _secret = secret;
         _usage = usage;
+        _rasterizer = rasterizer;
     }
 
     public async Task<AiIntakeResult> AnalyzeAsync(Guid responseId, string fieldCode, string fileBase64, string mime,
@@ -81,12 +84,26 @@ public sealed class FormAiIntakeService : IFormAiIntakeService
         var approxBytes = (long)(fileBase64.Length * 0.75);
         if (approxBytes > (long)cfg.MaxMb * 1024 * 1024) { return Fail($"El archivo supera el tope de {cfg.MaxMb} MB."); }
 
-        // 3) Agente -> proveedor/modelo. Solo Gemini/Claude leen imagen/PDF.
+        // 3) Agente -> proveedor/modelo. Gemini/Claude leen el PDF nativo; DeepSeek/ChatGPT y demas lo reciben
+        //    RASTERIZADO como imagenes (mismo tope que los agentes de conversacion, ADR-0174). Imagenes: todos.
         var agent = await _db.AiAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == agentId, ct);
         if (agent is null) { return Fail("El agente configurado ya no existe."); }
-        if (agent.Provider is not (AiProvider.Gemini or AiProvider.Claude))
+        var readsPdfNatively = agent.Provider is AiProvider.Gemini or AiProvider.Claude;
+        IReadOnlyList<AiInlineImage>? images = isImage ? new[] { new AiInlineImage(fileBase64, mime) } : null;
+        IReadOnlyList<AiInlineDocument>? documents = null;
+        if (isPdf && readsPdfNatively)
         {
-            return Fail("El agente del asistente debe usar Gemini o Claude (los unicos que leen imagenes/PDF).");
+            documents = new[] { new AiInlineDocument(fileBase64, mime, "requerimiento.pdf") };
+        }
+        else if (isPdf)
+        {
+            if (_rasterizer is null) { return Fail("No se puede convertir el PDF a imagen en este servidor; sube una imagen o usa un agente con Gemini o Claude."); }
+            IReadOnlyList<RasterPage> pages;
+            try { pages = _rasterizer.Rasterizar(Convert.FromBase64String(fileBase64), AgentMediaReader.PdfDpi, AgentMediaReader.MaxPdfPages, ct); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception) { return Fail("No se pudo leer el PDF (archivo danado o protegido con clave)."); }
+            if (pages.Count == 0) { return Fail("El PDF no tiene paginas legibles."); }
+            images = pages.Select(p => new AiInlineImage(Convert.ToBase64String(p.Image), p.Mime)).ToArray();
         }
 
         var providerCfg = await _db.AiProviderConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Provider == agent.Provider, ct);
@@ -119,9 +136,11 @@ public sealed class FormAiIntakeService : IFormAiIntakeService
         var messages = new List<AiToolMessage>
         {
             new("user",
-                $"Analiza el documento adjunto (requerimiento del cliente) y propone las filas de la grilla '{targetGrid.FieldCode}' usando las herramientas.",
-                Images: isImage ? new[] { new AiInlineImage(fileBase64, mime) } : null,
-                Documents: isPdf ? new[] { new AiInlineDocument(fileBase64, mime, "requerimiento.pdf") } : null)
+                isPdf && !readsPdfNatively
+                    ? $"Analiza el documento adjunto (un PDF; cada imagen es una de sus paginas, en orden) y propone las filas de la grilla '{targetGrid.FieldCode}' usando las herramientas."
+                    : $"Analiza el documento adjunto (requerimiento del cliente) y propone las filas de la grilla '{targetGrid.FieldCode}' usando las herramientas.",
+                Images: images,
+                Documents: documents)
         };
 
         var totalIn = 0;

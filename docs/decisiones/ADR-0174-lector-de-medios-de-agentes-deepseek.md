@@ -65,3 +65,14 @@ no se podian migrar EPRING ni AGRO.
   hasta probarlos aparte.
 - El consumo de las lecturas de imagen/PDF con el modelo del agente sigue sin registrarse aparte (como antes); el
   del transcriptor de plataforma si se registra porque usa otro proveedor.
+
+## Adenda 2026-11-19 (v0.16.357): asistente de formulario "leer documento -> tabla" (AiIntake, ADR-0131)
+
+- `FormAiIntakeService` ya no exige Gemini/Claude. Gemini y Claude siguen recibiendo el PDF nativo; con DeepSeek,
+  ChatGPT u otros el PDF se rasteriza con `IPdfRasterizer` (mismo tope que los agentes: `AgentMediaReader.PdfDpi`
+  150 dpi y `MaxPdfPages` 5) y viaja como imagenes. Imagenes: todos los proveedores. Si el servidor no tiene
+  rasterizador, el asistente lo dice en vez de fallar en silencio.
+- El "Revisar con IA" (AiCompose) ya era solo texto y funcionaba con cualquier proveedor.
+- Motivo: la cuenta de Gemini se quedo sin creditos prepagados (HTTP 402) y el demo de compras de INDUSTRIAS
+  ANDINAS dependia de el. Probado en vivo con deepseek-v4-flash: lectura de la cotizacion en PDF (6 s, USD 0,0027)
+  y revision (11 s, USD 0,0043), ambas registradas en AiUsageLog.

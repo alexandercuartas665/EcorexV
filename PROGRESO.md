@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-19 - v0.16.357: asistente de formulario "leer PDF -> tabla" funciona con DeepSeek (adenda ADR-0174) - SIN DEPLOY
+
+- HECHO (sesion Compras UX): `FormAiIntakeService` rasteriza el PDF a imagenes (IPdfRasterizer, 150 dpi, 5 paginas)
+  cuando el agente no es Gemini/Claude; antes rechazaba cualquier otro proveedor. Texto de ayuda del disenador
+  actualizado. Sin migracion.
+- PRUEBA E2E local (5282, tenant demo INDUSTRIAS ANDINAS, T00007): agente "Asistente de Compras" pasado a
+  deepseek-v4-flash en BD local; lectura del PDF de la cotizacion -> 1 fila correcta; "Revisar con IA" -> 5 campos
+  con la inconsistencia de valor/cantidad. AiUsageLog: form-ai-intake y form-ai-compose en DeepSeek.
+- MOTIVO: Gemini responde HTTP 402 (sin creditos prepagados) en la config de plataforma.
+- SIGUIENTE: tras deploy, en prod pasar a DeepSeek los agentes de formularios que lean PDF (y recargar o retirar
+  Gemini; el transcriptor de audio de ADR-0174 sigue usando Gemini).
 ## 2026-11-19 - v0.16.356: agente de voz (Retell) en el nodo de seguimiento, Olas 0-4 (ADR-0190, antes ADR-0142) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama worktree-voz-retell-fallback (HEAD edbf9f27, 7 commits propios,

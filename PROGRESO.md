@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-19 - (version por asignar): agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - SIN DEPLOY
+## 2026-11-19 - v0.16.357: agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - SIN DEPLOY
 
 - RAMA: worktree-voz-retell-fallback, puesta al dia por fast-forward con el tronco f4a593dc antes de empezar.
 - CODIGO: (1) directiva del objetivo SeguimientoCierre (antes vacia): conducta BASE de la llamada de seguimiento,

@@ -2471,6 +2471,8 @@ Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.MapMcpWhatsAppEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.MapMcpMaquetasEndpoints(app);
 // Integracion maqueta (ADR-0176): POST /api/maqueta/solicitudes con token personal integ:maqueta + CORS propio.
 Ecorex.SuperAdmin.Endpoints.MaquetaSolicitudesEndpoints.MapMaquetaSolicitudesEndpoints(app);
+// Exportar el cerebro de la maqueta como vault de Obsidian (ADR-0183, v0.16.352), con la sesion del usuario.
+Ecorex.SuperAdmin.Endpoints.MaquetaCerebroEndpoints.MapMaquetaCerebroEndpoints(app);
 app.MapOpenApi();
 
 app.Run();

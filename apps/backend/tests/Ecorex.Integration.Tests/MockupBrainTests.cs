@@ -198,6 +198,82 @@ public abstract class MockupBrainTestsBase
     }
 
     [Fact]
+    public async Task Papelera_RestauraConEnlaces_SoloAutorOAdmin_YRenombraSiElTituloEstaTomado()
+    {
+        var tenantId = await SeedTenantAsync("Cerebro Papelera");
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var slug = await CreateProjectAsync(ctx, tenantId);
+        var brain = new MockupBrainService(ctx, new AuditWriter(ctx), new BrainFiles());
+        var ana = Actor(tenantId, "Ana", admin: false);
+        var luis = Actor(tenantId, "Luis", admin: false);
+        var owner = Actor(tenantId, "Owner", admin: true);
+
+        var idea = (await brain.SaveNoteAsync(slug, null, "Idea", "Ver [[Indice]] y [[inicio.html]] #tema", null, ana)).Value!;
+        var indice = (await brain.SaveNoteAsync(slug, null, "Indice", "[[Idea]]", null, luis)).Value!;
+        Assert.True((await brain.ArchiveNoteAsync(slug, idea.Id, ana)).IsOk);
+
+        // La papelera la muestra con quien la archivo; Luis la ve pero no la puede restaurar.
+        var trash = Assert.Single(await brain.ListArchivedNotesAsync(slug, luis));
+        Assert.Equal("Idea", trash.Title);
+        Assert.Equal("Ana", trash.ArchivedByName);
+        Assert.False(trash.CanRestore);
+        Assert.False(trash.TitleTaken);
+        Assert.True(Assert.Single(await brain.ListArchivedNotesAsync(slug, owner)).CanRestore);
+        Assert.Equal(TaskCoreStatus.Forbidden, (await brain.RestoreNoteAsync(slug, idea.Id, luis)).Status);
+
+        // Restaurar: vuelve con sus enlaces salientes y el entrante de Indice deja de ser fantasma.
+        var restored = await brain.RestoreNoteAsync(slug, idea.Id, ana);
+        Assert.True(restored.IsOk, restored.Error);
+        Assert.Equal("Idea", restored.Value!.Title);
+        Assert.Equal(new[] { "Indice" }, restored.Value.Backlinks.Select(b => b.Title));
+        Assert.True((await brain.GetNoteAsync(slug, indice.Id))!.Links.Single().Exists);
+        Assert.Equal(3, await ctx.MockupNoteLinks.CountAsync(l => l.FromNoteId == idea.Id));
+        Assert.Empty(await brain.ListArchivedNotesAsync(slug, ana));
+        Assert.Equal(TaskCoreStatus.NotFound, (await brain.RestoreNoteAsync(slug, idea.Id, ana)).Status);
+
+        // Si otra nota activa ya usa el titulo, vuelve como "Titulo (restaurada)" sin robarle los enlaces.
+        Assert.True((await brain.ArchiveNoteAsync(slug, idea.Id, owner)).IsOk);
+        var nueva = (await brain.SaveNoteAsync(slug, null, "Idea", "la nueva", null, luis)).Value!;
+        Assert.True(Assert.Single(await brain.ListArchivedNotesAsync(slug, ana)).TitleTaken);
+        var second = await brain.RestoreNoteAsync(slug, idea.Id, owner);
+        Assert.True(second.IsOk, second.Error);
+        Assert.Equal("Idea (restaurada)", second.Value!.Title);
+        Assert.Equal(nueva.Id, (await brain.GetNoteAsync(slug, indice.Id))!.Links.Single().NoteId);
+        Assert.Equal(3, (await brain.ListNotesAsync(slug)).Count);
+    }
+
+    [Fact]
+    public async Task Exportar_GeneraVaultQueSeVuelveAImportar()
+    {
+        var tenantId = await SeedTenantAsync("Cerebro Exportar");
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var slug = await CreateProjectAsync(ctx, tenantId);
+        var brain = new MockupBrainService(ctx, new AuditWriter(ctx), new BrainFiles());
+        var ana = Actor(tenantId, "Ana", admin: false);
+        byte[] png = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 9, 9 };
+
+        Assert.True((await brain.UploadAssetAsync(slug, "boceto.png", png, ana)).IsOk);
+        Assert.True((await brain.SaveNoteAsync(slug, null, "Inicio", "Ver [[Hora: 10am]] ![[boceto.png]]", null, ana)).IsOk);
+        Assert.True((await brain.SaveNoteAsync(slug, null, "Hora: 10am", "reunion", null, ana)).IsOk);
+        var archived = (await brain.SaveNoteAsync(slug, null, "Borrador", "no sale", null, ana)).Value!;
+        Assert.True((await brain.ArchiveNoteAsync(slug, archived.Id, ana)).IsOk);
+
+        var export = await brain.ExportVaultAsync(slug, ana);
+        Assert.True(export.IsOk, export.Error);
+        Assert.Equal(2, export.Value!.Notes);
+        Assert.Equal(1, export.Value.Assets);
+        Assert.Equal(TaskCoreStatus.NotFound, (await brain.ExportVaultAsync("no-existe", ana)).Status);
+
+        // Ida y vuelta: el ZIP se lee como vault (la nota con ':' viaja como "Hora- 10am" y su enlace tambien).
+        var read = MockupBrainService.ReadVault(export.Value.Zip);
+        Assert.Null(read.Error);
+        Assert.Equal(new[] { "Hora- 10am", "Inicio" }, read.Notes.Select(n => n.Title).OrderBy(t => t, StringComparer.Ordinal));
+        Assert.Equal("Ver [[Hora- 10am]] ![[boceto.png]]", read.Notes.Single(n => n.Title == "Inicio").Body);
+        Assert.Equal("boceto.png", Assert.Single(read.Assets).Name);
+        Assert.True(await ctx.SuperAdminAuditLogs.IgnoreQueryFilters().AnyAsync(a => a.TenantId == tenantId && a.ActionName == "maqueta.nota.export"));
+    }
+
+    [Fact]
     public async Task OtroTenant_NoVeNiEscribeEnElCerebro()
     {
         var a = await SeedTenantAsync("Cerebro TA");
@@ -220,6 +296,10 @@ public abstract class MockupBrainTestsBase
             Assert.Null(await brainB.GetGraphAsync(slug));
             Assert.Equal(TaskCoreStatus.NotFound, (await brainB.SaveNoteAsync(slug, null, "X", "y", null, intruso)).Status);
             Assert.Equal(TaskCoreStatus.NotFound, (await brainB.ArchiveNoteAsync(slug, noteId, intruso)).Status);
+            // Papelera y exportar tampoco cruzan de empresa.
+            Assert.Empty(await brainB.ListArchivedNotesAsync(slug, intruso));
+            Assert.Equal(TaskCoreStatus.NotFound, (await brainB.RestoreNoteAsync(slug, noteId, intruso)).Status);
+            Assert.Equal(TaskCoreStatus.NotFound, (await brainB.ExportVaultAsync(slug, intruso)).Status);
             Assert.Empty(await ctxB.MockupNotes.ToListAsync());
             Assert.Empty(await ctxB.MockupNoteLinks.ToListAsync());
         }
@@ -246,7 +326,8 @@ public abstract class MockupBrainTestsBase
 
         public Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult(_files.Remove(fileId));
         public Task<StoredFileDto?> GetAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
-        public Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
+        public Task<FileStorageContent?> ReadAsync(Guid fileId, CancellationToken ct = default)
+            => Task.FromResult(_files.TryGetValue(fileId, out var f) ? new FileStorageContent(f.Req.Content, f.Req.ContentType ?? "application/octet-stream", f.Req.FileName) : null);
         public Task<FileStorageContent?> ReadForTenantAsync(Guid fileId, Guid tenantId, CancellationToken ct = default) => Task.FromResult<FileStorageContent?>(null);
         public Task<StoredFileDto?> FindAsync(string module, string? ref1, string? ref2, string fileName, CancellationToken ct = default) => Task.FromResult<StoredFileDto?>(null);
         public Task<IReadOnlyCollection<string>> ListRefsWithFilesAsync(string module, CancellationToken ct = default)

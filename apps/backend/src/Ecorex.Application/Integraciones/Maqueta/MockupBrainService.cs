@@ -41,6 +41,13 @@ public sealed record MockupBrainGraphDto(IReadOnlyList<MockupBrainNodeDto> Nodes
 public sealed record MockupBrainImportResult(int Created, int Updated, int Skipped, int IgnoredFiles, int Links, IReadOnlyList<string> Warnings,
     int AssetsCreated = 0, int AssetsSkipped = 0);
 
+/// <summary>Nota archivada (papelera del cerebro, v0.16.352).</summary>
+/// <param name="ArchivedByName">Quien la archivo (ultimo nombre que la toco).</param>
+/// <param name="CanRestore">El usuario puede restaurarla (autor u Owner/Admin, la misma regla de archivar).</param>
+/// <param name="TitleTaken">Ya hay otra nota activa con ese titulo: al restaurar se le agrega " (restaurada)".</param>
+public sealed record MockupArchivedNoteDto(Guid Id, string Title, string Snippet, DateTimeOffset? ArchivedAt, string? ArchivedByName,
+    string? AuthorName, bool CanRestore, bool TitleTaken);
+
 /// <summary>
 /// Cerebro digital de un proyecto de maqueta (ADR-0183): notas markdown enlazadas al estilo Obsidian, con backlinks y
 /// grafo. Uno por proyecto. Cualquier usuario del tenant escribe; archiva el autor o un Owner/Admin. Los enlaces se
@@ -85,6 +92,21 @@ public interface IMockupBrainService
     /// auditado. Las notas que lo embebian lo muestran como "no encontrado".
     /// </summary>
     Task<TaskCoreResult<bool>> DeleteAssetAsync(string slug, Guid assetId, McpActor actor, CancellationToken ct = default);
+
+    /// <summary>
+    /// Exporta el cerebro como vault de Obsidian: un ZIP con una <c>.md</c> por nota activa y la carpeta
+    /// <c>adjuntos/</c> (v0.16.352). Cualquier usuario del tenant (ya puede leer todas las notas); queda auditado.
+    /// </summary>
+    Task<TaskCoreResult<MockupBrainExportZip>> ExportVaultAsync(string slug, McpActor actor, CancellationToken ct = default);
+
+    /// <summary>Papelera: notas archivadas del proyecto, la mas reciente primero.</summary>
+    Task<IReadOnlyList<MockupArchivedNoteDto>> ListArchivedNotesAsync(string slug, McpActor actor, CancellationToken ct = default);
+
+    /// <summary>
+    /// Restaura una nota archivada (autor u Owner/Admin) y recalcula sus enlaces. Si otra nota activa ya usa su titulo,
+    /// vuelve como "Titulo (restaurada)".
+    /// </summary>
+    Task<TaskCoreResult<MockupNoteDto>> RestoreNoteAsync(string slug, Guid id, McpActor actor, CancellationToken ct = default);
 }
 
 public sealed class MockupBrainService : IMockupBrainService
@@ -334,6 +356,8 @@ public sealed class MockupBrainService : IMockupBrainService
         note.IsDeleted = true;
         note.DeletedAt = DateTimeOffset.UtcNow;
         note.DeletedByTenantUserId = actor.TenantUserId;
+        // La papelera muestra quien la archivo.
+        note.UpdatedByName = Trim150(actor.DisplayName);
         // Los enlaces SALIENTES son derivados: se quitan. Los ENTRANTES quedan y su destino pasa a "fantasma".
         var outgoing = await _db.MockupNoteLinks.Where(l => l.FromNoteId == note.Id).ToListAsync(ct);
         _db.MockupNoteLinks.RemoveRange(outgoing);
@@ -535,6 +559,133 @@ public sealed class MockupBrainService : IMockupBrainService
         return TaskCoreResult<MockupBrainAssetDto>.Ok(new MockupBrainAssetDto(stored.Id, stored.FileName, type, stored.SizeBytes, stored.Url));
     }
 
+    // ------------------------------------------------------------------ exportar y papelera (v0.16.352)
+
+    public async Task<TaskCoreResult<MockupBrainExportZip>> ExportVaultAsync(string slug, McpActor actor, CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(slug, ct);
+        if (project is null) { return TaskCoreResult<MockupBrainExportZip>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+
+        var notes = (await _db.MockupNotes.AsNoTracking()
+                .Where(n => n.MockupProjectId == project.Id)
+                .Select(n => new { n.Title, n.Body, n.CreatedAt, n.UpdatedAt })
+                .ToListAsync(ct))
+            .Select(n => new MockupBrainExportNote(n.Title, n.Body, n.UpdatedAt ?? n.CreatedAt))
+            .ToList();
+
+        // Los binarios salen del gestor de archivos; si uno no se puede leer se avisa dentro del ZIP.
+        var warnings = new List<string>();
+        var assets = new List<MockupBrainExportAsset>();
+        foreach (var f in await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct))
+        {
+            if (MockupBrainAssets.ContentTypeFor(f.FileName) is null) { continue; }
+            try
+            {
+                var content = await _files.ReadAsync(f.Id, ct);
+                if (content is null) { warnings.Add($"No se encontro el binario del adjunto '{f.FileName}'."); continue; }
+                assets.Add(new MockupBrainExportAsset(f.FileName, content.Content));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException)
+            {
+                warnings.Add($"No se pudo leer el adjunto '{f.FileName}': {ex.Message}");
+            }
+        }
+
+        var zip = MockupBrainExport.Build(project.Slug, notes, assets, warnings);
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.export", nameof(MockupProject), project.Id,
+            previousValue: null, newValue: new { proyecto = project.Slug, notas = zip.Notes, adjuntos = zip.Assets, bytes = zip.Zip.Length },
+            tenantId: actor.TenantId, reason: AuditReason);
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<MockupBrainExportZip>.Ok(zip);
+    }
+
+    public async Task<IReadOnlyList<MockupArchivedNoteDto>> ListArchivedNotesAsync(string slug, McpActor actor, CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(slug, ct);
+        if (project is null) { return Array.Empty<MockupArchivedNoteDto>(); }
+        var rows = await ArchivedQuery(project.Id, actor.TenantId)
+            .OrderByDescending(n => n.DeletedAt)
+            .Take(MaxNotesPerProject)
+            .Select(n => new { n.Id, n.Title, n.TitleKey, n.Body, n.DeletedAt, n.UpdatedByName, n.AuthorName, n.AuthorTenantUserId })
+            .ToListAsync(ct);
+        if (rows.Count == 0) { return Array.Empty<MockupArchivedNoteDto>(); }
+
+        var keys = rows.Select(r => r.TitleKey).Distinct().ToList();
+        var taken = (await _db.MockupNotes.AsNoTracking()
+                .Where(n => n.MockupProjectId == project.Id && keys.Contains(n.TitleKey))
+                .Select(n => n.TitleKey)
+                .ToListAsync(ct))
+            .ToHashSet(StringComparer.Ordinal);
+        return rows.Select(r => new MockupArchivedNoteDto(r.Id, r.Title, MockupBrainLinks.Snippet(r.Body), r.DeletedAt, r.UpdatedByName, r.AuthorName,
+                actor.IsOwnerOrAdmin || r.AuthorTenantUserId == actor.TenantUserId, taken.Contains(r.TitleKey)))
+            .ToList();
+    }
+
+    public async Task<TaskCoreResult<MockupNoteDto>> RestoreNoteAsync(string slug, Guid id, McpActor actor, CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(slug, ct);
+        if (project is null) { return TaskCoreResult<MockupNoteDto>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        var note = await ArchivedQuery(project.Id, actor.TenantId).FirstOrDefaultAsync(n => n.Id == id, ct);
+        if (note is null) { return TaskCoreResult<MockupNoteDto>.NotFound("La nota no esta en la papelera (quizas ya la restauraron)."); }
+        if (!actor.IsOwnerOrAdmin && note.AuthorTenantUserId != actor.TenantUserId)
+        {
+            return TaskCoreResult<MockupNoteDto>.Forbidden("Solo quien creo la nota o un Owner/Admin puede restaurarla.");
+        }
+        var total = await _db.MockupNotes.CountAsync(n => n.MockupProjectId == project.Id, ct);
+        if (total >= MaxNotesPerProject) { return TaskCoreResult<MockupNoteDto>.Invalid($"El cerebro ya tiene {MaxNotesPerProject:N0} notas (tope)."); }
+
+        // Si el titulo ya lo usa otra nota activa, vuelve como "Titulo (restaurada)" (o "(restaurada 2)", ...).
+        var originalTitle = note.Title;
+        var activeKeys = (await _db.MockupNotes.AsNoTracking()
+                .Where(n => n.MockupProjectId == project.Id && n.TitleKey.StartsWith(note.TitleKey))
+                .Select(n => n.TitleKey)
+                .ToListAsync(ct))
+            .ToHashSet(StringComparer.Ordinal);
+        var title = RestoredTitle(note.Title, activeKeys);
+
+        note.IsDeleted = false;
+        note.DeletedAt = null;
+        note.DeletedByTenantUserId = null;
+        note.Title = title;
+        note.TitleKey = MockupBrainLinks.NormalizeTitle(title);
+        note.UpdatedByName = Trim150(actor.DisplayName);
+        // Los enlaces salientes se borraron al archivar: se derivan de nuevo del cuerpo. Los entrantes vuelven solos
+        // (se resuelven por titulo); con titulo nuevo, los [[Titulo]] de las demas notas siguen apuntando a la activa.
+        var links = await ReplaceLinksAsync(note, project.Id, ct);
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.restore", nameof(MockupNote), note.Id,
+            previousValue: null,
+            newValue: new { proyecto = project.Slug, note.Title, tituloOriginal = title == originalTitle ? null : originalTitle, enlaces = links },
+            tenantId: actor.TenantId, reason: AuditReason);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return TaskCoreResult<MockupNoteDto>.Conflict("Otra persona cambio la nota. Recarga la papelera e intenta de nuevo.");
+        }
+        catch (DbUpdateException)
+        {
+            return TaskCoreResult<MockupNoteDto>.Conflict($"Ya existe una nota llamada '{title}'. Recarga e intenta de nuevo.");
+        }
+
+        var saved = await _db.MockupNotes.AsNoTracking().FirstAsync(n => n.Id == note.Id, ct);
+        return TaskCoreResult<MockupNoteDto>.Ok(await ToDtoAsync(saved, ct));
+    }
+
+    /// <summary>Titulo con el que vuelve una nota: el suyo o, si ya lo usa una activa, "Titulo (restaurada[ n])" (max 200).</summary>
+    public static string RestoredTitle(string title, ISet<string> activeKeys)
+    {
+        var result = title;
+        for (var i = 1; activeKeys.Contains(MockupBrainLinks.NormalizeTitle(result)); i++)
+        {
+            var suffix = i == 1 ? " (restaurada)" : $" (restaurada {i})";
+            var stem = title.Length + suffix.Length > 200 ? title[..(200 - suffix.Length)].TrimEnd() : title;
+            result = stem + suffix;
+        }
+        return result;
+    }
+
     public async Task<Guid?> FindTaskIdAsync(string number, CancellationToken ct = default)
     {
         var n = (number ?? string.Empty).Trim().ToUpperInvariant();
@@ -655,6 +806,14 @@ public sealed class MockupBrainService : IMockupBrainService
             .Select(p => new ProjectRef(p.Id, p.Slug))
             .FirstOrDefaultAsync(ct);
     }
+
+    /// <summary>
+    /// Notas ARCHIVADAS del proyecto. El filtro global las oculta, asi que se ignora y se repone a mano el tenant
+    /// (patron documentado en EcorexDbContext para ver/restaurar soft-borrados); el proyecto ya salio filtrado por tenant.
+    /// </summary>
+    private IQueryable<MockupNote> ArchivedQuery(Guid projectId, Guid tenantId)
+        => _db.MockupNotes.IgnoreQueryFilters()
+            .Where(n => n.TenantId == tenantId && n.MockupProjectId == projectId && n.IsDeleted);
 
     /// <summary>Enlaces cuyo origen es una nota activa (el join aplica el filtro de tenant y de soft-delete de la nota).</summary>
     private IQueryable<MockupNoteLink> ActiveLinksQuery(Guid projectId)

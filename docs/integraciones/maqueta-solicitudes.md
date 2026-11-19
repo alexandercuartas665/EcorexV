@@ -139,6 +139,15 @@ archiva el autor de la nota o un Owner/Admin (soft-delete).
    Insertar en la nota abierta y Borrar. Borrar es definitivo (no hay papelera) y solo lo puede hacer un
    Owner/Admin; antes avisa que notas lo usan, donde quedara como "no encontrado". Queda en la auditoria.
    Por el MCP: `listar_adjuntos` y `ver_adjunto` (Claude ve la imagen); `ver_nota` lista los adjuntos de la nota.
+6d. **Exportar a Obsidian** (v0.16.352): icono de exportar en la lista. Descarga `{slug}-cerebro.zip` con una
+   `.md` por nota activa (el nombre del archivo es el titulo) y la carpeta `adjuntos/`; se abre como vault en
+   Obsidian o se vuelve a importar. Si un titulo tiene caracteres que Windows no acepta en un nombre de archivo
+   (`: * ? " < >`) el archivo se llama distinto y sus `[[enlaces]]` se reescriben en el ZIP; quedan listados en
+   `LEEME-exportacion.txt`. Cualquier usuario del tenant exporta; queda en la auditoria (`maqueta.nota.export`).
+6e. **Papelera** (v0.16.352): icono de papelera en la lista. Muestra las notas archivadas (quien y cuando) y
+   **Restaurar** (autor u Owner/Admin) las devuelve con sus enlaces; las notas que la enlazaban vuelven a
+   encontrarla. Si mientras tanto otra nota tomo el titulo, vuelve como "Titulo (restaurada)". Archivar nunca borra
+   la fila (soft-delete), asi que no hay "vaciar papelera".
 7. **Con Claude (plan Max)**: el mismo MCP de maquetas (seccion 7) trae `listar_notas`, `buscar_notas`, `ver_nota`,
    `grafo_cerebro`, `crear_nota` y `editar_nota`. Ejemplo: "lee el cerebro de tronox-sgdea, dime que decisiones
    estan sueltas y guarda un resumen en la nota 'Estado del proyecto'". Las escrituras quedan "(via IA)".

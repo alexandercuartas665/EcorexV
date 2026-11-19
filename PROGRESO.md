@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-19 - v0.16.356: agente de voz (Retell) en el nodo de seguimiento, Olas 0-4 (ADR-0190, antes ADR-0142) - INTEGRADA, SIN DEPLOY
+## 2026-11-19 - v0.16.356: agente de voz (Retell) en el nodo de seguimiento, Olas 0-4 (ADR-0190, antes ADR-0142) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama worktree-voz-retell-fallback (HEAD edbf9f27, 7 commits propios,
   278 detras) unida al tronco 99d049ae. Conflictos (2, resueltos a mano conservando ambos lados): INotifyLinkBuilder
@@ -22,7 +22,14 @@
   cayeron en 1 ms al arrancar el contenedor y pasan al repetir; 2 de AgendaTurnos.Calendario_YAnticipacion (PG + SQL
   Server) fallan por fecha: la prueba fija turnos el 16-17/11/2026 y espera que un recurso con turnos "proximos" no se
   pueda borrar; desde el 19/11 ya pasaron (bomba de tiempo previa, ajena a voz; no toca agendas).
-- SIGUIENTE: deploy SOLO con OK del usuario. Olas 5-6 de voz siguen en la rama de voz.
+- DEPLOY: 2026-11-19 ~14:12 Bogota con OK del usuario, via rapida GHCR (CI 44593170972, commit b4c0b7d8). Footer
+  /login v0.16.356, Restarts=0, 0 errores en logs; migraciones AddNodeAgentChannelsAndVoiceLine, AddVoiceRetryPolicy y
+  AddVoiceAgentJournal aplicadas en prod. Imagen nueva sha256:b6d202166a2a92b68e1cdcb9be4c462a06ae99c73ce718232be939f2641a01a8;
+  rollback sha256:ccec82f239ca9d8acd9cec77edf28055798fe1834ead836ebe92de53fa7206de (v0.16.355).
+- FIX PRUEBA (despues del deploy, sin cambio funcional): AgendaService acepta reloj inyectable (constructor extra, como
+  AgendaTurnosService) y AgendaTurnosTests lo fija al 12-nov-2026 08:00: el candado de "turnos proximos" ya no depende
+  del reloj real. Integracion dual Agenda* 28/28; unitarias Application 1621.
+- SIGUIENTE: Olas 5-6 de voz siguen en la rama de voz.
 
 ## 2026-11-19 - v0.16.355: Extraccion de datos con pestanas y historial con duracion y filas reales - DESPLEGADA
 

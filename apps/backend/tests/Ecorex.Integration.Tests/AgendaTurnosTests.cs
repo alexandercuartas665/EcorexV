@@ -337,7 +337,7 @@ public abstract class AgendaTurnosTestsBase
         return (p.Id, concepto.Id, tercero.Id);
     }
 
-    private AgendaService Agendas(Guid tenantId) => new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId));
+    private AgendaService Agendas(Guid tenantId) => new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId), () => Ahora);
 
     private AgendaTurnosService Turnos(Guid tenantId) => new(_fixture.CreateContext(tenantId), new FixedTenant(tenantId), () => Ahora);
 

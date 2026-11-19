@@ -2,12 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-18 - v0.16.353: eventos de entrega de SendGrid y bajas automaticas por rebote/spam (ADR-0188) - INTEGRADA, SIN DEPLOY
+## 2026-11-19 - v0.16.354: plantilla "Orden de compra" en todos los tenants (ADR-0189) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339). Pedido del usuario: "siembra la
+  plantilla de OC en todos los tenants" (pendiente que dejo la sesion Compras UX en v0.16.344).
+- HECHO: DatabaseSeeder.EnsureOrdenCompraTemplateAsync, backfill idempotente en cada arranque (dev y prod): por tenant
+  no archivado y sin la marca seed.plantilla_orden_compra crea el grupo "Compras" (membrete {empresa.*}) y la plantilla
+  "Orden de compra" (tokens {oc.*}, mismo HTML validado en ANDINAS), salvo que ya tenga ese grupo o plantilla; deja
+  la marca para no resucitarla si el tenant la borra. No la liga a conceptos (cada tenant asigna el grupo a su OC).
+- PRUEBAS: integracion dual OrdenCompraTemplateSeed + PlantillasCorreoMenuBackfill 6/6 (PG + SQL Server: siembra,
+  respeta grupo existente y archivados, idempotente, no resucita). Prod (lectura): 11 tenants, ninguno con la
+  plantilla; todos la recibiran al arrancar v0.16.354. Sin migraciones.
+- SIGUIENTE: deploy con OK del usuario; luego cada tenant asigna el grupo "Compras" a su concepto de OC.
+
+## 2026-11-18 - v0.16.353: eventos de entrega de SendGrid y bajas automaticas por rebote/spam (ADR-0188) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 309ef973 (incluye
   da39f4a2 y 9305fc55) unida al tronco 190eaa8a. Renumerada a v0.16.353 (0.16.351 y 0.16.352 las usa el cerebro de
   maquetas); ADR-0188 libre. Conflictos solo en PROGRESO y AppVersion. Trae migracion dual AddEmailDeliveryEvents
   (solo columnas nuevas): se aplica en prod con el deploy.
+- DEPLOY: 2026-11-19 ~07:17 Bogota con OK del usuario (tras terminar el DRON), via rapida GHCR (CI 44509144453,
+  commit 27174466; incluye v0.16.352). Footer /login v0.16.353, Restarts=0, 0 errores en logs; migracion
+  20261118220901_AddEmailDeliveryEvents aplicada en prod. Imagen nueva sha256:577c5c89f4c17c646214df663667d8a9d502e6d1bab5cd29b2a9e5132447def7;
+  rollback sha256:a8ac0237346ff5994d66fa00cdbb0d0b02db3b3effed6bcffd29a62be1976534 (v0.16.351).
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.call_center, rama feat/whatsapp-sync-estado-ycloud). Pedido del usuario: usar
   SendGrid en SOLDARCO y saber que pasa con cada correo (puntos 1 y 2 de los pendientes).
 - HECHO: `SmtpEmailSender` agrega X-SMTPAPI unique_args (ecx_tenant + ecx_run) si el host es SendGrid y devuelve el id
@@ -22,7 +39,7 @@
   en /configuracion (usuario apikey; la API key la pone el usuario), generar la URL del webhook y pegarla en SendGrid
   (Event Webhook + Open/Click Tracking).
 
-## 2026-11-18 - v0.16.352: cerebro de la maqueta, exportar a Obsidian y papelera (ADR-0183 punto 10) - INTEGRADA, SIN DEPLOY
+## 2026-11-18 - v0.16.352: cerebro de la maqueta, exportar a Obsidian y papelera (ADR-0183 punto 10) - DESPLEGADA (con v0.16.353)
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 79773a57 unida al tronco 51fe56b5 como
   v0.16.352 (version y ADR sin choque; sin migraciones; merge sin conflictos). Verificado: build + format verdes;

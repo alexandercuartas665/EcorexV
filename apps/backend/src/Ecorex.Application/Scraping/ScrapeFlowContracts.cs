@@ -171,7 +171,9 @@ public sealed record ScrapeFlowRunDto(
     ImportRunResult Result,
     int StepCount,
     int Inserted,
-    string? Detail);
+    string? Detail,
+    int Updated = 0,
+    int Deleted = 0);
 
 /// <summary>El flujo completo (cabecera + pasos ordenados + variables).</summary>
 public sealed record ScrapeFlowDto(

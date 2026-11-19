@@ -148,7 +148,7 @@
                     <div class="xd-kpis">
                         <div class="xd-kpi"><div class="lbl">Corridas</div><div class="val">@_runs.Count</div></div>
                         <div class="xd-kpi"><div class="lbl">Exitosas</div><div class="val">@_runs.Count(r => r.Result == ImportRunResult.Ok)</div></div>
-                        <div class="xd-kpi"><div class="lbl">Filas (ult.)</div><div class="val">@(_runs.FirstOrDefault(r => r.Result == ImportRunResult.Ok)?.Inserted.ToString() ?? "-")</div></div>
+                        <div class="xd-kpi"><div class="lbl">Filas (ult.)</div><div class="val">@(UltimaCorridaOk() is { } lastOk ? FilasTotal(lastOk).ToString() : "-")</div></div>
                         <div class="xd-kpi"><div class="lbl">Ultima corrida</div><div class="val">@(flow.LastRunAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "nunca")</div></div>
                     </div>
                 </div>
@@ -1184,7 +1184,7 @@
                                             <td><span class="xd-pill @RunPillClass(r.Result)"><span class="d"></span>@RunLabel(r.Result)</span></td>
                                             <td>@r.FiredAt.ToLocalTime().ToString("dd MMM HH:mm:ss")</td>
                                             <td>@RunDuration(r)</td>
-                                            <td class="num">@(r.Result == ImportRunResult.Ok ? r.Inserted.ToString() : "-")</td>
+                                            <td class="num" title="@FilasTitle(r)">@(r.Result == ImportRunResult.Ok ? FilasTotal(r).ToString() : "-")</td>
                                             <td title="@r.Detail">@Shorten(r.Detail, 80)</td>
                                         </tr>
                                     }
@@ -2569,8 +2569,28 @@
         _ => "err"
     };
 
-    private static string RunDuration(ScrapeFlowRunDto r) =>
-        r.FinishedAt is DateTimeOffset f ? $"{(f - r.FiredAt).TotalSeconds:0.0} s" : "-";
+    private static string RunDuration(ScrapeFlowRunDto r)
+    {
+        if (r.FinishedAt is not DateTimeOffset f) { return "-"; }
+        // Pasos registrados antes del arreglo: inicio == fin exacto (no se media). Mejor "-" que un falso "0.0 s".
+        if (f == r.FiredAt) { return "-"; }
+        var d = f - r.FiredAt;
+        if (d < TimeSpan.Zero) { d = TimeSpan.Zero; }
+        if (d.TotalSeconds < 60) { return $"{d.TotalSeconds:0.0} s"; }
+        if (d.TotalMinutes < 60) { return $"{(int)d.TotalMinutes} min {d.Seconds:00} s"; }
+        return $"{(int)d.TotalHours} h {d.Minutes:00} min";
+    }
+
+    // Filas afectadas por la corrida/paso = nuevas + actualizadas + borradas (antes solo se mostraban las
+    // nuevas, y un paso que solo actualizaba salia en 0). El detalle va en el tooltip.
+    // KPI "Filas (ult.)": la ultima corrida COMPLETA exitosa (varios pasos); si no hay, la ultima exitosa.
+    // Antes tomaba la ultima fila OK, que suele ser el paso "Cerrar navegador" (siempre 0).
+    private ScrapeFlowRunDto? UltimaCorridaOk() =>
+        _runs.FirstOrDefault(r => r.Result == ImportRunResult.Ok && r.StepCount > 1)
+        ?? _runs.FirstOrDefault(r => r.Result == ImportRunResult.Ok);
+    private static int FilasTotal(ScrapeFlowRunDto r) => r.Inserted + r.Updated + r.Deleted;
+    private static string FilasTitle(ScrapeFlowRunDto r) =>
+        $"{r.Inserted} nuevas, {r.Updated} actualizadas, {r.Deleted} borradas";
 
     private static string KindLabel(ScrapeStepKind k) => k switch
     {

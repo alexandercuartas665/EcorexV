@@ -116,6 +116,12 @@ public sealed class BrowserRunService(
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
+    // Inicio del paso en curso (por flujo de ejecucion async): lo fija cada punto de entrada de un paso
+    // (RunStepNowAsync / RunLoopNowAsync / CloseStepSessionAsync) y RecordStepRunAsync lo usa como FiredAt,
+    // para que el historial muestre la DURACION real del paso (antes FiredAt == FinishedAt -> "0.0 s").
+    // AsyncLocal: el valor fijado dentro de un metodo async no se filtra al llamador ni a otras corridas.
+    private static readonly AsyncLocal<DateTimeOffset?> _stepStartedAt = new();
+
     /// <summary>Cliente HTTP compartido para las ingestas por API (p.ej. NEWTON). El servicio es Singleton,
     /// asi que se reusa una sola instancia (evita agotar sockets). Timeout amplio: la descarga de PDFs puede tardar.</summary>
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
@@ -635,6 +641,7 @@ public sealed class BrowserRunService(
     public async Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default,
         Action<string>? live = null)
     {
+        _stepStartedAt.Value = _clock.GetUtcNow();
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -1969,6 +1976,7 @@ public sealed class BrowserRunService(
 
     public async Task<StepRunResult> RunLoopNowAsync(Guid flowId, Guid loopStepId, Guid tenantId, CancellationToken ct = default)
     {
+        _stepStartedAt.Value = _clock.GetUtcNow();
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -2182,6 +2190,7 @@ public sealed class BrowserRunService(
 
     public async Task<StepRunResult> CloseStepSessionAsync(Guid flowId, Guid tenantId, CancellationToken ct = default)
     {
+        _stepStartedAt.Value = _clock.GetUtcNow();
         _stepSessionVars.TryRemove(flowId, out _);
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
@@ -2213,11 +2222,12 @@ public sealed class BrowserRunService(
         int inserted, int updated, int deleted, string? detail, CancellationToken ct)
     {
         var now = _clock.GetUtcNow();
+        var started = _stepStartedAt.Value is DateTimeOffset st && st <= now ? st : now;
         var text = $"Paso: {stepName}" + (string.IsNullOrWhiteSpace(detail) ? "" : $" - {detail}");
         db.ScrapeFlowRuns.Add(new ScrapeFlowRun
         {
             FlowId = flowId,
-            FiredAt = now,
+            FiredAt = started,
             FinishedAt = now,
             Trigger = ImportRunTrigger.Manual,
             Result = ok ? ImportRunResult.Ok : ImportRunResult.Error,

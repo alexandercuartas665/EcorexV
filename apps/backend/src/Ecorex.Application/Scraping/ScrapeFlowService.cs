@@ -98,7 +98,7 @@ public sealed class ScrapeFlowService : IScrapeFlowService
             .OrderByDescending(r => r.FiredAt)
             .Take(take)
             .Select(r => new ScrapeFlowRunDto(
-                r.Id, r.FiredAt, r.FinishedAt, r.Trigger, r.Result, r.StepCount, r.Inserted, r.Detail))
+                r.Id, r.FiredAt, r.FinishedAt, r.Trigger, r.Result, r.StepCount, r.Inserted, r.Detail, r.Updated, r.Deleted))
             .ToListAsync(ct);
     }
 

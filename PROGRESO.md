@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-19 - v0.16.355: Extraccion de datos con pestanas y historial con duracion y filas reales
+## 2026-11-19 - v0.16.355: Extraccion de datos con pestanas y historial con duracion y filas reales - DESPLEGADA
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes, rama feat/extraccion-tabs: c1476467 + 4f0e8109, unida al tronco
   v0.16.354). Pedido del usuario: llevar Programacion e Historial a pestanas y ver tiempo y filas de cada paso.
@@ -11,6 +11,10 @@
   (paso a paso, programadas y secuencias). Historial: Duracion real ("-" en pasos viejos sin medir) y Filas =
   nuevas + actualizadas + borradas (desglose en el tooltip); KPI "Filas (ult.)" de la ultima corrida completa.
   ScrapeFlowRunDto expone Updated/Deleted. Sin migraciones.
+- DEPLOY: 2026-11-19 ~11:15 Bogota con OK del usuario (incluye v0.16.354), via rapida GHCR (CI 44563376846, commit
+  f9950f0d; el 1er pull se corto por "connection reset", el reintento completo). Footer /login v0.16.355, Restarts=0,
+  0 errores en logs; 11 tenants con la marca seed.plantilla_orden_compra. Rollback: imagen
+  sha256:577c5c89f4c17c646214df663667d8a9d502e6d1bab5cd29b2a9e5132447def7 (v0.16.353).
 - PRUEBAS: build verde; validado en local 5263 (SIMULACION INGENIOS: Bucle Hist 11 filas, KPI 11). La duracion de
   pasos nuevos se vera en la primera corrida real (en local no hay agente navegador).
 

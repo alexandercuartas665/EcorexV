@@ -1026,7 +1026,7 @@ public sealed class BrowserRunService(
                     NombreEmisor = doc.NombreEmisor,
                     NitEmisor = doc.NitEmisor,
                     PrefijoFolio = doc.NumFactura,
-                    IdCompra = "",
+                    IdCompra = doc.OrdenCompra,
                     SubtotalBruto = doc.SubtotalBruto,
                     DescuentoComercial = doc.Descuento,
                     Subtotal = doc.SubtotalNeto,
@@ -1049,6 +1049,7 @@ public sealed class BrowserRunService(
                 existente.Iva = doc.Iva; existente.TotalAntesRet = doc.TotalAntesRet;
                 existente.RetencionFuente = doc.Retefuente; existente.RetencionIca = doc.ReteIca;
                 existente.Total = doc.Total; existente.TipoPago = doc.TipoPago;
+                if (!string.IsNullOrEmpty(doc.OrdenCompra)) { existente.IdCompra = doc.OrdenCompra; }
                 actualizados++;
             }
             periodos.Add((doc.Fecha.Year, doc.Fecha.Month));
@@ -1261,7 +1262,7 @@ public sealed class BrowserRunService(
                     NombreEmisor = doc.NombreEmisor,
                     NitEmisor = doc.NitEmisor,
                     PrefijoFolio = doc.NumFactura,
-                    IdCompra = "",
+                    IdCompra = doc.OrdenCompra,
                     SubtotalBruto = doc.SubtotalBruto,
                     DescuentoComercial = doc.Descuento,
                     Subtotal = doc.SubtotalNeto,
@@ -1284,6 +1285,7 @@ public sealed class BrowserRunService(
                 existente.Iva = doc.Iva; existente.TotalAntesRet = doc.TotalAntesRet;
                 existente.RetencionFuente = doc.Retefuente; existente.RetencionIca = doc.ReteIca;
                 existente.Total = doc.Total; existente.TipoPago = doc.TipoPago;
+                if (!string.IsNullOrEmpty(doc.OrdenCompra)) { existente.IdCompra = doc.OrdenCompra; }
                 actualizados++;
             }
             periodos.Add((doc.Fecha.Year, doc.Fecha.Month));

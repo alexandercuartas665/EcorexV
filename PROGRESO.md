@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-19 - Conciliacion DIAN: la orden de compra de la factura llega a la parrilla (rama feat/dian-orden-compra) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes). Pedido del usuario: "no estamos trayendo a la parrilla de
+  conciliacion el campo de orden de compra del proveedor".
+- CAUSA: desde la ingesta real (4-nov) el lector DianUblParser no leia la OC y el paso "Procesar descargas DIAN"
+  guardaba IdCompra = "" fijo. Prod: 600 documentos reales, 0 con OC (solo 6 dummy del 14-oct).
+- HECHO: DianUblParser lee cac:OrderReference/cbc:ID TAL CUAL (decision del usuario: guardar aunque no sea formato
+  OMP, ej. FINKARGO "CO:890322642:1:4:PAG"); si no viene, busca OMP en las notas y normaliza (OMP.0012356 ->
+  OMP0012356). Se guarda en IdCompra (alta y re-proceso). ImportarDesdeBotAsync: renglon nuevo toma la OC; renglon
+  DIAN existente sin OC se completa; nunca pisa una OC escrita a mano/regla; fantasma promovido conserva la suya.
+- PRUEBAS: unitarias DianUblParserOrdenCompra 5/5; integracion dual ConciliacionImportOrdenCompra 2/2 (PG + SQL
+  Server). Contra 679 XML reales locales: 67 traen OC (28 formato OMP); ~600 (PEAJES, transporte, FEDEX) no la traen.
+- SIGUIENTE: integrar al tronco + deploy con OK. Punto 3 (rellenar las ~600 ya cargadas releyendo sus XML del blob)
+  requiere OK aparte (escritura en prod). Opcional: OC para fantasmas NEWTON.
+
 ## 2026-11-19 - v0.16.357: agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - DESPLEGADA
 
 Integracion (sesion dev principal): fast-forward de f12b8b3f sobre f4a593dc, sin conflictos; version en f8bb7fed. Build 0 errores; unitarias 1624/304/35; format OK; integracion dual 684/750 en la corrida larga (66 fallas solo SqlServer por arranque del contenedor, ~1 ms c/u) y 66/66 al repetir esas 8 clases. Desplegada 2026-11-19 ~18:01 Bogota via GHCR: footer /login v0.16.357, Restarts=0, 0 errores en logs. Pendiente (configuracion, lo decide el usuario): crear/asignar persona SARA-voz en PROD y linea de voz de AGRO en modo COMPUESTO.

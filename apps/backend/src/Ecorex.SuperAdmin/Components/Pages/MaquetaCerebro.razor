@@ -27,6 +27,8 @@
                 <button class="mb-btn" title="Grafo completo del proyecto" @onclick="OpenGraphAsync"><i class="fa-solid fa-diagram-project"></i> Grafo</button>
                 <button class="mb-icon" title="Adjuntos del cerebro (imagenes y PDF)" @onclick="OpenAssetsPanelAsync"><i class="fa-solid fa-paperclip"></i></button>
                 <button class="mb-icon" title="Importar un vault de Obsidian (.zip con notas .md)" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i></button>
+                <a class="mb-icon" href="@ExportUrl" download data-enhance-nav="false" title="Exportar el cerebro como vault de Obsidian (.zip con las notas .md y los adjuntos)"><i class="fa-solid fa-file-export"></i></a>
+                <button class="mb-icon" title="Papelera: notas archivadas (restaurarlas)" @onclick="OpenTrashAsync"><i class="fa-solid fa-trash-arrow-up"></i></button>
             </div>
             <button class="mb-claude" title="Piensa con Claude sobre esta maqueta y su cerebro (tu plan de Claude)" @onclick="() => _showClaude = true">
                 <i class="fa-regular fa-comments"></i> Chatear con Claude sobre esta maqueta
@@ -221,6 +223,65 @@
             </div>
             <div class="mb-full-graph" id="@_fullGraphId"></div>
             <div class="mb-modal-foot">Rueda para acercar, arrastra para mover. Clic en una nota la abre; en una pantalla la muestra en la maqueta; en una tarjeta la abre.</div>
+        </div>
+    </div>
+}
+
+@if (_showTrash)
+{
+    @* Papelera (v0.16.352): las notas archivadas son soft-delete; restaurar las devuelve con sus enlaces. *@
+    <div class="mb-overlay" @onclick="() => { if (_restoringId is null) { _showTrash = false; } }">
+        <div class="mb-modal trash" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-solid fa-trash-arrow-up"></i> Papelera de @ProjectName</h3>
+                <span class="mb-count">@(_trash.Count == 1 ? "1 archivada" : $"{_trash.Count} archivadas")</span>
+                <button class="mb-icon" title="Cerrar" disabled="@(_restoringId is not null)" @onclick="() => _showTrash = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-modal-body">
+                @if (_trashLoading)
+                {
+                    <div class="mb-muted">Cargando notas archivadas...</div>
+                }
+                else if (_trash.Count == 0)
+                {
+                    <div class="mb-muted">La papelera esta vacia. Las notas que archives quedan aqui y se pueden restaurar.</div>
+                }
+                else
+                {
+                    <div class="mb-trash">
+                        @foreach (var t in _trash)
+                        {
+                            <div class="mb-trash-row">
+                                <div class="mb-trash-main">
+                                    <div class="mb-trash-title">@t.Title</div>
+                                    @if (!string.IsNullOrEmpty(t.Snippet))
+                                    {
+                                        <div class="mb-note-snip">@t.Snippet</div>
+                                    }
+                                    <div class="mb-trash-meta">
+                                        Archivada @(t.ArchivedAt is { } at ? Ago(at) : "")@(string.IsNullOrEmpty(t.ArchivedByName) ? "" : $" por {t.ArchivedByName}")@(string.IsNullOrEmpty(t.AuthorName) ? "" : $" - autor: {t.AuthorName}")
+                                    </div>
+                                    @if (t.TitleTaken)
+                                    {
+                                        <div class="mb-trash-warn"><i class="fa-solid fa-circle-info"></i> Ya hay otra nota con este titulo: volvera como "@t.Title (restaurada)".</div>
+                                    }
+                                </div>
+                                @if (t.CanRestore)
+                                {
+                                    <button class="mb-btn" disabled="@(_restoringId is not null)" @onclick="() => RestoreAsync(t)">
+                                        <i class="fa-solid fa-rotate-left"></i> @(_restoringId == t.Id ? "Restaurando..." : "Restaurar")
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="mb-trash-locked" title="Solo quien creo la nota o un Owner/Admin puede restaurarla"><i class="fa-solid fa-lock"></i></span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="mb-modal-foot">Restaurar devuelve la nota con sus enlaces; las notas que la enlazaban vuelven a encontrarla. Solo restaura su autor o un Owner/Admin.</div>
         </div>
     </div>
 }
@@ -421,6 +482,13 @@
     private bool _showOrphans = true;
 
     private bool _showClaude;
+
+    private bool _showTrash;
+    private bool _trashLoading;
+    private List<MockupArchivedNoteDto> _trash = new();
+    private Guid? _restoringId;
+
+    private string ExportUrl => Ecorex.SuperAdmin.Endpoints.MaquetaCerebroEndpoints.ExportUrl(Slug);
 
     private Dictionary<string, MockupBrainAssetDto> _assets = new(StringComparer.Ordinal);
     private bool _uploading;
@@ -874,7 +942,7 @@
     {
         if (_current is null) { return; }
         bool ok;
-        try { ok = await JS.InvokeAsync<bool>("ecxMaquetaCerebro.confirm", $"Archivar la nota '{_current.Title}'? Las notas que la enlazan la mostraran como pendiente."); }
+        try { ok = await JS.InvokeAsync<bool>("ecxMaquetaCerebro.confirm", $"Archivar la nota '{_current.Title}'? Las notas que la enlazan la mostraran como pendiente. Podras restaurarla desde la papelera."); }
         catch (JSException) { ok = false; }
         if (!ok) { return; }
         var id = _current.Id;
@@ -896,7 +964,61 @@
         await ReloadListAsync();
         await LoadGraphAsync();
         _localGraphPending = true;
-        await OnToast.InvokeAsync("Nota archivada.");
+        await OnToast.InvokeAsync("Nota archivada. Puedes restaurarla desde la papelera.");
+    }
+
+    // ------------------------------------------------------------------ papelera
+
+    private async Task OpenTrashAsync()
+    {
+        _showTrash = true;
+        _trashLoading = true;
+        try
+        {
+            _trash = (await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                return actor is null
+                    ? Array.Empty<MockupArchivedNoteDto>()
+                    : await sp.GetRequiredService<IMockupBrainService>().ListArchivedNotesAsync(Slug, actor);
+            })).ToList();
+        }
+        finally
+        {
+            _trashLoading = false;
+        }
+    }
+
+    private async Task RestoreAsync(MockupArchivedNoteDto item)
+    {
+        if (_restoringId is not null) { return; }
+        if (!await ConfirmDiscardAsync()) { return; }
+        _restoringId = item.Id;
+        try
+        {
+            var id = item.Id;
+            var res = await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                if (actor is null) { return TaskCoreResult<MockupNoteDto>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+                return await sp.GetRequiredService<IMockupBrainService>().RestoreNoteAsync(Slug, id, actor);
+            });
+            if (!res.IsOk || res.Value is null)
+            {
+                await OnToast.InvokeAsync(res.Error ?? "No se pudo restaurar la nota.");
+                await OpenTrashAsync();
+                return;
+            }
+            _showTrash = false;
+            ShowNote(res.Value);
+            await ReloadListAsync();
+            await LoadGraphAsync();
+            await OnToast.InvokeAsync(res.Value.Title == item.Title ? $"Nota '{item.Title}' restaurada." : $"Nota restaurada como '{res.Value.Title}'.");
+        }
+        finally
+        {
+            _restoringId = null;
+        }
     }
 
     private async Task<bool> ConfirmDiscardAsync()

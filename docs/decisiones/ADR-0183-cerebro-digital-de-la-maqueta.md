@@ -96,6 +96,23 @@ Respuestas del usuario (2026-11-18) a las preguntas del hand-off:
      que embebe la nota y si existen. Como el cliente MCP no tiene la sesion de `/archivo`, la imagen viaja en la
      respuesta.
 
+10. **Exportar y papelera** (v0.16.352, sin migracion):
+   - **Exportar a Obsidian**: `GET /maqueta-cerebro/{slug}/exportar` con la SESION (cookie), como `/archivo/{id}`;
+     endpoint y no JS interop porque el ZIP puede pesar decenas de MB y no debe viajar por el circuito de Blazor. El
+     proyecto se busca con el filtro del tenant de la sesion. `MockupBrainExport.Build` (puro) arma
+     `{slug}/{Titulo}.md` + `{slug}/adjuntos/{nombre}` (Obsidian resuelve `![[nombre]]` en todo el vault). Los
+     titulos con caracteres que Windows no acepta (`: * ? " < >`, nombres reservados como CON) se guardan con otro
+     nombre, se numeran si chocan, y sus `[[enlaces]]` se reescriben en el ZIP con `RewriteNoteLinks`; se listan en
+     `LEEME-exportacion.txt` junto con los adjuntos que no se pudieron leer. Ida y vuelta probado contra `ReadVault`.
+     Sin frontmatter (el cuerpo sale tal cual se guarda). Auditoria `maqueta.nota.export`.
+   - **Papelera**: archivar ya era soft-delete; `ListArchivedNotesAsync` y `RestoreNoteAsync` leen las archivadas
+     con `IgnoreQueryFilters` reponiendo el tenant a mano (`TenantId == actor.TenantId`, patron documentado en
+     EcorexDbContext) y el proyecto ya filtrado por tenant. Restaura el autor u Owner/Admin (la regla de archivar);
+     los enlaces salientes se derivan de nuevo del cuerpo y los entrantes vuelven solos (se resuelven por titulo).
+     Si otra nota activa tomo el titulo, la restaurada vuelve como "Titulo (restaurada[ n])" para no robarle los
+     enlaces. Archivar guarda quien lo hizo en `UpdatedByName` (lo muestra la papelera). Sin "vaciar papelera":
+     nunca hay DELETE fisico de notas. Auditoria `maqueta.nota.restore`.
+
 ## Consecuencias
 
 - El cerebro solo existe para maquetas de la nube (las locales de disco, solo Development, no tienen proyecto en BD).

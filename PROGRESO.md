@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.352: cerebro de la maqueta, exportar a Obsidian y papelera (ADR-0183 punto 10) - EN RAMA
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.maquetas, rama feat/maquetas-cerebro, puerto 5285). Pedido del usuario:
+  "Exportar + papelera". Rama avanzada al tronco (51fe56b5, v0.16.351 desplegada) por fast-forward.
+- HECHO: MockupBrainExport (puro: ZIP {slug}/{Titulo}.md + adjuntos/, nombres validos en Windows con reescritura de
+  [[enlaces]] y LEEME-exportacion.txt). IMockupBrainService.ExportVaultAsync (lee binarios del gestor de archivos,
+  auditoria maqueta.nota.export), ListArchivedNotesAsync y RestoreNoteAsync (IgnoreQueryFilters + tenant explicito;
+  autor u Owner/Admin; "(restaurada)" si el titulo esta tomado; enlaces re-derivados; auditoria maqueta.nota.restore).
+  Archivar guarda quien archivo. Endpoint GET /maqueta-cerebro/{slug}/exportar con la sesion. UI: iconos Exportar y
+  Papelera en la lista de notas, modal Papelera con Restaurar. Sin migraciones.
+- PRUEBAS: unitarias Application MockupBrain* 28/28 (ida y vuelta Build->ReadVault, nombres Windows, RestoredTitle);
+  integracion dual MockupBrain* + MaquetaSolicitudes* 38/38 (PG + SQL Server: papelera con permisos, enlaces y
+  titulo tomado; exportar; otro tenant no ve ni restaura ni exporta). dotnet format verde en lo tocado. E2E 5285:
+  descarga del ZIP (200, application/zip, 4 .md + adjuntos/violeta (2).png); archivar "Ideas de navegacion" ->
+  papelera la muestra con quien la archivo -> Restaurar la devuelve con su backlink.
+- SIGUIENTE: dev principal integra la rama como v0.16.352 (sin migraciones). Ideas pendientes: pegar imagenes con
+  Ctrl+V, notas que mencionan una tarjeta dentro de la tarjeta, enlaces entre proyectos.
+
 ## 2026-11-18 - v0.16.351: cerebro digital, borrar adjuntos y adjuntos por MCP (ADR-0183 punto 9) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 6b7a29ee unida al tronco como

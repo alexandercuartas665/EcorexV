@@ -532,6 +532,52 @@ else
                             </select>
                         </div>
                     </div>
+                    @* Ola 2 (ADR-0190): linea de voz (numero saliente) por nodo. Solo con agente de voz elegido. *@
+                    @if (_nodeAgent.VoiceAiAgentId is not null)
+                    {
+                        <div class="fe-grid-2">
+                            <div>
+                                <label class="fe-label">LINEA DE VOZ (NUMERO SALIENTE)</label>
+                                <select class="fe-input" value="@(_nodeAgent.VoiceLineId?.ToString() ?? "")"
+                                        @onchange="@(e => OnNodeVoiceLineChangedAsync(agentNode, e))">
+                                    <option value="">Linea por defecto del tenant</option>
+                                    @foreach (var vl in _voiceLines)
+                                    {
+                                        <option value="@vl.Id">@vl.Name@(vl.IsDefault ? " (por defecto)" : "")@(vl.Enabled ? "" : " (deshabilitada)")</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        @* Ola 3 (ADR-0190): politica de reintento de la llamada "sin contacto" + ventana horaria del tenant. *@
+                        <div class="fe-grid-2">
+                            <div>
+                                <label class="fe-label">MAXIMO DE LLAMADAS POR ACTIVIDAD</label>
+                                <input class="fe-input" type="number" min="1" max="10" placeholder="1 (sin reintento)"
+                                       value="@(_nodeAgent.MaxVoiceCalls?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeMaxVoiceCallsChangedAsync(agentNode, e))" />
+                            </div>
+                            <div>
+                                <label class="fe-label">REINTENTAR TRAS (MINUTOS)</label>
+                                <input class="fe-input" type="number" min="1" max="1440" placeholder="30 (por defecto)"
+                                       value="@(_nodeAgent.VoiceRetryMinutes?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeVoiceRetryChangedAsync(agentNode, e))" />
+                            </div>
+                        </div>
+                        <div class="fe-grid-2">
+                            <div>
+                                <label class="fe-label">LLAMAR DESDE LA HORA (0-23)</label>
+                                <input class="fe-input" type="number" min="0" max="23" placeholder="sin restriccion"
+                                       value="@(_nodeAgent.CallWindowStartHour?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeCallWindowStartChangedAsync(agentNode, e))" />
+                            </div>
+                            <div>
+                                <label class="fe-label">HASTA LA HORA (1-24, EXCL.)</label>
+                                <input class="fe-input" type="number" min="1" max="24" placeholder="sin restriccion"
+                                       value="@(_nodeAgent.CallWindowEndHour?.ToString() ?? "")"
+                                       @onchange="@(e => OnNodeCallWindowEndChangedAsync(agentNode, e))" />
+                            </div>
+                        </div>
+                    }
                     @if (_nodeAgent.WhatsAppLineId is not null)
                     {
                         <div class="fe-grid-2">
@@ -609,6 +655,33 @@ else
                         }
                     }
                     <div class="fe-acc-note" style="margin:0">Con estos recursos el agente puede buscar en la web, llamar o preguntar por WhatsApp para conseguir un dato faltante antes de llenar el formulario. La llamada y el WhatsApp dejan el paso en espera hasta que llegue la respuesta. Sin plantilla, el WhatsApp solo funciona si la persona escribio en las ultimas 24h.</div>
+
+                    @* Ola 2 (ADR-0190): canales que el agente PUEDE usar en este nodo. Por defecto todos los
+                       configurados estan permitidos; desmarcar uno lo limita aunque tenga el recurso arriba. *@
+                    <div class="fe-modal-section">Canales permitidos</div>
+                    <div class="fe-grid-2">
+                        <label class="fe-check">
+                            <input type="checkbox" checked="@ChannelAllowed(WorkflowAgentChannel.Voz)"
+                                   @onchange="@(e => OnNodeChannelToggleAsync(agentNode, WorkflowAgentChannel.Voz, e))" />
+                            <span>Voz (llamada)</span>
+                        </label>
+                        <label class="fe-check">
+                            <input type="checkbox" checked="@ChannelAllowed(WorkflowAgentChannel.WhatsApp)"
+                                   @onchange="@(e => OnNodeChannelToggleAsync(agentNode, WorkflowAgentChannel.WhatsApp, e))" />
+                            <span>WhatsApp</span>
+                        </label>
+                        <label class="fe-check">
+                            <input type="checkbox" checked="@ChannelAllowed(WorkflowAgentChannel.Web)"
+                                   @onchange="@(e => OnNodeChannelToggleAsync(agentNode, WorkflowAgentChannel.Web, e))" />
+                            <span>Web (Colmena)</span>
+                        </label>
+                        <label class="fe-check">
+                            <input type="checkbox" checked="@ChannelAllowed(WorkflowAgentChannel.Correo)"
+                                   @onchange="@(e => OnNodeChannelToggleAsync(agentNode, WorkflowAgentChannel.Correo, e))" />
+                            <span>Correo</span>
+                        </label>
+                    </div>
+                    <div class="fe-acc-note" style="margin:0">Por defecto, todos los canales con recurso configurado estan permitidos. Desmarca uno para que el agente NO lo use en este paso (util para forzar que un seguimiento sea solo por voz o solo por WhatsApp).</div>
 
                     @* ADR-0093: permiso de correo (enviar, sin esperar respuesta). *@
                     <div class="fe-modal-section">Comunicacion</div>
@@ -1140,6 +1213,8 @@ else
     private IReadOnlyList<FlowAgentCatalogItemDto> _agentCatalog = [];
     private IReadOnlyList<FlowColmenaClientDto> _colmenaClients = [];
     private IReadOnlyList<FlowWhatsAppLineDto> _whatsAppLines = [];
+    // Ola 2 (ADR-0190): lineas de voz del tenant para el selector de linea por nodo.
+    private IReadOnlyList<FlowVoiceLineDto> _voiceLines = [];
     // Plantillas HSM activas del tenant, para elegir la de "contacto en frio" por lista (no teclear el nombre).
     private IReadOnlyList<WhatsAppTemplateDto> _whatsAppTemplates = [];
     // Bindings de variables de la plantilla de frio (variable -> expresion/token); se serializa a WhatsAppTemplateVarsJson.
@@ -1362,6 +1437,7 @@ else
                 _agentCatalog = await DesignSvc.ListAgentCatalogAsync();
                 _colmenaClients = await DesignSvc.ListColmenaClientsAsync();
                 _whatsAppLines = await DesignSvc.ListWhatsAppLinesAsync();
+                _voiceLines = await DesignSvc.ListVoiceLinesAsync();
                 _whatsAppTemplates = await TemplatesSvc.ListAsync();   // solo activas (includeInactive=false)
                 _agentCatalogLoaded = true;
             }
@@ -2061,7 +2137,10 @@ else
                     _agentExtraPromptDraft, _nodeAgent.CanSendEmail,
                     _nodeAgent.OnFailure, _nodeAgent.FailureRetries, _nodeAgent.FailureRoute,
                     _nodeAgent.ColdWindowMinutes,
-                    _nodeAgent.WhatsAppTemplateVarsJson, _nodeAgent.WhatsAppTemplateHeaderMediaUrl);
+                    _nodeAgent.WhatsAppTemplateVarsJson, _nodeAgent.WhatsAppTemplateHeaderMediaUrl,
+                    _nodeAgent.VoiceLineId, _nodeAgent.AllowedChannels,
+                    _nodeAgent.MaxVoiceCalls, _nodeAgent.VoiceRetryMinutes,
+                    _nodeAgent.CallWindowStartHour, _nodeAgent.CallWindowEndHour);
                 var res = await DesignSvc.SetNodeAgentResourcesAsync(node.Id, resInput);
                 if (!res.IsOk) { _error = res.Error; return; }
             }
@@ -2122,7 +2201,10 @@ else
         _nodeAgent?.OnFailure ?? WorkflowAgentFailureAction.ReturnToHuman,
         _nodeAgent?.FailureRetries ?? 0, _nodeAgent?.FailureRoute,
         _nodeAgent?.ColdWindowMinutes,
-        _nodeAgent?.WhatsAppTemplateVarsJson, _nodeAgent?.WhatsAppTemplateHeaderMediaUrl);
+        _nodeAgent?.WhatsAppTemplateVarsJson, _nodeAgent?.WhatsAppTemplateHeaderMediaUrl,
+        _nodeAgent?.VoiceLineId, _nodeAgent?.AllowedChannels,
+        _nodeAgent?.MaxVoiceCalls, _nodeAgent?.VoiceRetryMinutes,
+        _nodeAgent?.CallWindowStartHour, _nodeAgent?.CallWindowEndHour);
 
     private Task OnNodeOnFailureChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
@@ -2156,7 +2238,53 @@ else
     private Task OnNodeVoiceAgentChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
     {
         Guid? va = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
-        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { VoiceAiAgentId = va });
+        // Ola 2 (ADR-0190): al quitar el agente de voz se limpia tambien la linea (sin agente la linea es config muerta).
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with
+        {
+            VoiceAiAgentId = va,
+            VoiceLineId = va is null ? null : _nodeAgent?.VoiceLineId
+        });
+    }
+
+    // Ola 2 (ADR-0190): linea de voz por nodo (null = la por defecto del tenant).
+    private Task OnNodeVoiceLineChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+    {
+        Guid? vl = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { VoiceLineId = vl });
+    }
+
+    // Ola 3 (ADR-0190): politica de reintento de la llamada "sin contacto" + ventana horaria. Vacio = null (sin
+    // reintento / sin ventana). El servicio acota los rangos y descarta ventanas invalidas.
+    private static int? ParseNullableInt(ChangeEventArgs e)
+        => int.TryParse(e.Value?.ToString(), out var v) ? v : null;
+
+    private Task OnNodeMaxVoiceCallsChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { MaxVoiceCalls = ParseNullableInt(e) });
+
+    private Task OnNodeVoiceRetryChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { VoiceRetryMinutes = ParseNullableInt(e) });
+
+    private Task OnNodeCallWindowStartChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { CallWindowStartHour = ParseNullableInt(e) });
+
+    private Task OnNodeCallWindowEndChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
+        => SaveNodeResourcesAsync(node, CurrentAgentRes() with { CallWindowEndHour = ParseNullableInt(e) });
+
+    // Ola 2 (ADR-0190): canales permitidos. Conjunto efectivo = AllowedChannels ?? todos. Al togglear, si queda el
+    // conjunto completo se guarda null (retrocompatible: "todos permitidos"); si no, el mask explicito.
+    private const WorkflowAgentChannel AllChannels =
+        WorkflowAgentChannel.Voz | WorkflowAgentChannel.WhatsApp | WorkflowAgentChannel.Web | WorkflowAgentChannel.Correo;
+
+    private bool ChannelAllowed(WorkflowAgentChannel ch)
+        => _nodeAgent?.AllowedChannels is not WorkflowAgentChannel mask || (mask & ch) != 0;
+
+    private Task OnNodeChannelToggleAsync(FlowCanvasNodeDto node, WorkflowAgentChannel ch, ChangeEventArgs e)
+    {
+        var on = e.Value is bool b && b;
+        var current = _nodeAgent?.AllowedChannels ?? AllChannels;
+        var next = on ? (current | ch) : (current & ~ch);
+        WorkflowAgentChannel? stored = next == AllChannels ? null : next;
+        return SaveNodeResourcesAsync(node, CurrentAgentRes() with { AllowedChannels = stored });
     }
 
     private Task OnNodeWhatsAppLineChangedAsync(FlowCanvasNodeDto node, ChangeEventArgs e)
@@ -2284,7 +2412,13 @@ else
                 CanSendEmail = input.CanSendEmail,
                 OnFailure = input.OnFailure,
                 FailureRetries = input.FailureRetries,
-                FailureRoute = input.FailureRoute
+                FailureRoute = input.FailureRoute,
+                VoiceLineId = input.VoiceLineId,
+                AllowedChannels = input.AllowedChannels,
+                MaxVoiceCalls = input.MaxVoiceCalls,
+                VoiceRetryMinutes = input.VoiceRetryMinutes,
+                CallWindowStartHour = input.CallWindowStartHour,
+                CallWindowEndHour = input.CallWindowEndHour
             };
         }
         return Task.CompletedTask;

@@ -1274,6 +1274,13 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Content).HasColumnType(longTextColumnType);
             b.Property(x => x.Response).HasColumnType(longTextColumnType);
             b.HasIndex(x => new { x.TenantId, x.ConversationId, x.OccurredAt });
+            // Ola 4 (ADR-0190, opcion A): la bitacora cuelga de una conversacion de WhatsApp O de una llamada de
+            // voz, nunca de ambas. Indice para el riel de voz y candado "exactamente uno de los dos" (portable PG +
+            // SQL Server: sin comparar predicados IS NULL como booleanos, que SQL Server no admite).
+            b.HasIndex(x => new { x.TenantId, x.VoiceCallId, x.OccurredAt });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_ai_agent_run_log_conv_xor_voice",
+                "(conversation_id IS NOT NULL AND voice_call_id IS NULL) OR (conversation_id IS NULL AND voice_call_id IS NOT NULL)"));
         });
 
         modelBuilder.Entity<AiUsageLog>(b =>
@@ -2248,6 +2255,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
                 .HasForeignKey(x => x.ColmenaClientId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.VoiceAiAgent).WithMany()
                 .HasForeignKey(x => x.VoiceAiAgentId).OnDelete(DeleteBehavior.Restrict);
+            // Ola 2 (ADR-0190): linea de voz por nodo (numero saliente). Restrict: una linea en uso por un flujo
+            // se deshabilita, no se borra. AllowedChannels (flags int nullable) sin default: null = todos permitidos.
+            b.HasOne(x => x.VoiceLine).WithMany()
+                .HasForeignKey(x => x.VoiceLineId).OnDelete(DeleteBehavior.Restrict);
             // ADR-0092: linea WhatsApp + plantilla para 'preguntar_whatsapp'. Restrict: una linea en uso por
             // un flujo se desconecta, no se borra. Nombre/idioma de plantilla acotados.
             b.Property(x => x.WhatsAppTemplateName).HasMaxLength(200);

@@ -2401,7 +2401,7 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("content");
 
-                    b.Property<Guid>("ConversationId")
+                    b.Property<Guid?>("ConversationId")
                         .HasColumnType("uuid")
                         .HasColumnName("conversation_id");
 
@@ -2445,13 +2445,23 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid?>("VoiceCallId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voice_call_id");
+
                     b.HasKey("Id")
                         .HasName("pk_ai_agent_run_logs");
 
                     b.HasIndex("TenantId", "ConversationId", "OccurredAt")
                         .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_conversation_id_occurred_at");
 
-                    b.ToTable("ai_agent_run_logs", (string)null);
+                    b.HasIndex("TenantId", "VoiceCallId", "OccurredAt")
+                        .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_voice_call_id_occurred_at");
+
+                    b.ToTable("ai_agent_run_logs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_ai_agent_run_log_conv_xor_voice", "(conversation_id IS NOT NULL AND voice_call_id IS NULL) OR (conversation_id IS NULL AND voice_call_id IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AiProviderConfig", b =>
@@ -19973,6 +19983,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DisconnectionReason")
+                        .HasColumnType("text")
+                        .HasColumnName("disconnection_reason");
+
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("duration_seconds");
@@ -21050,9 +21064,21 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("ai_agent_id");
 
+                    b.Property<int?>("AllowedChannels")
+                        .HasColumnType("integer")
+                        .HasColumnName("allowed_channels");
+
                     b.Property<int>("Autonomy")
                         .HasColumnType("integer")
                         .HasColumnName("autonomy");
+
+                    b.Property<int?>("CallWindowEndHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("call_window_end_hour");
+
+                    b.Property<int?>("CallWindowStartHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("call_window_start_hour");
 
                     b.Property<bool>("CanSendEmail")
                         .ValueGeneratedOnAdd()
@@ -21097,6 +21123,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("failure_route");
 
+                    b.Property<int?>("MaxVoiceCalls")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_voice_calls");
+
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uuid")
                         .HasColumnName("node_id");
@@ -21122,6 +21152,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("VoiceAiAgentId")
                         .HasColumnType("uuid")
                         .HasColumnName("voice_ai_agent_id");
+
+                    b.Property<Guid?>("VoiceLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voice_line_id");
+
+                    b.Property<int?>("VoiceRetryMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("voice_retry_minutes");
 
                     b.Property<Guid?>("WhatsAppLineId")
                         .HasColumnType("uuid")
@@ -21160,6 +21198,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("VoiceAiAgentId")
                         .HasDatabaseName("ix_workflow_node_agents_voice_ai_agent_id");
+
+                    b.HasIndex("VoiceLineId")
+                        .HasDatabaseName("ix_workflow_node_agents_voice_line_id");
 
                     b.HasIndex("WhatsAppLineId")
                         .HasDatabaseName("ix_workflow_node_agents_whats_app_line_id");
@@ -21552,6 +21593,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
+
+                    b.Property<int>("VoiceCallCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("voice_call_count");
 
                     b.Property<DateTimeOffset?>("WhatsAppAnsweredInboundAt")
                         .HasColumnType("timestamp with time zone")
@@ -24172,6 +24217,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_workflow_node_agents_ai_agents_voice_ai_agent_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.RetellVoiceLine", "VoiceLine")
+                        .WithMany()
+                        .HasForeignKey("VoiceLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_retell_voice_lines_voice_line_id");
+
                     b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", "WhatsAppLine")
                         .WithMany()
                         .HasForeignKey("WhatsAppLineId")
@@ -24185,6 +24236,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Node");
 
                     b.Navigation("VoiceAiAgent");
+
+                    b.Navigation("VoiceLine");
 
                     b.Navigation("WhatsAppLine");
                 });

@@ -2401,7 +2401,7 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("content");
 
-                    b.Property<Guid>("ConversationId")
+                    b.Property<Guid?>("ConversationId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("conversation_id");
 
@@ -2445,13 +2445,23 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid?>("VoiceCallId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("voice_call_id");
+
                     b.HasKey("Id")
                         .HasName("pk_ai_agent_run_logs");
 
                     b.HasIndex("TenantId", "ConversationId", "OccurredAt")
                         .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_conversation_id_occurred_at");
 
-                    b.ToTable("ai_agent_run_logs", (string)null);
+                    b.HasIndex("TenantId", "VoiceCallId", "OccurredAt")
+                        .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_voice_call_id_occurred_at");
+
+                    b.ToTable("ai_agent_run_logs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_ai_agent_run_log_conv_xor_voice", "(conversation_id IS NOT NULL AND voice_call_id IS NULL) OR (conversation_id IS NULL AND voice_call_id IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AiProviderConfig", b =>
@@ -19978,6 +19988,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DisconnectionReason")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("disconnection_reason");
+
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("int")
                         .HasColumnName("duration_seconds");
@@ -21055,9 +21069,21 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("ai_agent_id");
 
+                    b.Property<int?>("AllowedChannels")
+                        .HasColumnType("int")
+                        .HasColumnName("allowed_channels");
+
                     b.Property<int>("Autonomy")
                         .HasColumnType("int")
                         .HasColumnName("autonomy");
+
+                    b.Property<int?>("CallWindowEndHour")
+                        .HasColumnType("int")
+                        .HasColumnName("call_window_end_hour");
+
+                    b.Property<int?>("CallWindowStartHour")
+                        .HasColumnType("int")
+                        .HasColumnName("call_window_start_hour");
 
                     b.Property<bool>("CanSendEmail")
                         .ValueGeneratedOnAdd()
@@ -21102,6 +21128,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(64)")
                         .HasColumnName("failure_route");
 
+                    b.Property<int?>("MaxVoiceCalls")
+                        .HasColumnType("int")
+                        .HasColumnName("max_voice_calls");
+
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("node_id");
@@ -21127,6 +21157,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("VoiceAiAgentId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("voice_ai_agent_id");
+
+                    b.Property<Guid?>("VoiceLineId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("voice_line_id");
+
+                    b.Property<int?>("VoiceRetryMinutes")
+                        .HasColumnType("int")
+                        .HasColumnName("voice_retry_minutes");
 
                     b.Property<Guid?>("WhatsAppLineId")
                         .HasColumnType("uniqueidentifier")
@@ -21165,6 +21203,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("VoiceAiAgentId")
                         .HasDatabaseName("ix_workflow_node_agents_voice_ai_agent_id");
+
+                    b.HasIndex("VoiceLineId")
+                        .HasDatabaseName("ix_workflow_node_agents_voice_line_id");
 
                     b.HasIndex("WhatsAppLineId")
                         .HasDatabaseName("ix_workflow_node_agents_whats_app_line_id");
@@ -21557,6 +21598,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("updated_by");
+
+                    b.Property<int>("VoiceCallCount")
+                        .HasColumnType("int")
+                        .HasColumnName("voice_call_count");
 
                     b.Property<DateTimeOffset?>("WhatsAppAnsweredInboundAt")
                         .HasColumnType("datetimeoffset")
@@ -24177,6 +24222,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_workflow_node_agents_ai_agents_voice_ai_agent_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.RetellVoiceLine", "VoiceLine")
+                        .WithMany()
+                        .HasForeignKey("VoiceLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_retell_voice_lines_voice_line_id");
+
                     b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", "WhatsAppLine")
                         .WithMany()
                         .HasForeignKey("WhatsAppLineId")
@@ -24190,6 +24241,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Node");
 
                     b.Navigation("VoiceAiAgent");
+
+                    b.Navigation("VoiceLine");
 
                     b.Navigation("WhatsAppLine");
                 });

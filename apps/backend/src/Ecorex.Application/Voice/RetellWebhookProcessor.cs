@@ -118,6 +118,18 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
             await DumpCapturedFormsAsync(voiceCall, call, callId!, cancellationToken);
         }
 
+        // Ola 4 (ADR-0190): deja la entrada de RESULTADO en la bitacora del agente (y un resumen como Message para
+        // SARA), idempotente. En 'call_analyzed' (trae resumen) o en 'call_ended' SIN contacto (no contesto / buzon
+        // / ocupado / fallo: puede no llegar a 'analyzed'); un 'call_ended' CON contacto espera al 'analyzed'.
+        var writeJournalResult =
+            string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase)
+            || (string.Equals(eventType, "call_ended", StringComparison.OrdinalIgnoreCase)
+                && RetellVoiceService.IsNoContactReason(voiceCall.DisconnectionReason));
+        if (writeJournalResult)
+        {
+            await VoiceAgentJournal.WriteResultAsync(_db, voiceCall, _clock.GetUtcNow(), cancellationToken);
+        }
+
         // ADR-0091: si un PASO de flujo estaba EN ESPERA de esta llamada, reanudarlo. Se limpia
         // AgentAttemptedAt (conservando PendingVoiceCallId, que el agente lee para tener el resultado en su
         // contexto) para que el barrido de agentes vuelva a correr el paso con el transcript/datos capturados.
@@ -162,11 +174,13 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
                 vc.DurationSeconds = ReadDurationSeconds(call) ?? vc.DurationSeconds;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
+                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
                 break;
             case "call_analyzed":
                 vc.Status = VoiceCallStatus.Analyzed;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
+                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
                 if (call.TryGetProperty("call_analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Object)
                 {
                     vc.AnalysisJson = analysis.GetRawText();

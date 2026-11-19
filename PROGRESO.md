@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-19 - v0.16.356: agente de voz (Retell) en el nodo de seguimiento, Olas 0-4 (ADR-0190, antes ADR-0142) - INTEGRADA, SIN DEPLOY
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama worktree-voz-retell-fallback (HEAD edbf9f27, 7 commits propios,
+  278 detras) unida al tronco 99d049ae. Conflictos (2, resueltos a mano conservando ambos lados): INotifyLinkBuilder
+  (BuildUnsubscribeLink/ToAbsoluteUrl del tronco + BuildRetellWebhookUrl de voz, este con implementacion por defecto
+  null para no romper dobles de prueba) y NotifyLinkBuilder (las tres implementaciones). Revisado EcorexDbContext:
+  AiAgentRunLog con ConversationId nullable, indice (tenant, voice_call_id, occurred_at) y check
+  ck_ai_agent_run_log_conv_xor_voice; todas las escrituras del tronco a la bitacora llevan ConversationId.
+  has-pending-model-changes: "No changes" en EcorexDbContext y SqlServerEcorexDbContext.
+- RENUMERACION: el ADR de voz nacio como ADR-0142 en la rama, pero ADR-0142 ya era "Datos principales como lista
+  unica ordenable" en el tronco: renumerado a ADR-0190 (archivo y referencias en codigo). Version reservada
+  v0.16.356 (la rama no tocaba AppVersion; 0.16.355 desplegada).
+- MIGRACIONES duales: AddNodeAgentChannelsAndVoiceLine, AddVoiceRetryPolicy, AddVoiceAgentJournal (PG + SQL Server,
+  fechadas 2026-11-03, anteriores a migraciones ya aplicadas en prod: EF las aplica igual como pendientes; la suite
+  de integracion migra desde cero en ambos motores).
+- PRUEBAS: build 0 errores; unitarias Application 1621, SuperAdmin 299, Domain 35; dotnet format whitespace + style
+  verdes. Integracion dual COMPLETA (PG + SQL Server, incluye TenantIsolation) 744/750: 4 de WorkflowInbox_SqlServer
+  cayeron en 1 ms al arrancar el contenedor y pasan al repetir; 2 de AgendaTurnos.Calendario_YAnticipacion (PG + SQL
+  Server) fallan por fecha: la prueba fija turnos el 16-17/11/2026 y espera que un recurso con turnos "proximos" no se
+  pueda borrar; desde el 19/11 ya pasaron (bomba de tiempo previa, ajena a voz; no toca agendas).
+- SIGUIENTE: deploy SOLO con OK del usuario. Olas 5-6 de voz siguen en la rama de voz.
+
 ## 2026-11-19 - v0.16.355: Extraccion de datos con pestanas y historial con duracion y filas reales - DESPLEGADA
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes, rama feat/extraccion-tabs: c1476467 + 4f0e8109, unida al tronco

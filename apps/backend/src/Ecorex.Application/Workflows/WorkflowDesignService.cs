@@ -1641,7 +1641,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     x.WhatsAppLineId, x.WhatsAppTemplateName, x.WhatsAppTemplateLang,
                     x.ColdWindowMinutes,
                     x.ExtraPrompt, x.CanSendEmail, x.OnFailure, x.FailureRetries, x.FailureRoute,
-                    x.WhatsAppTemplateVarsJson, x.WhatsAppTemplateHeaderMediaUrl))
+                    x.WhatsAppTemplateVarsJson, x.WhatsAppTemplateHeaderMediaUrl,
+                    x.VoiceLineId, x.AllowedChannels,
+                    x.MaxVoiceCalls, x.VoiceRetryMinutes, x.CallWindowStartHour, x.CallWindowEndHour))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -1697,7 +1699,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
             existing.ColdWindowMinutes,
             existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
-            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl));
+            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl,
+            existing.VoiceLineId, existing.AllowedChannels,
+            existing.MaxVoiceCalls, existing.VoiceRetryMinutes, existing.CallWindowStartHour, existing.CallWindowEndHour));
     }
 
     public async Task<IReadOnlyList<FlowColmenaClientDto>> ListColmenaClientsAsync(CancellationToken cancellationToken = default)
@@ -1722,6 +1726,15 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<FlowVoiceLineDto>> ListVoiceLinesAsync(CancellationToken cancellationToken = default)
+    {
+        // Lineas de voz del tenant (filtro global); habilitadas primero, luego la por defecto, luego por nombre.
+        return await _db.RetellVoiceLines.AsNoTracking()
+            .OrderByDescending(l => l.IsEnabled).ThenByDescending(l => l.IsDefault).ThenBy(l => l.Name)
+            .Select(l => new FlowVoiceLineDto(l.Id, l.Name, l.IsEnabled, l.IsDefault))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<WorkflowResult<FlowNodeAgentDto>> SetNodeAgentResourcesAsync(
         Guid nodeId, FlowNodeAgentResourcesInput input, CancellationToken cancellationToken = default)
     {
@@ -1743,10 +1756,42 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         {
             return WorkflowResult<FlowNodeAgentDto>.NotFound("Linea de WhatsApp no encontrada.");
         }
+        // Ola 2 (ADR-0190): la linea de voz debe existir en el tenant (filtro global); sin agente de voz es config muerta.
+        if (input.VoiceLineId is Guid vl && !await _db.RetellVoiceLines.AnyAsync(l => l.Id == vl, cancellationToken))
+        {
+            return WorkflowResult<FlowNodeAgentDto>.NotFound("Linea de voz no encontrada.");
+        }
 
         existing.ColmenaClientId = input.ColmenaClientId;
         existing.ColmenaSessionKey = string.IsNullOrWhiteSpace(input.ColmenaSessionKey) ? null : input.ColmenaSessionKey.Trim();
         existing.VoiceAiAgentId = input.VoiceAiAgentId;
+        // Ola 2 (ADR-0190): la linea de voz solo tiene sentido con agente de voz; sin agente se limpia para no
+        // dejar config muerta (espejo de plantilla/linea de WhatsApp). AllowedChannels: null = todos permitidos.
+        existing.VoiceLineId = input.VoiceAiAgentId is null ? null : input.VoiceLineId;
+        existing.AllowedChannels = input.AllowedChannels;
+        // Ola 3 (ADR-0190): politica de reintento de la llamada. Solo tiene sentido con agente de voz; sin agente se
+        // limpia para no dejar config muerta. Tope de intentos acotado a [1,10]; intervalo a [1, 1440] min (24h);
+        // horas de ventana a su rango valido (inicio 0-23, fin 1-24). Null = sin auto-reintento / sin ventana.
+        if (input.VoiceAiAgentId is null)
+        {
+            existing.MaxVoiceCalls = null;
+            existing.VoiceRetryMinutes = null;
+            existing.CallWindowStartHour = null;
+            existing.CallWindowEndHour = null;
+        }
+        else
+        {
+            existing.MaxVoiceCalls = input.MaxVoiceCalls is int mvc && mvc > 0 ? Math.Clamp(mvc, 1, 10) : null;
+            existing.VoiceRetryMinutes = input.VoiceRetryMinutes is int vrm && vrm > 0 ? Math.Clamp(vrm, 1, 1440) : null;
+            existing.CallWindowStartHour = input.CallWindowStartHour is int cs ? Math.Clamp(cs, 0, 23) : null;
+            existing.CallWindowEndHour = input.CallWindowEndHour is int ce ? Math.Clamp(ce, 1, 24) : null;
+            // Ventana invalida (fin <= inicio): se descarta la ventana para no bloquear llamadas por error de captura.
+            if (existing.CallWindowStartHour is int s && existing.CallWindowEndHour is int e && e <= s)
+            {
+                existing.CallWindowStartHour = null;
+                existing.CallWindowEndHour = null;
+            }
+        }
         existing.WhatsAppLineId = input.WhatsAppLineId;
         // La plantilla solo tiene sentido si hay linea; sin linea se limpia para no dejar config muerta.
         existing.WhatsAppTemplateName = input.WhatsAppLineId is null || string.IsNullOrWhiteSpace(input.WhatsAppTemplateName)
@@ -1780,7 +1825,9 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
             existing.WhatsAppLineId, existing.WhatsAppTemplateName, existing.WhatsAppTemplateLang,
             existing.ColdWindowMinutes,
             existing.ExtraPrompt, existing.CanSendEmail, existing.OnFailure, existing.FailureRetries, existing.FailureRoute,
-            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl));
+            existing.WhatsAppTemplateVarsJson, existing.WhatsAppTemplateHeaderMediaUrl,
+            existing.VoiceLineId, existing.AllowedChannels,
+            existing.MaxVoiceCalls, existing.VoiceRetryMinutes, existing.CallWindowStartHour, existing.CallWindowEndHour));
     }
 
     public async Task<WorkflowResult<bool>> RemoveNodeAgentAsync(Guid nodeId, CancellationToken cancellationToken = default)

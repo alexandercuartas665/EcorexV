@@ -80,7 +80,8 @@ public sealed class ChatService : IChatService
 
         // Dependientes SIN FK relacional (no cascadean): logs del agente y cache de sesion. SessionId solo
         // coincide con ConversationId en el chat real; las pruebas de sandbox usan AgentId y no se tocan.
-        await _db.AiAgentRunLogs.Where(l => conversationIds.Contains(l.ConversationId)).ExecuteDeleteAsync(cancellationToken);
+        // Ola 4: solo logs de conversacion (WhatsApp). Los de voz (ConversationId null) cuelgan de VoiceCall, no de la conversacion.
+        await _db.AiAgentRunLogs.Where(l => l.ConversationId != null && conversationIds.Contains(l.ConversationId.Value)).ExecuteDeleteAsync(cancellationToken);
         await _db.AiAgentCacheValues.Where(v => conversationIds.Contains(v.SessionId)).ExecuteDeleteAsync(cancellationToken);
         // Mensajes (cascadean por FK, pero los borramos explicitos por claridad/orden) y luego conversaciones.
         var messages = await _db.Messages.Where(m => conversationIds.Contains(m.ConversationId)).ExecuteDeleteAsync(cancellationToken);

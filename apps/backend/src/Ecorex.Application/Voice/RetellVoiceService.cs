@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -26,15 +27,17 @@ public sealed class RetellVoiceService : IRetellVoiceService
     private readonly IRetellApiClient _retell;
     private readonly TimeProvider _clock;
     private readonly ILogger<RetellVoiceService> _log;
+    private readonly INotifyLinkBuilder _links;
 
     public RetellVoiceService(IApplicationDbContext db, ISecretProtector protector, IRetellApiClient retell,
-        TimeProvider clock, ILogger<RetellVoiceService> log)
+        TimeProvider clock, ILogger<RetellVoiceService> log, INotifyLinkBuilder links)
     {
         _db = db;
         _protector = protector;
         _retell = retell;
         _clock = clock;
         _log = log;
+        _links = links;
     }
 
     public async Task<VoicePlaceCallResult> PlaceCallAsync(VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
@@ -120,7 +123,10 @@ public sealed class RetellVoiceService : IRetellVoiceService
             OverrideAgentId: overrideAgentId,
             DynamicVariables: dyn,
             CustomSipHeaders: sipHeaders,
-            Metadata: metadata), cancellationToken);
+            Metadata: metadata,
+            // webhook_url por llamada: el flujo reanuda contra esta instancia. Null en dev (sin URL publica) ->
+            // el modal cae al sondeo get-call. La entrega a prod la valida el usuario (config de infra).
+            WebhookUrl: _links.BuildRetellWebhookUrl()), cancellationToken);
 
         if (!callRes.Ok || string.IsNullOrEmpty(callRes.CallId))
         {
@@ -129,7 +135,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
 
         // 6) Persistir la VoiceCall (snapshot de origen + whitelist de formularios).
-        _db.VoiceCalls.Add(new VoiceCall
+        var voiceCall = new VoiceCall
         {
             CallId = callRes.CallId!,
             RetellVoiceLineId = cfg.Id,
@@ -142,7 +148,11 @@ public sealed class RetellVoiceService : IRetellVoiceService
             FormulariosPermitidosJson = request.FormulariosPermitidos.Count > 0
                 ? JsonSerializer.Serialize(request.FormulariosPermitidos) : null,
             ContactWorkflowRunId = request.ContactWorkflowRunId
-        });
+        };
+        _db.VoiceCalls.Add(voiceCall);
+        // Ola 4 (ADR-0190): deja rastro en la bitacora del agente de que el flujo coloco la llamada (espejo del
+        // saliente de WhatsApp). Best-effort: solo si la llamada tiene agente ECOREX atribuible.
+        VoiceAgentJournal.LogPlaced(_db, voiceCall, _clock.GetUtcNow());
         await _db.SaveChangesAsync(cancellationToken);
 
         _log.LogInformation("Voz IA: llamada colocada call_id={CallId} agent={AgentId}", callRes.CallId, overrideAgentId);
@@ -202,6 +212,16 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
         catch (JsonException) { return; }
 
+        // Ola 4 (ADR-0190): red de seguridad del webhook -> si el sondeo trajo el resultado terminal, deja la
+        // entrada de resultado en la bitacora (y el resumen como Message para SARA), idempotente. Igual criterio
+        // que el webhook: en 'analyzed' (con resumen) o en terminal "sin contacto" (que puede no traer analyzed).
+        var noContactTerminal = vc.Status is VoiceCallStatus.Failed or VoiceCallStatus.Error
+            || IsNoContactReason(vc.DisconnectionReason);
+        if (vc.Status == VoiceCallStatus.Analyzed || noContactTerminal)
+        {
+            await VoiceAgentJournal.WriteResultAsync(_db, vc, _clock.GetUtcNow(), ct);
+        }
+
         try
         {
             await _db.SaveChangesAsync(ct);
@@ -221,6 +241,8 @@ public sealed class RetellVoiceService : IRetellVoiceService
         if (transcript is not null) { vc.TranscriptText = transcript; }
         var recording = JsonStr(call, "recording_url");
         if (recording is not null) { vc.RecordingUrl = recording; }
+        var disconnect = JsonStr(call, "disconnection_reason");
+        if (disconnect is not null) { vc.DisconnectionReason = disconnect; }
 
         var started = JsonUnixMs(call, "start_timestamp");
         if (started is not null) { vc.StartedAt = started; }
@@ -295,6 +317,27 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
         catch (JsonException) { }
         return null;
+    }
+
+    /// <summary>
+    /// Ola 3 (ADR-0190): clasifica un disconnection_reason de Retell como "SIN contacto" (la persona no atendio la
+    /// llamada: no contesto, buzon de voz, ocupado, o fallo de marcado) vs "hubo contacto" (user_hangup, agent_hangup,
+    /// etc., donde si hablaron). Es la senal DURA para la politica de auto-reintento de la llamada. Null/desconocido
+    /// => false (que el resto del flujo decida por duracion/transcripcion). Comparacion case-insensitive.
+    /// </summary>
+    public static bool IsNoContactReason(string? disconnectionReason)
+    {
+        if (string.IsNullOrWhiteSpace(disconnectionReason)) { return false; }
+        return disconnectionReason.Trim().ToLowerInvariant() switch
+        {
+            "dial_no_answer" => true,
+            "voicemail_reached" => true,
+            "dial_busy" => true,
+            "dial_failed" => true,
+            "no_valid_payment" => true,
+            "max_duration_reached" => false,
+            _ => false
+        };
     }
 
     /// <summary>call_analysis.custom_analysis_data: los campos estructurados que el agente extrajo (clave->valor).</summary>
@@ -517,6 +560,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         Put("cargo", Get(contact, "cargo"));
         Put("ciudad", Get(contact, "ciudad"));
         Put("producto", Get(contact, "producto"));
+        Put("numero_caso", Get(contact, "numero_caso"));
         if (!string.IsNullOrWhiteSpace(objetivo)) { d["objetivo"] = objetivo!; }
         return d;
     }

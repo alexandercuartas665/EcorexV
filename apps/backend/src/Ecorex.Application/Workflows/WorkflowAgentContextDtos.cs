@@ -40,8 +40,21 @@ public sealed record WorkflowAgentContextDto(
     IReadOnlyList<string>? AvailableTaskTags = null);
 
 /// <summary>Resultado de una llamada de voz (Retell) que el agente solicito: el transcript y los datos
-/// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario.</summary>
-public sealed record WorkflowAgentVoiceCallDto(string? Transcript, string? CapturedJson);
+/// estructurados capturados (custom_analysis_data), para terminar de diligenciar el formulario o para ELEGIR
+/// la ruta de una decision. Ola 1 (ADR-0190): se agrega el estado de la llamada (Status/Duracion/CallSuccessful)
+/// para distinguir "hablo y hubo decision" de "no contesto" al enrutar o decidir si reintentar.</summary>
+public sealed record WorkflowAgentVoiceCallDto(
+    string? Transcript,
+    string? CapturedJson,
+    // Estado terminal de la VoiceCall (Analyzed | Ended | Failed | Error | ...), como texto.
+    string? Status = null,
+    // Duracion en segundos (si Retell la reporto). 0/null + sin transcripcion => probable no-contacto.
+    int? DurationSeconds = null,
+    // call_analysis.call_successful de Retell (segun los success criteria del agente). Null si no vino.
+    bool? CallSuccessful = null,
+    // disconnection_reason de Retell (dial_no_answer | voicemail_reached | dial_busy | dial_failed | user_hangup...).
+    // Permite al agente saber si "no hubo contacto" (buzon/no contesta) para elegir WhatsApp o reprogramar.
+    string? DisconnectionReason = null);
 
 /// <summary>Respuesta que la persona dio por WhatsApp a la pregunta del agente (ADR-0092). <see cref="ReplyText"/>
 /// junta TODOS los mensajes entrantes frescos (una rafaga: "necesito 4 laminas" + "mi cedula es 10199857" llegan
@@ -64,7 +77,15 @@ public sealed record WorkflowAgentAssignmentDto(
     // Binding de parametros de la plantilla de frio ({variable -> expresion}) + URL del archivo del header por nodo.
     string? WhatsAppTemplateVarsJson = null, string? WhatsAppTemplateHeaderMediaUrl = null,
     // ADR-0093: instrucciones EXTRA de este paso (se anteponen al prompt del agente) y permiso de correo.
-    string? ExtraPrompt = null, bool CanSendEmail = false);
+    string? ExtraPrompt = null, bool CanSendEmail = false,
+    // Ola 2 (ADR-0190): linea de voz del nodo (null = la por defecto del tenant) y canales permitidos
+    // (null = todos los configurados). AllowsChannel decide el gating de cada herramienta.
+    Guid? VoiceLineId = null, WorkflowAgentChannel? AllowedChannels = null)
+{
+    /// <summary>Ola 2 (ADR-0190): el nodo permite ese canal (null = todos permitidos, retrocompatible).</summary>
+    public bool AllowsChannel(WorkflowAgentChannel channel)
+        => AllowedChannels is null || (AllowedChannels.Value & channel) != 0;
+}
 
 /// <summary>(a) El nodo actual y el formulario que el paso debe llenar, con sus campos.</summary>
 public sealed record WorkflowAgentNodeDto(

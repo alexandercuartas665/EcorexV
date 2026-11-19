@@ -113,10 +113,11 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         // de voz, Colmena para web o permiso de correo), NO se decide a ciegas: se corre un bucle de herramientas
         // y el prompt empuja a USAR el medio (preguntarle al cliente el dato que falta) antes de rendirse. Sin
         // ningun medio, la ruta de un solo tiro de abajo queda intacta (cero cambio para los flujos que ya corren).
-        var hasCommsMedium = context.Assignment?.WhatsAppLineId is not null
-            || (context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null)
-            || context.Assignment?.ColmenaClientId is not null
-            || context.Assignment?.CanSendEmail == true;
+        // Ola 2 (ADR-0190): cada medio requiere su recurso configurado Y que el canal este permitido en el nodo.
+        var hasCommsMedium = (context.Assignment?.WhatsAppLineId is not null && Allows(context.Assignment, WorkflowAgentChannel.WhatsApp))
+            || (context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null && Allows(context.Assignment, WorkflowAgentChannel.Voz))
+            || (context.Assignment?.ColmenaClientId is not null && Allows(context.Assignment, WorkflowAgentChannel.Web))
+            || (context.Assignment?.CanSendEmail == true && Allows(context.Assignment, WorkflowAgentChannel.Correo));
         if (hasCommsMedium)
         {
             return await RunDecisionWithToolsAsync(context, agent, providerCfg.BaseUrl, apiKey, model, cancellationToken, onProgress);
@@ -260,15 +261,19 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         WorkflowAgentContextDto context, Domain.Entities.AiAgent agent, string? baseUrl, string apiKey, string model,
         CancellationToken cancellationToken, Action<string, long>? onProgress = null)
     {
-        var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
-        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
-        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
-        var canSendEmail = context.Assignment?.CanSendEmail == true;
+        var canSearchWeb = context.Assignment?.ColmenaClientId is not null && Allows(context.Assignment, WorkflowAgentChannel.Web);
+        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null && Allows(context.Assignment, WorkflowAgentChannel.Voz);
+        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null && Allows(context.Assignment, WorkflowAgentChannel.WhatsApp);
+        var canSendEmail = context.Assignment?.CanSendEmail == true && Allows(context.Assignment, WorkflowAgentChannel.Correo);
+        // Ola 3 (ADR-0190): 'programar_reintento' ya no es exclusivo de WhatsApp. Un nodo con VOZ (aunque en la
+        // reanudacion canCall este apagado) tambien puede reprogramarse para volver a intentar mas tarde.
+        var hasVoice = context.Assignment?.VoiceAiAgentId is not null && Allows(context.Assignment, WorkflowAgentChannel.Voz);
+        var canReprogram = canAskWhatsApp || hasVoice;
 
         // Mismas specs de comunicacion que el llenado (sin las herramientas de formulario): no hay formulario que
         // ver/fijar/enviar; la decision viaja como texto JSON en el ultimo turno del modelo.
-        var tools = BuildDecisionTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
-        var system = BuildDecisionWithToolsSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
+        var tools = BuildDecisionTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail, canReprogram);
+        var system = BuildDecisionWithToolsSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail, canReprogram);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
         var messages = new List<AiToolMessage> { new("user", userPrompt) };
@@ -346,10 +351,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
                         : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
                 }
-                else if (call.Name == "programar_reintento" && canAskWhatsApp)
+                else if (call.Name == "programar_reintento" && canReprogram)
                 {
-                    // ADR-0121: el agente se auto-reprograma. NO pausa por si mismo (acompana a la pregunta): solo
-                    // registra en cuanto reintentar; el runner lo estampa en AgentNextRetryAt al pausar.
+                    // ADR-0121 + Ola 3: el agente se auto-reprograma. NO pausa por si mismo (acompana a la pregunta o
+                    // al cierre por silencio): solo registra en cuanto reintentar; el runner lo estampa en AgentNextRetryAt.
                     retryMinutes = ReadRetryMinutes(call.ArgumentsJson);
                     result = retryMinutes is null
                         ? """{"error": "falta 'en_minutos' (5..43200) para el reintento"}"""
@@ -527,7 +532,12 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
 
     /// <summary>Herramientas de COMUNICACION para un nodo de decision/compuerta (ADR-0120): las mismas del
     /// llenado menos las de formulario. El medio disponible decide cuales se ofrecen.</summary>
-    private static IReadOnlyList<AiToolSpec> BuildDecisionTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+    /// <summary>Ola 2 (ADR-0190): el nodo permite ese canal. Null en el assignment (sin asignacion) = no permite;
+    /// AllowedChannels null = todos permitidos (retrocompatible). Centraliza el gating por canal.</summary>
+    private static bool Allows(WorkflowAgentAssignmentDto? assignment, WorkflowAgentChannel channel)
+        => assignment is not null && assignment.AllowsChannel(channel);
+
+    private static IReadOnlyList<AiToolSpec> BuildDecisionTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail, bool canReprogram)
     {
         var tools = new List<AiToolSpec>();
         if (canSearchWeb)
@@ -547,9 +557,13 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             tools.Add(new AiToolSpec("preguntar_whatsapp",
                 "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato que necesitas para decidir. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se envia. El paso quedara EN ESPERA de la respuesta y luego retomaras la decision. Usala si el dato depende del cliente y no esta en el contexto.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
-            tools.Add(BuildRetryTool());
             tools.Add(BuildListFormsTool());
             tools.Add(BuildSendImpresionTool());
+        }
+        // Ola 3 (ADR-0190): 'programar_reintento' disponible con WhatsApp O con voz (un nodo solo-voz tambien reprograma).
+        if (canReprogram)
+        {
+            tools.Add(BuildRetryTool());
         }
         if (canSendEmail)
         {
@@ -565,13 +579,13 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
     /// <summary>Prompt de sistema para la decision CON herramientas (ADR-0120): el contrato de decision de
     /// siempre + el empujon a USAR el medio de comunicacion disponible antes de rendirse.</summary>
     private static string BuildDecisionWithToolsSystemPrompt(
-        string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+        string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail, bool canReprogram)
     {
         var sb = new StringBuilder(BuildSystemPrompt(agentPrompt, context));
         sb.AppendLine();
         sb.AppendLine("Tienes herramientas para CONSEGUIR lo que te falte antes de decidir:");
         if (canAskWhatsApp) { sb.AppendLine("- 'preguntar_whatsapp': pregunta al cliente por WhatsApp (el paso espera la respuesta y la recibiras para decidir)."); }
-        if (canAskWhatsApp) { sb.AppendLine("- 'programar_reintento': cuando le preguntes al cliente, PROGRAMA tambien un reintento (en_minutos) por si no responde; al cumplirse, volveras a correr para enviarle un recordatorio. Si responde antes, se cancela solo."); }
+        if (canReprogram) { sb.AppendLine("- 'programar_reintento': PROGRAMA un reintento (en_minutos) por si el cliente no responde; al cumplirse, volveras a correr para insistir. Si responde antes, se cancela solo."); }
         if (canAskWhatsApp) { sb.AppendLine("- 'listar_formularios': lista los formularios del caso y las plantillas de impresion que puedes reenviar al cliente (ej. la cotizacion)."); }
         if (canAskWhatsApp) { sb.AppendLine("- 'enviar_impresion': ENVIA de verdad al cliente, por WhatsApp, el PDF de un formulario del caso (ej. la cotizacion). Es la UNICA forma de hacer llegar el documento; sin esta herramienta el cliente NO recibe nada."); }
         if (canCall) { sb.AppendLine("- 'llamar_telefono': coloca una llamada para conseguir el dato."); }
@@ -590,6 +604,20 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         {
             sb.AppendLine();
             sb.AppendLine("REGLA CLAVE (esta COMPUERTA espera la respuesta del cliente): el SILENCIO del cliente NO es una decision. NUNCA elijas una ruta mientras el cliente NO haya respondido. Si el cliente aun no respondio, tu unica accion valida es 'preguntar_whatsapp' para enviarle un recordatorio; si ya insististe lo suficiente, responde puede_resolver=false para SEGUIR ESPERANDO. JAMAS cierres como 'no desea comprar' (ni ninguna ruta) por falta de respuesta. Elige una ruta SOLO cuando el cliente de una respuesta CLARA.");
+        }
+        // Ola 1 (ADR-0190): reanudacion de una DECISION tras una llamada de voz. A diferencia del llenado, aqui el
+        // transcript sirve para ELEGIR LA RUTA, no para fijar campos. 'llamar_telefono' ya no se ofrece en la
+        // reanudacion (canCall == false con VoiceCallResult presente), asi que no re-llamara.
+        if (context.VoiceCallResult is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("YA tienes el RESULTADO de la llamada que solicitaste (ver 'Resultado de la llamada' en el contexto). Usa la TRANSCRIPCION para ELEGIR LA RUTA de la decision, NO para llenar un formulario. No vuelvas a llamar.");
+            sb.Append("Si NO hubo contacto (no contesto / sin conversacion), no inventes una decision por el silencio del cliente: ");
+            sb.AppendLine(canAskWhatsApp
+                ? "intenta por el otro canal con 'preguntar_whatsapp' (y 'programar_reintento' por si no responde), o responde puede_resolver=false para seguir esperando."
+                : canReprogram
+                    ? "usa 'programar_reintento' para volver a intentar mas tarde, o responde puede_resolver=false para que el paso vuelva a una persona."
+                    : "responde puede_resolver=false para que el paso se reintente mas tarde o vuelva a una persona.");
         }
         sb.AppendLine("Solo cuando YA tengas lo necesario (o sea imposible conseguirlo), responde el JSON de decision descrito arriba, sin llamar mas herramientas.");
         return sb.ToString();
@@ -613,17 +641,20 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         CancellationToken cancellationToken, Action<string, long>? onProgress = null)
     {
         var form = context.Node.Form!;
-        var canSearchWeb = context.Assignment?.ColmenaClientId is not null;
+        var canSearchWeb = context.Assignment?.ColmenaClientId is not null && Allows(context.Assignment, WorkflowAgentChannel.Web);
         // Solo se ofrece llamar si hay agente de voz Y no venimos ya de una llamada (reanudacion): en la
-        // reanudacion el agente debe USAR el resultado y terminar, no encadenar otra llamada.
-        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null;
+        // reanudacion el agente debe USAR el resultado y terminar, no encadenar otra llamada. Ola 2: y si el canal Voz esta permitido.
+        var canCall = context.Assignment?.VoiceAiAgentId is not null && context.VoiceCallResult is null && Allows(context.Assignment, WorkflowAgentChannel.Voz);
         // ADR-0092: WhatsApp SI se sigue ofreciendo en la reanudacion (es multi-turno: el agente puede
         // repreguntar si la respuesta no basta). El tope de preguntas lo pone el runner, no aqui.
-        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null;
+        var canAskWhatsApp = context.Assignment?.WhatsAppLineId is not null && Allows(context.Assignment, WorkflowAgentChannel.WhatsApp);
         // ADR-0093: enviar correo (sincrono, sin pausa). Permiso explicito por nodo.
-        var canSendEmail = context.Assignment?.CanSendEmail == true;
-        var tools = BuildFormTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
-        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail);
+        var canSendEmail = context.Assignment?.CanSendEmail == true && Allows(context.Assignment, WorkflowAgentChannel.Correo);
+        // Ola 3 (ADR-0190): 'programar_reintento' con WhatsApp O con voz (independiente de si canCall esta vivo ahora).
+        var hasVoice = context.Assignment?.VoiceAiAgentId is not null && Allows(context.Assignment, WorkflowAgentChannel.Voz);
+        var canReprogram = canAskWhatsApp || hasVoice;
+        var tools = BuildFormTools(canSearchWeb, canCall, canAskWhatsApp, canSendEmail, canReprogram);
+        var system = BuildFormSystemPrompt(agent.SystemPrompt, context, canSearchWeb, canCall, canAskWhatsApp, canSendEmail, canReprogram);
         var userPrompt = WorkflowAgentContextSerializer.ToText(context);
         if (userPrompt.Length > MaxPromptChars) { userPrompt = userPrompt[..MaxPromptChars] + "\n[...contexto recortado...]"; }
         var messages = new List<AiToolMessage> { new("user", userPrompt) };
@@ -737,10 +768,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
                         ? """{"error": "faltan 'numero' o 'pregunta' para el WhatsApp"}"""
                         : """{"ok": true, "mensaje": "WhatsApp solicitado; el paso quedara en espera de la respuesta"}""";
                 }
-                else if (call.Name == "programar_reintento" && canAskWhatsApp)
+                else if (call.Name == "programar_reintento" && canReprogram)
                 {
-                    // ADR-0121: el agente se auto-reprograma (acompana a la pregunta; no pausa por si mismo). El
-                    // runner lo estampa en AgentNextRetryAt al pausar por el WhatsApp.
+                    // ADR-0121 + Ola 3: el agente se auto-reprograma (acompana a la pregunta/cierre; no pausa por si
+                    // mismo). El runner lo estampa en AgentNextRetryAt al pausar.
                     retryMinutes = ReadRetryMinutes(call.ArgumentsJson);
                     result = retryMinutes is null
                         ? """{"error": "falta 'en_minutos' (5..43200) para el reintento"}"""
@@ -843,7 +874,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             RequestedTagNames: requestedTags.Count > 0 ? requestedTags : null);
     }
 
-    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+    private static IReadOnlyList<AiToolSpec> BuildFormTools(bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail, bool canReprogram)
     {
         var tools = new List<AiToolSpec>
         {
@@ -879,9 +910,13 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
             tools.Add(new AiToolSpec("preguntar_whatsapp",
                 "Envia UNA pregunta por WhatsApp para CONSEGUIR o confirmar un dato faltante con una persona. 'numero' obligatorio (con codigo de pais, ej. +57...); 'pregunta' es el texto que se le envia. El paso quedara EN ESPERA de la respuesta y luego retomaras el llenado. Usala solo si el dato no esta en el contexto ni lo consigues por web.",
                 """{"type":"object","properties":{"numero":{"type":"string"},"pregunta":{"type":"string"}},"required":["numero","pregunta"]}"""));
-            tools.Add(BuildRetryTool());
             tools.Add(BuildListFormsTool());
             tools.Add(BuildSendImpresionTool());
+        }
+        // Ola 3 (ADR-0190): 'programar_reintento' con WhatsApp O con voz (un nodo solo-voz tambien reprograma).
+        if (canReprogram)
+        {
+            tools.Add(BuildRetryTool());
         }
         if (canSendEmail)
         {
@@ -975,7 +1010,7 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         catch (JsonException) { return null; }
     }
 
-    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail)
+    private static string BuildFormSystemPrompt(string agentPrompt, WorkflowAgentContextDto context, bool canSearchWeb, bool canCall, bool canAskWhatsApp, bool canSendEmail, bool canReprogram)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(agentPrompt)) { sb.AppendLine(agentPrompt.Trim()); sb.AppendLine(); }
@@ -994,7 +1029,10 @@ public sealed class WorkflowAgentInvoker : IWorkflowAgentInvoker
         if (canAskWhatsApp)
         {
             sb.AppendLine("Ademas tienes 'preguntar_whatsapp' para CONSEGUIR un dato preguntandole a una persona por WhatsApp. Usala solo si el dato no esta en el contexto ni lo consigues por web; el paso quedara en espera de la respuesta y luego retomaras el llenado.");
-            sb.AppendLine("Al preguntar por WhatsApp, usa tambien 'programar_reintento' (en_minutos) por si no responde: al cumplirse volveras a correr para enviarle un recordatorio; si responde antes, se cancela solo.");
+        }
+        if (canReprogram)
+        {
+            sb.AppendLine("Tienes 'programar_reintento' (en_minutos) por si el cliente no responde: al cumplirse volveras a correr para insistir; si responde antes, se cancela solo.");
         }
         if (canSendEmail)
         {

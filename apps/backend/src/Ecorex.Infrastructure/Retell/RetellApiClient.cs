@@ -83,6 +83,8 @@ internal sealed class RetellApiClient : IRetellApiClient
         if (request.CustomSipHeaders is { Count: > 0 }) { payload["custom_sip_headers"] = request.CustomSipHeaders; }
         if (request.Metadata is { Count: > 0 }) { payload["metadata"] = request.Metadata; }
         if (request.IgnoreE164Validation) { payload["ignore_e164_validation"] = true; }
+        // webhook_url POR LLAMADA (override del dashboard): el flujo reanuda contra esta instancia. Solo si viene.
+        if (!string.IsNullOrWhiteSpace(request.WebhookUrl)) { payload["webhook_url"] = request.WebhookUrl; }
 
         // NO reintentar: un 5xx puede haber colocado la llamada; reintentar llamaria dos veces a una persona.
         var (status, body, err) = await SendAsync(HttpMethod.Post, "/v2/create-phone-call", apiKey, payload, allowRetry: false, cancellationToken);

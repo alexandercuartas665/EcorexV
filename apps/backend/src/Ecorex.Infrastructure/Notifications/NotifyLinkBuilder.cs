@@ -41,4 +41,7 @@ public sealed class NotifyLinkBuilder : INotifyLinkBuilder
         if (pathOrUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || pathOrUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) { return pathOrUrl; }
         return string.IsNullOrWhiteSpace(_baseUrl) ? null : $"{_baseUrl}/{pathOrUrl.TrimStart('/')}";
     }
+
+    public string? BuildRetellWebhookUrl()
+        => string.IsNullOrWhiteSpace(_baseUrl) ? null : $"{_baseUrl}/api/voice/retell/webhook";
 }

@@ -128,8 +128,11 @@
                                             <label>Objetivo</label>
                                             <select @bind="st.Objetivo">
                                                 <option value="">-- Elige objetivo --</option>
+                                                @* SeguimientoCierre (ADR-0190) es una MARCA interna del nodo de flujo de voz, no una
+                                                   opcion para el programador de acciones de Contactos: se excluye del selector. *@
                                                 @foreach (var o in Enum.GetValues<ContactCallObjetivo>())
                                                 {
+                                                    if (o == ContactCallObjetivo.SeguimientoCierre) { continue; }
                                                     <option value="@o">@ObjetivoLabel(o)</option>
                                                 }
                                             </select>

@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-19 - v0.16.355: Extraccion de datos con pestanas y historial con duracion y filas reales
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes, rama feat/extraccion-tabs: c1476467 + 4f0e8109, unida al tronco
+  v0.16.354). Pedido del usuario: llevar Programacion e Historial a pestanas y ver tiempo y filas de cada paso.
+- HECHO: detalle del flujo (000730) con pestanas Configuracion / Programacion / Historial sobre el hero.
+  BrowserRunService guarda el inicio real del paso (AsyncLocal) en RecordStepRunAsync: FiredAt != FinishedAt
+  (paso a paso, programadas y secuencias). Historial: Duracion real ("-" en pasos viejos sin medir) y Filas =
+  nuevas + actualizadas + borradas (desglose en el tooltip); KPI "Filas (ult.)" de la ultima corrida completa.
+  ScrapeFlowRunDto expone Updated/Deleted. Sin migraciones.
+- PRUEBAS: build verde; validado en local 5263 (SIMULACION INGENIOS: Bucle Hist 11 filas, KPI 11). La duracion de
+  pasos nuevos se vera en la primera corrida real (en local no hay agente navegador).
+
 ## 2026-11-19 - v0.16.354: plantilla "Orden de compra" en todos los tenants (ADR-0189) - SIN DEPLOY
 
 - AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339). Pedido del usuario: "siembra la

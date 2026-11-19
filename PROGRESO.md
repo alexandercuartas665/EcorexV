@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-19 - v0.16.357: agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - SIN DEPLOY
+## 2026-11-19 - v0.16.357: agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - DESPLEGADA
+
+Integracion (sesion dev principal): fast-forward de f12b8b3f sobre f4a593dc, sin conflictos; version en f8bb7fed. Build 0 errores; unitarias 1624/304/35; format OK; integracion dual 684/750 en la corrida larga (66 fallas solo SqlServer por arranque del contenedor, ~1 ms c/u) y 66/66 al repetir esas 8 clases. Desplegada 2026-11-19 ~18:01 Bogota via GHCR: footer /login v0.16.357, Restarts=0, 0 errores en logs. Pendiente (configuracion, lo decide el usuario): crear/asignar persona SARA-voz en PROD y linea de voz de AGRO en modo COMPUESTO.
 
 - RAMA: worktree-voz-retell-fallback, puesta al dia por fast-forward con el tronco f4a593dc antes de empezar.
 - CODIGO: (1) directiva del objetivo SeguimientoCierre (antes vacia): conducta BASE de la llamada de seguimiento,

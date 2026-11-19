@@ -3458,6 +3458,102 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     public Task EnsureMaquetasMenuItemAsync(CancellationToken cancellationToken = default)
         => EnsureMenuItemAfterAsync("actividades", "maqueta", "Maquetas", cancellationToken);
 
+    /// <summary>Marca por tenant (TenantConfiguration) de que la plantilla de orden de compra ya se sembro una vez.</summary>
+    public const string OrdenCompraTemplateSeedKey = "seed.plantilla_orden_compra";
+
+    /// <summary>Nombre del grupo de plantillas de documento del modulo de compras.</summary>
+    public const string ComprasTemplateGroupName = "Compras";
+
+    /// <summary>Nombre de la plantilla de documento de la orden de compra (tokens {oc.*}, v0.16.344).</summary>
+    public const string OrdenCompraTemplateName = "Orden de compra";
+
+    private const string ComprasGroupHeaderHtml =
+        "<div style=\"display:flex;align-items:center;gap:16px;border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px\">"
+        + "<img src=\"{empresa.logo}\" style=\"max-height:64px\" /><div>"
+        + "<div style=\"font-size:18px;font-weight:bold\">{empresa.razonsocial}</div>"
+        + "<div style=\"font-size:12px\">NIT {empresa.nit} - {empresa.direccion}, {empresa.ciudad}</div>"
+        + "<div style=\"font-size:12px\">{empresa.telefono} - {empresa.email}</div></div></div>";
+
+    private const string OrdenCompraTemplateHtml =
+        "<h2 style=\"text-align:center;margin:4px 0\">ORDEN DE COMPRA {oc.numero}</h2>"
+        + "<p><b>Fecha:</b> {sistema.fechalarga}</p><p><b>Proveedor:</b> {oc.proveedor}</p>"
+        + "<p>Por medio de la presente se formaliza la orden de compra de los siguientes articulos ({oc.items}):</p>"
+        + "{oc.tabla_html}"
+        + "<p style=\"margin-top:16px;text-align:right\"><b>Total de la orden: {oc.total}</b></p>"
+        + "<p style=\"margin-top:40px\">Autorizado por: ____________________________</p>";
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE (ADR-0189): siembra en cada tenant el grupo de plantillas "Compras" (membrete {empresa.*})
+    /// con la plantilla "Orden de compra" (tokens {oc.*} de v0.16.344), la misma que se valido en ANDINAS. Corre en cada
+    /// arranque (tambien en prod) y cubre los tenants nuevos. UNA sola vez por tenant: deja la marca
+    /// <see cref="OrdenCompraTemplateSeedKey"/> en TenantConfiguration, asi que si el tenant borra o renombra la
+    /// plantilla no se resucita. Si el tenant ya tenia un grupo "Compras" o una plantilla "Orden de compra" no crea
+    /// nada (solo marca). No liga la plantilla a ningun concepto: cada tenant asigna el grupo a su concepto de OC.
+    /// Se omiten los tenants archivados.
+    /// </summary>
+    public async Task EnsureOrdenCompraTemplateAsync(CancellationToken cancellationToken = default)
+    {
+        var tenantIds = await _db.Tenants.IgnoreQueryFilters()
+            .Where(t => t.Status != TenantStatus.Archived)
+            .Select(t => t.Id)
+            .ToListAsync(cancellationToken);
+        var marcados = await _db.TenantConfigurations.IgnoreQueryFilters()
+            .Where(c => c.ConfigKey == OrdenCompraTemplateSeedKey)
+            .Select(c => c.TenantId)
+            .ToListAsync(cancellationToken);
+        var pendientes = tenantIds.Except(marcados).ToList();
+        if (pendientes.Count == 0) { return; }
+
+        var sembrados = 0;
+        foreach (var tenantId in pendientes)
+        {
+            var yaTiene = await _db.DocumentTemplateGroups.IgnoreQueryFilters()
+                    .AnyAsync(g => g.TenantId == tenantId && g.Name == ComprasTemplateGroupName, cancellationToken)
+                || await _db.DocumentTemplates.IgnoreQueryFilters()
+                    .AnyAsync(t => t.TenantId == tenantId && t.Name == OrdenCompraTemplateName, cancellationToken);
+
+            if (!yaTiene)
+            {
+                var maxSort = await _db.DocumentTemplateGroups.IgnoreQueryFilters()
+                    .Where(g => g.TenantId == tenantId)
+                    .Select(g => (int?)g.SortOrder)
+                    .MaxAsync(cancellationToken) ?? 0;
+                var group = new DocumentTemplateGroup
+                {
+                    TenantId = tenantId,
+                    Name = ComprasTemplateGroupName,
+                    Description = "Plantillas del modulo de compras (orden de compra).",
+                    IsActive = true,
+                    SortOrder = maxSort + 10,
+                    HeaderHtml = ComprasGroupHeaderHtml
+                };
+                _db.DocumentTemplateGroups.Add(group);
+                _db.DocumentTemplates.Add(new DocumentTemplate
+                {
+                    TenantId = tenantId,
+                    GroupId = group.Id,
+                    Name = OrdenCompraTemplateName,
+                    HtmlContent = OrdenCompraTemplateHtml,
+                    IsActive = true,
+                    SortOrder = 0
+                });
+                sembrados++;
+            }
+
+            _db.TenantConfigurations.Add(new TenantConfiguration
+            {
+                TenantId = tenantId,
+                ConfigKey = OrdenCompraTemplateSeedKey,
+                ConfigValue = "1"
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Plantilla de orden de compra (ADR-0189): sembrada en {Sembrados} tenant(s); {Marcados} tenant(s) marcados.",
+            sembrados, pendientes.Count);
+    }
+
     /// <summary>
     /// Inserta el item (<paramref name="route"/>, <paramref name="name"/>) inmediatamente despues del item con ruta
     /// <paramref name="anchorRoute"/> en cada vista de menu que tenga el ancla y aun no tenga la ruta. Abre el hueco

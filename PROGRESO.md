@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-19 - v0.16.354: plantilla "Orden de compra" en todos los tenants (ADR-0189) - SIN DEPLOY
+
+- AGENTE: Claude Opus 5.5 (dev principal ECOREX.desarrollo, worktree integra-339). Pedido del usuario: "siembra la
+  plantilla de OC en todos los tenants" (pendiente que dejo la sesion Compras UX en v0.16.344).
+- HECHO: DatabaseSeeder.EnsureOrdenCompraTemplateAsync, backfill idempotente en cada arranque (dev y prod): por tenant
+  no archivado y sin la marca seed.plantilla_orden_compra crea el grupo "Compras" (membrete {empresa.*}) y la plantilla
+  "Orden de compra" (tokens {oc.*}, mismo HTML validado en ANDINAS), salvo que ya tenga ese grupo o plantilla; deja
+  la marca para no resucitarla si el tenant la borra. No la liga a conceptos (cada tenant asigna el grupo a su OC).
+- PRUEBAS: integracion dual OrdenCompraTemplateSeed + PlantillasCorreoMenuBackfill 6/6 (PG + SQL Server: siembra,
+  respeta grupo existente y archivados, idempotente, no resucita). Prod (lectura): 11 tenants, ninguno con la
+  plantilla; todos la recibiran al arrancar v0.16.354. Sin migraciones.
+- SIGUIENTE: deploy con OK del usuario; luego cada tenant asigna el grupo "Compras" a su concepto de OC.
+
 ## 2026-11-18 - v0.16.353: eventos de entrega de SendGrid y bajas automaticas por rebote/spam (ADR-0188) - DESPLEGADA
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 309ef973 (incluye

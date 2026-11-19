@@ -113,6 +113,20 @@
             {
                 var flow = _selected;
 
+                @* ---- Pestanas del flujo: Configuracion | Programacion | Historial ---- *@
+                <div class="xd-tabs" role="tablist">
+                    <button type="button" role="tab" class="xd-tab @(_tab == TabConfig ? "active" : "")"
+                            aria-selected="@(_tab == TabConfig)" @onclick="() => _tab = TabConfig">Configuracion</button>
+                    <button type="button" role="tab" class="xd-tab @(_tab == TabProg ? "active" : "")"
+                            aria-selected="@(_tab == TabProg)" @onclick="() => _tab = TabProg">
+                        Programacion <span class="xd-num-badge">@_schedules.Count</span>
+                    </button>
+                    <button type="button" role="tab" class="xd-tab @(_tab == TabHist ? "active" : "")"
+                            aria-selected="@(_tab == TabHist)" @onclick="() => _tab = TabHist">
+                        Historial <span class="xd-num-badge">@_runs.Count</span>
+                    </button>
+                </div>
+
                 @* ---- Hero ---- *@
                 <div class="xd-hero">
                     <div class="xd-hero-head">
@@ -139,6 +153,8 @@
                     </div>
                 </div>
 
+                @if (_tab == TabConfig)
+                {
                 @* ---- Banda: el runtime es la colmena, no esta pantalla ---- *@
                 <div class="xd-strip">
                     <strong>Runtime:</strong>&nbsp; "Ejecutar ahora" ejecuta el flujo paso a paso en el
@@ -800,7 +816,10 @@
                     </div>
 
                 </div>
+                }
 
+                @if (_tab == TabProg)
+                {
                 @* ===== Programacion (Ola 5: reusa ImportProcess/recurrencia) ===== *@
                 <div class="xd-card">
                     <div class="xd-card-head">
@@ -1137,7 +1156,10 @@
                             offline queda esperando y se reintenta al reconectar. Requiere un agente asignado.</div>
                     </div>
                 </div>
+                }
 
+                @if (_tab == TabHist)
+                {
                 @* ===== Historial de corridas (bitacora, Ola 3) ===== *@
                 <div class="xd-card">
                     <div class="xd-card-head">
@@ -1171,6 +1193,7 @@
                         </div>
                     }
                 </div>
+                }
             }
 
         </div>
@@ -1178,6 +1201,12 @@
 </div>
 
 @code {
+    // Pestanas del detalle del flujo (segunda columna). Se conserva al cambiar de flujo.
+    private const string TabConfig = "config";
+    private const string TabProg = "prog";
+    private const string TabHist = "hist";
+    private string _tab = TabConfig;
+
     private IReadOnlyList<ScrapeFlowSummaryDto> _flows = Array.Empty<ScrapeFlowSummaryDto>();
     private IReadOnlyList<DataClientDto> _clients = Array.Empty<DataClientDto>();
     private IReadOnlyList<ScrapeTargetDto> _containers = Array.Empty<ScrapeTargetDto>();

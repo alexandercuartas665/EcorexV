@@ -1,0 +1,132 @@
+@using Ecorex.Application.Gestor
+@inject IEmailDeliveryEventService DeliverySvc
+@inject IJSRuntime JS
+
+@* Eventos de entrega de SendGrid (ADR-0188): URL secreta del Event Webhook + pasos para configurarlo. Se usa en
+   /configuracion (SMTP propio del tenant) y en el servidor de correo GLOBAL (Platform = true). *@
+<div class="sgw">
+    <div class="sgw-title">Eventos de entrega (SendGrid)</div>
+    <p class="sgw-sub">
+        Con esta URL SendGrid le avisa a ECOREX que paso con cada correo: entregado, abierto, clic, rebote o spam.
+        Lo ves en "Ultimas ejecuciones" de cada campana, y los rebotes, spam y bajas pasan solos a la lista de bajas
+        para no volver a escribirles.
+    </p>
+
+    @if (_loading)
+    {
+        <div class="sgw-muted">Cargando...</div>
+    }
+    else if (_info is not { HasConfig: true })
+    {
+        <div class="sgw-muted">Guarda primero el servidor de correo para generar la URL.</div>
+    }
+    else if (!_info.HasToken)
+    {
+        <button class="btn btn-outline-secondary" @onclick="() => LoadAsync(create: true)" disabled="@_busy">
+            @(_busy ? "Generando..." : "Generar URL del webhook")
+        </button>
+    }
+    else
+    {
+        @if (_info.Url is null)
+        {
+            <div class="text-danger" style="font-size:0.85rem;">
+                El servidor no tiene URL publica (Ecorex:PublicBaseUrl / ECOREX_PUBLIC_BASE_URL). Sin ella SendGrid no puede llamar; avisa a soporte.
+            </div>
+        }
+        else
+        {
+            <div class="sgw-url-row">
+                <input class="form-control sgw-url" readonly value="@_info.Url" onfocus="this.select()" />
+                <button class="btn btn-outline-secondary" @onclick="CopyAsync">@(_copied ? "Copiada" : "Copiar")</button>
+            </div>
+        }
+        <ol class="sgw-steps">
+            <li>En SendGrid: <b>Settings &rarr; Mail Settings &rarr; Event Webhooks</b> &rarr; crear uno nuevo.</li>
+            <li>Pega la URL en <b>Post URL</b> y deja la autorizacion sin configurar (la URL ya es secreta).</li>
+            <li>Marca: Processed, Delivered, Deferred, Bounced, Dropped, Opened, Clicked, Spam Reports, Unsubscribes, Group Unsubscribes y Group Resubscribes.</li>
+            <li>Activalo y usa <b>Test Integration</b>; luego guarda.</li>
+            <li>Para ver aperturas y clics: <b>Settings &rarr; Tracking</b> &rarr; activa Open Tracking y Click Tracking.</li>
+        </ol>
+        @if (Platform)
+        {
+            <div class="sgw-muted">Esta URL es la del servidor GLOBAL: recibe los eventos de todas las empresas que no tienen SMTP propio.</div>
+        }
+        <div style="margin-top:8px;">
+            @if (_confirmRegen)
+            {
+                <span class="sgw-muted">La URL actual dejara de funcionar. </span>
+                <button class="btn btn-sm btn-outline-danger" @onclick="() => LoadAsync(regenerate: true)" disabled="@_busy">Si, regenerar</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _confirmRegen = false">Cancelar</button>
+            }
+            else
+            {
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _confirmRegen = true">Regenerar URL</button>
+            }
+        </div>
+    }
+    @if (_error is not null)
+    {
+        <div class="text-danger" style="font-size:0.85rem;margin-top:8px;">@_error</div>
+    }
+</div>
+
+@code {
+    /// <summary>true = servidor de correo GLOBAL (plataforma); false = SMTP propio del tenant activo.</summary>
+    [Parameter] public bool Platform { get; set; }
+
+    /// <summary>Cambia cuando la pagina guarda el servidor de correo, para recargar (p.ej. ya existe la config).</summary>
+    [Parameter] public int Version { get; set; }
+
+    private EmailWebhookInfo? _info;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _copied;
+    private bool _confirmRegen;
+    private string? _error;
+    private int _loadedVersion = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedVersion == Version) { return; }
+        _loadedVersion = Version;
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync(bool create = false, bool regenerate = false)
+    {
+        _busy = true;
+        _error = null;
+        _copied = false;
+        try
+        {
+            _info = Platform
+                ? await DeliverySvc.GetPlatformWebhookAsync(create, regenerate)
+                : await DeliverySvc.GetTenantWebhookAsync(create, regenerate);
+            _confirmRegen = false;
+        }
+        catch (Exception ex)
+        {
+            _error = "No se pudo obtener la URL del webhook: " + ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CopyAsync()
+    {
+        if (_info?.Url is null) { return; }
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _info.Url);
+            _copied = true;
+        }
+        catch
+        {
+            _error = "No se pudo copiar; selecciona la URL y copiala a mano.";
+        }
+    }
+}

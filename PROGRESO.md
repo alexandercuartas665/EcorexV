@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-18 - v0.16.353: eventos de entrega de SendGrid y bajas automaticas por rebote/spam (ADR-0188) - INTEGRADA, SIN DEPLOY
+
+- INTEGRACION (dev principal ECOREX.desarrollo): rama feat/whatsapp-sync-estado-ycloud hasta 309ef973 (incluye
+  da39f4a2 y 9305fc55) unida al tronco 190eaa8a. Renumerada a v0.16.353 (0.16.351 y 0.16.352 las usa el cerebro de
+  maquetas); ADR-0188 libre. Conflictos solo en PROGRESO y AppVersion. Trae migracion dual AddEmailDeliveryEvents
+  (solo columnas nuevas): se aplica en prod con el deploy.
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.call_center, rama feat/whatsapp-sync-estado-ycloud). Pedido del usuario: usar
+  SendGrid en SOLDARCO y saber que pasa con cada correo (puntos 1 y 2 de los pendientes).
+- HECHO: `SmtpEmailSender` agrega X-SMTPAPI unique_args (ecx_tenant + ecx_run) si el host es SendGrid y devuelve el id
+  "queued as" (ExternalRef). El motor asigna el Id de la ejecucion antes de enviar. Webhook publico
+  `POST /webhooks/sendgrid/{token}` (token aleatorio por SMTP del tenant o del global, regenerable). Estado real en
+  `ContactWorkflowRun` (DeliveryStatus con precedencia, apertura/clic, detalle) -> columna "Entrega" en "Ultimas
+  ejecuciones". Rebote definitivo, spam y baja del proveedor van a `EmailUnsubscribe` (origenes rebote/spam/proveedor);
+  un bloqueo temporal no; group_resubscribe solo levanta bajas del proveedor. Panel "Eventos de entrega (SendGrid)" en
+  /configuracion y /servidor-correo con URL, copiar, regenerar y pasos. Migracion dual `AddEmailDeliveryEvents`.
+- NOTA: el {enlace_baja} propio (ADR-0175) ya existia: el punto 3 de los pendientes (enlace de baja) estaba hecho.
+- SIGUIENTE: integrar/desplegar (ECOREX.desarrollo). En SOLDARCO: autenticar soldarco.com en SendGrid, guardar el SMTP
+  en /configuracion (usuario apikey; la API key la pone el usuario), generar la URL del webhook y pegarla en SendGrid
+  (Event Webhook + Open/Click Tracking).
+
 ## 2026-11-18 - v0.16.352: cerebro de la maqueta, exportar a Obsidian y papelera (ADR-0183 punto 10) - INTEGRADA, SIN DEPLOY
 
 - INTEGRACION (dev principal ECOREX.desarrollo): rama feat/maquetas-cerebro hasta 79773a57 unida al tronco 51fe56b5 como
@@ -104,7 +124,11 @@
   en cada envio. Sin migraciones.
 - Renumerada a v0.16.348 al integrar main (v0.16.347 = maquetas-cerebro). Vista previa con formato real de
   WhatsApp (*negrita*, _cursiva_, ~tachado~) en el panel del agente y en el paso WhatsApp del gestor.
-- Siguiente (tras deploy de la sesion principal): E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
+- E2E en PROD 2026-11-18 (desplegada como v0.16.349 por ECOREX.desarrollo): plantilla promo_catalogo_soldaduras
+  (imagen de la galeria + 3 botones) creada con el agente y sometida 14:44 por la linea YCloud Ana; Meta la
+  aprobo y el worker la paso a Approved a las 14:50 sin intervencion. Paso WhatsApp en el gestor de contactos
+  (filtro "PRUEBA acuartas 8 y 9 AM", ventana 14:58-15:30) -> Sent 14:58 al 3217626882.
+- (Historico) Siguiente (tras deploy de la sesion principal): E2E con una plantilla de prueba sometida a la WABA de SOLDARCO (irreversible, requiere OK) y envio
   WhatsApp programado desde el gestor de contactos.
 
 ## 2026-11-18 - v0.16.348: ola 3b del cerebro digital, adjuntos (imagenes y PDF) (ADR-0183 punto 9) - DESPLEGADA (incluye v0.16.347)

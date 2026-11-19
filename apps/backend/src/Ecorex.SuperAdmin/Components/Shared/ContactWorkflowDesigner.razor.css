@@ -154,3 +154,4 @@
 .cw-run-st.ok { background: var(--t-green-bg); color: var(--ok); }
 .cw-run-st.err { background: var(--t-rose-bg); color: var(--danger); }
 .cw-run-st.warn { background: var(--t-amber-bg); color: var(--t-amber); }
+.cw-run-st.mute { background: var(--surface-2); color: var(--ink-3); }

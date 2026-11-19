@@ -4878,6 +4878,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("channel");
 
+                    b.Property<DateTimeOffset?>("ClickedAtUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("clicked_at_utc");
+
                     b.Property<Guid>("ContactWorkflowScheduleId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("contact_workflow_schedule_id");
@@ -4894,6 +4898,23 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DeliveryDetail")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("delivery_detail");
+
+                    b.Property<string>("DeliveryStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("delivery_status");
+
+                    b.Property<DateTimeOffset?>("DeliveryUpdatedAtUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("delivery_updated_at_utc");
+
                     b.Property<DateTimeOffset>("DispatchedAtUtc")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("dispatched_at_utc");
@@ -4907,6 +4928,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("external_ref");
+
+                    b.Property<DateTimeOffset?>("OpenedAtUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("opened_at_utc");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -7359,6 +7384,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("EventWebhookToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("event_webhook_token");
 
                     b.Property<string>("FromEmail")
                         .HasMaxLength(200)
@@ -18492,6 +18522,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("EventWebhookToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("event_webhook_token");
 
                     b.Property<string>("FromEmail")
                         .HasMaxLength(200)

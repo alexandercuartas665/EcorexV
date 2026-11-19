@@ -113,7 +113,12 @@ public sealed record ContactWorkflowRunDto(
     string Canal,
     ContactWorkflowRunStatus Estado,
     int Intentos,
-    string? Error);
+    string? Error,
+    // Estado real de entrega del correo segun el webhook del proveedor (ADR-0188); None = sin eventos.
+    EmailDeliveryStatus Entrega = EmailDeliveryStatus.None,
+    string? EntregaDetalle = null,
+    DateTime? AbiertoLocal = null,
+    DateTime? ClicLocal = null);
 
 /// <summary>
 /// Parametros del paso Llamada (contenido de ParamsJson). Dos modos:

@@ -4878,6 +4878,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("channel");
 
+                    b.Property<DateTimeOffset?>("ClickedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("clicked_at_utc");
+
                     b.Property<Guid>("ContactWorkflowScheduleId")
                         .HasColumnType("uuid")
                         .HasColumnName("contact_workflow_schedule_id");
@@ -4894,6 +4898,23 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DeliveryDetail")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("delivery_detail");
+
+                    b.Property<string>("DeliveryStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("delivery_status");
+
+                    b.Property<DateTimeOffset?>("DeliveryUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivery_updated_at_utc");
+
                     b.Property<DateTimeOffset>("DispatchedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("dispatched_at_utc");
@@ -4907,6 +4928,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("external_ref");
+
+                    b.Property<DateTimeOffset?>("OpenedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("opened_at_utc");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -7358,6 +7383,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("EventWebhookToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("event_webhook_token");
 
                     b.Property<string>("FromEmail")
                         .HasMaxLength(200)
@@ -18487,6 +18517,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("EventWebhookToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("event_webhook_token");
 
                     b.Property<string>("FromEmail")
                         .HasMaxLength(200)

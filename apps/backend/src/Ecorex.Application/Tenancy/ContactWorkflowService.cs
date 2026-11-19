@@ -230,7 +230,11 @@ public sealed class ContactWorkflowService : IContactWorkflowService
                 r.Channel,
                 r.Status,
                 r.Attempts,
-                r.Error
+                r.Error,
+                r.DeliveryStatus,
+                r.DeliveryDetail,
+                r.OpenedAtUtc,
+                r.ClickedAtUtc
             })
             .ToListAsync(cancellationToken);
         if (runs.Count == 0) { return Array.Empty<ContactWorkflowRunDto>(); }
@@ -253,7 +257,11 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             r.Channel,
             r.Status,
             r.Attempts,
-            r.Error)).ToList();
+            r.Error,
+            r.DeliveryStatus,
+            r.DeliveryDetail,
+            r.OpenedAtUtc is DateTimeOffset o ? TimeZoneInfo.ConvertTime(o, tz).DateTime : null,
+            r.ClickedAtUtc is DateTimeOffset k ? TimeZoneInfo.ConvertTime(k, tz).DateTime : null)).ToList();
     }
 
     private static string DefaultLabel(ContactWorkflowStepType type) => type switch

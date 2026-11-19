@@ -29,12 +29,15 @@ public sealed class SmtpEmailSender : IEmailSender
     private readonly EcorexDbContext _db;
     private readonly ISecretProtector _secretProtector;
     private readonly ILogger<SmtpEmailSender> _logger;
+    private readonly ITenantContext? _tenant;
 
-    public SmtpEmailSender(EcorexDbContext db, ISecretProtector secretProtector, ILogger<SmtpEmailSender>? logger = null)
+    public SmtpEmailSender(EcorexDbContext db, ISecretProtector secretProtector, ILogger<SmtpEmailSender>? logger = null,
+        ITenantContext? tenant = null)
     {
         _db = db;
         _secretProtector = secretProtector;
         _logger = logger ?? NullLogger<SmtpEmailSender>.Instance;
+        _tenant = tenant;
     }
 
     /// <summary>Forma comun a ambas configuraciones (tenant / global) para el envio.</summary>
@@ -98,6 +101,39 @@ public sealed class SmtpEmailSender : IEmailSender
 
     private static string Domain(string email) => email[(email.LastIndexOf('@') + 1)..];
 
+    /// <summary>
+    /// Cabecera X-SMTPAPI de SendGrid con unique_args (ADR-0188): el tenant del contexto (ecx_tenant) mas los
+    /// argumentos del envio (p.ej. ecx_run). JSON compacto sin espacios (la cabecera no debe plegarse).
+    /// Null si no hay nada que mandar. Solo se aceptan claves [a-z0-9_] y valores cortos.
+    /// </summary>
+    public static string? BuildSmtpApiHeader(IReadOnlyDictionary<string, string>? customArgs, Guid? tenantId)
+    {
+        var args = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        if (tenantId is Guid tid && tid != Guid.Empty) { args["ecx_tenant"] = tid.ToString(); }
+        if (customArgs is not null)
+        {
+            foreach (var (k, v) in customArgs)
+            {
+                if (string.IsNullOrWhiteSpace(k) || string.IsNullOrWhiteSpace(v) || v.Length > 100) { continue; }
+                if (!k.All(ch => ch is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_')) { continue; }
+                args[k] = v.Trim();
+            }
+        }
+        if (args.Count == 0) { return null; }
+        return System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object> { ["unique_args"] = args });
+    }
+
+    /// <summary>Id que el servidor dio al aceptar ("250 Ok: queued as X" en SendGrid), o null.</summary>
+    public static string? QueuedMessageId(string? serverResponse)
+    {
+        if (string.IsNullOrWhiteSpace(serverResponse)) { return null; }
+        var m = System.Text.RegularExpressions.Regex.Match(serverResponse, @"queued as\s+([A-Za-z0-9._\-]+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) { return null; }
+        var id = m.Groups[1].Value.TrimEnd('.');
+        return id.Length is > 0 and <= 200 ? id : null;
+    }
+
     private static string? ValidEmail(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) { return null; }
@@ -152,6 +188,13 @@ public sealed class SmtpEmailSender : IEmailSender
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = subject;
             message.Body = new BodyBuilder { HtmlBody = htmlBody }.ToMessageBody();
+            // SendGrid: argumentos de correlacion que vuelven en el Event Webhook (ADR-0188). Solo ids, nunca datos
+            // personales; otros servidores no reciben la cabecera.
+            if (cfg.Host.Contains("sendgrid", StringComparison.OrdinalIgnoreCase)
+                && BuildSmtpApiHeader(sender?.CustomArgs, _tenant?.TenantId) is { } smtpApi)
+            {
+                message.Headers.Add("X-SMTPAPI", smtpApi);
+            }
 
             using var client = new SmtpClient { Timeout = TimeoutMs };
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -162,9 +205,9 @@ public sealed class SmtpEmailSender : IEmailSender
             {
                 await client.AuthenticateAsync(cfg.User, password ?? string.Empty, cts.Token);
             }
-            await client.SendAsync(message, cts.Token);
+            var response = await client.SendAsync(message, cts.Token);
             await client.DisconnectAsync(true, cts.Token);
-            return new EmailSendResult(true, null);
+            return new EmailSendResult(true, null, QueuedMessageId(response));
         }
         catch (Exception ex)
         {

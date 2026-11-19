@@ -377,6 +377,12 @@ else
         {
             <div class="@(_smtpTestOk ? "text-success" : "text-danger")" style="font-size:0.85rem;margin-top:10px;">@_smtpTestMsg</div>
         }
+
+        @if ((_smtp.SmtpHost ?? "").Contains("sendgrid", StringComparison.OrdinalIgnoreCase))
+        {
+            <hr style="margin:20px 0;border:0;border-top:1px solid var(--border);" />
+            <SendGridWebhookPanel Platform="false" Version="_smtpVersion" />
+        }
     </div>
 
     @* Firma de correo del usuario (ADR-0175): alimenta {firma} en las plantillas cuando es el asesor del contacto. *@
@@ -740,6 +746,7 @@ else
             _smtp.SmtpPassword = null;
             _smtpOk = true;
             _smtpMsg = "Configuracion de correo guardada.";
+            _smtpVersion++; // el panel del webhook de SendGrid recarga (ya existe la config)
         }
         catch (Exception ex)
         {
@@ -1199,6 +1206,7 @@ else
     }
 
     private SmtpForm _smtp = new();
+    private int _smtpVersion;
     private bool _smtpHasPassword;
     private DateTimeOffset? _smtpLastValidatedAt;
     private bool _smtpBusy;

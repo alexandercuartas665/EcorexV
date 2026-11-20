@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-20 - v0.16.358: Conciliacion DIAN: la orden de compra de la factura llega a la parrilla (rama feat/dian-orden-compra)
+## 2026-11-20 - v0.16.358: Conciliacion DIAN: la orden de compra de la factura llega a la parrilla (rama feat/dian-orden-compra) - DESPLEGADA
+
+Deploy 2026-11-20 ~04:31 Bogota via GHCR (antes de la Diaria DRON de las 06:00), sin reintentos: footer /login v0.16.358, Restarts=0, 0 errores en logs. Smoke en BD prod (solo lectura): CENTRAL DE SOLDADURAS BTA3124308 -> OMP0012371 y CODINTER FVE826688 -> OMP0012377; 73 de 680 renglones con OC. Tras la proxima Diaria los documentos nuevos deben llegar con OC.
 
 Integracion (sesion dev principal): merge --no-ff de feat/dian-orden-compra (a41e99f2) sobre 02477fab, sin conflictos. Ajuste al integrar: el recorte de la OC en DianUblParser bajo de 100 a 80 caracteres, el largo real de bot_dummies.id_compra y de conciliacion_dian_renglones.orden_compra_soldarco (HasMaxLength(80)); con 100, una OC de 81-100 caracteres habria hecho fallar el guardado.
 

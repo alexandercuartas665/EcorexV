@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-20 - Ofertas de portales (ADR-0181): configuracion llevada a PROD (solo BD, sin deploy ni codigo)
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas, rama feat/agentes-sistema). Tenant SOLDARCO. El codigo ya
+  estaba en prod desde v0.16.346; faltaba la configuracion, que solo vivia en la BD local.
+- PRUEBA PASO 10 (2026-11-18, OK del usuario): "Avisar nuevo pedido por WhatsApp" del DRON PLATAFORMAS INGENIOS se
+  corrio suelto con variables temporales TAREA=T00096 y TAREA_NUEVA=1 (borradas al terminar). YCloud acepto la
+  plantilla aviso_nuevo_pedido_plataforma a los 2 numeros y el usuario confirmo que llego.
+- BOTON Y REGLAS (2026-11-19, OK del usuario): FRM-INCAUCA-PED gana el boton "Pasar oferta al portal"
+  (btn_pasar_portal) con la regla EJECUTAR_DRON (documento DRON-PORTALES, confirmacion en modal de la app); la
+  grilla items gana "No cotiza" + "Motivo" y las reglas por fila (cnt_cot <= cnt_sol, cnt_cot/vlr_uni obligatorios
+  salvo No cotiza, motivo obligatorio si No cotiza). Flujo nuevo "Responder oferta - pdpartner" en SERVER06 (login y
+  Pendientes copiados del flujo de plataformas): abre la oferta de la tarea y la LLENA, todavia SIN guardar.
+  Verificado: el boton aparece en T00096 (no se pulso: esa oferta ya esta respondida en el portal).
+- CREAR ACTIVIDAD (2026-11-19, OK del usuario): responsable SAUL H. LEON, vencimiento = plazo de la oferta (23:59
+  Bogota), campos fijos moneda PESO COLOMBIANO y vigencia {hoy+30}, prellenado desde el contenedor Items (ultima
+  cotizacion con precio del mismo codigo; marca, vlr_uni, dias, dcto, iva; solo celdas vacias). El lector de
+  Pendientes deja vacio un dropdown en "Seleccione...". Aplica a pedidos nuevos; las tareas existentes no cambian.
+- Scripts idempotentes (scratchpad de la sesion): prod_ofertas_adr0181.sql y prod_crear_actividad_adr0181.sql.
+- SIGUIENTE: con la proxima oferta Pendiente, leer los ids de Guardar/Finalizar de pdpartner y agregar el paso
+  Guardar al flujo; validar el prellenado y el vencimiento en el primer pedido real.
+
 ## 2026-11-20 - v0.16.358: Conciliacion DIAN: la orden de compra de la factura llega a la parrilla (rama feat/dian-orden-compra) - DESPLEGADA
 
 Deploy 2026-11-20 ~04:31 Bogota via GHCR (antes de la Diaria DRON de las 06:00), sin reintentos: footer /login v0.16.358, Restarts=0, 0 errores en logs. Smoke en BD prod (solo lectura): CENTRAL DE SOLDADURAS BTA3124308 -> OMP0012371 y CODINTER FVE826688 -> OMP0012377; 73 de 680 renglones con OC. Tras la proxima Diaria los documentos nuevos deben llegar con OC.

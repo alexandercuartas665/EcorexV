@@ -35,6 +35,18 @@ internal sealed class RetellApiClient : IRetellApiClient
         };
         if (!string.IsNullOrWhiteSpace(request.Model)) { payload["model"] = request.Model; }
         if (!string.IsNullOrWhiteSpace(request.BeginMessage)) { payload["begin_message"] = request.BeginMessage; }
+        if (request.EndCallTool)
+        {
+            payload["general_tools"] = new List<object>
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "end_call",
+                    ["name"] = "end_call",
+                    ["description"] = "Cuelga la llamada cuando la conversacion termino (despues de despedirte) o si contesta un buzon de voz o una grabacion."
+                }
+            };
+        }
 
         var (status, body, err) = await SendAsync(HttpMethod.Post, "/create-retell-llm", apiKey, payload, allowRetry: true, cancellationToken);
         if (err is not null || !IsSuccess(status))
@@ -62,6 +74,15 @@ internal sealed class RetellApiClient : IRetellApiClient
                 return d;
             }).ToList();
         }
+        if (request.VoicemailHangup)
+        {
+            payload["voicemail_option"] = new Dictionary<string, object?>
+            {
+                ["action"] = new Dictionary<string, object?> { ["type"] = "hangup" }
+            };
+        }
+        if (request.EndCallAfterSilenceMs is int silence) { payload["end_call_after_silence_ms"] = Math.Max(10_000, silence); }
+        if (request.MaxCallDurationMs is int maxMs) { payload["max_call_duration_ms"] = Math.Clamp(maxMs, 60_000, 7_200_000); }
 
         var (status, body, err) = await SendAsync(HttpMethod.Post, "/create-agent", apiKey, payload, allowRetry: true, cancellationToken);
         if (err is not null || !IsSuccess(status))
@@ -83,6 +104,8 @@ internal sealed class RetellApiClient : IRetellApiClient
         if (request.CustomSipHeaders is { Count: > 0 }) { payload["custom_sip_headers"] = request.CustomSipHeaders; }
         if (request.Metadata is { Count: > 0 }) { payload["metadata"] = request.Metadata; }
         if (request.IgnoreE164Validation) { payload["ignore_e164_validation"] = true; }
+        // webhook_url POR LLAMADA (override del dashboard): el flujo reanuda contra esta instancia. Solo si viene.
+        if (!string.IsNullOrWhiteSpace(request.WebhookUrl)) { payload["webhook_url"] = request.WebhookUrl; }
 
         // NO reintentar: un 5xx puede haber colocado la llamada; reintentar llamaria dos veces a una persona.
         var (status, body, err) = await SendAsync(HttpMethod.Post, "/v2/create-phone-call", apiKey, payload, allowRetry: false, cancellationToken);

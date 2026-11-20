@@ -38,4 +38,11 @@ public class TenantEmailConfig : TenantEntity
     public bool IsEnabled { get; set; }
 
     public DateTimeOffset? LastValidatedAt { get; set; }
+
+    /// <summary>
+    /// Token secreto de la URL del webhook de eventos del proveedor (SendGrid Event Webhook, ADR-0188):
+    /// /webhooks/sendgrid/{token}. Aleatorio, se genera al pedir la URL y se puede regenerar (revoca la
+    /// anterior). Null = sin webhook. No es una credencial del proveedor: solo autentica a quien nos llama.
+    /// </summary>
+    public string? EventWebhookToken { get; set; }
 }

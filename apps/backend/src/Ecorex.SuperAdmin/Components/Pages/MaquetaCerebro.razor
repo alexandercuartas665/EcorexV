@@ -1,0 +1,1243 @@
+@* Cerebro digital del proyecto de maqueta (ADR-0183): notas markdown enlazadas al estilo Obsidian ([[nota]],
+   [[pantalla.html]], [[T00046]], #etiqueta), backlinks, grafo (ECharts force) e importacion de un vault (.zip de .md).
+   Vive como segunda pestana del editor de maquetas. Cualquier usuario del tenant escribe; archiva el autor o
+   Owner/Admin. Cada operacion corre en un scope propio con el tenant de la sesion (patron del editor). Solo ASCII. *@
+@implements IAsyncDisposable
+@using Ecorex.Application.Integraciones.Maqueta
+@using Ecorex.Application.Mcp
+@using Ecorex.Application.Tenancy
+@using Ecorex.SuperAdmin.Maqueta
+@inject IServiceScopeFactory ScopeFactory
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="mb-shell">
+    <aside class="mb-list">
+        <div class="mb-list-head">
+            <div class="mb-list-title">
+                <h2>Cerebro</h2>
+                <span class="mb-count">@_allTitles.Count notas</span>
+            </div>
+            <div class="mb-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input placeholder="Buscar en titulos y contenido" @bind="_search" @bind:event="oninput" @bind:after="OnSearchChanged" />
+            </div>
+            <div class="mb-list-actions">
+                <button class="mb-btn primary" @onclick="NewNoteAsync"><i class="fa-solid fa-plus"></i> Nota</button>
+                <button class="mb-btn" title="Grafo completo del proyecto" @onclick="OpenGraphAsync"><i class="fa-solid fa-diagram-project"></i> Grafo</button>
+                <button class="mb-icon" title="Adjuntos del cerebro (imagenes y PDF)" @onclick="OpenAssetsPanelAsync"><i class="fa-solid fa-paperclip"></i></button>
+                <button class="mb-icon" title="Importar un vault de Obsidian (.zip con notas .md)" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i></button>
+                <a class="mb-icon" href="@ExportUrl" download data-enhance-nav="false" title="Exportar el cerebro como vault de Obsidian (.zip con las notas .md y los adjuntos)"><i class="fa-solid fa-file-export"></i></a>
+                <button class="mb-icon" title="Papelera: notas archivadas (restaurarlas)" @onclick="OpenTrashAsync"><i class="fa-solid fa-trash-arrow-up"></i></button>
+            </div>
+            <button class="mb-claude" title="Piensa con Claude sobre esta maqueta y su cerebro (tu plan de Claude)" @onclick="() => _showClaude = true">
+                <i class="fa-regular fa-comments"></i> Chatear con Claude sobre esta maqueta
+            </button>
+        </div>
+        <div class="mb-notes">
+            @if (_loadingList)
+            {
+                <div class="mb-muted">Cargando notas...</div>
+            }
+            else if (_notes.Count == 0)
+            {
+                <div class="mb-muted">@(string.IsNullOrWhiteSpace(_search) ? "El cerebro esta vacio. Crea la primera nota o importa tu vault de Obsidian." : "Ninguna nota coincide.")</div>
+            }
+            @foreach (var n in _notes)
+            {
+                <button class="mb-note @(_current?.Id == n.Id ? "on" : null)" @onclick="() => OpenNoteAsync(n.Id)">
+                    <span class="mb-note-title">@n.Title</span>
+                    @if (!string.IsNullOrEmpty(n.Snippet))
+                    {
+                        <span class="mb-note-snip">@n.Snippet</span>
+                    }
+                    <span class="mb-note-meta">
+                        <span title="Enlaces salientes"><i class="fa-solid fa-arrow-right-long"></i> @n.OutLinks</span>
+                        <span title="Notas que la enlazan"><i class="fa-solid fa-arrow-left-long"></i> @n.BackLinks</span>
+                        <span>@Ago(n.UpdatedAt)</span>
+                    </span>
+                </button>
+            }
+        </div>
+    </aside>
+
+    <section class="mb-center">
+        @if (!_hasNote)
+        {
+            <div class="mb-welcome">
+                <div class="mb-welcome-icon"><i class="fa-solid fa-brain"></i></div>
+                <h3>El cerebro digital de @ProjectName</h3>
+                <p>Escribe lo que piensas mientras construyes la maqueta y enlaza las ideas entre si. Cada enlace se vuelve una conexion en el grafo.</p>
+                <ul class="mb-syntax">
+                    <li><code>[[Nombre de nota]]</code> enlaza otra nota (si no existe queda pendiente y un clic la crea)</li>
+                    <li><code>[[pantalla.html]]</code> enlaza una pantalla de la maqueta</li>
+                    <li><code>[[T00046]]</code> enlaza una solicitud (tarjeta)</li>
+                    <li><code>#etiqueta</code> agrupa notas por tema</li>
+                </ul>
+                <div class="mb-welcome-actions">
+                    <button class="mb-btn primary" @onclick="NewNoteAsync"><i class="fa-solid fa-plus"></i> Nueva nota</button>
+                    @if (!string.IsNullOrEmpty(CurrentFile))
+                    {
+                        <button class="mb-btn" @onclick="() => OpenPageNoteAsync(CurrentFile)"><i class="fa-regular fa-window-maximize"></i> Nota de la pantalla actual</button>
+                    }
+                    <button class="mb-btn" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i> Importar Obsidian</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="mb-note-head">
+                <input class="mb-title" @bind="_draftTitle" @bind:event="oninput" placeholder="Titulo de la nota" maxlength="200" />
+                <div class="mb-note-tools">
+                    <span class="mb-status @(Dirty ? "dirty" : null)">@StatusText</span>
+                    <div class="mb-seg">
+                        <button class="@(_editing ? "on" : null)" title="Editar (markdown)" @onclick="() => SetEditingAsync(true)"><i class="fa-solid fa-pen"></i> Editar</button>
+                        <button class="@(!_editing ? "on" : null)" title="Vista" @onclick="() => SetEditingAsync(false)"><i class="fa-regular fa-eye"></i> Vista</button>
+                    </div>
+                    <button class="mb-btn primary" disabled="@(_saving || !Dirty)" @onclick="SaveAsync"><i class="fa-solid fa-floppy-disk"></i> @(_saving ? "Guardando..." : "Guardar")</button>
+                    @if (_current is not null && CanArchive)
+                    {
+                        <button class="mb-icon" title="Archivar nota" @onclick="ArchiveAsync"><i class="fa-regular fa-trash-can"></i></button>
+                    }
+                </div>
+            </div>
+            @if (_error is not null)
+            {
+                <div class="mb-warn">@_error @if (_conflict) {<button class="mb-link" @onclick="ReloadCurrentAsync">Recargar la nota</button>}</div>
+            }
+            @if (_editing)
+            {
+                <div class="mb-editor-wrap">
+                    <textarea class="mb-editor" @ref="_editorRef" @bind="_draftBody" @bind:event="oninput"
+                              placeholder="Escribe en markdown. [[ para enlazar una nota, pantalla o tarjeta. Ctrl+S guarda."></textarea>
+                    <div class="mb-editor-help">
+                        <span><code>[[</code> enlazar</span>
+                        <span><code>#</code> etiqueta</span>
+                        <span><code>**negrita**</code></span>
+                        <span><code>- [ ]</code> tarea</span>
+                        @* Ola 3b: adjuntar imagen o PDF; se inserta ![[nombre]] en el cursor. *@
+                        <label class="mb-link mb-attach @(_uploading ? "busy" : null)" title="Imagen PNG/JPG/GIF/WEBP/BMP o PDF, max 10 MB">
+                            <i class="fa-solid fa-paperclip"></i> @(_uploading ? "Subiendo..." : "Adjuntar imagen")
+                            <InputFile OnChange="OnAssetSelected" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf" disabled="@_uploading" />
+                        </label>
+                        @if (!string.IsNullOrEmpty(CurrentFile))
+                        {
+                            <button class="mb-link" @onclick="InsertCurrentPageAsync"><i class="fa-regular fa-window-maximize"></i> Enlazar pantalla actual</button>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="mb-preview" @ref="_previewRef">
+                    @if (string.IsNullOrWhiteSpace(_draftBody))
+                    {
+                        <div class="mb-muted">Nota vacia. Pulsa <b>Editar</b> para escribir.</div>
+                    }
+                    else
+                    {
+                        @((MarkupString)MockupMarkdown.ToHtml(_draftBody, Exists, AssetUrl))
+                    }
+                </div>
+            }
+            @if (_current is not null)
+            {
+                <div class="mb-foot">
+                    Creada por @(_current.AuthorName ?? "-") &middot; editada @Ago(_current.UpdatedAt)@(string.IsNullOrEmpty(_current.UpdatedByName) ? "" : $" por {_current.UpdatedByName}")
+                    @if (!string.IsNullOrEmpty(_current.ImportedFrom))
+                    {
+                        <span> &middot; importada de <code>@_current.ImportedFrom</code></span>
+                    }
+                </div>
+            }
+        }
+    </section>
+
+    <aside class="mb-side">
+        <div class="mb-side-block">
+            <h4><i class="fa-solid fa-arrow-left-long"></i> Enlazan aqui <span class="mb-count">@(_current?.Backlinks.Count ?? 0)</span></h4>
+            @if (_current is null || _current.Backlinks.Count == 0)
+            {
+                <div class="mb-muted sm">@(_current is null ? "Abre una nota para ver quien la enlaza." : "Ninguna nota enlaza a esta todavia.")</div>
+            }
+            else
+            {
+                @foreach (var b in _current.Backlinks)
+                {
+                    <button class="mb-ref" @onclick="() => OpenNoteAsync(b.Id)">
+                        <span class="mb-ref-title">@b.Title</span>
+                        <span class="mb-ref-snip">@b.Snippet</span>
+                    </button>
+                }
+            }
+        </div>
+        <div class="mb-side-block">
+            <h4><i class="fa-solid fa-arrow-right-long"></i> Enlaces <span class="mb-count">@(_current?.Links.Count(l => l.Kind != MockupBrainLinkKinds.Tag) ?? 0)</span></h4>
+            @if (_current is not null)
+            {
+                @foreach (var l in _current.Links.Where(l => l.Kind != MockupBrainLinkKinds.Tag))
+                {
+                    var exists = Exists(l.Kind, l.Kind == MockupBrainLinkKinds.Note ? MockupBrainLinks.NormalizeTitle(l.Label) : l.Key);
+                    <button class="mb-out k-@l.Kind @(exists ? null : "missing")" @onclick="() => OnBrainLink(l.Kind, l.Kind == MockupBrainLinkKinds.Note ? l.Label : l.Key)">
+                        <i class="@KindIcon(l.Kind)"></i> @l.Label
+                    </button>
+                }
+                var tags = _current.Links.Where(l => l.Kind == MockupBrainLinkKinds.Tag).ToList();
+                @if (tags.Count > 0)
+                {
+                    <div class="mb-tags">
+                        @foreach (var t in tags)
+                        {
+                            <span class="mb-chip">#@t.Label</span>
+                        }
+                    </div>
+                }
+            }
+        </div>
+        <div class="mb-side-block grow">
+            <h4><i class="fa-solid fa-circle-nodes"></i> Grafo local</h4>
+            <div class="mb-local-graph" id="@_localGraphId"></div>
+            @if (_current is null)
+            {
+                <div class="mb-muted sm">El grafo local muestra la nota abierta y sus vecinas.</div>
+            }
+        </div>
+    </aside>
+</div>
+
+@if (_showGraph)
+{
+    <div class="mb-overlay" @onclick="CloseGraphAsync">
+        <div class="mb-modal graph" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-solid fa-diagram-project"></i> Grafo de @ProjectName</h3>
+                <div class="mb-filters">
+                    <label><input type="checkbox" @bind="_showPages" @bind:after="RenderFullGraphAsync" /> Pantallas</label>
+                    <label><input type="checkbox" @bind="_showTasks" @bind:after="RenderFullGraphAsync" /> Tarjetas</label>
+                    <label><input type="checkbox" @bind="_showTags" @bind:after="RenderFullGraphAsync" /> Etiquetas</label>
+                    <label><input type="checkbox" @bind="_showMissing" @bind:after="RenderFullGraphAsync" /> Pendientes</label>
+                    <label><input type="checkbox" @bind="_showOrphans" @bind:after="RenderFullGraphAsync" /> Notas sueltas</label>
+                </div>
+                <span class="mb-count">@(_graph?.Nodes.Count ?? 0) nodos &middot; @(_graph?.Edges.Count ?? 0) enlaces</span>
+                <button class="mb-icon" title="Cerrar" @onclick="CloseGraphAsync"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-full-graph" id="@_fullGraphId"></div>
+            <div class="mb-modal-foot">Rueda para acercar, arrastra para mover. Clic en una nota la abre; en una pantalla la muestra en la maqueta; en una tarjeta la abre.</div>
+        </div>
+    </div>
+}
+
+@if (_showTrash)
+{
+    @* Papelera (v0.16.352): las notas archivadas son soft-delete; restaurar las devuelve con sus enlaces. *@
+    <div class="mb-overlay" @onclick="() => { if (_restoringId is null) { _showTrash = false; } }">
+        <div class="mb-modal trash" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-solid fa-trash-arrow-up"></i> Papelera de @ProjectName</h3>
+                <span class="mb-count">@(_trash.Count == 1 ? "1 archivada" : $"{_trash.Count} archivadas")</span>
+                <button class="mb-icon" title="Cerrar" disabled="@(_restoringId is not null)" @onclick="() => _showTrash = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-modal-body">
+                @if (_trashLoading)
+                {
+                    <div class="mb-muted">Cargando notas archivadas...</div>
+                }
+                else if (_trash.Count == 0)
+                {
+                    <div class="mb-muted">La papelera esta vacia. Las notas que archives quedan aqui y se pueden restaurar.</div>
+                }
+                else
+                {
+                    <div class="mb-trash">
+                        @foreach (var t in _trash)
+                        {
+                            <div class="mb-trash-row">
+                                <div class="mb-trash-main">
+                                    <div class="mb-trash-title">@t.Title</div>
+                                    @if (!string.IsNullOrEmpty(t.Snippet))
+                                    {
+                                        <div class="mb-note-snip">@t.Snippet</div>
+                                    }
+                                    <div class="mb-trash-meta">
+                                        Archivada @(t.ArchivedAt is { } at ? Ago(at) : "")@(string.IsNullOrEmpty(t.ArchivedByName) ? "" : $" por {t.ArchivedByName}")@(string.IsNullOrEmpty(t.AuthorName) ? "" : $" - autor: {t.AuthorName}")
+                                    </div>
+                                    @if (t.TitleTaken)
+                                    {
+                                        <div class="mb-trash-warn"><i class="fa-solid fa-circle-info"></i> Ya hay otra nota con este titulo: volvera como "@t.Title (restaurada)".</div>
+                                    }
+                                </div>
+                                @if (t.CanRestore)
+                                {
+                                    <button class="mb-btn" disabled="@(_restoringId is not null)" @onclick="() => RestoreAsync(t)">
+                                        <i class="fa-solid fa-rotate-left"></i> @(_restoringId == t.Id ? "Restaurando..." : "Restaurar")
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="mb-trash-locked" title="Solo quien creo la nota o un Owner/Admin puede restaurarla"><i class="fa-solid fa-lock"></i></span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="mb-modal-foot">Restaurar devuelve la nota con sus enlaces; las notas que la enlazaban vuelven a encontrarla. Solo restaura su autor o un Owner/Admin.</div>
+        </div>
+    </div>
+}
+
+@if (_showAssets)
+{
+    @* Ola 3b: adjuntos del cerebro. Borrar es definitivo (gestor de archivos sin papelera): solo Owner/Admin. *@
+    <div class="mb-overlay" @onclick="() => _showAssets = false">
+        <div class="mb-modal assets" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-solid fa-paperclip"></i> Adjuntos de @ProjectName</h3>
+                <span class="mb-count">@_panelAssets.Count adjuntos</span>
+                <label class="mb-btn mb-attach @(_uploading ? "busy" : null)" title="Imagen PNG/JPG/GIF/WEBP/BMP o PDF, max 10 MB">
+                    <i class="fa-solid fa-upload"></i> @(_uploading ? "Subiendo..." : "Subir")
+                    <InputFile OnChange="OnPanelAssetSelected" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf" disabled="@_uploading" />
+                </label>
+                <button class="mb-icon" title="Cerrar" @onclick="() => _showAssets = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-modal-body">
+                @if (_panelLoading)
+                {
+                    <div class="mb-muted">Cargando adjuntos...</div>
+                }
+                else if (_panelAssets.Count == 0)
+                {
+                    <div class="mb-muted">Aun no hay adjuntos. Subelos aqui, con "Adjuntar imagen" en el editor o importando un vault de Obsidian.</div>
+                }
+                else
+                {
+                    <div class="mb-assets">
+                        @foreach (var a in _panelAssets)
+                        {
+                            var used = a.UsedIn ?? Array.Empty<string>();
+                            <div class="mb-asset">
+                                <a class="mb-asset-thumb" href="@a.Url" target="_blank" rel="noopener" title="Abrir @a.Name">
+                                    @if (a.IsImage)
+                                    {
+                                        <img src="@a.Url" alt="@a.Name" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <i class="fa-regular fa-file-pdf"></i>
+                                    }
+                                </a>
+                                <div class="mb-asset-name" title="@a.Name">@a.Name</div>
+                                <div class="mb-asset-meta" title="@(used.Count == 0 ? "Ninguna nota lo embebe" : string.Join(", ", used))">
+                                    @Size(a.SizeBytes) &middot; @(used.Count == 0 ? "sin usar" : used.Count == 1 ? "en 1 nota" : $"en {used.Count} notas")
+                                </div>
+                                <div class="mb-asset-actions">
+                                    @if (_hasNote)
+                                    {
+                                        <button class="mb-link" title="Insertar en la nota abierta" @onclick="() => InsertAsset(a)"><i class="fa-solid fa-arrow-right-to-bracket"></i> Insertar</button>
+                                    }
+                                    @if (IsAdmin)
+                                    {
+                                        <button class="mb-link danger" title="Borrar definitivamente" @onclick="() => DeleteAssetAsync(a)"><i class="fa-regular fa-trash-can"></i> Borrar</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="mb-modal-foot">@(IsAdmin ? "Borrar un adjunto es definitivo: las notas que lo usan lo muestran como 'no encontrado'." : "Solo un Owner/Admin puede borrar adjuntos.")</div>
+        </div>
+    </div>
+}
+
+@if (_showClaude)
+{
+    @* Ola 4 (ADR-0183): con el plan de Claude del usuario el chat vive en Claude Desktop/Code via el MCP de maquetas. *@
+    <div class="mb-overlay" @onclick="() => _showClaude = false">
+        <div class="mb-modal claude" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-regular fa-comments"></i> Chatea con @ProjectName desde Claude</h3>
+                <button class="mb-icon" title="Cerrar" @onclick="() => _showClaude = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-modal-body">
+                <p>Claude Desktop o Claude Code, conectado al MCP de maquetas, lee las pantallas, las solicitudes y este cerebro, piensa contigo y guarda las conclusiones como notas aqui. La conversacion usa tu plan de Claude; lo que escriba queda a tu nombre "(via IA)".</p>
+                <ol class="mb-steps">
+                    <li>Genera tu token en <a href="/conectar-ia?guia=maquetas" target="_blank" rel="noopener">Conectar IA</a> (conector <b>Maquetas</b>). Si ya lo tienes, salta este paso.</li>
+                    <li>Conecta Claude. En Claude Code:
+                        <div class="mb-copy">
+                            <code>@MaquetaClaudeGuide.ClaudeCodeCommand(McpUrl)</code>
+                            <button class="mb-link" @onclick="() => CopyAsync(MaquetaClaudeGuide.ClaudeCodeCommand(McpUrl))">Copiar</button>
+                        </div>
+                        En Claude Desktop usa la configuracion que te da Conectar IA al generar el token.
+                    </li>
+                    <li>Pidele algo como esto (ya va con el identificador <code>@Slug</code>):</li>
+                </ol>
+                <div class="mb-prompts">
+                    @foreach (var (title, prompt) in MaquetaClaudeGuide.Prompts(Slug, _current?.Title, CurrentFile))
+                    {
+                        <div class="mb-prompt">
+                            <div>
+                                <div class="mb-prompt-title">@title</div>
+                                <div class="mb-prompt-text">@prompt</div>
+                            </div>
+                            <button class="mb-btn" @onclick="() => CopyAsync(prompt)"><i class="fa-regular fa-copy"></i> Copiar</button>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="mb-modal-foot">Claude no cambia la maqueta publicada: los ajustes se piden como solicitudes y se aplican en la carpeta local (seccion 7 de la guia de maquetas).</div>
+        </div>
+    </div>
+}
+
+@if (_showImport)
+{
+    <div class="mb-overlay" @onclick="() => { if (!_importing) { _showImport = false; } }">
+        <div class="mb-modal import" @onclick:stopPropagation="true">
+            <div class="mb-modal-head">
+                <h3><i class="fa-solid fa-file-import"></i> Importar vault de Obsidian</h3>
+                <button class="mb-icon" title="Cerrar" disabled="@_importing" @onclick="() => _showImport = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="mb-modal-body">
+                <p>Comprime la carpeta del vault en un <b>.zip</b> y subelo. Cada archivo <code>.md</code> se vuelve una nota (el titulo es el nombre del archivo, como en Obsidian) y sus <code>[[enlaces]]</code> y <code>#etiquetas</code> se conectan en el grafo. Las imagenes (PNG, JPG, GIF, WEBP, BMP) y los PDF se suben como adjuntos y se ven donde la nota los embebe (<code>![[foto.png]]</code>); se ignoran <code>.obsidian/</code> y otros formatos. Maximo @(MockupBrainService.MaxVaultZipBytes / (1024 * 1024)) MB y @MockupBrainService.MaxVaultNotes.ToString("N0") notas.</p>
+                <InputFile OnChange="OnVaultSelected" accept=".zip,application/zip" class="form-control form-control-sm" disabled="@_importing" />
+                <label class="mb-check"><input type="checkbox" @bind="_overwrite" disabled="@_importing" /> Sobrescribir las notas que ya existen con el mismo titulo</label>
+                @if (_importError is not null)
+                {
+                    <div class="mb-warn">@_importError</div>
+                }
+                @if (_importResult is { } r)
+                {
+                    <div class="mb-result">
+                        <div><b>@r.Created</b> notas nuevas &middot; <b>@r.Updated</b> actualizadas &middot; <b>@r.Skipped</b> omitidas (ya existian) &middot; <b>@r.Links</b> enlaces &middot; <b>@r.AssetsCreated</b> adjuntos@(r.AssetsSkipped > 0 ? $" ({r.AssetsSkipped} ya existian)" : "")</div>
+                        @if (r.Warnings.Count > 0)
+                        {
+                            <ul>
+                                @foreach (var w in r.Warnings.Take(30))
+                                {
+                                    <li>@w</li>
+                                }
+                                @if (r.Warnings.Count > 30)
+                                {
+                                    <li>... y @(r.Warnings.Count - 30) avisos mas.</li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="mb-modal-foot right">
+                <button class="mb-btn" disabled="@_importing" @onclick="() => _showImport = false">Cerrar</button>
+                <button class="mb-btn primary" disabled="@(_importing || _vault is null)" @onclick="ImportAsync">
+                    <i class="fa-solid fa-upload"></i> @(_importing ? "Importando..." : "Importar")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Slug { get; set; } = string.Empty;
+    [Parameter] public string ProjectName { get; set; } = "la maqueta";
+    [Parameter] public Guid TenantId { get; set; }
+    [Parameter] public Guid UserId { get; set; }
+    [Parameter] public bool IsAdmin { get; set; }
+    [Parameter] public bool Active { get; set; }
+    [Parameter] public IReadOnlyList<MockupPage> Pages { get; set; } = Array.Empty<MockupPage>();
+    [Parameter] public IReadOnlyList<MockupSolicitudDto> Solicitudes { get; set; } = Array.Empty<MockupSolicitudDto>();
+    [Parameter] public string? CurrentFile { get; set; }
+    [Parameter] public string? InitialNote { get; set; }
+    [Parameter] public EventCallback<string> OnOpenPage { get; set; }
+    [Parameter] public EventCallback<Guid> OnOpenTask { get; set; }
+    [Parameter] public EventCallback<string> OnToast { get; set; }
+
+    private readonly string _localGraphId = "mb-local-" + Guid.NewGuid().ToString("N")[..8];
+    private readonly string _fullGraphId = "mb-full-" + Guid.NewGuid().ToString("N")[..8];
+
+    private bool _loaded;
+    private bool _loadingList;
+    private List<MockupNoteSummaryDto> _notes = new();
+    private List<string> _allTitles = new();
+    private HashSet<string> _allKeys = new(StringComparer.Ordinal);
+    private string _search = string.Empty;
+    private CancellationTokenSource? _searchCts;
+
+    private MockupNoteDto? _current;
+    private bool _isNew;
+    private string _draftTitle = string.Empty;
+    private string _draftBody = string.Empty;
+    private bool _editing;
+    private bool _saving;
+    private string? _error;
+    private bool _conflict;
+
+    private MockupBrainGraphDto? _graph;
+    private bool _localGraphPending;
+    private bool _showGraph;
+    private bool _fullGraphPending;
+    private bool _showPages = true;
+    private bool _showTasks = true;
+    private bool _showTags = true;
+    private bool _showMissing = true;
+    private bool _showOrphans = true;
+
+    private bool _showClaude;
+
+    private bool _showTrash;
+    private bool _trashLoading;
+    private List<MockupArchivedNoteDto> _trash = new();
+    private Guid? _restoringId;
+
+    private string ExportUrl => Ecorex.SuperAdmin.Endpoints.MaquetaCerebroEndpoints.ExportUrl(Slug);
+
+    private Dictionary<string, MockupBrainAssetDto> _assets = new(StringComparer.Ordinal);
+    private bool _uploading;
+    private bool _showAssets;
+    private bool _panelLoading;
+    private List<MockupBrainAssetDto> _panelAssets = new();
+
+    private string McpUrl => Nav.BaseUri.TrimEnd('/') + Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.Route;
+
+    private bool _showImport;
+    private IBrowserFile? _vault;
+    private bool _overwrite;
+    private bool _importing;
+    private string? _importError;
+    private MockupBrainImportResult? _importResult;
+
+    private ElementReference _editorRef;
+    private ElementReference _previewRef;
+    private bool _editorPending;
+    private bool _previewPending;
+    private string? _pendingInsert;
+    private DotNetObjectReference<MaquetaCerebro>? _self;
+    private McpActor? _actor;
+
+    private bool _hasNote => _current is not null || _isNew;
+
+    private bool Dirty => _isNew
+        ? !string.IsNullOrWhiteSpace(_draftTitle) || !string.IsNullOrWhiteSpace(_draftBody)
+        : _current is not null && (_draftTitle != _current.Title || _draftBody != _current.Body);
+
+    private string StatusText => _saving ? "Guardando..." : Dirty ? "Sin guardar" : _isNew ? "Nueva" : "Guardada";
+
+    private bool CanArchive => _current is not null && (IsAdmin || (_actor is not null && _current.AuthorTenantUserId == _actor.TenantUserId) || _current.AuthorTenantUserId is null);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Active && !_loaded)
+        {
+            _loaded = true;
+            _self ??= DotNetObjectReference.Create(this);
+            await RunAsync(ResolveActorAsync);
+            await ReloadListAsync();
+            await LoadGraphAsync();
+            if (!string.IsNullOrWhiteSpace(InitialNote)) { await OpenNoteByTitleAsync(InitialNote); }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Active || _self is null) { return; }
+        if (_editing && _editorPending)
+        {
+            _editorPending = false;
+            try
+            {
+                await JS.InvokeVoidAsync("ecxMaquetaCerebro.bindEditor", _editorRef, _self);
+                await JS.InvokeVoidAsync("ecxMaquetaCerebro.setCandidates", _editorRef, Candidates());
+                if (_pendingInsert is { } text)
+                {
+                    _pendingInsert = null;
+                    // Los adjuntos embebidos (![[...]]) van en su propia linea; los enlaces, en linea.
+                    await JS.InvokeVoidAsync("ecxMaquetaCerebro.insert", _editorRef, text, text.StartsWith("![[", StringComparison.Ordinal));
+                }
+                else
+                {
+                    await JS.InvokeVoidAsync("ecxMaquetaCerebro.focusEnd", _editorRef);
+                }
+            }
+            catch (JSException) { }
+        }
+        if (!_editing && _previewPending)
+        {
+            _previewPending = false;
+            try { await JS.InvokeVoidAsync("ecxMaquetaCerebro.bindPreview", _previewRef, _self); } catch (JSException) { }
+        }
+        if (_localGraphPending)
+        {
+            _localGraphPending = false;
+            await RenderLocalGraphAsync();
+        }
+        if (_showGraph && _fullGraphPending)
+        {
+            _fullGraphPending = false;
+            await RenderFullGraphAsync();
+        }
+    }
+
+    // ------------------------------------------------------------------ API para el editor (pestana Maqueta)
+
+    /// <summary>Abre (o prepara sin guardar) la nota de una pantalla: "Pantalla - {titulo}" con el enlace [[archivo]].</summary>
+    public async Task OpenPageNoteAsync(string file)
+    {
+        if (string.IsNullOrEmpty(file)) { return; }
+        if (!await ConfirmDiscardAsync()) { return; }
+        var page = Pages.FirstOrDefault(p => string.Equals(p.File, file, StringComparison.OrdinalIgnoreCase));
+        var title = MockupBrainLinks.CleanTitle(MockupBrainLinks.SafeTitle("Pantalla - " + (page?.Title ?? Path.GetFileNameWithoutExtension(file)))).Title ?? "Pantalla";
+        var existing = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().GetNoteAsync(Slug, null, title));
+        if (existing is not null)
+        {
+            ShowNote(existing);
+            return;
+        }
+        StartNew(title, $"Pantalla: [[{file}]]\n\n");
+    }
+
+    public async Task OpenNoteByTitleAsync(string title)
+    {
+        var note = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().GetNoteAsync(Slug, null, title));
+        if (note is not null) { ShowNote(note); }
+        else if (MockupBrainLinks.CleanTitle(title).Title is { } clean) { StartNew(clean, string.Empty); }
+    }
+
+    // ------------------------------------------------------------------ JS -> .NET
+
+    [JSInvokable]
+    public async Task OnBrainLink(string kind, string key)
+    {
+        switch (kind)
+        {
+            case MockupBrainLinkKinds.Note:
+                if (!await ConfirmDiscardAsync()) { return; }
+                await OpenNoteByTitleAsync(key);
+                break;
+            case MockupBrainLinkKinds.Page:
+                if (Pages.Any(p => string.Equals(p.File, key, StringComparison.OrdinalIgnoreCase)))
+                {
+                    await OnOpenPage.InvokeAsync(Pages.First(p => string.Equals(p.File, key, StringComparison.OrdinalIgnoreCase)).File);
+                }
+                else
+                {
+                    await OnToast.InvokeAsync($"La pantalla '{key}' no esta en la version abierta de la maqueta.");
+                }
+                break;
+            case MockupBrainLinkKinds.Task:
+                var id = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().FindTaskIdAsync(key));
+                if (id is Guid taskId) { await OnOpenTask.InvokeAsync(taskId); }
+                else { await OnToast.InvokeAsync($"La tarjeta {key} no existe en esta empresa."); }
+                break;
+            case MockupBrainLinkKinds.Tag:
+                _search = "#" + key;
+                await OnSearchChanged();
+                break;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnGraphNode(string kind, string key, string noteId, string label)
+    {
+        if (kind == "note" && Guid.TryParse(noteId, out var id))
+        {
+            _showGraph = false;
+            await JsDisposeAsync(_fullGraphId);
+            await OpenNoteAsync(id);
+        }
+        else if (kind == "missing")
+        {
+            _showGraph = false;
+            await JsDisposeAsync(_fullGraphId);
+            if (await ConfirmDiscardAsync()) { StartNew(label, string.Empty); }
+        }
+        else
+        {
+            if (kind is MockupBrainLinkKinds.Page or MockupBrainLinkKinds.Task)
+            {
+                _showGraph = false;
+                await JsDisposeAsync(_fullGraphId);
+            }
+            await OnBrainLink(kind, key);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnSaveShortcut()
+    {
+        // El JS dispara "input" antes: se espera un ciclo para que el @bind aplique el texto.
+        await Task.Yield();
+        await InvokeAsync(SaveAsync);
+    }
+
+    // ------------------------------------------------------------------ notas
+
+    private async Task ReloadListAsync()
+    {
+        _loadingList = true;
+        try
+        {
+            var all = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListNotesAsync(Slug));
+            _allTitles = all.Select(n => n.Title).OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToList();
+            _allKeys = all.Select(n => MockupBrainLinks.NormalizeTitle(n.Title)).ToHashSet(StringComparer.Ordinal);
+            _notes = string.IsNullOrWhiteSpace(_search)
+                ? all.ToList()
+                : (await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListNotesAsync(Slug, _search))).ToList();
+            await ReloadAssetsAsync();
+        }
+        finally
+        {
+            _loadingList = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ adjuntos (ola 3b)
+
+    private async Task ReloadAssetsAsync()
+    {
+        var assets = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListAssetsAsync(Slug));
+        _assets = assets.GroupBy(a => MockupBrainAssets.Key(a.Name)).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    }
+
+    /// <summary>URL del adjunto por la referencia escrita en la nota (nombre o ruta de Obsidian).</summary>
+    private string? AssetUrl(string reference)
+        => _assets.TryGetValue(MockupBrainAssets.Key(reference), out var a) ? a.Url : null;
+
+    /// <summary>Adjuntar desde el editor: sube e inserta ![[nombre]] en el cursor.</summary>
+    private Task OnAssetSelected(InputFileChangeEventArgs e) => UploadAssetAsync(e.File, insert: true);
+
+    /// <summary>Subir desde el panel Adjuntos: solo sube (no toca la nota).</summary>
+    private async Task OnPanelAssetSelected(InputFileChangeEventArgs e)
+    {
+        await UploadAssetAsync(e.File, insert: false);
+        await LoadPanelAssetsAsync();
+    }
+
+    private async Task UploadAssetAsync(IBrowserFile file, bool insert)
+    {
+        if (file.Size > MockupBrainAssets.MaxAssetBytes)
+        {
+            await OnToast.InvokeAsync($"El adjunto supera {MockupBrainAssets.MaxAssetBytes / (1024 * 1024)} MB.");
+            return;
+        }
+        _uploading = true;
+        try
+        {
+            byte[] bytes;
+            await using (var stream = file.OpenReadStream(MockupBrainAssets.MaxAssetBytes))
+            using (var ms = new MemoryStream())
+            {
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var name = file.Name;
+            var res = await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                if (actor is null) { return TaskCoreResult<MockupBrainAssetDto>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+                return await sp.GetRequiredService<IMockupBrainService>().UploadAssetAsync(Slug, name, bytes, actor);
+            });
+            if (!res.IsOk || res.Value is null)
+            {
+                await OnToast.InvokeAsync(res.Error ?? "No se pudo subir el adjunto.");
+                return;
+            }
+            await ReloadAssetsAsync();
+            if (insert)
+            {
+                _pendingInsert = $"![[{res.Value.Name}]]";
+                _editorPending = true;
+            }
+            await OnToast.InvokeAsync($"Adjunto '{res.Value.Name}' subido.");
+        }
+        catch (IOException ex)
+        {
+            await OnToast.InvokeAsync("No se pudo leer el archivo: " + ex.Message);
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ panel Adjuntos
+
+    private async Task OpenAssetsPanelAsync()
+    {
+        _showAssets = true;
+        await LoadPanelAssetsAsync();
+    }
+
+    private async Task LoadPanelAssetsAsync()
+    {
+        _panelLoading = true;
+        try { _panelAssets = (await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListAssetsAsync(Slug, withUsage: true))).ToList(); }
+        finally { _panelLoading = false; }
+    }
+
+    /// <summary>Inserta el adjunto en la nota abierta (pasa a modo edicion).</summary>
+    private void InsertAsset(MockupBrainAssetDto asset)
+    {
+        if (!_hasNote) { return; }
+        _showAssets = false;
+        _pendingInsert = $"![[{asset.Name}]]";
+        _editing = true;
+        _editorPending = true;
+        _previewPending = false;
+    }
+
+    private async Task DeleteAssetAsync(MockupBrainAssetDto asset)
+    {
+        var used = asset.UsedIn ?? Array.Empty<string>();
+        var message = $"Borrar definitivamente el adjunto '{asset.Name}'? No se puede deshacer."
+            + (used.Count > 0 ? $" Lo usan {used.Count} nota(s): {string.Join(", ", used.Take(5))}{(used.Count > 5 ? "..." : "")}; ahi quedara como 'no encontrado'." : "");
+        bool ok;
+        try { ok = await JS.InvokeAsync<bool>("ecxMaquetaCerebro.confirm", message); }
+        catch (JSException) { ok = false; }
+        if (!ok) { return; }
+        var id = asset.Id;
+        var res = await RunAsync(async sp =>
+        {
+            var actor = await ResolveActorAsync(sp);
+            if (actor is null) { return TaskCoreResult<bool>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+            return await sp.GetRequiredService<IMockupBrainService>().DeleteAssetAsync(Slug, id, actor);
+        });
+        if (!res.IsOk)
+        {
+            await OnToast.InvokeAsync(res.Error ?? "No se pudo borrar el adjunto.");
+            return;
+        }
+        await ReloadAssetsAsync();
+        await LoadPanelAssetsAsync();
+        await OnToast.InvokeAsync($"Adjunto '{asset.Name}' borrado.");
+    }
+
+    private static string Size(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / (1024d * 1024):0.#} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+
+    private async Task OnSearchChanged()
+    {
+        _searchCts?.Cancel();
+        var cts = _searchCts = new CancellationTokenSource();
+        try { await Task.Delay(250, cts.Token); } catch (TaskCanceledException) { return; }
+        var term = _search;
+        var list = string.IsNullOrWhiteSpace(term)
+            ? await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListNotesAsync(Slug))
+            : await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().ListNotesAsync(Slug, term));
+        if (cts.IsCancellationRequested) { return; }
+        _notes = list.ToList();
+        StateHasChanged();
+    }
+
+    private async Task OpenNoteAsync(Guid id)
+    {
+        if (_current?.Id == id && !_isNew) { return; }
+        if (!await ConfirmDiscardAsync()) { return; }
+        var note = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().GetNoteAsync(Slug, id));
+        if (note is null)
+        {
+            await OnToast.InvokeAsync("La nota ya no existe (fue archivada).");
+            await ReloadListAsync();
+            return;
+        }
+        ShowNote(note);
+    }
+
+    private void ShowNote(MockupNoteDto note)
+    {
+        _current = note;
+        _isNew = false;
+        _draftTitle = note.Title;
+        _draftBody = note.Body;
+        _error = null;
+        _conflict = false;
+        _editing = string.IsNullOrWhiteSpace(note.Body);
+        _editorPending = _editing;
+        _previewPending = !_editing;
+        _localGraphPending = true;
+    }
+
+    private void StartNew(string title, string body)
+    {
+        _current = null;
+        _isNew = true;
+        _draftTitle = title;
+        _draftBody = body;
+        _error = null;
+        _conflict = false;
+        _editing = true;
+        _editorPending = true;
+        _localGraphPending = true;
+    }
+
+    private async Task NewNoteAsync()
+    {
+        if (!await ConfirmDiscardAsync()) { return; }
+        StartNew(string.Empty, string.Empty);
+    }
+
+    private Task SetEditingAsync(bool editing)
+    {
+        if (_editing == editing) { return Task.CompletedTask; }
+        _editing = editing;
+        _editorPending = editing;
+        _previewPending = !editing;
+        return Task.CompletedTask;
+    }
+
+    private Task InsertCurrentPageAsync()
+    {
+        if (string.IsNullOrEmpty(CurrentFile)) { return Task.CompletedTask; }
+        _pendingInsert = $"[[{CurrentFile}]]";
+        _editorPending = true;
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving || !Dirty) { return; }
+        _saving = true;
+        _error = null;
+        _conflict = false;
+        try
+        {
+            var id = _isNew ? (Guid?)null : _current?.Id;
+            var version = _isNew ? (long?)null : _current?.Version;
+            var title = _draftTitle;
+            var body = _draftBody;
+            var res = await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                if (actor is null) { return TaskCoreResult<MockupNoteDto>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+                return await sp.GetRequiredService<IMockupBrainService>().SaveNoteAsync(Slug, id, title, body, version, actor);
+            });
+            if (!res.IsOk || res.Value is null)
+            {
+                _error = res.Error ?? "No se pudo guardar la nota.";
+                _conflict = res.Status == TaskCoreStatus.Conflict && id is not null && (res.Error ?? string.Empty).Contains("Recargala", StringComparison.Ordinal);
+                return;
+            }
+            var renamed = !_isNew && _current is not null && _current.Title != res.Value.Title;
+            ShowNote(res.Value);
+            _editing = false;
+            _editorPending = false;
+            _previewPending = true;
+            await ReloadListAsync();
+            await LoadGraphAsync();
+            await OnToast.InvokeAsync(renamed ? "Nota renombrada: se actualizaron los enlaces que la mencionaban." : "Nota guardada.");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ReloadCurrentAsync()
+    {
+        if (_current is null) { return; }
+        var note = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().GetNoteAsync(Slug, _current.Id));
+        if (note is not null) { ShowNote(note); }
+    }
+
+    private async Task ArchiveAsync()
+    {
+        if (_current is null) { return; }
+        bool ok;
+        try { ok = await JS.InvokeAsync<bool>("ecxMaquetaCerebro.confirm", $"Archivar la nota '{_current.Title}'? Las notas que la enlazan la mostraran como pendiente. Podras restaurarla desde la papelera."); }
+        catch (JSException) { ok = false; }
+        if (!ok) { return; }
+        var id = _current.Id;
+        var res = await RunAsync(async sp =>
+        {
+            var actor = await ResolveActorAsync(sp);
+            if (actor is null) { return TaskCoreResult<bool>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+            return await sp.GetRequiredService<IMockupBrainService>().ArchiveNoteAsync(Slug, id, actor);
+        });
+        if (!res.IsOk)
+        {
+            _error = res.Error;
+            return;
+        }
+        _current = null;
+        _isNew = false;
+        _draftTitle = string.Empty;
+        _draftBody = string.Empty;
+        await ReloadListAsync();
+        await LoadGraphAsync();
+        _localGraphPending = true;
+        await OnToast.InvokeAsync("Nota archivada. Puedes restaurarla desde la papelera.");
+    }
+
+    // ------------------------------------------------------------------ papelera
+
+    private async Task OpenTrashAsync()
+    {
+        _showTrash = true;
+        _trashLoading = true;
+        try
+        {
+            _trash = (await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                return actor is null
+                    ? Array.Empty<MockupArchivedNoteDto>()
+                    : await sp.GetRequiredService<IMockupBrainService>().ListArchivedNotesAsync(Slug, actor);
+            })).ToList();
+        }
+        finally
+        {
+            _trashLoading = false;
+        }
+    }
+
+    private async Task RestoreAsync(MockupArchivedNoteDto item)
+    {
+        if (_restoringId is not null) { return; }
+        if (!await ConfirmDiscardAsync()) { return; }
+        _restoringId = item.Id;
+        try
+        {
+            var id = item.Id;
+            var res = await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                if (actor is null) { return TaskCoreResult<MockupNoteDto>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+                return await sp.GetRequiredService<IMockupBrainService>().RestoreNoteAsync(Slug, id, actor);
+            });
+            if (!res.IsOk || res.Value is null)
+            {
+                await OnToast.InvokeAsync(res.Error ?? "No se pudo restaurar la nota.");
+                await OpenTrashAsync();
+                return;
+            }
+            _showTrash = false;
+            ShowNote(res.Value);
+            await ReloadListAsync();
+            await LoadGraphAsync();
+            await OnToast.InvokeAsync(res.Value.Title == item.Title ? $"Nota '{item.Title}' restaurada." : $"Nota restaurada como '{res.Value.Title}'.");
+        }
+        finally
+        {
+            _restoringId = null;
+        }
+    }
+
+    private async Task<bool> ConfirmDiscardAsync()
+    {
+        if (!Dirty) { return true; }
+        try { return await JS.InvokeAsync<bool>("ecxMaquetaCerebro.confirm", "Hay cambios sin guardar en la nota. Descartarlos?"); }
+        catch (JSException) { return false; }
+    }
+
+    // ------------------------------------------------------------------ importar vault
+
+    private void OnVaultSelected(InputFileChangeEventArgs e)
+    {
+        _vault = e.File;
+        _importError = null;
+        _importResult = null;
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_vault is null) { return; }
+        if (_vault.Size > MockupBrainService.MaxVaultZipBytes)
+        {
+            _importError = $"El ZIP supera {MockupBrainService.MaxVaultZipBytes / (1024 * 1024)} MB.";
+            return;
+        }
+        _importing = true;
+        _importError = null;
+        _importResult = null;
+        try
+        {
+            byte[] bytes;
+            await using (var stream = _vault.OpenReadStream(MockupBrainService.MaxVaultZipBytes))
+            using (var ms = new MemoryStream())
+            {
+                await stream.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+            var overwrite = _overwrite;
+            var res = await RunAsync(async sp =>
+            {
+                var actor = await ResolveActorAsync(sp);
+                if (actor is null) { return TaskCoreResult<MockupBrainImportResult>.Forbidden("Tu usuario no puede escribir en esta empresa."); }
+                return await sp.GetRequiredService<IMockupBrainService>().ImportVaultAsync(Slug, bytes, overwrite, actor);
+            });
+            if (!res.IsOk || res.Value is null)
+            {
+                _importError = res.Error ?? "No se pudo importar el vault.";
+                return;
+            }
+            _importResult = res.Value;
+            _vault = null;
+            await ReloadListAsync();
+            await LoadGraphAsync();
+            _localGraphPending = true;
+        }
+        catch (IOException ex)
+        {
+            _importError = "No se pudo leer el archivo: " + ex.Message;
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ grafo
+
+    private async Task LoadGraphAsync()
+    {
+        _graph = await RunAsync(sp => sp.GetRequiredService<IMockupBrainService>().GetGraphAsync(Slug));
+        _localGraphPending = true;
+        _fullGraphPending = _showGraph;
+    }
+
+    private async Task OpenGraphAsync()
+    {
+        await LoadGraphAsync();
+        _showGraph = true;
+        _fullGraphPending = true;
+    }
+
+    private async Task CloseGraphAsync()
+    {
+        _showGraph = false;
+        await JsDisposeAsync(_fullGraphId);
+    }
+
+    private async Task RenderFullGraphAsync()
+    {
+        if (_graph is null || _self is null || !_showGraph) { return; }
+        var hidden = new HashSet<string>(StringComparer.Ordinal);
+        if (!_showPages) { hidden.Add(MockupBrainLinkKinds.Page); }
+        if (!_showTasks) { hidden.Add(MockupBrainLinkKinds.Task); }
+        if (!_showTags) { hidden.Add(MockupBrainLinkKinds.Tag); }
+        if (!_showMissing) { hidden.Add("missing"); }
+        var nodes = _graph.Nodes.Where(n => !hidden.Contains(n.Kind)).ToList();
+        var ids = nodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
+        var edges = _graph.Edges.Where(e => ids.Contains(e.Source) && ids.Contains(e.Target)).ToList();
+        if (!_showOrphans)
+        {
+            var connected = edges.SelectMany(e => new[] { e.Source, e.Target }).ToHashSet(StringComparer.Ordinal);
+            nodes = nodes.Where(n => connected.Contains(n.Id)).ToList();
+        }
+        await RenderGraphAsync(_fullGraphId, nodes, edges, false, CurrentNodeId);
+    }
+
+    private async Task RenderLocalGraphAsync()
+    {
+        if (_self is null) { return; }
+        if (_graph is null || CurrentNodeId is not { } center)
+        {
+            await JsDisposeAsync(_localGraphId);
+            return;
+        }
+        var neighbors = new HashSet<string>(StringComparer.Ordinal) { center };
+        foreach (var e in _graph.Edges)
+        {
+            if (e.Source == center) { neighbors.Add(e.Target); }
+            if (e.Target == center) { neighbors.Add(e.Source); }
+        }
+        var nodes = _graph.Nodes.Where(n => neighbors.Contains(n.Id)).ToList();
+        var edges = _graph.Edges.Where(e => neighbors.Contains(e.Source) && neighbors.Contains(e.Target)).ToList();
+        await RenderGraphAsync(_localGraphId, nodes, edges, true, center);
+    }
+
+    private string? CurrentNodeId => _current is null ? null : "note:" + _current.Id.ToString("N");
+
+    private async Task RenderGraphAsync(string elementId, IEnumerable<MockupBrainNodeDto> nodes, IEnumerable<MockupBrainEdgeDto> edges, bool compact, string? focus)
+    {
+        var data = new
+        {
+            nodes = nodes.Select(n => new { id = n.Id, kind = n.Kind, label = n.Label, degree = n.Degree, noteId = n.NoteId?.ToString(), key = n.Key }),
+            edges = edges.Select(e => new { source = e.Source, target = e.Target })
+        };
+        try
+        {
+            await JS.InvokeAsync<bool>("ecxMaquetaCerebro.renderGraphById", elementId, data, _self, new { compact, focus });
+        }
+        catch (JSException) { }
+    }
+
+    private async Task JsDisposeAsync(string elementId)
+    {
+        try { await JS.InvokeVoidAsync("ecxMaquetaCerebro.disposeGraphById", elementId); }
+        catch (JSException) { }
+        catch (JSDisconnectedException) { }
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    /// <summary>Existe el destino de un enlace (para pintar los fantasmas en la vista previa).</summary>
+    private bool Exists(string kind, string key) => kind switch
+    {
+        MockupBrainLinkKinds.Note => _allKeys.Contains(key),
+        MockupBrainLinkKinds.Page => Pages.Count == 0 || Pages.Any(p => string.Equals(p.File, key, StringComparison.OrdinalIgnoreCase)),
+        MockupBrainLinkKinds.Task => Solicitudes.Any(s => s.Number == key)
+                                     || (_current?.Links.Any(l => l.Kind == MockupBrainLinkKinds.Task && l.Key == key && l.Exists) ?? false),
+        _ => true
+    };
+
+    /// <summary>Candidatos del autocompletado "[[": notas, pantallas y solicitudes del proyecto.</summary>
+    private object[] Candidates()
+    {
+        var list = new List<object>();
+        list.AddRange(_allTitles.Select(t => (object)new { kind = "note", label = t, value = t }));
+        list.AddRange(Pages.Select(p => (object)new { kind = "page", label = $"{p.Title} ({p.File})", value = p.File }));
+        list.AddRange(Solicitudes.Take(300).Select(s => (object)new { kind = "task", label = $"{s.Number} {s.Title}", value = s.Number }));
+        list.AddRange(_assets.Values.Take(500).Select(a => (object)new { kind = "file", label = a.Name, value = a.Name }));
+        return list.ToArray();
+    }
+
+    private static string KindIcon(string kind) => kind switch
+    {
+        MockupBrainLinkKinds.Page => "fa-regular fa-window-maximize",
+        MockupBrainLinkKinds.Task => "fa-regular fa-square-check",
+        _ => "fa-regular fa-note-sticky"
+    };
+
+    private static string Ago(DateTimeOffset when)
+    {
+        var d = DateTimeOffset.UtcNow - when;
+        if (d.TotalMinutes < 1) { return "ahora"; }
+        if (d.TotalHours < 1) { return $"hace {(int)d.TotalMinutes} min"; }
+        if (d.TotalDays < 1) { return $"hace {(int)d.TotalHours} h"; }
+        return $"hace {(int)d.TotalDays} d";
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            await OnToast.InvokeAsync("Copiado. Pegalo en Claude.");
+        }
+        catch (JSException)
+        {
+            await OnToast.InvokeAsync("No se pudo copiar; seleccionalo y copialo a mano.");
+        }
+    }
+
+    private async Task<McpActor?> ResolveActorAsync(IServiceProvider sp)
+    {
+        _actor ??= await sp.GetRequiredService<IMaquetaSolicitudService>().ResolveSessionActorAsync(UserId);
+        return _actor;
+    }
+
+    private async Task<T> RunAsync<T>(Func<IServiceProvider, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(TenantId, UserId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _searchCts?.Cancel();
+        await JsDisposeAsync(_localGraphId);
+        await JsDisposeAsync(_fullGraphId);
+        _self?.Dispose();
+    }
+}

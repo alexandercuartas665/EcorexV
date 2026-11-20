@@ -172,12 +172,11 @@ else
                 </div>
                 <div class="field">
                     <label class="form-label">Rol *</label>
-                    <select class="form-control" @bind="_fRole">
-                        @foreach (var r in AllRoles)
-                        {
-                            <option value="@r">@RoleLabel(r)</option>
-                        }
+                    <select class="form-control" @bind="_fRoleKind">
+                        <option value="@KindUser">@TenantRoleKind.UserLabel</option>
+                        <option value="@KindAdmin">@TenantRoleKind.AdminLabel</option>
                     </select>
+                    <small class="text-muted">Administrador: acceso total (no aplica el rol de permisos). Usuario: ve lo que diga su rol de permisos.</small>
                 </div>
                 <div class="field">
                     <label class="form-label">Contrasena</label>
@@ -237,12 +236,11 @@ else
                 </div>
                 <div class="field">
                     <label class="form-label">Rol *</label>
-                    <select class="form-control" @bind="_fRole">
-                        @foreach (var r in AllRoles)
-                        {
-                            <option value="@r">@RoleLabel(r)</option>
-                        }
+                    <select class="form-control" @bind="_fRoleKind">
+                        <option value="@KindUser">@TenantRoleKind.UserLabel</option>
+                        <option value="@KindAdmin">@TenantRoleKind.AdminLabel</option>
                     </select>
+                    <small class="text-muted">Administrador: acceso total (no aplica el rol de permisos). Usuario: ve lo que diga su rol de permisos.</small>
                 </div>
                 <div class="field">
                     <label class="form-label">Estado</label>
@@ -352,8 +350,10 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
-    private static readonly TenantRole[] AllRoles =
-        new[] { TenantRole.Owner, TenantRole.Admin, TenantRole.Supervisor, TenantRole.Advisor };
+    // Rol simplificado (2026-11-16): solo Administrador / Usuario en pantalla (TenantRoleKind). El enum
+    // TenantRole no cambia; al editar sin cambiar de grupo se conserva el valor original.
+    private const string KindAdmin = "admin";
+    private const string KindUser = "user";
 
     private bool _loading = true;
     private bool _busy;
@@ -379,7 +379,7 @@ else
     private string _fEmail = "";
     private string _fDisplayName = "";
     private string _fPhone = "";
-    private TenantRole _fRole = TenantRole.Advisor;
+    private string _fRoleKind = KindUser;
     private PlatformUserStatus _fStatus = PlatformUserStatus.Active;
     private string _fPassword = "";
     private string _fPasswordConfirm = "";
@@ -465,7 +465,7 @@ else
         _fEmail = "";
         _fDisplayName = "";
         _fPhone = "";
-        _fRole = TenantRole.Advisor;
+        _fRoleKind = KindUser;
         _fPassword = "";
         _fViewId = "";
         _showPassword = false;
@@ -489,7 +489,7 @@ else
         {
             var actor = await ResolveSelfIdAsync();
             var created = await UsersSvc.InviteAsync(
-                new InviteTenantUserRequest(email, _fRole,
+                new InviteTenantUserRequest(email, TenantRoleKind.ForNew(_fRoleKind == KindAdmin),
                     Password: string.IsNullOrWhiteSpace(_fPassword) ? null : _fPassword,
                     DisplayName: string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(),
                     Phone: string.IsNullOrWhiteSpace(_fPhone) ? null : _fPhone.Trim()),
@@ -519,7 +519,7 @@ else
         _editTarget = u;
         _fDisplayName = u.DisplayName ?? "";
         _fPhone = u.Phone ?? "";
-        _fRole = u.TenantRole;
+        _fRoleKind = TenantRoleKind.IsAdmin(u.TenantRole) ? KindAdmin : KindUser;
         _fStatus = u.Status;
         _fViewId = _assignedView.ContainsKey(u.Id)
             ? (_views.FirstOrDefault(v => v.Name == _assignedView[u.Id])?.Id.ToString() ?? "")
@@ -544,9 +544,10 @@ else
                 string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(),
                 string.IsNullOrWhiteSpace(_fPhone) ? null : _fPhone.Trim(),
                 actor);
-            if (_fRole != _editTarget.TenantRole)
+            var newRole = TenantRoleKind.Resolve(_editTarget.TenantRole, _fRoleKind == KindAdmin);
+            if (newRole != _editTarget.TenantRole)
             {
-                await UsersSvc.ChangeRoleAsync(id, _fRole, actor);
+                await UsersSvc.ChangeRoleAsync(id, newRole, actor);
             }
             if (_fStatus != _editTarget.Status)
             {
@@ -708,23 +709,9 @@ else
         return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
     }
 
-    private static string RoleLabel(TenantRole role) => role switch
-    {
-        TenantRole.Owner => "Propietario",
-        TenantRole.Admin => "Administrador",
-        TenantRole.Supervisor => "Supervisor",
-        TenantRole.Advisor => "Asesor",
-        _ => role.ToString(),
-    };
+    private static string RoleLabel(TenantRole role) => TenantRoleKind.Label(role);
 
-    private static string RoleColor(TenantRole role) => role switch
-    {
-        TenantRole.Owner => "#7c4dff",
-        TenantRole.Admin => "#06b6d4",
-        TenantRole.Supervisor => "#f97316",
-        TenantRole.Advisor => "#10b981",
-        _ => "#94a3b8",
-    };
+    private static string RoleColor(TenantRole role) => TenantRoleKind.IsAdmin(role) ? "#06b6d4" : "#10b981";
 
     private static string StatusLabel(PlatformUserStatus status) => status switch
     {

@@ -4,8 +4,11 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Admin;
 using Ecorex.Application.Common;
+using Ecorex.Application.Pdf;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Ecorex.Application.Tenancy;
 
@@ -20,6 +23,11 @@ public sealed class AiInferenceService : IAiInferenceService
     private readonly IReadOnlyList<IAgentToolset> _toolsets;
     private readonly TimeProvider _clock;
     private readonly IAudioTranscoder _audioTranscoder;
+    private readonly AgentMediaReader _media;
+    private readonly ILogger<AiInferenceService> _logger;
+
+    // "Sin transcriptor de plataforma" se avisa UNA vez por proceso (no en cada nota de voz).
+    private static int _noTranscriberLogged;
 
     // Nombres de TODAS las herramientas (de todos los toolsets). Se usan para sanear la respuesta saliente:
     // a veces el modelo escribe la llamada como texto (p.ej. "crear_lead(...)") y eso NO debe llegar al cliente.
@@ -38,7 +46,8 @@ public sealed class AiInferenceService : IAiInferenceService
     // guarde su propia zona, anclamos aqui para que el agente calcule fechas relativas con el anio correcto.
     private static readonly TimeSpan TenantOffset = TimeSpan.FromHours(-5);
 
-    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage, IAiAgentCacheService cache, IAgentCierreService cierre, IEnumerable<IAgentToolset> toolsets, TimeProvider clock, IAudioTranscoder audioTranscoder)
+    public AiInferenceService(IApplicationDbContext db, ISecretProtector secretProtector, IAiProviderClient client, IAiUsageService usage, IAiAgentCacheService cache, IAgentCierreService cierre, IEnumerable<IAgentToolset> toolsets, TimeProvider clock, IAudioTranscoder audioTranscoder,
+        IPdfRasterizer? pdfRasterizer = null, ILogger<AiInferenceService>? logger = null)
     {
         _db = db;
         _secretProtector = secretProtector;
@@ -49,6 +58,8 @@ public sealed class AiInferenceService : IAiInferenceService
         _toolsets = toolsets.ToList();
         _clock = clock;
         _audioTranscoder = audioTranscoder;
+        _media = new AgentMediaReader(client, pdfRasterizer);
+        _logger = logger ?? NullLogger<AiInferenceService>.Instance;
         _allToolNames = _toolsets.SelectMany(t => t.GetSpecs()).Select(s => s.Name)
             .Where(n => !string.IsNullOrWhiteSpace(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
@@ -160,9 +171,12 @@ public sealed class AiInferenceService : IAiInferenceService
         // extractor de cache. Best-effort POR archivo: si una lectura falla, no rompe las demas ni la respuesta.
         var work = turns.ToList();
         var isLastUser = work.Count > 0 && string.Equals(work[^1].Role, "user", StringComparison.OrdinalIgnoreCase);
+        // Lector de medios (ADR-0174): mismo proveedor/modelo del agente; el prompt es el del agente o el generico.
+        var mediaModel = new AgentMediaModel(agent.Provider, apiKey, providerCfg.BaseUrl, model);
 
         // Imagenes entrantes (incluye documentos con mime de imagen, reclasificados aguas arriba, Fix 2):
-        // una pasada de VISION por cada una que CLASIFICA y EXTRAE sus campos como TEXTO.
+        // una pasada de VISION por cada una con el LECTOR del agente (ADR-0174: describe y transcribe lo legible, o
+        // la plantilla de campos del agente si tiene una), devuelta como TEXTO.
         if (images is { Count: > 0 } && isLastUser)
         {
             var n = 0;
@@ -171,7 +185,8 @@ public sealed class AiInferenceService : IAiInferenceService
                 n++;
                 try
                 {
-                    var reading = await ReadImageAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, img.Base64, img.Mime, cancellationToken);
+                    var read = await _media.ReadImageAsync(mediaModel, agent.MediaReaderPrompt, img.Base64, img.Mime, cancellationToken);
+                    var reading = read.Ok ? read.Text?.Trim() : null;
                     if (!string.IsNullOrWhiteSpace(reading))
                     {
                         var label = images.Count > 1
@@ -190,7 +205,12 @@ public sealed class AiInferenceService : IAiInferenceService
         // como "Transcripcion del audio: ...". El MODELO PRINCIPAL recibe la transcripcion como TEXTO (no el
         // audio crudo: ver la llamada a RunToolLoopAsync), asi se evita el 400 de formato en la llamada
         // principal. Best-effort POR archivo: si una transcripcion falla, el agente cae a su fallback (nunca mudo).
-        if (audios is { Count: > 0 } && isLastUser)
+        // Quien transcribe (ADR-0174): el modelo del agente si es Gemini; si no, el TRANSCRIPTOR DE PLATAFORMA (Gemini
+        // Flash de Servidores de IA). Sin transcriptor no se transcodifica nada (comportamiento previo).
+        var transcriber = audios is { Count: > 0 } && isLastUser
+            ? await ResolveTranscriberAsync(agent.Provider, mediaModel, cancellationToken)
+            : null;
+        if (audios is { Count: > 0 } && isLastUser && transcriber is not null)
         {
             var n = 0;
             foreach (var au in audios)
@@ -213,7 +233,14 @@ public sealed class AiInferenceService : IAiInferenceService
                 }
                 try
                 {
-                    var transcripcion = await ReadAudioAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, audioBase64, audioMime, cancellationToken);
+                    var tr = await _media.TranscribeAsync(transcriber, audioBase64, audioMime ?? "audio/wav", cancellationToken);
+                    // Transcriptor de plataforma: su consumo se carga al tenant del agente (AiUsageLog). El del propio
+                    // agente (Gemini) sigue como antes.
+                    if (tr.Ok && transcriber.Provider != agent.Provider)
+                    {
+                        await _usage.RecordAsync(agent.Id, transcriber.Provider, transcriber.Model, tr.InputTokens, tr.OutputTokens, "transcripcion", true, cancellationToken);
+                    }
+                    var transcripcion = tr.Ok ? tr.Text?.Trim() : null;
                     if (!string.IsNullOrWhiteSpace(transcripcion))
                     {
                         var prefix = audios.Count > 1 ? $"Transcripcion del audio {n}/{audios.Count}: " : "Transcripcion del audio: ";
@@ -224,9 +251,9 @@ public sealed class AiInferenceService : IAiInferenceService
             }
         }
 
-        // Documentos entrantes (p.ej. factura PDF): el modelo principal ya los recibe nativos (AiInlineDocument),
-        // pero el EXTRACTOR de cache lee solo TEXTO. Se LEE cada PDF y se anexa al ultimo turno como
-        // "[Lectura automatica del documento adjunto]\n<campos>" para que el extractor capture el valor. Los
+        // Documentos entrantes (p.ej. factura PDF): Gemini/Claude los reciben ademas nativos (AiInlineDocument),
+        // pero el EXTRACTOR de cache lee solo TEXTO y DeepSeek/ChatGPT no aceptan PDF. Se LEE cada PDF (nativo o
+        // rasterizado, ADR-0174) y se anexa al ultimo turno como "[Lectura automatica del documento adjunto]". Los
         // documentos con mime de imagen se reclasificaron a 'images' aguas arriba (Fix 2); los Excel/CSV se
         // extraen a texto aguas arriba. Aqui solo se leen los PDF (el unico tipo que ReadDocumentAsync soporta).
         if (documents is { Count: > 0 } && isLastUser)
@@ -238,7 +265,8 @@ public sealed class AiInferenceService : IAiInferenceService
                 if (!(doc.Mime?.Contains("pdf", StringComparison.OrdinalIgnoreCase) ?? false)) { continue; }
                 try
                 {
-                    var lectura = await ReadDocumentAsync(agent.Provider, apiKey, providerCfg.BaseUrl, model, doc.Base64, doc.Mime, cancellationToken);
+                    var read = await _media.ReadDocumentAsync(mediaModel, agent.MediaReaderPrompt, doc.Base64, doc.Mime, cancellationToken);
+                    var lectura = read is { Ok: true } ? read.Text?.Trim() : null;
                     if (!string.IsNullOrWhiteSpace(lectura))
                     {
                         var label = documents.Count > 1
@@ -247,7 +275,11 @@ public sealed class AiInferenceService : IAiInferenceService
                         work[^1] = work[^1] with { Text = (work[^1].Text ?? "") + "\n\n" + label + "\n" + lectura!.Trim() };
                     }
                 }
-                catch { /* best-effort por archivo: la lectura de un documento nunca debe romper la respuesta */ }
+                catch (Exception ex)
+                {
+                    // best-effort por archivo (PDF protegido/corrupto, rasterizado fallido): nunca rompe la respuesta.
+                    _logger.LogWarning("Lector de medios: no se pudo leer el documento {N} del agente {Agent}: {Error}", n, agent.Id, ex.Message);
+                }
             }
         }
 
@@ -366,86 +398,33 @@ public sealed class AiInferenceService : IAiInferenceService
     };
 
     /// <summary>
-    /// Fix B: LEE una imagen entrante del cliente con una pasada de VISION de un solo turno y devuelve un bloque
-    /// de texto plano con sus campos clasificados (tipo de imagen + valores). Ese texto se anexa luego al ultimo
-    /// turno del cliente para que lo vea el modelo principal Y el extractor de cache (que solo mira texto). Reusa
-    /// el mismo proveedor/apiKey/modelo del agente. Best-effort: devuelve null si falla (nunca lanza).
+    /// Modelo que transcribe las notas de voz (ADR-0174): el del agente si su proveedor oye audio (Gemini); si no,
+    /// el TRANSCRIPTOR DE PLATAFORMA = la cuenta de Gemini de Servidores de IA con su modelo de transcripcion
+    /// (por defecto gemini-2.5-flash, nunca el modelo del agente). Null si no hay con que transcribir (se avisa una
+    /// vez y el agente sigue con "(adjunto)", como antes). Si Gemini esta sin cupo, el freno de v0.16.332 corta
+    /// la llamada sin reintentos.
     /// </summary>
-    private async Task<string?> ReadImageAsync(AiProvider provider, string apiKey, string? baseUrl,
-        string model, string imageBase64, string? imageMime, CancellationToken ct)
+    private async Task<AgentMediaModel?> ResolveTranscriberAsync(AiProvider agentProvider, AgentMediaModel agentModel, CancellationToken ct)
     {
-        const string sys = @"Eres un extractor. Miras UNA imagen que envio un cliente por WhatsApp y devuelves
-SOLO un bloque de texto plano con estos campos (una linea por campo). Si un campo no aplica o no se lee, pon
-NO_LEGIBLE. No agregues nada mas, sin markdown.
-TIPO_IMAGEN: (FACTURA_ENERGIA | FOTO_TECHO_AREA | PLACA_MOTOBOMBA | OTRO)
-COMERCIALIZADORA:
-VALOR_TOTAL_COP: (solo digitos, el valor total a pagar del mes)
-CONSUMO_KWH: (solo digitos)
-ESTRATO:
-PERIODO_FACTURADO:
-CIUDAD:
-TIPO_TECHO: (teja | losa | metalico | otro, solo si es FOTO_TECHO_AREA)
-MOTOBOMBA: (MARCA/MODELO/POTENCIA_HP/VOLTAJE/FASES/AMPERAJE, solo si es PLACA_MOTOBOMBA)";
-        var mime = string.IsNullOrWhiteSpace(imageMime) ? "image/jpeg" : imageMime!;
-        var content = new List<AiVisionPart>
+        if (AgentMediaReader.HearsAudio(agentProvider)) { return agentModel; }
+        var cfg = await _db.AiProviderConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Provider == AiProvider.Gemini && c.IsEnabled && c.ApiKeyEncrypted != null, ct);
+        if (cfg is null)
         {
-            new(Text: "Lee la imagen y devuelve el bloque de campos."),
-            new(ImageBase64: imageBase64, ImageMime: mime)
-        };
-        var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
-        return r.Ok ? r.Text?.Trim() : null;
-    }
-
-    /// <summary>
-    /// Transcribe una nota de voz entrante a TEXTO (mismo proveedor/apiKey/modelo del agente). Best-effort:
-    /// devuelve null si falla o si el proveedor no transcribe (solo Gemini por ahora). Nunca lanza.
-    /// </summary>
-    private async Task<string?> ReadAudioAsync(AiProvider provider, string apiKey, string? baseUrl,
-        string model, string audioBase64, string? audioMime, CancellationToken ct)
-    {
-        // Solo Gemini transcribe audio (generateContent con inlineData). Otros proveedores: sin transcripcion.
-        if (provider != AiProvider.Gemini) { return null; }
-        const string sys = @"Eres un transcriptor. Escuchas UNA nota de voz que envio un cliente por WhatsApp y
-devuelves SOLO la transcripcion literal en el idioma hablado (normalmente espanol), sin comillas, sin
-markdown y sin agregar nada. Si no se entiende nada, devuelve una cadena vacia.";
-        var mime = string.IsNullOrWhiteSpace(audioMime) ? "audio/ogg" : audioMime!;
-        var content = new List<AiVisionPart>
+            if (Interlocked.Exchange(ref _noTranscriberLogged, 1) == 0)
+            {
+                _logger.LogWarning("Notas de voz sin transcribir: el agente usa {Provider} (no oye audio) y Gemini no esta habilitado en Servidores de IA como transcriptor de plataforma.", agentProvider);
+            }
+            return null;
+        }
+        string key;
+        try { key = _secretProtector.Unprotect(cfg.ApiKeyEncrypted!); }
+        catch
         {
-            new(Text: "Transcribe la nota de voz."),
-            new(AudioBase64: audioBase64, AudioMime: mime)
-        };
-        var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
-        return r.Ok ? r.Text?.Trim() : null;
-    }
-
-    /// <summary>
-    /// Lee un DOCUMENTO PDF entrante (factura, etc.) y devuelve el mismo bloque de campos que
-    /// <see cref="ReadImageAsync"/> (para que el extractor de cache lo mapee igual). Gemini y Claude leen
-    /// PDF nativo; otros proveedores devuelven null (CompleteVisionAsync no los soporta). Best-effort: nunca lanza.
-    /// </summary>
-    private async Task<string?> ReadDocumentAsync(AiProvider provider, string apiKey, string? baseUrl,
-        string model, string docBase64, string? docMime, CancellationToken ct)
-    {
-        // Solo Gemini/Claude aceptan PDF nativo; para el resto ni intentamos la llamada.
-        if (provider != AiProvider.Gemini && provider != AiProvider.Claude) { return null; }
-        const string sys = @"Eres un extractor. Lees UN documento PDF que envio un cliente por WhatsApp (normalmente
-una factura de energia) y devuelves SOLO un bloque de texto plano con estos campos (una linea por campo). Si un
-campo no aplica o no se lee, pon NO_LEGIBLE. No agregues nada mas, sin markdown.
-TIPO_IMAGEN: (FACTURA_ENERGIA | OTRO)
-COMERCIALIZADORA:
-VALOR_TOTAL_COP: (solo digitos, el valor total a pagar del mes)
-CONSUMO_KWH: (solo digitos)
-ESTRATO:
-PERIODO_FACTURADO:
-CIUDAD:";
-        var mime = string.IsNullOrWhiteSpace(docMime) ? "application/pdf" : docMime!;
-        var content = new List<AiVisionPart>
-        {
-            new(Text: "Lee el documento y devuelve el bloque de campos."),
-            new(DocBase64: docBase64, DocMime: mime)
-        };
-        var r = await _client.CompleteVisionAsync(provider, apiKey, baseUrl, model, sys, content, ct);
-        return r.Ok ? r.Text?.Trim() : null;
+            _logger.LogWarning("Transcriptor de plataforma: la API key de Gemini no se pudo descifrar; vuelve a guardarla en Servidores de IA.");
+            return null;
+        }
+        return AgentMediaReader.PickTranscriber(agentModel, key, cfg.BaseUrl, cfg.TranscriptionModel);
     }
 
     /// <summary>
@@ -513,6 +492,17 @@ CIUDAD:";
             if (!completion.Ok)
             {
                 return (new AiChatResult(false, null, completion.Error, totalIn, totalOut), sessionCompleted);
+            }
+
+            // El cliente tuvo que reintentar SIN imagenes (modelo sin vision, ADR-0174): se deja en la bitacora y
+            // se quitan las imagenes del historial para no repetir el 400 en las vueltas siguientes.
+            if (!string.IsNullOrWhiteSpace(completion.Notice))
+            {
+                debugPrompts.Add(new AiDebugPrompt("Aviso del proveedor", DateTimeOffset.UtcNow, completion.Notice!));
+                for (var mi = 0; mi < messages.Count; mi++)
+                {
+                    if (messages[mi].Images is { Count: > 0 }) { messages[mi] = messages[mi] with { Images = null }; }
+                }
             }
 
             // Sin herramientas pedidas: el modelo entrega su respuesta final.

@@ -22,6 +22,28 @@ public static class PhoneNumber
     }
 
     /// <summary>
+    /// Forma E.164 ("+" + codigo de pais + numero) o null si no parece un telefono valido (menos de 8 o mas
+    /// de 15 digitos, o empieza por 0 tras quitar el prefijo internacional "00"). Un movil colombiano de 10
+    /// digitos (empieza por 3) sin codigo de pais recibe <paramref name="defaultCountryCode"/> (57 por
+    /// defecto: tenants CO). Un numero que ya trae "+" o "00" se respeta tal cual. La usan el motor de
+    /// acciones por filtro (WhatsApp y llamada IA) porque los terceros suelen guardarse en 10 digitos.
+    /// </summary>
+    public static string? ToE164(string? phone, string defaultCountryCode = "57")
+    {
+        if (string.IsNullOrWhiteSpace(phone)) { return null; }
+        var trimmed = phone.Trim();
+        var international = trimmed.StartsWith('+');
+        var digits = new string(trimmed.Where(char.IsAsciiDigit).ToArray());
+        if (digits.StartsWith("00", StringComparison.Ordinal)) { digits = digits[2..]; international = true; }
+        if (!international && digits.Length == 10 && digits[0] == '3')
+        {
+            var cc = new string((defaultCountryCode ?? "").Where(char.IsAsciiDigit).ToArray());
+            digits = (cc.Length == 0 ? "57" : cc) + digits;
+        }
+        return digits.Length is >= 8 and <= 15 && digits[0] != '0' ? "+" + digits : null;
+    }
+
+    /// <summary>
     /// Formas equivalentes de un numero para BUSCAR una conversacion existente sin fabricar una nueva:
     /// la canonica (MSISDN) y, cuando aplica, la forma nacional (sin el "57"). Asi un entrante en cualquiera
     /// de las dos variantes aterriza en el MISMO hilo ya existente (no se fusionan los hilos viejos: solo se

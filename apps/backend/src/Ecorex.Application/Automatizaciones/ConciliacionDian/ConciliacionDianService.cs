@@ -186,6 +186,22 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             .ToListAsync(ct);
     }
 
+    /// <summary>Largo del prefijo de CUFE que viaja en CUFES_CONOCIDOS (12 hex = 48 bits bastan, ADR-0169).</summary>
+    public const int CufePrefijo = 12;
+
+    public async Task<string> CufesConocidosAsync(int diasDesde, int diasAtras, CancellationToken ct = default)
+    {
+        diasDesde = Math.Max(0, diasDesde);
+        diasAtras = Math.Max(0, diasAtras);
+        var hoy = DateTimeOffset.UtcNow;
+        var cufes = await CufesDelBotAsync(hoy.AddDays(-(diasDesde + diasAtras + 7)), hoy.AddDays(-diasDesde + 7), ct);
+        return string.Join(",", cufes
+            .Select(c => c.Trim().ToLowerInvariant())
+            .Where(c => c.Length >= CufePrefijo)
+            .Select(c => c[..CufePrefijo])
+            .Distinct());
+    }
+
     public async Task<int> ImportarDesdeBotAsync(Guid documentoId, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tenantId) { return 0; }
@@ -206,6 +222,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
 
         var nuevos = 0;
         var promovidos = 0;
+        var ocLlenadas = 0;
 
         // 1) DIAN: idempotente por CUFE. Si el CUFE ya esta como FANTASMA (solo NEWTON), se PROMUEVE a DIAN
         //    (se llenan los datos de la DIAN y pasa a Origen=DIAN). Si ya era DIAN, no se pisa su trabajo.
@@ -218,6 +235,13 @@ public sealed class ConciliacionDianService : IConciliacionDianService
                     AplicarDatosBot(ex, b);
                     ex.Origen = OrigenRenglonConciliacionDian.Dian;
                     promovidos++;
+                }
+                else if (string.IsNullOrWhiteSpace(ex.OrdenCompraSoldarco) && !string.IsNullOrWhiteSpace(b.IdCompra))
+                {
+                    // Renglon DIAN ya existente sin orden de compra: se completa con la que cita la factura. Nunca
+                    // pisa una OC escrita a mano o por una regla (solo llena vacias).
+                    ex.OrdenCompraSoldarco = b.IdCompra;
+                    ocLlenadas++;
                 }
                 continue;
             }
@@ -273,12 +297,12 @@ public sealed class ConciliacionDianService : IConciliacionDianService
             nuevos++;
         }
 
-        if (nuevos > 0 || promovidos > 0) { await _db.SaveChangesAsync(ct); }
+        if (nuevos > 0 || promovidos > 0 || ocLlenadas > 0) { await _db.SaveChangesAsync(ct); }
         return nuevos;
     }
 
     // Copia los datos de la factura del bot DIAN al renglon (alta o promocion de un fantasma). No toca el
-    // estado de trabajo (aprobacion, NumFacturaSoldarco), solo los datos del documento DIAN.
+    // estado de trabajo (aprobacion, NumFacturaSoldarco), solo los datos del documento DIAN (OC: solo si vacia).
     private static void AplicarDatosBot(ConciliacionDianRenglon r, ConciliacionDianBotDummy b)
     {
         r.TipoDocDian = b.TipoDoc;
@@ -286,7 +310,8 @@ public sealed class ConciliacionDianService : IConciliacionDianService
         r.NombreProveedor = b.NombreEmisor;
         r.NitProveedor = b.NitEmisor;
         r.NumFacturaProveedor = b.PrefijoFolio;
-        r.OrdenCompraSoldarco = b.IdCompra;
+        // La OC solo se llena si el renglon no tiene una (un fantasma pudo recibirla a mano o por regla).
+        if (string.IsNullOrWhiteSpace(r.OrdenCompraSoldarco)) { r.OrdenCompraSoldarco = b.IdCompra ?? string.Empty; }
         r.SubtotalBruto = b.SubtotalBruto;
         r.DescuentoComercial = b.DescuentoComercial;
         r.SubtotalNeto = b.Subtotal;

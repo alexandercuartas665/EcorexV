@@ -42,6 +42,11 @@ public class TenantApiToken : TenantEntity
     /// solo sirve en /api/mcp/whatsapp/{lineId}. Un token de tableros no abre WhatsApp ni al reves.</summary>
     public const string ScopeMcpWhatsApp = "mcp:whatsapp";
 
+    /// <summary>Alcance de la integracion de la maqueta (ADR-0176, token personal de usuario): solo sirve en
+    /// POST /api/maqueta/solicitudes; las tarjetas caen en el tenant del usuario y quedan creadas a su nombre. Tambien abre
+    /// la subida de versiones (ADR-0179) y el servidor MCP de maquetas /api/mcp/maquetas (ADR-0182).</summary>
+    public const string ScopeMaqueta = "integ:maqueta";
+
     /// <summary>Cuando se revoco (UTC). null = activo. Un token revocado no resuelve tenant (401).</summary>
     public DateTimeOffset? RevokedAt { get; set; }
 

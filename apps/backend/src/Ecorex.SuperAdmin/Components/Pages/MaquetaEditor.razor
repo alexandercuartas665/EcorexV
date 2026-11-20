@@ -1,0 +1,713 @@
+@page "/maqueta/{Slug}"
+@attribute [Authorize(Policy = Ecorex.SuperAdmin.Maqueta.MaquetaHub.Policy)]
+@* Editor de maquetas (ADR-0180): herramienta tipo Lovable DENTRO de ECOREX. La maqueta es HTML puro (lo que se sube
+   en el ZIP); este editor la abre en un iframe del mismo origen (/maqueta/{slug}/...), le inyecta su agente
+   (js/maqueta-agente.js) para seleccionar un elemento y capturarlo, y crea la solicitud como TARJETA en el tablero
+   del proyecto (MaquetaSolicitudService, origen maqueta-{slug}). Cualquier usuario del tenant anota. Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@implements IAsyncDisposable
+@using System.Text.Json
+@using Ecorex.Application.Integraciones.Maqueta
+@using Ecorex.Application.Storage
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
+@using Ecorex.SuperAdmin.Maqueta
+@using Microsoft.AspNetCore.Components.Authorization
+@inject MaquetaHubRegistry Hub
+@inject MockupSiteCache SiteCache
+@inject IServiceScopeFactory ScopeFactory
+@inject IJSRuntime JS
+
+<PageTitle>@(_name ?? "Maqueta") - Editor de maqueta</PageTitle>
+
+@if (_loading)
+{
+    <div class="me-empty">Cargando maqueta...</div>
+}
+else if (_error is not null)
+{
+    <div class="me-empty">
+        <div>@_error</div>
+        <a class="btn btn-sm btn-outline-secondary mt-2" href="/maqueta">Volver a Maquetas</a>
+    </div>
+}
+else
+{
+    <div class="me-shell">
+        <header class="me-top">
+            <a class="me-back" href="/maqueta" title="Volver a Maquetas"><i class="fa-solid fa-arrow-left"></i></a>
+            <div class="me-brand">
+                <span class="me-name">@_name</span>
+                <small>@(_versionLabel)</small>
+            </div>
+            <div class="me-tabs" role="tablist">
+                <button role="tab" class="@(_tab == TabMaqueta ? "on" : null)" @onclick="() => SetTab(TabMaqueta)"><i class="fa-regular fa-window-maximize"></i> Maqueta</button>
+                <button role="tab" class="@(_tab == TabCerebro ? "on" : null)" disabled="@(_project is null)"
+                        title="@(_project is null ? "El cerebro digital esta disponible en las maquetas de la nube" : "Cerebro digital del proyecto: notas enlazadas y grafo")"
+                        @onclick="() => SetTab(TabCerebro)"><i class="fa-solid fa-brain"></i> Cerebro</button>
+            </div>
+            @if (_tab == TabMaqueta)
+            {
+            <div class="me-url">
+                <i class="fa-regular fa-window-maximize"></i>
+                <select class="me-select" value="@_currentFile" @onchange="OnPageChanged" title="Pantalla de la maqueta">
+                    @if (!_pages.Any(p => p.File == _currentFile))
+                    {
+                        <option value="@_currentFile">@(string.IsNullOrEmpty(_currentFile) ? "(pagina externa)" : _currentFile)</option>
+                    }
+                    @foreach (var group in _pages.GroupBy(p => string.IsNullOrEmpty(p.Module) ? "General" : p.Module))
+                    {
+                        <optgroup label="@group.Key">
+                            @foreach (var p in group)
+                            {
+                                <option value="@p.File">@p.Title (@p.File)</option>
+                            }
+                        </optgroup>
+                    }
+                </select>
+            </div>
+            <button class="me-icon" title="Recargar" @onclick="ReloadFrameAsync"><i class="fa-solid fa-rotate-right"></i></button>
+            <div class="me-seg" title="Tamano de pantalla">
+                <button class="@(!_mobile ? "on" : null)" title="Escritorio" @onclick="() => _mobile = false"><i class="fa-solid fa-desktop"></i></button>
+                <button class="@(_mobile ? "on" : null)" title="Movil (375 px)" @onclick="() => _mobile = true"><i class="fa-solid fa-mobile-screen"></i></button>
+            </div>
+            @if (_temas.Count > 0)
+            {
+                <select class="me-select me-theme" value="@_theme" @onchange="OnThemeChanged" title="Tema">
+                    @foreach (var t in _temas)
+                    {
+                        <option value="@t.Id">@t.Name</option>
+                    }
+                </select>
+            }
+            }
+            <div class="me-spacer"></div>
+            @if (_tab == TabMaqueta)
+            {
+                <a class="me-icon" href="@FullUrl" target="_blank" rel="noopener" title="Abrir la pantalla sola (HTML puro)"><i class="fa-solid fa-up-right-from-square"></i></a>
+                @if (_project is not null)
+                {
+                    <button class="me-icon" title="Nota de esta pantalla en el cerebro digital" @onclick="PageNoteAsync"><i class="fa-regular fa-note-sticky"></i></button>
+                }
+            }
+            @if (_isAdmin && _project is not null)
+            {
+                <a class="me-btn" href="@($"/maqueta?gestionar={_project.Slug}")" title="Versiones y configuracion del proyecto"><i class="fa-solid fa-layer-group"></i> Versiones</a>
+            }
+            @if (_tab == TabMaqueta)
+            {
+                <button class="me-btn primary @(_picking ? "on" : null)" @onclick="TogglePickAsync" disabled="@(!_agentOk)">
+                    <i class="fa-solid fa-arrow-pointer"></i> @(_picking ? "Seleccionando..." : "Seleccionar")
+                </button>
+            }
+        </header>
+
+        @if (_project is not null)
+        {
+            @* El cerebro se monta una sola vez y se oculta con CSS: cambiar de pestana no recarga el iframe ni pierde el borrador. *@
+            <div class="me-brain @(_tab == TabCerebro ? "on" : null)">
+                <MaquetaCerebro @ref="_brain" Slug="@Slug" ProjectName="@(_name ?? Slug)" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
+                                Active="@(_tab == TabCerebro)" Pages="_pages" Solicitudes="_solicitudes" CurrentFile="@_currentFile"
+                                InitialNote="@Nota" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast" />
+            </div>
+        }
+
+        <div class="me-main @(_tab == TabCerebro ? "off" : null)">
+            <aside class="me-side">
+                <div class="me-side-head">
+                    <div class="me-side-title">
+                        <h2>Solicitudes</h2>
+                        <span class="me-count">@_solicitudes.Count(s => s.IsOpen) abiertas &middot; @_solicitudes.Count total</span>
+                    </div>
+                    <div class="me-side-tools">
+                        <select class="me-select sm" @bind="_filter">
+                            <option value="open">Abiertas</option>
+                            <option value="page">De esta pantalla</option>
+                            <option value="all">Todas</option>
+                        </select>
+                        <button class="me-icon sm" title="Actualizar" @onclick="LoadSolicitudesAsync"><i class="fa-solid fa-rotate"></i></button>
+                    </div>
+                    <div class="me-board" title="Tablero donde caen las solicitudes"><i class="fa-solid fa-table-columns"></i> @_boardName</div>
+                </div>
+
+                <div class="me-thread">
+                    @{ var visible = Visible().ToList(); }
+                    @if (visible.Count == 0)
+                    {
+                        <div class="me-thread-empty">Sin solicitudes @(_filter == "all" ? "todavia" : "en este filtro").<br />Pulsa <b>Seleccionar</b> y haz clic sobre un elemento de la maqueta.</div>
+                    }
+                    @foreach (var s in visible)
+                    {
+                        <div class="me-card @(s.IsOpen ? null : "closed")">
+                            <div class="me-card-top">
+                                <span class="me-num">@s.Number</span>
+                                <span class="me-tag prio-@PrioClass(s.Priority)">@PrioLabel(s.Priority)</span>
+                                <span class="me-tag state">@(s.ColumnName ?? s.Status.ToString())</span>
+                                <span class="me-when">@Ago(s.CreatedAt)</span>
+                            </div>
+                            <h3 @onclick="() => OpenTaskAsync(s)">@s.Title</h3>
+                            @if (!string.IsNullOrEmpty(s.Pantalla) || !string.IsNullOrEmpty(s.Archivo))
+                            {
+                                <div class="me-where">@(s.Pantalla ?? s.Archivo)</div>
+                            }
+                            <div class="me-card-actions">
+                                @if (!string.IsNullOrEmpty(s.Archivo))
+                                {
+                                    <button class="me-link" @onclick="() => GotoAsync(s)"><i class="fa-solid fa-location-crosshairs"></i> Ver en la maqueta</button>
+                                }
+                                <button class="me-link" @onclick="() => OpenTaskAsync(s)"><i class="fa-regular fa-square-check"></i> Abrir tarjeta</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="me-composer @(_pending is not null ? "active" : null)">
+                    @if (_pending is null)
+                    {
+                        <div class="me-idle">
+                            <span>Pulsa <b>Seleccionar</b> y haz clic en un elemento de la maqueta para pedir un ajuste.</span>
+                            <button class="me-btn primary" @onclick="TogglePickAsync" disabled="@(!_agentOk)"><i class="fa-solid fa-arrow-pointer"></i> Seleccionar elemento</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="me-cp-head">
+                            <span>Nueva solicitud</span>
+                            <button class="me-icon sm" title="Descartar" @onclick="ClearComposer"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div class="me-chip">
+                            @if (_capture is not null)
+                            {
+                                <img src="@_capture" alt="captura" @onclick="() => _zoom = true" />
+                            }
+                            <div class="me-chip-info">
+                                <div class="me-el">&lt;@(_pending.Elemento?.Tag ?? "?")&gt; @(string.IsNullOrEmpty(_pending.Elemento?.Texto) ? "" : $"\"{_pending.Elemento!.Texto}\"")</div>
+                                <div class="me-where">@(_pending.Pantalla ?? _pending.ArchivoMaqueta)</div>
+                                <code class="me-sel">@_pending.Elemento?.Selector</code>
+                                @if (_captureError is not null)
+                                {
+                                    <div class="me-warn">Sin captura: @_captureError</div>
+                                }
+                            </div>
+                        </div>
+                        <label class="me-field">Que hay que ajustar *
+                            <input class="me-input" @bind="_titulo" @bind:event="oninput" placeholder="En una linea" @ref="_titleRef" />
+                        </label>
+                        <label class="me-field">Detalle
+                            <textarea class="me-input area" @bind="_detalle" placeholder="Que esta mal, como deberia quedar, por que..."></textarea>
+                        </label>
+                        <div class="me-row">
+                            <label class="me-field">Categoria
+                                <select class="me-input" @bind="_categoria">
+                                    <option>Ajuste</option><option>Bug</option><option>Duda</option><option>Mejora</option>
+                                </select>
+                            </label>
+                            <label class="me-field">Prioridad
+                                <select class="me-input" @bind="_prioridad">
+                                    <option>Alta</option><option>Media</option><option>Baja</option>
+                                </select>
+                            </label>
+                        </div>
+                        @if (_composerError is not null)
+                        {
+                            <div class="me-warn">@_composerError</div>
+                        }
+                        <div class="me-cp-foot">
+                            <button class="me-btn" @onclick="ClearComposer">Descartar</button>
+                            <button class="me-btn primary" disabled="@(_saving || string.IsNullOrWhiteSpace(_titulo))" @onclick="SaveAsync">
+                                <i class="fa-solid fa-paper-plane"></i> @(_saving ? "Creando..." : "Crear tarjeta")
+                            </button>
+                        </div>
+                    }
+                </div>
+            </aside>
+
+            <section class="me-stage @(_mobile ? "mobile" : null) @(_picking ? "picking" : null)">
+                @if (_picking)
+                {
+                    <div class="me-hint">Haz clic sobre el elemento que quieres anotar &middot; Esc para salir</div>
+                }
+                @if (!_agentOk && _frameLoaded)
+                {
+                    <div class="me-hint warn">Esta pantalla no se puede anotar (no es una pagina de la maqueta).</div>
+                }
+                <div class="me-frame-wrap">
+                    <iframe id="me-frame" class="me-frame" title="Maqueta @_name"></iframe>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    @if (_toast is not null)
+    {
+        <div class="me-toast">@_toast</div>
+    }
+    @if (_zoom && _capture is not null)
+    {
+        <div class="me-lightbox" @onclick="() => _zoom = false"><img src="@_capture" alt="captura" /></div>
+    }
+}
+
+<TaskDetailModal @ref="_taskModal" OnChanged="LoadSolicitudesAsync" />
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+    [SupplyParameterFromQuery(Name = "v")] public int? VersionNumber { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public string? StartPage { get; set; }
+    /// <summary>Pestana inicial: "cerebro" abre el cerebro digital (ADR-0183).</summary>
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    /// <summary>Nota del cerebro a abrir (por titulo) al entrar con ?tab=cerebro.</summary>
+    [SupplyParameterFromQuery(Name = "nota")] public string? Nota { get; set; }
+
+    private const string TabMaqueta = "maqueta";
+    private const string TabCerebro = "cerebro";
+    private string _tab = TabMaqueta;
+    private MaquetaCerebro? _brain;
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private sealed record ThemeOption(string Id, string Name);
+
+    private sealed record LoadResult(MockupProjectDto? Project, MockupServeTarget? Target, string? Root);
+
+    private sealed record SaveResult(bool Ok, string? Error, string? Number);
+
+    /// <summary>Contexto que manda el agente al seleccionar (camelCase).</summary>
+    private sealed class PickedContext
+    {
+        public string? Ruta { get; set; }
+        public string? Modulo { get; set; }
+        public string? Pantalla { get; set; }
+        public string? OrigenApp { get; set; }
+        public string? Handoff { get; set; }
+        public string? ArchivoMaqueta { get; set; }
+        public MaquetaElemento? Elemento { get; set; }
+    }
+
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private bool _loading = true;
+    private string? _error;
+    private string? _name;
+    private string _versionLabel = string.Empty;
+    private string _basePath = string.Empty;
+    private string? _manifestUrl;
+    private string _boardName = string.Empty;
+    private MockupProjectDto? _project;
+    private IReadOnlyList<MockupPage> _pages = Array.Empty<MockupPage>();
+    private List<ThemeOption> _temas = new();
+    private string _theme = string.Empty;
+    private string _currentFile = string.Empty;
+    private string _startFile = "index.html";
+    private bool _mobile;
+    private bool _picking;
+    private bool _agentOk;
+    private bool _frameLoaded;
+    private bool _jsReady;
+    private bool _isAdmin;
+    private Guid _tenantId;
+    private Guid _userId;
+    private string _userName = "Usuario";
+
+    private List<MockupSolicitudDto> _solicitudes = new();
+    private string _filter = "open";
+
+    private PickedContext? _pending;
+    private string? _capture;
+    private string? _captureError;
+    private string _titulo = string.Empty;
+    private string? _detalle;
+    private string _categoria = "Ajuste";
+    private string _prioridad = "Media";
+    private string? _composerError;
+    private bool _saving;
+    private bool _zoom;
+    private ElementReference _titleRef;
+    private bool _focusTitle;
+
+    private string? _toast;
+    private CancellationTokenSource? _toastCts;
+    private TaskDetailModal? _taskModal;
+    private DotNetObjectReference<MaquetaEditor>? _self;
+
+    private string FullUrl => _basePath + string.Join('/', (_currentFile ?? string.Empty).Split('/').Select(Uri.EscapeDataString));
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _tenantId);
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+            _userName = user.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "Usuario";
+            _isAdmin = user.FindFirst("tenant_role")?.Value is "Owner" or "Admin";
+        }
+
+        var slug = (Slug ?? string.Empty).Trim().ToLowerInvariant();
+        if (!MaquetaHub.IsValidId(slug))
+        {
+            _error = "Identificador de maqueta invalido.";
+            _loading = false;
+            return;
+        }
+        Slug = slug;
+
+        try
+        {
+            // 1) Maqueta de disco local (solo Development): misma prioridad que el middleware que la sirve.
+            if (VersionNumber is null && Hub.Find(slug) is { } local)
+            {
+                _name = local.Nombre;
+                _versionLabel = "local";
+                _basePath = $"{MaquetaHub.PathPrefix}/{local.Id}/";
+                _boardName = MockupService.DefaultBoardFor(local.Nombre);
+                ApplySite(MockupPages.Scan(local.Root), null);
+            }
+            else
+            {
+                // 2) Maqueta en la nube del tenant: version actual o la pedida (?v=n).
+                var loaded = await RunAsync(async sp =>
+                {
+                    var mockups = sp.GetRequiredService<IMockupService>();
+                    var project = await mockups.GetProjectAsync(slug);
+                    if (project is null) { return new LoadResult(null, null, null); }
+                    var target = await mockups.ResolveForServingAsync(slug, VersionNumber);
+                    if (target is null) { return new LoadResult(project, null, null); }
+                    var root = await SiteCache.EnsureExtractedAsync(target, sp.GetRequiredService<IFileStorageService>());
+                    return new LoadResult(project, target, root);
+                });
+                if (loaded.Project is null)
+                {
+                    _error = $"No existe la maqueta '{slug}' en tu empresa.";
+                }
+                else if (loaded.Target is null || loaded.Root is null)
+                {
+                    _error = VersionNumber is int n
+                        ? $"La maqueta '{loaded.Project.Name}' no tiene la version {n}."
+                        : $"La maqueta '{loaded.Project.Name}' aun no tiene versiones. {(_isAdmin ? "Sube el ZIP desde Maquetas > Versiones." : "")}";
+                }
+                else
+                {
+                    _project = loaded.Project;
+                    _name = loaded.Project.Name;
+                    var number = VersionNumber ?? loaded.Project.CurrentVersionNumber;
+                    _versionLabel = VersionNumber is null ? $"v{number} (actual)" : $"v{number}";
+                    _basePath = VersionNumber is int vn ? $"{MaquetaHub.PathPrefix}/{slug}~{vn}/" : $"{MaquetaHub.PathPrefix}/{slug}/";
+                    _boardName = loaded.Project.BoardName ?? MockupService.DefaultBoardFor(loaded.Project.Name);
+                    ApplySite(SiteCache.GetSiteInfo(loaded.Target.VersionId, loaded.Root), loaded.Target.EntryPath);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            _error = "No se pudo abrir la maqueta (el archivo de la version no esta disponible). Intenta de nuevo.";
+        }
+
+        if (_error is null) { await LoadSolicitudesAsync(); }
+        if (_project is not null && string.Equals(Tab, TabCerebro, StringComparison.OrdinalIgnoreCase)) { _tab = TabCerebro; }
+        _loading = false;
+    }
+
+    private void SetTab(string tab)
+    {
+        if (tab == TabCerebro && _project is null) { return; }
+        if (tab == TabCerebro && _picking) { _ = TogglePickAsync(); }
+        _tab = tab;
+    }
+
+    /// <summary>"Nota de esta pantalla": pasa al cerebro con la nota de la pantalla abierta (o un borrador nuevo).</summary>
+    private async Task PageNoteAsync()
+    {
+        if (_project is null || string.IsNullOrEmpty(_currentFile)) { return; }
+        _tab = TabCerebro;
+        StateHasChanged();
+        if (_brain is not null) { await _brain.OpenPageNoteAsync(_currentFile); }
+    }
+
+    /// <summary>Clic en un [[pantalla.html]] del cerebro: vuelve a la pestana Maqueta en esa pantalla.</summary>
+    private async Task OpenPageFromBrainAsync(string file)
+    {
+        _tab = TabMaqueta;
+        _currentFile = file;
+        if (_jsReady) { await JS.InvokeVoidAsync("ecxMaquetaEditor.load", file); }
+    }
+
+    private async Task OpenTaskFromBrainAsync(Guid taskId)
+    {
+        if (_taskModal is not null) { await _taskModal.OpenAsync(taskId); }
+    }
+
+    private void ApplySite(MockupSiteInfo site, string? entryPath)
+    {
+        _pages = site.Pages;
+        _manifestUrl = site.HasManifest ? _basePath + MockupPages.ManifestFile : null;
+        var requested = StartPage is { Length: > 0 } sp && _pages.Any(p => p.File == sp) ? sp : null;
+        _startFile = requested
+            ?? (_pages.Any(p => p.File == "index.html") ? "index.html"
+            : entryPath is not null && entryPath != MockupService.AnotadorEntry ? entryPath
+            : _pages.FirstOrDefault()?.File ?? "index.html");
+        _currentFile = _startFile;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_jsReady && !_loading && _error is null)
+        {
+            _self ??= DotNetObjectReference.Create(this);
+            _jsReady = await JS.InvokeAsync<bool>("ecxMaquetaEditor.init", "me-frame", _basePath, _manifestUrl, _self);
+            if (_jsReady) { await JS.InvokeVoidAsync("ecxMaquetaEditor.load", _startFile); }
+        }
+        if (_focusTitle)
+        {
+            _focusTitle = false;
+            try { await _titleRef.FocusAsync(); } catch (JSException) { }
+        }
+    }
+
+    [JSInvokable]
+    public Task OnFrameReady(string file, string temasJson, bool agentOk)
+    {
+        _frameLoaded = true;
+        _agentOk = agentOk;
+        if (!agentOk) { _picking = false; }
+        _currentFile = file ?? string.Empty;
+        try
+        {
+            _temas = (JsonSerializer.Deserialize<List<ThemeOption>>(temasJson ?? "[]", Json) ?? new())
+                .Where(t => !string.IsNullOrWhiteSpace(t.Id)).ToList();
+        }
+        catch (JsonException)
+        {
+            _temas = new();
+        }
+        if (_temas.Count > 0 && _temas.All(t => t.Id != _theme)) { _theme = _temas[0].Id; }
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnPicked(string ctxJson, string? dataUrl, string? error)
+    {
+        _picking = false;
+        PickedContext? ctx = null;
+        try { ctx = JsonSerializer.Deserialize<PickedContext>(ctxJson ?? "{}", Json); } catch (JsonException) { ctx = null; }
+        _pending = ctx ?? new PickedContext();
+        _capture = dataUrl is { Length: > 0 } && dataUrl.StartsWith("data:image/", StringComparison.Ordinal) ? dataUrl : null;
+        _captureError = error;
+        _titulo = string.Empty;
+        _detalle = null;
+        _categoria = "Ajuste";
+        _prioridad = "Media";
+        _composerError = null;
+        _focusTitle = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnPickCancel()
+    {
+        _picking = false;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task TogglePickAsync()
+    {
+        if (!_jsReady) { return; }
+        var on = !_picking;
+        var ok = await JS.InvokeAsync<bool>("ecxMaquetaEditor.pick", on);
+        _picking = on && ok;
+        if (on && !ok) { ShowToast("Esta pantalla no se puede anotar."); }
+    }
+
+    private async Task OnPageChanged(ChangeEventArgs e)
+    {
+        var file = e.Value?.ToString();
+        if (string.IsNullOrEmpty(file) || !_jsReady) { return; }
+        _currentFile = file;
+        await JS.InvokeVoidAsync("ecxMaquetaEditor.load", file);
+    }
+
+    private async Task OnThemeChanged(ChangeEventArgs e)
+    {
+        _theme = e.Value?.ToString() ?? string.Empty;
+        if (_jsReady) { await JS.InvokeVoidAsync("ecxMaquetaEditor.setTheme", _theme); }
+    }
+
+    private async Task ReloadFrameAsync()
+    {
+        if (_jsReady) { await JS.InvokeVoidAsync("ecxMaquetaEditor.reload"); }
+    }
+
+    private async Task GotoAsync(MockupSolicitudDto s)
+    {
+        if (!_jsReady || string.IsNullOrEmpty(s.Archivo)) { return; }
+        await JS.InvokeVoidAsync("ecxMaquetaEditor.goto", s.Archivo, s.Selector);
+    }
+
+    private async Task OpenTaskAsync(MockupSolicitudDto s)
+    {
+        if (_taskModal is not null) { await _taskModal.OpenAsync(s.TaskId); }
+    }
+
+    private void ClearComposer()
+    {
+        _pending = null;
+        _capture = null;
+        _captureError = null;
+        _composerError = null;
+        _titulo = string.Empty;
+        _detalle = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_pending is not { } ctx || string.IsNullOrWhiteSpace(_titulo)) { return; }
+        _saving = true;
+        _composerError = null;
+        var idLocal = "ed-" + Guid.CreateVersion7().ToString("N");
+        var file = string.IsNullOrEmpty(ctx.ArchivoMaqueta) ? _currentFile : ctx.ArchivoMaqueta;
+        var request = new MaquetaSolicitudRequest
+        {
+            Origen = MockupService.SourceFor(Slug),
+            IdLocal = idLocal,
+            Tablero = _boardName,
+            Titulo = _titulo.Trim(),
+            Descripcion = BuildDescription(ctx, file),
+            Categoria = _categoria,
+            Prioridad = _prioridad,
+            Autor = _userName,
+            Modulo = ctx.Modulo,
+            Pantalla = string.IsNullOrWhiteSpace(ctx.Pantalla) ? PageTitle(file) : ctx.Pantalla,
+            Ruta = ctx.Ruta,
+            ArchivoMaqueta = file,
+            OrigenApp = ctx.OrigenApp,
+            Handoff = ctx.Handoff,
+            Elemento = ctx.Elemento,
+            Tema = _theme,
+            Viewport = _mobile ? "movil-375" : "desktop",
+            CreadoEn = DateTimeOffset.UtcNow.ToString("O"),
+            Captura = _capture is null ? null : new MaquetaCaptura
+            {
+                Nombre = $"{Path.GetFileNameWithoutExtension(file)}-{idLocal}.png",
+                Mime = "image/png",
+                Base64 = _capture
+            }
+        };
+
+        try
+        {
+            var result = await RunAsync(async sp =>
+            {
+                var svc = sp.GetRequiredService<IMaquetaSolicitudService>();
+                var actor = await svc.ResolveSessionActorAsync(_userId);
+                if (actor is null) { return new SaveResult(false, "Tu usuario no puede crear solicitudes en esta empresa.", null); }
+                var res = await svc.RecibirAsync(request, actor);
+                return res.IsOk && res.Value is not null
+                    ? new SaveResult(true, null, res.Value.Number)
+                    : new SaveResult(false, res.Error ?? "No se pudo crear la tarjeta.", null);
+            });
+            if (!result.Ok)
+            {
+                _composerError = result.Error;
+                return;
+            }
+            ClearComposer();
+            ShowToast($"Tarjeta {result.Number} creada en '{_boardName}'.");
+            await LoadSolicitudesAsync();
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private string? PageTitle(string? file) => _pages.FirstOrDefault(p => p.File == file)?.Title;
+
+    /// <summary>Descripcion de la tarjeta: el detalle del usuario + el contexto tecnico para quien hace el ajuste.</summary>
+    private string BuildDescription(PickedContext ctx, string file)
+    {
+        var lines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_detalle)) { lines.Add(_detalle.Trim()); lines.Add(string.Empty); }
+        lines.Add("---");
+        lines.Add($"**Maqueta:** {_name} ({_versionLabel}) - `{_basePath}{file}`");
+        lines.Add($"**Pantalla:** {(string.IsNullOrWhiteSpace(ctx.Pantalla) ? PageTitle(file) ?? file : ctx.Pantalla)}{(string.IsNullOrWhiteSpace(ctx.Modulo) ? "" : $" ({ctx.Modulo})")}");
+        if (!string.IsNullOrWhiteSpace(ctx.Ruta)) { lines.Add($"**Ruta del menu:** `{ctx.Ruta}`"); }
+        lines.Add($"**Archivo maqueta:** `{file}`");
+        if (!string.IsNullOrWhiteSpace(ctx.OrigenApp)) { lines.Add($"**Origen en el app real:** `{ctx.OrigenApp}`"); }
+        if (!string.IsNullOrWhiteSpace(ctx.Handoff)) { lines.Add($"**Handoff:** `{ctx.Handoff}`"); }
+        if (ctx.Elemento is { } el)
+        {
+            lines.Add($"**Elemento:** `<{el.Tag}>` {(string.IsNullOrWhiteSpace(el.Texto) ? "" : $"\"{el.Texto}\"")}");
+            lines.Add($"**Selector:** `{el.Selector}`");
+        }
+        lines.Add($"**Tema:** {(string.IsNullOrEmpty(_theme) ? "-" : _theme)} | **Viewport:** {(_mobile ? "movil-375" : "desktop")}");
+        lines.Add($"**Anotado por:** {_userName}");
+        return string.Join('\n', lines);
+    }
+
+    private async Task LoadSolicitudesAsync()
+    {
+        if (_error is not null || string.IsNullOrEmpty(Slug)) { return; }
+        _solicitudes = (await RunAsync(sp => sp.GetRequiredService<IMockupService>().ListSolicitudesAsync(Slug))).ToList();
+    }
+
+    private IEnumerable<MockupSolicitudDto> Visible() => _filter switch
+    {
+        "all" => _solicitudes,
+        "page" => _solicitudes.Where(s => s.Archivo == _currentFile),
+        _ => _solicitudes.Where(s => s.IsOpen)
+    };
+
+    private static string PrioLabel(TaskPriority p) => p switch
+    {
+        TaskPriority.High => "Alta",
+        TaskPriority.Low => "Baja",
+        _ => "Media"
+    };
+
+    private static string PrioClass(TaskPriority p) => p switch
+    {
+        TaskPriority.High => "alta",
+        TaskPriority.Low => "baja",
+        _ => "media"
+    };
+
+    /// <summary>Hace cuanto (independiente de la zona horaria).</summary>
+    private static string Ago(DateTimeOffset when)
+    {
+        var d = DateTimeOffset.UtcNow - when;
+        if (d.TotalMinutes < 1) { return "ahora"; }
+        if (d.TotalHours < 1) { return $"hace {(int)d.TotalMinutes} min"; }
+        if (d.TotalDays < 1) { return $"hace {(int)d.TotalHours} h"; }
+        return $"hace {(int)d.TotalDays} d";
+    }
+
+    private void ShowToast(string message)
+    {
+        _toast = message;
+        _toastCts?.Cancel();
+        var cts = _toastCts = new CancellationTokenSource();
+        _ = Task.Delay(3000, cts.Token).ContinueWith(t =>
+        {
+            if (t.IsCanceled) { return; }
+            _toast = null;
+            _ = InvokeAsync(StateHasChanged);
+        }, TaskScheduler.Default);
+    }
+
+    /// <summary>Cada operacion corre en un scope propio con el tenant de la sesion (el circuito no tiene HttpContext).</summary>
+    private async Task<T> RunAsync<T>(Func<IServiceProvider, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _toastCts?.Cancel();
+        if (_jsReady)
+        {
+            try { await JS.InvokeVoidAsync("ecxMaquetaEditor.dispose"); } catch (JSDisconnectedException) { } catch (JSException) { }
+        }
+        _self?.Dispose();
+    }
+}

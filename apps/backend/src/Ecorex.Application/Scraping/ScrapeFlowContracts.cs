@@ -134,22 +134,33 @@ public sealed record ScrapeSecretRevealDto(
 /// <summary>Una tabla que un flujo puede usar como destino ("Modelo / Tabla"), para el selector.</summary>
 public sealed record ScrapeTargetDto(Guid Id, string Label);
 
-/// <summary>La programacion de un flujo (Ola 5): reusa ImportProcess/recurrencia del Contenedor.</summary>
+/// <summary>Una programacion de un flujo (Ola 5): reusa ImportProcess/recurrencia del Contenedor. Un flujo
+/// puede tener VARIAS (ADR-0171: p.ej. una diaria corta y un barrido semanal), cada una con su horario y,
+/// opcionalmente, su secuencia de tramos (<paramref name="Sequence"/>; null = una sola corrida).</summary>
 public sealed record ScrapeScheduleDto(
+    Guid Id,
+    string Name,
     ImportScheduleKind Kind,
     int? IntervalMinutes,
     string? CronExpression,
     bool IsActive,
     DateTimeOffset? NextRunAt,
-    string? DisabledReason);
+    string? DisabledReason,
+    FlowSequenceSpec? Sequence = null,
+    DateTimeOffset? LastRunAt = null,
+    Ecorex.Application.DataContainers.ScheduleTrigger? Trigger = null);
 
-/// <summary>Alta/edicion de la programacion de un flujo.</summary>
+/// <summary>Alta (<paramref name="Id"/> null) o edicion de una programacion de un flujo.</summary>
 public sealed record SaveScrapeScheduleRequest(
     Guid FlowId,
     ImportScheduleKind Kind,
     int? IntervalMinutes,
     string? CronExpression,
-    bool IsActive);
+    bool IsActive,
+    Guid? Id = null,
+    string? Name = null,
+    FlowSequenceSpec? Sequence = null,
+    Ecorex.Application.DataContainers.ScheduleTrigger? Trigger = null);
 
 /// <summary>Una corrida en la bitacora del flujo (runtime, Ola 3).</summary>
 public sealed record ScrapeFlowRunDto(
@@ -160,7 +171,9 @@ public sealed record ScrapeFlowRunDto(
     ImportRunResult Result,
     int StepCount,
     int Inserted,
-    string? Detail);
+    string? Detail,
+    int Updated = 0,
+    int Deleted = 0);
 
 /// <summary>El flujo completo (cabecera + pasos ordenados + variables).</summary>
 public sealed record ScrapeFlowDto(
@@ -250,10 +263,17 @@ public interface IScrapeFlowService
     Task<ScrapeFlowDto?> GetAsync(Guid flowId, CancellationToken ct = default);
     /// <summary>Bitacora de corridas del flujo, mas recientes primero (runtime, Ola 3).</summary>
     Task<IReadOnlyList<ScrapeFlowRunDto>> ListRunsAsync(Guid flowId, int take = 10, CancellationToken ct = default);
-    /// <summary>Programacion del flujo (Ola 5), o null si no tiene una todavia.</summary>
-    Task<ScrapeScheduleDto?> GetScheduleAsync(Guid flowId, CancellationToken ct = default);
-    /// <summary>Crea o actualiza la programacion del flujo (reusa ImportProcess). Rechaza cron invalido.</summary>
+    /// <summary>Programaciones del flujo (Ola 5 / ADR-0171), en orden de creacion. Vacia si no tiene.</summary>
+    Task<IReadOnlyList<ScrapeScheduleDto>> ListSchedulesAsync(Guid flowId, CancellationToken ct = default);
+    /// <summary>Crea (Id null) o actualiza una programacion del flujo (reusa ImportProcess). Rechaza cron
+    /// invalido y secuencias de tramos invalidas.</summary>
     Task<ScrapeScheduleDto> SaveScheduleAsync(SaveScrapeScheduleRequest req, Guid actorUserId, CancellationToken ct = default);
+    /// <summary>Borra una programacion del flujo. false si no existe.</summary>
+    Task<bool> DeleteScheduleAsync(Guid scheduleId, Guid actorUserId, CancellationToken ct = default);
+    /// <summary>Proximas ejecuciones de un desencadenador en hora local del tenant (resumen del asistente).</summary>
+    Task<IReadOnlyList<DateTime>> PreviewTriggerAsync(Ecorex.Application.DataContainers.ScheduleTrigger trigger, int count, CancellationToken ct = default);
+    /// <summary>Fecha y hora actual en la zona del tenant (para precargar el inicio del desencadenador).</summary>
+    Task<DateTime> TenantNowAsync(CancellationToken ct = default);
     Task<ScrapeFlowDto?> SaveFlowAsync(SaveScrapeFlowRequest req, Guid actorUserId, CancellationToken ct = default);
     Task<bool> DeleteFlowAsync(Guid flowId, Guid actorUserId, CancellationToken ct = default);
 

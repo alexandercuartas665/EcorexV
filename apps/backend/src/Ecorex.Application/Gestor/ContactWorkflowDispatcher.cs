@@ -59,12 +59,16 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     private readonly Voice.IRetellVoiceService _voice;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ContactWorkflowDispatcher> _logger;
+    // Bajas de correo + {enlace_baja} (ADR-0175). Opcional para no romper los dobles de prueba existentes.
+    private readonly IEmailUnsubscribeService? _unsubscribes;
+    private Dictionary<string, string>? _unsubscribedCache;
 
     public ContactWorkflowDispatcher(
         IApplicationDbContext db, ITenantContext tenant, IWhatsAppConnectorService whatsapp,
         IEmailSender email, ITaskItemService tasks, Voice.IRetellVoiceService voice, TimeProvider timeProvider,
-        ILogger<ContactWorkflowDispatcher> logger)
+        ILogger<ContactWorkflowDispatcher> logger, IEmailUnsubscribeService? unsubscribes = null)
     {
+        _unsubscribes = unsubscribes;
         _db = db;
         _tenant = tenant;
         _whatsapp = whatsapp;
@@ -93,6 +97,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             return 0;
         }
         _emailTemplateCache.Clear();
+        _unsubscribedCache = null;
 
         var tz = ScheduledJobRecurrence.ResolveTimeZone(await _db.Tenants
             .Where(t => t.Id == tenantId)
@@ -160,54 +165,81 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                         }
                     }
 
-                    // Dedupe: contactos que YA tienen una fila para (paso, ventana, dia).
-                    var already = await _db.ContactWorkflowRuns
+                    // Dedupe: contactos que YA tienen una fila para (paso, ventana, dia). Un Sent nunca se repite;
+                    // un Failed/Skipped se REINTENTA sobre la misma fila segun ContactWorkflowRetryPolicy.
+                    var existing = await _db.ContactWorkflowRuns
                         .Where(r => r.ContactWorkflowStepId == step.Id
                             && r.ContactWorkflowScheduleId == schedule.Id
                             && r.WindowDate == localDate)
-                        .Select(r => r.TerceroId)
+                        .Select(r => new { r.Id, r.TerceroId, r.Status, r.Attempts, r.DispatchedAtUtc })
                         .ToListAsync(cancellationToken);
-                    var alreadySet = already.ToHashSet();
+                    var alreadySet = existing.Select(r => r.TerceroId).ToHashSet();
+                    var retryIds = existing
+                        .Where(r => ContactWorkflowRetryPolicy.ShouldRetry(r.Status, r.Attempts, r.DispatchedAtUtc, nowUtc))
+                        .ToDictionary(r => r.TerceroId, r => r.Id);
 
+                    // Reintentos primero (son los mas antiguos), luego contactos nuevos; todo bajo el mismo tope.
+                    var retries = segment.Where(c => retryIds.ContainsKey(c.Id)).ToList();
                     var pending = segment.Where(c => !alreadySet.Contains(c.Id)).ToList();
-                    if (pending.Count == 0) { continue; }
+                    if (retries.Count == 0 && pending.Count == 0) { continue; }
 
                     var cap = schedule.PackageSize is int ps && ps > 0 ? Math.Min(ps, HardBatchCap) : DefaultBatchCap;
-                    var batch = pending.Take(cap).ToList();
+                    var retryBatch = retries.Take(cap).ToList();
+                    var batch = pending.Take(cap - retryBatch.Count).ToList();
 
-                    var batchWritten = 0;
+                    foreach (var contact in retryBatch)
+                    {
+                        if (cancellationToken.IsCancellationRequested) { break; }
+                        if (await RetryRunAsync(retryIds[contact.Id], step.StepType, step.ParamsJson, schedule, contact, nowUtc, cancellationToken))
+                        {
+                            written++;
+                        }
+                    }
+
+                    var added = new List<ContactWorkflowRun>();
                     foreach (var contact in batch)
                     {
                         if (cancellationToken.IsCancellationRequested) { break; }
+                        // Id asignado ANTES de ejecutar: viaja en el correo (ecx_run) para correlacionar los
+                        // eventos de entrega del proveedor con esta fila (ADR-0188).
+                        var runId = Guid.CreateVersion7();
                         var (status, channel, externalRef, error) =
-                            await ExecuteStepAsync(step.StepType, step.ParamsJson, schedule, contact, cancellationToken);
+                            await ExecuteStepAsync(step.StepType, step.ParamsJson, schedule, contact, runId, cancellationToken);
 
-                        _db.ContactWorkflowRuns.Add(new ContactWorkflowRun
+                        var run = new ContactWorkflowRun
                         {
+                            Id = runId,
                             TenantId = tenantId,
                             ContactWorkflowStepId = step.Id,
                             ContactWorkflowScheduleId = schedule.Id,
                             TerceroId = contact.Id,
                             WindowDate = localDate,
-                            DispatchedAtUtc = _timeProvider.GetUtcNow(),
+                            DispatchedAtUtc = nowUtc,
                             Status = status,
                             Channel = channel,
                             ExternalRef = Truncate(externalRef, 200),
-                            Error = Truncate(error, 600)
-                        });
-                        batchWritten++;
+                            Error = Truncate(error, 600),
+                            Attempts = 1
+                        };
+                        _db.ContactWorkflowRuns.Add(run);
+                        added.Add(run);
                     }
 
-                    if (batchWritten == 0) { continue; }
+                    if (added.Count == 0) { continue; }
                     try
                     {
                         await _db.SaveChangesAsync(cancellationToken);
-                        written += batchWritten;
+                        written += added.Count;
                     }
                     catch (DbUpdateException)
                     {
                         // Choque contra el indice unico de dedupe: otra instancia del worker ya escribio
-                        // parte de este lote. Idempotencia, no un error: se descarta y sigue.
+                        // parte de este lote. Idempotencia, no un error: se descarta y sigue. Se sueltan las
+                        // filas del contexto para que no contaminen los SaveChanges siguientes de esta corrida.
+                        foreach (var run in added)
+                        {
+                            _db.ContactWorkflowRuns.Entry(run).State = EntityState.Detached;
+                        }
                         _logger.LogDebug(
                             "Lote de acciones del paso {StepId} (ventana {ScheduleId}) ya escrito por otra instancia.",
                             step.Id, schedule.Id);
@@ -219,11 +251,56 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         return written;
     }
 
+    /// <summary>
+    /// Reintenta un Failed/Skipped sobre la MISMA fila. Primero la "reclama" (Attempts++ y nueva hora) con
+    /// Attempts como token de concurrencia: si otra instancia del worker la tomo antes, el UPDATE no aplica y
+    /// este proceso NO envia (sin dobles envios). Luego ejecuta el paso y guarda el resultado en la fila.
+    /// </summary>
+    private async Task<bool> RetryRunAsync(
+        Guid runId, ContactWorkflowStepType type, string? paramsJson, ScheduleRow schedule, SegmentContact contact,
+        DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        var run = await _db.ContactWorkflowRuns.FirstOrDefaultAsync(r => r.Id == runId, cancellationToken);
+        if (run is null || run.Status == ContactWorkflowRunStatus.Sent) { return false; }
+
+        run.Attempts++;
+        // Misma hora de la corrida que usan el rate-gate (RepeatEvery) y la regla de reintento.
+        run.DispatchedAtUtc = nowUtc;
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // DbUpdateConcurrencyException incluida: otra instancia ya reintento esta fila.
+            _db.ContactWorkflowRuns.Entry(run).State = EntityState.Detached;
+            return false;
+        }
+
+        var (status, channel, externalRef, error) =
+            await ExecuteStepAsync(type, paramsJson, schedule, contact, run.Id, cancellationToken);
+        run.Status = status;
+        run.Channel = channel;
+        run.ExternalRef = Truncate(externalRef, 200);
+        run.Error = Truncate(error, 600);
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException ex)
+        {
+            _db.ContactWorkflowRuns.Entry(run).State = EntityState.Detached;
+            _logger.LogWarning(ex, "No se pudo guardar el reintento {RunId} del motor de acciones.", runId);
+            return false;
+        }
+    }
+
     // ---- Ejecucion de las 5 acciones (mapeo a servicios existentes) ----
 
     private async Task<(ContactWorkflowRunStatus Status, string Channel, string? ExternalRef, string? Error)> ExecuteStepAsync(
         ContactWorkflowStepType type, string? paramsJson, ScheduleRow schedule, SegmentContact contact,
-        CancellationToken cancellationToken)
+        Guid runId, CancellationToken cancellationToken)
     {
         var actor = _tenant.UserId ?? Guid.Empty;
         switch (type)
@@ -233,10 +310,10 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 return (ContactWorkflowRunStatus.Sent, "conectar", null, null);
 
             case ContactWorkflowStepType.WhatsApp:
-                return await ExecuteWhatsAppAsync(schedule, contact, actor, cancellationToken);
+                return await ExecuteWhatsAppAsync(paramsJson, schedule, contact, actor, cancellationToken);
 
             case ContactWorkflowStepType.Email:
-                return await ExecuteEmailAsync(schedule, contact, cancellationToken);
+                return await ExecuteEmailAsync(paramsJson, schedule, contact, runId, cancellationToken);
 
             case ContactWorkflowStepType.Llamada:
                 return await ExecuteLlamadaAsync(paramsJson, contact, actor, cancellationToken);
@@ -253,49 +330,163 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     }
 
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteWhatsAppAsync(
-        ScheduleRow schedule, SegmentContact contact, Guid actor, CancellationToken cancellationToken)
+        string? paramsJson, ScheduleRow schedule, SegmentContact contact, Guid actor, CancellationToken cancellationToken)
     {
         const string channel = "whatsapp";
-        var phone = contact.Telefono?.Trim();
-        if (string.IsNullOrWhiteSpace(phone))
+        // Los terceros suelen guardarse en 10 digitos sin indicativo: E.164 con el pais por defecto (57).
+        var phone = PhoneNumber.ToE164(contact.Telefono);
+        if (phone is null)
         {
-            return (ContactWorkflowRunStatus.Skipped, channel, null, "Contacto sin telefono.");
+            return (ContactWorkflowRunStatus.Skipped, channel, null,
+                string.IsNullOrWhiteSpace(contact.Telefono) ? "Contacto sin telefono." : "Telefono del contacto no valido.");
         }
-        var text = schedule.TemplateId?.Trim();
+
+        // Config del paso (ParamsJson); compatibilidad: ventanas viejas con texto en TemplateId y linea en AccountId.
+        var wa = DeserializeWhatsApp(paramsJson);
+
+        // Linea: la del paso, la de la ventana o la primera CONECTADA del tenant.
+        var lineId = wa?.LineaId ?? schedule.AccountId;
+        var line = lineId is Guid lid
+            ? await _db.WhatsAppLines.Where(l => l.Id == lid).Select(l => new { l.Id, l.Status, l.Provider }).FirstOrDefaultAsync(cancellationToken)
+            : await _db.WhatsAppLines.Where(l => l.Status == WhatsAppLineStatus.Connected)
+                .Select(l => new { l.Id, l.Status, l.Provider }).FirstOrDefaultAsync(cancellationToken);
+        if (line is null)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null,
+                lineId is null ? "Sin linea WhatsApp conectada disponible." : "La linea WhatsApp del paso ya no existe.");
+        }
+        if (line.Status != WhatsAppLineStatus.Connected)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null, "La linea WhatsApp del paso no esta conectada.");
+        }
+
+        // YCloud/Cloud: fuera de la ventana de 24 h Meta solo acepta plantillas APROBADAS.
+        if (line.Provider is WhatsAppProvider.YCloud or WhatsAppProvider.Cloud)
+        {
+            return await SendWhatsAppTemplateAsync(wa, line.Id, phone, contact, actor, cancellationToken);
+        }
+
+        var text = wa?.Texto ?? schedule.TemplateId;
         if (string.IsNullOrWhiteSpace(text))
         {
-            // Fase 3 traera plantillas reales; por ahora TemplateId se usa como texto libre del mensaje.
-            return (ContactWorkflowRunStatus.Skipped, channel, null, "Ventana sin mensaje/plantilla configurada.");
+            return (ContactWorkflowRunStatus.Skipped, channel, null, "Paso WhatsApp sin mensaje configurado.");
         }
+        var body = EmailTemplateService.RenderTemplate(text.Trim(), MergeFieldsFor(contact), htmlEscapeValues: false);
 
-        // Linea: la de la ventana (AccountId), o la primera CONECTADA del tenant.
-        var lineId = schedule.AccountId;
-        if (lineId is null)
-        {
-            lineId = await _db.WhatsAppLines
-                .Where(l => l.Status == WhatsAppLineStatus.Connected)
-                .Select(l => (Guid?)l.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-        }
-        if (lineId is not Guid line)
-        {
-            return (ContactWorkflowRunStatus.Skipped, channel, null, "Sin linea WhatsApp conectada disponible.");
-        }
-
-        // remoteJid guardado del contacto (soporta LID, ADR-0055): de una conversacion previa por telefono.
+        // remoteJid guardado del contacto (soporta LID, ADR-0055): de una conversacion previa por telefono,
+        // buscando por las formas equivalentes del numero (con y sin indicativo).
+        var forms = PhoneNumber.LookupForms(phone).ToList();
         var remoteJid = await _db.Conversations
-            .Where(c => c.ContactPhone == phone && c.RemoteJid != null)
+            .Where(c => c.ContactPhone != null && forms.Contains(c.ContactPhone) && c.RemoteJid != null)
             .Select(c => c.RemoteJid)
             .FirstOrDefaultAsync(cancellationToken);
 
-        var result = await _whatsapp.SendTestAsync(line, phone, text, actor, remoteJid, cancellationToken);
+        var result = await _whatsapp.SendTestAsync(line.Id, phone, body, actor, remoteJid, cancellationToken);
         return result.Ok
             ? (ContactWorkflowRunStatus.Sent, channel, result.MessageId, null)
             : (ContactWorkflowRunStatus.Failed, channel, null, result.Error ?? "Fallo el envio de WhatsApp.");
     }
 
+    private async Task<(ContactWorkflowRunStatus, string, string?, string?)> SendWhatsAppTemplateAsync(
+        ContactWorkflowWhatsAppParams? wa, Guid lineId, string phone, SegmentContact contact, Guid actor,
+        CancellationToken cancellationToken)
+    {
+        const string channel = "whatsapp";
+        if (wa?.PlantillaId is not Guid tplId)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null,
+                "La linea es YCloud/Cloud: el paso necesita una plantilla aprobada (Meta rechaza texto libre fuera de 24 h).");
+        }
+        var tpl = await _db.WhatsAppTemplates.AsNoTracking()
+            .Where(t => t.Id == tplId)
+            .Select(t => new { t.Name, t.Language, t.Status, t.IsActive, t.VariablesJson, t.HeaderType, t.HeaderMediaUrl })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (tpl is null || !tpl.IsActive)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null, "La plantilla de WhatsApp del paso no existe o esta inactiva.");
+        }
+        if (tpl.Status != WhatsAppTemplateStatus.Approved)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null, $"La plantilla '{tpl.Name}' no esta aprobada por Meta ({tpl.Status}).");
+        }
+
+        // Una entrada por variable de la plantilla, en su orden; Meta rechaza parametros vacios.
+        var values = new List<string>();
+        foreach (var token in TemplateTokens(tpl.VariablesJson))
+        {
+            var source = wa.Variables is not null && wa.Variables.TryGetValue(token, out var mapped)
+                ? mapped
+                : ContactWorkflowWhatsAppFields.DefaultFor(token);
+            var value = ContactWorkflowWhatsAppFields.Resolve(source, contact.Nombre, contact.Empresa, contact.Cargo,
+                contact.Ciudad, contact.Email, phone);
+            if (value is null)
+            {
+                return (ContactWorkflowRunStatus.Skipped, channel, null,
+                    $"La variable '{token}' de la plantilla queda vacia para este contacto.");
+            }
+            values.Add(value);
+        }
+
+        // Encabezado de imagen/documento/video (ADR-0186): Meta exige la media en CADA envio, no solo al aprobar.
+        var (headerType, headerUrl) = HeaderMediaFor(tpl.HeaderType, tpl.HeaderMediaUrl);
+        if (WhatsAppTemplateComponents.MediaHeaderFormat(tpl.HeaderType) is not null && headerUrl is null)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null,
+                $"La plantilla '{tpl.Name}' tiene encabezado de {tpl.HeaderType} pero no tiene archivo guardado; subelo en Plantillas WhatsApp.");
+        }
+        var result = await _whatsapp.SendTemplateAsync(lineId, phone, tpl.Name, tpl.Language, values, actor,
+            headerType, headerUrl, cancellationToken: cancellationToken);
+        return result.Ok
+            ? (ContactWorkflowRunStatus.Sent, channel, result.MessageId, null)
+            : (ContactWorkflowRunStatus.Failed, channel, null, result.Error ?? "Fallo el envio de la plantilla de WhatsApp.");
+    }
+
+    /// <summary>Tipo ("image"/"document"/"video") y URL del encabezado de media de la plantilla, o (null, null).</summary>
+    public static (string? Type, string? Url) HeaderMediaFor(WhatsAppTemplateHeaderType? headerType, string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) { return (null, null); }
+        return headerType switch
+        {
+            WhatsAppTemplateHeaderType.Image => ("image", url.Trim()),
+            WhatsAppTemplateHeaderType.Document => ("document", url.Trim()),
+            WhatsAppTemplateHeaderType.Video => ("video", url.Trim()),
+            _ => (null, null)
+        };
+    }
+
+    /// <summary>Tokens de VariablesJson ([{ "Token": "cliente", ... }]) en orden; la caja de la propiedad no importa.</summary>
+    internal static List<string> TemplateTokens(string? variablesJson)
+    {
+        var tokens = new List<string>();
+        if (string.IsNullOrWhiteSpace(variablesJson)) { return tokens; }
+        try
+        {
+            using var doc = JsonDocument.Parse(variablesJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) { return tokens; }
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.Object) { continue; }
+                foreach (var prop in el.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "token", StringComparison.OrdinalIgnoreCase)
+                        && prop.Value.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(prop.Value.GetString()))
+                    {
+                        tokens.Add(prop.Value.GetString()!.Trim());
+                        break;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Variables mal formadas: la plantilla se envia sin parametros (el proveedor dira si faltan).
+        }
+        return tokens;
+    }
+
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteEmailAsync(
-        ScheduleRow schedule, SegmentContact contact, CancellationToken cancellationToken)
+        string? paramsJson, ScheduleRow schedule, SegmentContact contact, Guid runId, CancellationToken cancellationToken)
     {
         const string channel = "email";
         var to = contact.Email?.Trim();
@@ -315,16 +506,26 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             return (ContactWorkflowRunStatus.Skipped, channel, null, "La plantilla de correo no existe o esta inactiva.");
         }
 
+        // Baja de correos (ADR-0175): quien abrio su {enlace_baja} no vuelve a recibir correos del motor. Tambien
+        // los suprimidos por el proveedor: rebote definitivo, spam o baja en SendGrid (ADR-0188).
+        if (await SuppressionOriginAsync(to, cancellationToken) is { } origen)
+        {
+            return (ContactWorkflowRunStatus.Skipped, channel, null, SendGridEvents.SkipReasonFor(origen));
+        }
+
         // Merge de las variables con los datos del contacto: asunto en texto plano, cuerpo en HTML (escapa
         // las variables para evitar inyeccion). {empresa} usa el nombre de la empresa padre (o Sector).
-        var fields = new EmailMergeFields(contact.Nombre, contact.Empresa, contact.Cargo, contact.Ciudad, contact.Email);
+        var fields = MergeFieldsFor(contact);
         var subject = EmailTemplateService.RenderTemplate(tpl.Asunto, fields, htmlEscapeValues: false);
         if (string.IsNullOrWhiteSpace(subject)) { subject = tpl.Nombre; }
         var htmlBody = EmailTemplateService.RenderTemplate(tpl.CuerpoHtml, fields, htmlEscapeValues: true);
 
-        var result = await _email.SendAsync(to, subject, htmlBody, cancellationToken);
+        // Remitente comercial de la campana (ADR-0185); null = el del servidor de correo configurado.
+        // Lleva los ids de correlacion para los eventos de entrega del proveedor (ADR-0188).
+        var sender = WithTracking(EmailSenderFor(paramsJson), _tenant.TenantId, runId);
+        var result = await _email.SendAsync(to, subject, htmlBody, sender, cancellationToken);
         return result.Ok
-            ? (ContactWorkflowRunStatus.Sent, channel, null, null)
+            ? (ContactWorkflowRunStatus.Sent, channel, result.MessageId, null)
             : (ContactWorkflowRunStatus.Failed, channel, null, result.Error ?? "Fallo el envio de correo.");
     }
 
@@ -345,6 +546,38 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
 
     private sealed record EmailTemplateRow(string Nombre, string Asunto, string CuerpoHtml);
 
+    // Valores de merge del contacto (ADR-0175 suma vendedor/telefono/sector/firma/enlace_baja).
+    private EmailMergeFields MergeFieldsFor(SegmentContact contact)
+    {
+        string? enlace = null;
+        if (_unsubscribes is not null && _tenant.TenantId is Guid tid && !string.IsNullOrWhiteSpace(contact.Email))
+        {
+            enlace = _unsubscribes.BuildLink(tid, contact.Email!);
+        }
+        return new EmailMergeFields(contact.Nombre, contact.Empresa, contact.Cargo, contact.Ciudad, contact.Email,
+            Vendedor: contact.Vendedor, Telefono: contact.Telefono, Sector: contact.Sector,
+            Firma: contact.Firma, EnlaceBaja: enlace);
+    }
+
+    /// <summary>Origen de la baja del correo (enlace, manual, rebote, spam, proveedor) o null si puede recibir.</summary>
+    private async Task<string?> SuppressionOriginAsync(string email, CancellationToken cancellationToken)
+    {
+        if (_unsubscribes is null) { return null; }
+        _unsubscribedCache ??= await _unsubscribes.GetSuppressionsAsync(cancellationToken);
+        return _unsubscribedCache.TryGetValue(EmailUnsubscribeService.Normalize(email), out var origen) ? origen : null;
+    }
+
+    /// <summary>
+    /// Remitente del envio con los argumentos de correlacion (ecx_tenant, ecx_run) que el proveedor devuelve en
+    /// sus eventos de entrega (ADR-0188). Sin remitente propio se crea uno vacio (usa el del servidor).
+    /// </summary>
+    public static EmailSenderOverride WithTracking(EmailSenderOverride? sender, Guid? tenantId, Guid runId)
+    {
+        var args = new Dictionary<string, string>(StringComparer.Ordinal) { [SendGridEvents.RunArg] = runId.ToString() };
+        if (tenantId is Guid tid) { args[SendGridEvents.TenantArg] = tid.ToString(); }
+        return (sender ?? new EmailSenderOverride(null, null, null)) with { CustomArgs = args };
+    }
+
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteLlamadaAsync(
         string? paramsJson, SegmentContact contact, Guid actor, CancellationToken cancellationToken)
     {
@@ -356,9 +589,10 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         if (call?.Modo == "ia")
         {
             const string voiceChannel = "voz-ia";
-            if (!Voice.RetellVoiceService.IsE164(contact.Telefono))
+            var e164 = PhoneNumber.ToE164(contact.Telefono);
+            if (!Voice.RetellVoiceService.IsE164(e164))
             {
-                return (ContactWorkflowRunStatus.Skipped, voiceChannel, null, "Contacto sin telefono en formato E.164.");
+                return (ContactWorkflowRunStatus.Skipped, voiceChannel, null, "Contacto sin telefono valido (E.164).");
             }
             var contactVars = new Dictionary<string, string?>
             {
@@ -368,7 +602,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 ["ciudad"] = contact.Ciudad
             };
             var voiceRes = await _voice.PlaceCallAsync(new Voice.VoicePlaceCallRequest(
-                ToNumber: contact.Telefono!,
+                ToNumber: e164!,
                 AiAgentId: call.AgenteId,
                 PromptExtra: call.PromptExtra,
                 Objetivo: call.Objetivo,
@@ -431,7 +665,11 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 t.Estado,
                 t.Email,
                 t.Telefono,
-                EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null
+                EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null,
+                // {vendedor}/{firma} (ADR-0175): asesor vinculado (o el texto legado) y la firma de su usuario.
+                AsesorNombre = t.VendedorAsesor != null ? t.VendedorAsesor.Nombre : null,
+                AsesorFirma = t.VendedorAsesor != null && t.VendedorAsesor.TenantUser != null
+                    ? t.VendedorAsesor.TenantUser.FirmaHtml : null
             })
             .ToListAsync(cancellationToken);
 
@@ -442,7 +680,9 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
             .Select(t => new SegmentContact(
                 t.Id, t.Nombre, t.Email, t.Telefono,
                 string.IsNullOrWhiteSpace(t.EmpresaNombre) ? t.Sector : t.EmpresaNombre,
-                t.Cargo, t.Ciudad))
+                t.Cargo, t.Ciudad,
+                string.IsNullOrWhiteSpace(t.AsesorNombre) ? t.Vendedor : t.AsesorNombre,
+                t.Sector, t.AsesorFirma))
             .ToList();
     }
 
@@ -487,6 +727,36 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         }
     }
 
+    public static EmailSenderOverride? EmailSenderFor(string? paramsJson)
+    {
+        if (string.IsNullOrWhiteSpace(paramsJson)) { return null; }
+        try
+        {
+            var p = JsonSerializer.Deserialize<ContactWorkflowEmailParams>(paramsJson, JsonOpts);
+            return p is null || (string.IsNullOrWhiteSpace(p.RemitenteNombre) && string.IsNullOrWhiteSpace(p.RemitenteCorreo)
+                && string.IsNullOrWhiteSpace(p.ResponderA))
+                ? null
+                : new EmailSenderOverride(p.RemitenteNombre, p.RemitenteCorreo, p.ResponderA);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static ContactWorkflowWhatsAppParams? DeserializeWhatsApp(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) { return null; }
+        try
+        {
+            return JsonSerializer.Deserialize<ContactWorkflowWhatsAppParams>(json, JsonOpts);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static ContactWorkflowCallParams? DeserializeCall(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) { return null; }
@@ -509,5 +779,6 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
 
     private sealed record SegmentContact(
         Guid Id, string Nombre, string? Email, string? Telefono,
-        string? Empresa, string? Cargo, string? Ciudad);
+        string? Empresa, string? Cargo, string? Ciudad,
+        string? Vendedor = null, string? Sector = null, string? Firma = null);
 }

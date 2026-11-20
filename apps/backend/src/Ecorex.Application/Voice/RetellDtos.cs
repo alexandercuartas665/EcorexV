@@ -9,7 +9,10 @@ public sealed record RetellCreateLlmRequest(
     string GeneralPrompt,
     string StartSpeaker = "agent",
     string? Model = null,
-    string? BeginMessage = null);
+    string? BeginMessage = null,
+    // Ola 5 (ADR-0190): agrega la herramienta nativa end_call (general_tools) para que el agente pueda COLGAR
+    // tras despedirse o ante un buzon. Sin ella la llamada solo termina si cuelga el contacto o por silencio.
+    bool EndCallTool = false);
 
 public sealed record RetellCreateLlmResult(bool Ok, string? LlmId, string? Error, int StatusCode);
 
@@ -20,7 +23,33 @@ public sealed record RetellCreateAgentRequest(
     string? Language = null,
     string? AgentName = null,
     // Campos que Retell extrae al analizar la llamada (post_call_analysis_data -> custom_analysis_data).
-    IReadOnlyList<RetellAnalysisField>? PostCallAnalysis = null);
+    IReadOnlyList<RetellAnalysisField>? PostCallAnalysis = null,
+    // Ola 5 (ADR-0190): voicemail_option { action: { type: "hangup" } } -> detecta buzon y cuelga sin mensaje
+    // (asi Retell reporta el corte como buzon y aplica la politica de reintento de la Ola 3).
+    bool VoicemailHangup = false,
+    // end_call_after_silence_ms (min 10000) y max_call_duration_ms (60000..7200000). Null = default de Retell.
+    int? EndCallAfterSilenceMs = null,
+    int? MaxCallDurationMs = null);
+
+/// <summary>Ola 5 (ADR-0190): forma del agente Retell que ECOREX crea en modo compuesto. Null en la peticion =
+/// la forma de siempre (sin end_call ni buzon), para no alterar a los demas consumidores. Forma parte de la
+/// identidad (hash) del agente reutilizado: agentes con distinta forma no se comparten.</summary>
+public sealed record RetellAgentOptions(
+    bool EndCallTool,
+    bool VoicemailHangup,
+    int? EndCallAfterSilenceMs,
+    int? MaxCallDurationMs)
+{
+    /// <summary>Llamada de un paso de flujo (seguimiento/cierre o consecucion de datos): puede colgar, cuelga en
+    /// buzon, corta tras 20 s de silencio y nunca pasa de 10 min (tope de costo).</summary>
+    public static readonly RetellAgentOptions WorkflowCall = new(
+        EndCallTool: true, VoicemailHangup: true, EndCallAfterSilenceMs: 20_000, MaxCallDurationMs: 600_000);
+
+    /// <summary>Firma estable para el hash del agente. Vacia si no hay opciones (hash de siempre).</summary>
+    public static string Signature(RetellAgentOptions? options) => options is null
+        ? string.Empty
+        : $"\n#shape:endcall={options.EndCallTool};vm={options.VoicemailHangup};silence={options.EndCallAfterSilenceMs};max={options.MaxCallDurationMs}";
+}
 
 /// <summary>Un campo del analisis post-llamada de Retell (post_call_analysis_data). Type: string | enum | boolean |
 /// number; Choices solo para enum. El valor llega en call_analysis.custom_analysis_data[Name].</summary>
@@ -28,7 +57,9 @@ public sealed record RetellAnalysisField(string Name, string Type, string Descri
 
 public sealed record RetellCreateAgentResult(bool Ok, string? AgentId, string? Error, int StatusCode);
 
-/// <summary>POST /v2/create-phone-call. Coloca la llamada saliente.</summary>
+/// <summary>POST /v2/create-phone-call. Coloca la llamada saliente. <see cref="WebhookUrl"/> (opcional) fija el
+/// webhook POR LLAMADA (override del configurado en el dashboard): asi el flujo reanuda contra esta instancia sin
+/// depender de la config manual de Retell. Null = no se envia (cae a lo del dashboard / al sondeo get-call).</summary>
 public sealed record RetellCreateCallRequest(
     string FromNumber,
     string ToNumber,
@@ -36,7 +67,8 @@ public sealed record RetellCreateCallRequest(
     IReadOnlyDictionary<string, string>? DynamicVariables = null,
     IReadOnlyDictionary<string, string>? CustomSipHeaders = null,
     IReadOnlyDictionary<string, string>? Metadata = null,
-    bool IgnoreE164Validation = false);
+    bool IgnoreE164Validation = false,
+    string? WebhookUrl = null);
 
 public sealed record RetellCreateCallResult(bool Ok, string? CallId, string? AgentId, string? CallStatus, string? Error, int StatusCode);
 

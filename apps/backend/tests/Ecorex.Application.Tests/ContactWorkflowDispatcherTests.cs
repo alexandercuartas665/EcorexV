@@ -59,10 +59,18 @@ public class ContactWorkflowDispatcherTests
     private sealed class FakeWhatsApp : IWhatsAppConnectorService
     {
         public int Sends { get; private set; }
+        // Cuando es true el proveedor "falla" (para probar el reintento sobre la misma fila).
+        public bool Fail { get; set; }
+        public string? LastPhone { get; private set; }
+        public string? LastText { get; private set; }
         public Task<LineSendResult> SendTestAsync(Guid lineId, string phone, string text, Guid actorUserId, string? remoteJid = null, CancellationToken cancellationToken = default)
         {
             Sends++;
-            return Task.FromResult(new LineSendResult(true, null, $"wamid-{Sends}"));
+            LastPhone = phone;
+            LastText = text;
+            return Task.FromResult(Fail
+                ? new LineSendResult(false, "proveedor caido")
+                : new LineSendResult(true, null, $"wamid-{Sends}"));
         }
         public Task<EvolutionServerSettingDto> GetServerAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<EvolutionServerSettingDto?> SetServerAsync(SetEvolutionServerRequest request, Guid actorUserId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
@@ -82,8 +90,28 @@ public class ContactWorkflowDispatcherTests
 
     private sealed class FakeEmail : IEmailSender
     {
+        public int Sends { get; private set; }
+        public string? LastHtml { get; private set; }
+        public string? LastTo { get; private set; }
         public Task<EmailSendResult> SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
-            => Task.FromResult(new EmailSendResult(true, null));
+        {
+            Sends++;
+            LastTo = toEmail;
+            LastHtml = htmlBody;
+            return Task.FromResult(new EmailSendResult(true, null));
+        }
+    }
+
+    // Doble de bajas de correo (ADR-0175): conjunto fijo + enlace determinista.
+    private sealed class FakeUnsubscribes(params string[] emails) : IEmailUnsubscribeService
+    {
+        public string? BuildLink(Guid tenantId, string email) => "https://app.test/baja/" + email;
+        public Task<UnsubscribeLinkInfo> ValidateAsync(string token, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> UnsubscribeAsync(string token, string? motivo, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<HashSet<string>> GetUnsubscribedSetAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new HashSet<string>(emails, StringComparer.OrdinalIgnoreCase));
+        public Task<IReadOnlyList<EmailUnsubscribeDto>> ListAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<bool> RemoveAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     // Doble de voz IA: estos tests no ejercitan el paso Llamada IA; basta para construir el dispatcher.
@@ -388,6 +416,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<Rol> Roles => NotUsed<Rol>();
         public DbSet<Ciudad> Ciudades => NotUsed<Ciudad>();
         public DbSet<TenantApiToken> TenantApiTokens => NotUsed<TenantApiToken>();
+        public DbSet<ExternalTaskLink> ExternalTaskLinks => NotUsed<ExternalTaskLink>();
         public DbSet<RolPermiso> RolPermisos => NotUsed<RolPermiso>();
         public DbSet<TerceroContacto> TerceroContactos => NotUsed<TerceroContacto>();
         public DbSet<TerceroFieldDefinition> TerceroFieldDefinitions => NotUsed<TerceroFieldDefinition>();
@@ -469,6 +498,73 @@ public class ContactWorkflowDispatcherTests
         return (dispatcher, whatsapp, db, inner);
     }
 
+    // Escenario E-mail (ADR-0175): 2 contactos con correo, uno con asesor vinculado a un usuario con firma.
+    private static (ContactWorkflowDispatcher, FakeEmail, InnerDb) BuildEmail(params string[] unsubscribed)
+    {
+        var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>()
+            .UseInMemoryDatabase("cwd-email-" + Guid.NewGuid()).Options);
+        inner.Tenants.Add(new Tenant { Id = TenantId, Name = "Tenant", TimeZoneId = "UTC" });
+        var filtro = new TerceroFiltro { TenantId = TenantId, Nombre = "Todos", CriteriosJson = "[]" };
+        inner.TerceroFiltros.Add(filtro);
+
+        var user = new TenantUser { TenantId = TenantId, PlatformUserId = Guid.NewGuid(), Email = "maria@acme.test", FirmaHtml = "<b>Maria Gomez</b>" };
+        var asesor = new Asesor { TenantId = TenantId, Nombre = "Maria Gomez", TenantUserId = user.Id, TenantUser = user };
+        inner.Terceros.Add(new Tercero { TenantId = TenantId, Nombre = "Ana", Tipo = TerceroTipo.Persona, Estado = TerceroEstado.Activo, Email = "ana@cliente.test", Telefono = "3001112233", Sector = "Construccion", VendedorAsesor = asesor, VendedorAsesorId = asesor.Id });
+        inner.Terceros.Add(new Tercero { TenantId = TenantId, Nombre = "Beto", Tipo = TerceroTipo.Persona, Estado = TerceroEstado.Activo, Email = "BETO@cliente.test" });
+
+        var tpl = new EmailTemplate
+        {
+            TenantId = TenantId,
+            Nombre = "Promo",
+            Asunto = "Hola {nombre}",
+            Activa = true,
+            CuerpoHtml = "<p>{nombre} | {vendedor} | {telefono} | {sector}</p>{firma}<a href=\"{enlace_baja}\">baja</a>"
+        };
+        inner.EmailTemplates.Add(tpl);
+
+        var wf = new ContactWorkflow { TenantId = TenantId, TerceroFiltroId = filtro.Id, Nombre = "Acciones", Activo = true };
+        inner.ContactWorkflows.Add(wf);
+        var step = new ContactWorkflowStep { TenantId = TenantId, ContactWorkflowId = wf.Id, StepType = ContactWorkflowStepType.Email, Label = "Correo", Orden = 0 };
+        inner.ContactWorkflowSteps.Add(step);
+        inner.ContactWorkflowSchedules.Add(new ContactWorkflowSchedule
+        {
+            TenantId = TenantId,
+            ContactWorkflowStepId = step.Id,
+            StartTime = new TimeOnly(0, 0),
+            EndTime = new TimeOnly(23, 59),
+            ActiveDays = AllDays,
+            TemplateId = tpl.Id.ToString()
+        });
+        inner.SaveChanges();
+
+        var email = new FakeEmail();
+        var dispatcher = new ContactWorkflowDispatcher(
+            new FakeAppDb(inner), new FakeTenantContext(TenantId), new FakeWhatsApp(), email, new FakeTasks(), new FakeVoice(),
+            TimeProvider.System, NullLogger<ContactWorkflowDispatcher>.Instance, new FakeUnsubscribes(unsubscribed));
+        return (dispatcher, email, inner);
+    }
+
+    [Fact]
+    public async Task Email_lleva_vendedor_firma_telefono_sector_y_enlace_de_baja()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, email, inner) = BuildEmail("beto@cliente.test");
+
+        await dispatcher.RunDueForTenantAsync(now);
+
+        // Solo Ana recibe: Beto se dio de baja (comparacion sin importar mayusculas).
+        Assert.Equal(1, email.Sends);
+        Assert.Equal("ana@cliente.test", email.LastTo);
+        Assert.Contains("Ana | Maria Gomez | 3001112233 | Construccion", email.LastHtml);
+        Assert.Contains("<b>Maria Gomez</b>", email.LastHtml); // firma HTML sin escapar
+        Assert.Contains("https://app.test/baja/ana@cliente.test", email.LastHtml);
+
+        var runs = await inner.ContactWorkflowRuns.ToListAsync();
+        Assert.Equal(2, runs.Count);
+        var skipped = Assert.Single(runs, r => r.Status == ContactWorkflowRunStatus.Skipped);
+        Assert.Contains("baja", skipped.Error ?? string.Empty);
+    }
+
     /// <summary>Todos los dias ISO como CSV (para que la ventana no dependa del dia en que corre el test).</summary>
     private const string AllDays = "1,2,3,4,5,6,7";
 
@@ -505,6 +601,76 @@ public class ContactWorkflowDispatcherTests
         Assert.Equal(0, written);
         Assert.Equal(0, whatsapp.Sends);
         Assert.Equal(0, await inner.ContactWorkflowRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task Failed_se_reintenta_en_la_misma_fila_y_Sent_no_se_repite()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, whatsapp, _, inner) = Build(now, AllDays, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        // 1er intento: el proveedor falla -> 2 filas Failed, Attempts = 1.
+        whatsapp.Fail = true;
+        await dispatcher.RunDueForTenantAsync(now);
+        var runs = await inner.ContactWorkflowRuns.AsNoTracking().ToListAsync();
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRunStatus.Failed, r.Status));
+        Assert.All(runs, r => Assert.Equal(1, r.Attempts));
+
+        // Antes de la espera minima no reintenta.
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(5));
+        Assert.Equal(2, whatsapp.Sends);
+
+        // Pasada la espera: reintenta sobre la MISMA fila (sin insertar otra) y ahora entrega.
+        whatsapp.Fail = false;
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(16));
+        runs = await inner.ContactWorkflowRuns.AsNoTracking().ToListAsync();
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRunStatus.Sent, r.Status));
+        Assert.All(runs, r => Assert.Equal(2, r.Attempts));
+        Assert.Equal(4, whatsapp.Sends);
+
+        // Sent nunca se repite, por mucho que pase el tiempo dentro del dia.
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(60));
+        Assert.Equal(4, whatsapp.Sends);
+        Assert.Equal(2, await inner.ContactWorkflowRuns.CountAsync());
+    }
+
+    [Fact]
+    public async Task Failed_se_detiene_al_llegar_al_tope_de_intentos()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 8, 0, 0, TimeSpan.Zero);
+        var (dispatcher, whatsapp, _, inner) = Build(now, AllDays, new TimeOnly(0, 0), new TimeOnly(23, 59));
+        whatsapp.Fail = true;
+
+        for (var i = 0; i < 6; i++)
+        {
+            await dispatcher.RunDueForTenantAsync(now.AddMinutes(20 * i));
+        }
+
+        var runs = await inner.ContactWorkflowRuns.AsNoTracking().ToListAsync();
+        Assert.Equal(2, runs.Count);
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRetryPolicy.MaxFailedAttempts, r.Attempts));
+        Assert.All(runs, r => Assert.Equal(ContactWorkflowRunStatus.Failed, r.Status));
+        Assert.Equal(2 * ContactWorkflowRetryPolicy.MaxFailedAttempts, whatsapp.Sends);
+    }
+
+    [Fact]
+    public async Task Telefono_de_10_digitos_se_envia_en_E164_y_el_texto_lleva_las_variables()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, whatsapp, _, inner) = Build(now, AllDays, new TimeOnly(0, 0), new TimeOnly(23, 59));
+        inner.Terceros.RemoveRange(inner.Terceros);
+        inner.Terceros.Add(new Tercero { TenantId = TenantId, Nombre = "Carla", Tipo = TerceroTipo.Persona, Estado = TerceroEstado.Activo, Telefono = "300 111 2233" });
+        var step = await inner.ContactWorkflowSteps.FirstAsync();
+        step.ParamsJson = "{\"texto\":\"Hola {nombre}, te escribimos.\"}";
+        await inner.SaveChangesAsync();
+
+        await dispatcher.RunDueForTenantAsync(now);
+
+        Assert.Equal(1, whatsapp.Sends);
+        Assert.Equal("+573001112233", whatsapp.LastPhone);
+        Assert.Equal("Hola Carla, te escribimos.", whatsapp.LastText);
     }
 
     [Fact]

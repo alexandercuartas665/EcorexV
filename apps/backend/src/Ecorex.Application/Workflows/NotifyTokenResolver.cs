@@ -164,13 +164,31 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
 
         // Datos de los formularios anclados a la tarea (Reference == numero o "numero-n"). Primer valor no
         // vacio por codigo de campo. Se exponen como {form.<codigo>} y, si no colisiona con la tarea, tambien bare.
-        var num = task.Number;
-        var datas = await _db.FormResponses.AsNoTracking()
-            .Where(r => r.IsActive && (r.Reference == num || (r.Reference != null && r.Reference.StartsWith(num + "-"))))
-            .OrderBy(r => r.CreatedAt)
+        var datas = await AnchoredToTask(_db.FormResponses.AsNoTracking(), task.Number)
             .Select(r => r.Data)
             .ToListAsync(cancellationToken);
+        AddFormTokens(map, datas);
 
+        return map;
+    }
+
+    /// <summary>
+    /// Respuestas de formulario ancladas a la tarea (Reference == numero o "numero-n"), en el orden en que
+    /// ganan el "primer valor no vacio": primero la marcada IsActive y luego la mas antigua.
+    /// OJO: IsActive NO significa "vigente"; es la marca EXCLUSIVA y OPCIONAL de "formulario principal de la
+    /// tarea" (ADR-0065) y casi nunca esta puesta. Antes se filtraba por IsActive y {form.*} quedaba vacio
+    /// casi siempre (bug 2026-11-16, SOLDARCO T00084). Mismo criterio que NodeNotifyService.ResolveFormPdfAsync.
+    /// Las borradas (IsDeleted) ya las excluye el filtro global.
+    /// </summary>
+    internal static IQueryable<Domain.Entities.FormResponse> AnchoredToTask(
+        IQueryable<Domain.Entities.FormResponse> source, string num) =>
+        source.Where(r => r.Reference == num || (r.Reference != null && r.Reference.StartsWith(num + "-")))
+            .OrderByDescending(r => r.IsActive)
+            .ThenBy(r => r.CreatedAt);
+
+    /// <summary>Vuelca los campos de las respuestas como {form.codigo} (y bare sin pisar); primer valor no vacio gana.</summary>
+    internal static void AddFormTokens(Dictionary<string, string> map, IEnumerable<string?> datas)
+    {
         foreach (var data in datas)
         {
             if (string.IsNullOrWhiteSpace(data)) { continue; }
@@ -189,8 +207,6 @@ public sealed class NotifyTokenResolver : INotifyTokenResolver
             }
             catch (JsonException) { /* respuesta corrupta: se ignora */ }
         }
-
-        return map;
     }
 
     public string Render(string? template, IReadOnlyDictionary<string, string> tokens)

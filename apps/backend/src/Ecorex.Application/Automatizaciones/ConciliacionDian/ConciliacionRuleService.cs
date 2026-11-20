@@ -37,6 +37,11 @@ public interface IConciliacionRuleService
     /// <summary>Inserta (idempotente por nombre) las 3 reglas del "cruce estandar" (ERP -> numsol, Newton -> plataforma,
     /// auto-aprobar). Devuelve cuantas se agregaron.</summary>
     Task<int> AgregarCruceEstandarAsync(CancellationToken ct = default);
+    /// <summary>ADR-0191: validador de la extraccion del asistente. Lee UNA vez las filas del contenedor (columna de
+    /// busqueda + columna a devolver) y arma el <see cref="ExtraccionCampoMatcher"/>. Contenedor o columna inexistente
+    /// = validador vacio (nada valida). Solo lectura (contexto efimero).</summary>
+    Task<ExtraccionCampoMatcher> BuildExtraccionMatcherAsync(Guid containerId, string searchColumn, string returnColumn,
+        string? prefijos, CancellationToken ct = default);
 }
 
 public sealed class ConciliacionRuleService : IConciliacionRuleService
@@ -306,6 +311,40 @@ public sealed class ConciliacionRuleService : IConciliacionRuleService
         if (!simular) { await _db.SaveChangesAsync(ct); }
 
         return new ConciliacionReglasResult(renglones.Count, encontrados, aprobados, cambiados, simular, muestra);
+    }
+
+    // ---------- Validador de la extraccion del asistente (ADR-0191) ----------
+
+    public async Task<ExtraccionCampoMatcher> BuildExtraccionMatcherAsync(Guid containerId, string searchColumn,
+        string returnColumn, string? prefijos, CancellationToken ct = default)
+    {
+        var vacio = new ExtraccionCampoMatcher(Array.Empty<(string?, string?)>(), prefijos);
+        if (containerId == Guid.Empty || ConciliacionRuleSources.IsBuiltIn(containerId)) { return vacio; }
+
+        await using var db = _dbFactory.Create();
+        var cols = await db.DataContainerColumns.AsNoTracking()
+            .Where(c => c.ContainerId == containerId)
+            .Select(c => new { c.Id, c.Name }).ToListAsync(ct);
+        var colByName = cols.ToDictionary(c => c.Name, c => c.Id, StringComparer.OrdinalIgnoreCase);
+        if (!colByName.TryGetValue(searchColumn ?? "", out var searchId) || !colByName.TryGetValue(returnColumn ?? "", out var retId))
+        {
+            return vacio;
+        }
+        var ids = new[] { searchId, retId }.Distinct().ToList();
+        var cells = await db.DataContainerCells.AsNoTracking()
+            .Where(ce => ids.Contains(ce.ColumnId))
+            .Select(ce => new { ce.RowId, ce.ColumnId, ce.Value }).ToListAsync(ct);
+        // Solo filas vivas del contenedor (igual que el VLOOKUP, que recorre DataContainerRows).
+        var vivas = (await db.DataContainerRows.AsNoTracking()
+            .Where(r => r.ContainerId == containerId).Select(r => r.Id).ToListAsync(ct)).ToHashSet();
+        var filas = cells.Where(c => vivas.Contains(c.RowId)).GroupBy(c => c.RowId)
+            .Select(g =>
+            {
+                var m = g.ToDictionary(x => x.ColumnId, x => x.Value);
+                return (Busqueda: m.GetValueOrDefault(searchId), Devolver: m.GetValueOrDefault(retId));
+            })
+            .ToList();
+        return new ExtraccionCampoMatcher(filas, prefijos);
     }
 
     // ---------- Indice del VLOOKUP ----------

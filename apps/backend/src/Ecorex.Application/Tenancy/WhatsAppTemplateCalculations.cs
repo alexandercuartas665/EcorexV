@@ -61,6 +61,10 @@ public static partial class WhatsAppTemplateCalculations
         if (request.HeaderText is { } h && h.Trim().Length > 60) { return "El encabezado no puede superar 60 caracteres."; }
         if (request.FooterText is { } f && f.Trim().Length > 60) { return "El pie no puede superar 60 caracteres."; }
         if (request.WhatsAppLineId == Guid.Empty) { return "Elige la linea por la que se someteria (define la WABA)."; }
+        if (request.Buttons is { Count: > 0 } && WhatsAppTemplateButtons.Problems(request.Buttons) is { Count: > 0 } bp)
+        {
+            return string.Join(" ", bp);
+        }
         return null;
     }
 

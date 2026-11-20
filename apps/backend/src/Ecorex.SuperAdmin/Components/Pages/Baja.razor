@@ -1,0 +1,91 @@
+@page "/baja/{Token}"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Gestor
+@using Ecorex.SuperAdmin.Auth
+@inject IEmailUnsubscribeService BajasSvc
+
+@* Pagina PUBLICA de baja de correos (ADR-0175), destino del {enlace_baja} de las plantillas. Sin login: el
+   acceso lo gobierna el token opaco (Data Protection, proposito propio) que lleva (tenant, correo). Validar
+   es el UNICO punto cross-tenant (solo lectura); la baja se registra con el tenant del token fijado como
+   ambient. Mensajes neutros ante tokens invalidos; el correo se muestra enmascarado. *@
+
+<PageTitle>Darse de baja - ECOREX</PageTitle>
+
+<div class="bj-page">
+    <div class="bj-card">
+        @if (_loading)
+        {
+            <p class="bj-txt"><em>Validando enlace...</em></p>
+        }
+        else if (_info is null || !_info.IsValid)
+        {
+            <h1 class="bj-h">Este enlace no esta disponible.</h1>
+            <p class="bj-txt">El enlace no es valido o expiro. Si quieres dejar de recibir correos, responde al correo que recibiste pidiendolo.</p>
+        }
+        else if (_done || _info.AlreadyUnsubscribed)
+        {
+            <div class="bj-ok">&#10003;</div>
+            <h1 class="bj-h">Listo, no recibiras mas correos.</h1>
+            <p class="bj-txt">El correo <b>@_info.EmailMasked</b> quedo dado de baja de los envios de <b>@_info.CompanyName</b>. Ya puedes cerrar esta ventana.</p>
+        }
+        else
+        {
+            <h1 class="bj-h">Dejar de recibir correos</h1>
+            <p class="bj-txt">Vas a dar de baja <b>@_info.EmailMasked</b> de los correos de <b>@_info.CompanyName</b>.</p>
+            <label class="bj-lbl" for="bj-motivo">Cuentanos por que (opcional)</label>
+            <textarea id="bj-motivo" class="bj-input" rows="3" maxlength="500" @bind="_motivo"></textarea>
+            @if (_error is not null) { <p class="bj-err">@_error</p> }
+            <button class="bj-btn" @onclick="ConfirmAsync" disabled="@_busy">@(_busy ? "Procesando..." : "Darme de baja")</button>
+        }
+    </div>
+</div>
+
+<style>
+    .bj-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f4f5f7; padding: 16px; font-family: Arial, Helvetica, sans-serif; }
+    .bj-card { width: 100%; max-width: 460px; background: #fff; border-radius: 14px; box-shadow: 0 6px 24px rgba(15, 23, 42, .08); padding: 28px 26px; }
+    .bj-h { font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 10px; }
+    .bj-txt { font-size: 14px; color: #475569; line-height: 1.5; margin: 0 0 14px; }
+    .bj-lbl { display: block; font-size: 12.5px; font-weight: 700; color: #334155; margin-bottom: 6px; }
+    .bj-input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 14px; resize: vertical; margin-bottom: 14px; box-sizing: border-box; }
+    .bj-btn { width: 100%; border: 0; border-radius: 8px; background: #0f172a; color: #fff; font-size: 14px; font-weight: 700; padding: 11px 14px; cursor: pointer; }
+    .bj-btn:disabled { opacity: .6; cursor: default; }
+    .bj-ok { width: 44px; height: 44px; border-radius: 50%; background: #dcfce7; color: #15803d; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; margin-bottom: 12px; }
+    .bj-err { color: #b91c1c; font-size: 13px; }
+</style>
+
+@code {
+    [Parameter] public string Token { get; set; } = string.Empty;
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _done;
+    private string? _motivo;
+    private string? _error;
+    private UnsubscribeLinkInfo? _info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _info = await BajasSvc.ValidateAsync(Token); }
+        catch { _info = null; }
+        _loading = false;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_info is not { IsValid: true, TenantId: Guid tenantId } || _busy) { return; }
+        _busy = true; _error = null;
+        try
+        {
+            bool ok;
+            using (AmbientTenantContext.Begin(tenantId))
+            {
+                ok = await BajasSvc.UnsubscribeAsync(Token, _motivo);
+            }
+            if (ok) { _done = true; } else { _error = "No pudimos registrar la baja. Intenta de nuevo."; }
+        }
+        catch { _error = "No pudimos registrar la baja. Intenta de nuevo."; }
+        finally { _busy = false; }
+    }
+}

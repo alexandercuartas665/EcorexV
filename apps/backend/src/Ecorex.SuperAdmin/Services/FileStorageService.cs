@@ -113,6 +113,16 @@ public sealed class FileStorageService(
         return await ReadContentAsync(f, ct);
     }
 
+    public async Task<FileStorageContent?> ReadPublicAsync(Guid fileId, string module, CancellationToken ct = default)
+    {
+        // Unico acceso anonimo: acotado al modulo pedido (p.ej. la galeria de plantillas). Ignora el filtro de
+        // tenant porque el lector (un cliente de correo) no tiene sesion; la llave es un Guid no adivinable.
+        if (string.IsNullOrWhiteSpace(module)) { return null; }
+        var f = await db.StoredFiles.IgnoreQueryFilters().AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == fileId && x.Module == module, ct);
+        return await ReadContentAsync(f, ct);
+    }
+
     private async Task<FileStorageContent?> ReadContentAsync(StoredFile? f, CancellationToken ct)
     {
         if (f is null) { return null; }

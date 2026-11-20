@@ -62,7 +62,15 @@ public static class AgentChannel
         // su propio scope por escritura (se llama desde el background del runtime, sin scope de peticion).
         services.AddSingleton<IAgentActivityLog, AgentActivityLogWriter>();
         services.AddSingleton<IBrowserRunService, BrowserRunService>();
+        // Secuencia de tramos de una programacion de flujo (ADR-0171). Singleton: guarda el estado de las
+        // secuencias vivas (una por flujo) y corre en segundo plano. Los modulos aportan valores de corrida
+        // (p.ej. CUFES_CONOCIDOS del conciliador DIAN) via IFlowRunOverrideProvider, resuelto por scope.
+        services.AddSingleton<IFlowSequenceRunner, FlowSequenceRunner>();
+        services.AddScoped<IFlowRunOverrideProvider, ConciliacionDianFlowOverrides>();
         services.AddScoped<IAiStepOrchestrator, AiStepOrchestrator>();
+        // Verbo EJECUTAR_DRON (ADR-0181): un boton del formulario de una tarea lanza un flujo del dron con sus datos.
+        // Vive aqui (no en Application) porque necesita el runtime del navegador (IBrowserRunService).
+        services.AddScoped<Ecorex.Application.Rules.IRuleVerb, EjecutarDronVerb>();
         // Busqueda web del agente de FLUJO (ADR-0091): reemplaza el no-op de Application con el canal Colmena real.
         services.AddScoped<Ecorex.Application.Workflows.IAgentBrowserFetch, AgentBrowserFetch>();
         services.AddScoped<IAiProviderResolver, AiProviderResolver>();

@@ -14,6 +14,8 @@
 @inject IEmailTemplateService EmailTemplateSvc
 @inject IAiAgentService AiAgentSvc
 @inject IFormDefinitionService FormDefSvc
+@inject IWhatsAppLineService WaLineSvc
+@inject IWhatsAppTemplateService WaTemplateSvc
 
 @if (_open)
 {
@@ -126,8 +128,11 @@
                                             <label>Objetivo</label>
                                             <select @bind="st.Objetivo">
                                                 <option value="">-- Elige objetivo --</option>
+                                                @* SeguimientoCierre (ADR-0190) es una MARCA interna del nodo de flujo de voz, no una
+                                                   opcion para el programador de acciones de Contactos: se excluye del selector. *@
                                                 @foreach (var o in Enum.GetValues<ContactCallObjetivo>())
                                                 {
+                                                    if (o == ContactCallObjetivo.SeguimientoCierre) { continue; }
                                                     <option value="@o">@ObjetivoLabel(o)</option>
                                                 }
                                             </select>
@@ -181,6 +186,123 @@
                                 </div>
                             }
 
+                            @* Paso WhatsApp: linea + contenido segun proveedor. Evolution/Emulator = texto libre con
+                               variables; YCloud/Cloud = plantilla APROBADA + mapeo de variables (Meta rechaza texto
+                               libre fuera de la ventana de 24 h). Se guarda en ParamsJson del paso. *@
+                            @if (st.StepType == ContactWorkflowStepType.WhatsApp)
+                            {
+                                var waLine = _lines.FirstOrDefault(l => l.Id == st.WaLineaId);
+                                var needsTpl = waLine is not null && RequiresTemplate(waLine.Provider);
+                                <div class="cw-email">
+                                    <div class="cw-field">
+                                        <label>Linea de WhatsApp</label>
+                                        <select value="@(st.WaLineaId?.ToString() ?? "")"
+                                                @onchange="e => st.WaLineaId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null">
+                                            <option value="">-- elige una linea --</option>
+                                            @foreach (var l in _lines)
+                                            {
+                                                <option value="@l.Id">@LineLabel(l)</option>
+                                            }
+                                        </select>
+                                        @if (_lines.Count == 0)
+                                        {
+                                            <span class="cw-email-hint">No hay lineas de WhatsApp. Crealas en "Lineas de WhatsApp".</span>
+                                        }
+                                        else if (waLine is not null && waLine.Status != WhatsAppLineStatus.Connected)
+                                        {
+                                            <span class="cw-email-hint">Esta linea no esta conectada: el paso no enviara hasta conectarla.</span>
+                                        }
+                                    </div>
+
+                                    @if (needsTpl)
+                                    {
+                                        var tpls = TemplatesFor(waLine!.Id);
+                                        var tpl = tpls.FirstOrDefault(t => t.Id == st.WaPlantillaId);
+                                        <div class="cw-field" style="margin-top:10px;">
+                                            <label>Plantilla aprobada</label>
+                                            <select value="@(st.WaPlantillaId?.ToString() ?? "")"
+                                                    @onchange="e => SetWaTemplate(st, e.Value)">
+                                                <option value="">-- elige una plantilla --</option>
+                                                @foreach (var t in tpls)
+                                                {
+                                                    <option value="@t.Id">@t.Name (@t.Language)</option>
+                                                }
+                                            </select>
+                                            @if (tpls.Count == 0)
+                                            {
+                                                <span class="cw-email-hint">Esta linea no tiene plantillas aprobadas por Meta. Importalas o crealas en "Plantillas de WhatsApp".</span>
+                                            }
+                                            @{ var pend = PendingFor(waLine!.Id); }
+                                            @if (pend.Count > 0)
+                                            {
+                                                @* ADR-0184: las sometidas aun no se pueden usar; se listan para que el usuario sepa que vienen. *@
+                                                <span class="cw-email-hint">
+                                                    @foreach (var p in pend)
+                                                    {
+                                                        <span style="display:block;">@p.Name: @WhatsAppTemplateStatusSync.Label(p.Status)@(string.IsNullOrWhiteSpace(p.RejectionReason) ? "" : " (" + p.RejectionReason + ")")</span>
+                                                    }
+                                                    Las sometidas aparecen aqui solas al aprobarse (el sistema consulta a Meta cada 10 minutos).
+                                                    <button type="button" class="btn btn-link btn-sm p-0" @onclick="RefreshWaStatusAsync" disabled="@_waSyncing">@(_waSyncing ? "Consultando..." : "Consultar ahora")</button>
+                                                </span>
+                                            }
+                                        </div>
+                                        @if (tpl is not null)
+                                        {
+                                            <div class="cw-email-prev">
+                                                <div class="cw-email-prev-lbl">PLANTILLA &#183; @tpl.Name</div>
+                                                <div class="cw-email-body" style="white-space:pre-wrap;">@((MarkupString)WhatsAppTextFormat.ToHtml(tpl.BodyText))</div>
+                                                @if (tpl.Variables.Count > 0)
+                                                {
+                                                    <div class="cw-wa-vars">
+                                                        <div class="cw-email-prev-lbl" style="margin-top:9px;">VARIABLES &#183; dato del contacto que llena cada una</div>
+                                                        @foreach (var v in tpl.Variables)
+                                                        {
+                                                            var token = v.Token;
+                                                            var src = WaSource(st, token);
+                                                            var isFixed = src.StartsWith(ContactWorkflowWhatsAppFields.FixedPrefix, StringComparison.Ordinal);
+                                                            <div class="cw-wa-var">
+                                                                <span class="cw-wa-token">{{@token}}</span>
+                                                                <select value="@(isFixed ? FixedOption : src)" @onchange="e => SetWaSource(st, token, e.Value)">
+                                                                    <option value="">-- sin asignar --</option>
+                                                                    @foreach (var f in ContactWorkflowWhatsAppFields.All)
+                                                                    {
+                                                                        <option value="@f.Key">@f.Label</option>
+                                                                    }
+                                                                    <option value="@FixedOption">Texto fijo...</option>
+                                                                </select>
+                                                                @if (isFixed)
+                                                                {
+                                                                    <input value="@src[ContactWorkflowWhatsAppFields.FixedPrefix.Length..]"
+                                                                           @onchange="e => st.WaVars[token] = ContactWorkflowWhatsAppFields.FixedPrefix + (e.Value?.ToString() ?? string.Empty)"
+                                                                           placeholder="Valor fijo para todos" />
+                                                                }
+                                                            </div>
+                                                        }
+                                                        <div class="cw-email-vars">Si el dato queda vacio para un contacto, ese envio se omite (Meta rechaza variables vacias).</div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    }
+                                    else if (waLine is not null)
+                                    {
+                                        <div class="cw-field cw-wa-text" style="margin-top:10px;">
+                                            <label>Mensaje</label>
+                                            <textarea rows="4" @bind="st.WaTexto"
+                                                      placeholder="Hola {nombre}, te escribimos de ..."></textarea>
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(st.WaTexto))
+                                        {
+                                            <div class="cw-email-prev">
+                                                <div class="cw-email-prev-lbl">VISTA PREVIA &#183; datos de ejemplo</div>
+                                                <div class="cw-email-body" style="white-space:pre-wrap;">@EmailTemplateService.RenderTemplate(st.WaTexto, SampleFields, htmlEscapeValues: false)</div>
+                                            </div>
+                                        }
+                                        <div class="cw-email-vars">Variables: {nombre} {empresa} {cargo} {ciudad} {correo}</div>
+                                    }
+                                </div>
+                            }
+
                             @* Campos del paso E-mail: plantilla + vista previa (SMTP, cascada tenant->global) *@
                             @if (st.StepType == ContactWorkflowStepType.Email)
                             {
@@ -199,6 +321,20 @@
                                             <span class="cw-email-hint">No hay plantillas activas. Crealas en "Plantillas de correo".</span>
                                         }
                                     </div>
+                                    @* Remitente comercial de la campana (ADR-0185). Vacio = el del servidor de correo. *@
+                                    <div class="cw-field" style="margin-top:10px;">
+                                        <label>Remitente de la campana (opcional)</label>
+                                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
+                                            <input type="text" placeholder="Nombre visible (ej. Comercial SOLDARCO)" maxlength="120" @bind="st.EmailRemitenteNombre" />
+                                            <input type="email" placeholder="Correo remitente (ej. comercial@@tuempresa.com)" maxlength="200" @bind="st.EmailRemitenteCorreo" />
+                                            <input type="email" placeholder="Responder a (opcional)" maxlength="200" @bind="st.EmailResponderA" />
+                                        </div>
+                                        <span class="cw-email-hint">
+                                            El correo remitente se usa tal cual solo si es del mismo dominio del servidor de correo configurado
+                                            (Configuracion &gt; Servidor de correo saliente); si no, el envio sale del servidor y las respuestas
+                                            llegan a ese correo.
+                                        </span>
+                                    </div>
                                     @{
                                         var sel = _templates.FirstOrDefault(t => t.Id.ToString() == st.EmailTemplateId);
                                     }
@@ -207,7 +343,8 @@
                                         <div class="cw-email-prev">
                                             <div class="cw-email-prev-lbl">VISTA PREVIA &#183; datos de ejemplo</div>
                                             <div class="cw-email-subj"><b>Asunto:</b> @PreviewSubject(sel)</div>
-                                            <div class="cw-email-body">@((MarkupString)PreviewBody(sel))</div>
+                                            @* iframe sandbox (ADR-0175): el HTML de la plantilla no corre en el origen de la app. *@
+                                            <iframe class="cw-email-body" sandbox="" title="Vista previa del correo" srcdoc="@PreviewBody(sel)" style="width:100%;min-height:280px;border:0;background:#fff;display:block;"></iframe>
                                             <div class="cw-email-vars">Variables: {nombre} {empresa} {cargo} {ciudad} {correo}</div>
                                         </div>
                                     }
@@ -274,6 +411,50 @@
                             </div>
                         </div>
                     }
+
+                    @* Ultimas ejecuciones del motor (antes solo se veian en BD). *@
+                    <div class="cw-runs">
+                        <div class="cw-sched-lbl">
+                            <span>ULTIMAS EJECUCIONES</span>
+                            <button class="cw-add-win" @onclick="LoadRunsAsync" disabled="@_runsBusy">@(_runsBusy ? "Cargando..." : "Actualizar")</button>
+                        </div>
+                        @if (_runs.Count == 0)
+                        {
+                            <div class="cw-sched-empty">Aun no hay ejecuciones de este workflow.</div>
+                        }
+                        else
+                        {
+                            <div class="cw-runs-wrap">
+                                <table class="cw-runs-table">
+                                    <thead>
+                                        <tr><th>Fecha</th><th>Contacto</th><th>Paso</th><th>Estado</th><th title="Lo que reporta SendGrid despues del envio (requiere el webhook de eventos)">Entrega</th><th>Detalle</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var r in _runs)
+                                        {
+                                            <tr>
+                                                <td class="nowrap">@r.FechaLocal.ToString("dd/MM HH:mm")</td>
+                                                <td>@r.Contacto</td>
+                                                <td>@r.Paso <span class="cw-runs-ch">@r.Canal</span></td>
+                                                <td><span class="cw-run-st @RunCss(r.Estado)">@RunLabel(r.Estado)</span>@if (r.Intentos > 1) { <span class="cw-runs-ch">x@(r.Intentos)</span> }</td>
+                                                <td>
+                                                    @if (r.Entrega != EmailDeliveryStatus.None)
+                                                    {
+                                                        <span class="cw-run-st @DeliveryCss(r.Entrega)" title="@DeliveryTitle(r)">@DeliveryLabel(r.Entrega)</span>
+                                                    }
+                                                    else if (r.Canal == "email" && r.Estado == ContactWorkflowRunStatus.Sent)
+                                                    {
+                                                        <span class="cw-runs-ch" title="Sin eventos del proveedor: configura el webhook de SendGrid en Configuracion">-</span>
+                                                    }
+                                                </td>
+                                                <td class="cw-runs-err">@(r.Error ?? (r.Entrega is EmailDeliveryStatus.Bounced or EmailDeliveryStatus.Dropped or EmailDeliveryStatus.Deferred ? r.EntregaDetalle : null))</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
                 </div>
             </div>
 
@@ -315,10 +496,18 @@
     // Llamada IA (ADR-0056): agentes REUTILIZADOS y formularios que el agente puede llenar.
     private List<AiAgentDto> _agents = new();
     private List<FormDefinitionListItemDto> _forms = new();
+    // Paso WhatsApp: lineas del tenant y plantillas APROBADAS (para lineas YCloud/Cloud).
+    private List<WhatsAppLineDto> _lines = new();
+    private List<WhatsAppTemplateDto> _waTemplates = new();
+    private List<WhatsAppTemplateDto> _waPending = new();
+    private bool _waSyncing;
+    // Panel "Ultimas ejecuciones".
+    private List<ContactWorkflowRunDto> _runs = new();
+    private bool _runsBusy;
+    private const string FixedOption = "__fijo";
 
     // Datos de ejemplo para la vista previa del correo (no se envian; solo ilustran el merge).
-    private static readonly EmailMergeFields SampleFields =
-        new("Juan Perez", "ACME S.A.S", "Gerente de Compras", "Bogota", "juan.perez@acme.com");
+    private static readonly EmailMergeFields SampleFields = EmailTemplateService.SampleFields;
 
     private static string PreviewSubject(EmailTemplateDto t)
         => EmailTemplateService.RenderTemplate(t.Asunto, SampleFields, htmlEscapeValues: false);
@@ -339,6 +528,8 @@
         // Para el modo IA del paso Llamada: agentes existentes (se reutilizan) y formularios disponibles.
         _agents = (await AiAgentSvc.ListAsync()).ToList();
         _forms = (await FormDefSvc.ListAsync()).ToList();
+        _lines = (await WaLineSvc.ListAsync()).ToList();
+        await LoadWaTemplatesAsync();
 
         var wf = await WorkflowSvc.GetByFiltroAsync(filtroId);
         if (wf is not null)
@@ -348,6 +539,7 @@
             {
                 var vm = new StepVM
                 {
+                    Id = s.Id,
                     StepType = s.StepType,
                     Label = s.Label,
                     Comercial = s.Call?.Comercial,
@@ -367,6 +559,7 @@
                 {
                     vm.Schedules.Add(new ScheduleVM
                     {
+                        Id = h.Id,
                         StartDate = h.StartDate?.ToString("yyyy-MM-dd"),
                         EndDate = h.EndDate?.ToString("yyyy-MM-dd"),
                         StartTime = h.StartTime.ToString("HH:mm"),
@@ -380,9 +573,26 @@
                 }
                 // La plantilla del paso E-mail es la de sus ventanas (todas comparten la misma).
                 vm.EmailTemplateId = vm.Schedules.FirstOrDefault()?.TemplateId;
+                vm.EmailRemitenteNombre = s.Email?.RemitenteNombre;
+                vm.EmailRemitenteCorreo = s.Email?.RemitenteCorreo;
+                vm.EmailResponderA = s.Email?.ResponderA;
+                if (s.StepType == ContactWorkflowStepType.WhatsApp)
+                {
+                    // Config nueva en ParamsJson; compatibilidad con pasos viejos (texto en TemplateId de la
+                    // ventana, linea en AccountId): se sube al paso y se guarda en ParamsJson al guardar.
+                    var first = vm.Schedules.FirstOrDefault();
+                    vm.WaLineaId = s.WhatsApp?.LineaId ?? first?.AccountId;
+                    vm.WaTexto = s.WhatsApp?.Texto ?? first?.TemplateId;
+                    vm.WaPlantillaId = s.WhatsApp?.PlantillaId;
+                    if (s.WhatsApp?.Variables is { } vars)
+                    {
+                        foreach (var kv in vars) { vm.WaVars[kv.Key] = kv.Value; }
+                    }
+                }
                 _steps.Add(vm);
             }
         }
+        await LoadRunsAsync();
         _open = true;
         StateHasChanged();
     }
@@ -439,6 +649,13 @@
                 : "El objetivo 'Llenar formulario' requiere al menos un formulario permitido.";
             return;
         }
+        var waError = _steps.Where(s => s.StepType == ContactWorkflowStepType.WhatsApp)
+            .Select(ValidateWhatsApp).FirstOrDefault(e => e is not null);
+        if (waError is not null)
+        {
+            _error = waError;
+            return;
+        }
         _busy = true;
         try
         {
@@ -452,17 +669,40 @@
                     ParseTime(h.StartTime, new TimeOnly(9, 0)),
                     ParseTime(h.EndTime, new TimeOnly(18, 0)),
                     string.Join(",", h.ActiveDays.OrderBy(d => d)),
-                    // E-mail: la plantilla del paso se guarda en cada ventana; otros pasos conservan su valor.
-                    s.StepType == ContactWorkflowStepType.Email
-                        ? (string.IsNullOrWhiteSpace(s.EmailTemplateId) ? null : s.EmailTemplateId)
-                        : h.TemplateId,
-                    h.AccountId,
+                    // E-mail: la plantilla del paso se guarda en cada ventana. WhatsApp: el contenido vive en
+                    // ParamsJson (se limpia el texto/linea viejos de la ventana). Otros pasos conservan su valor.
+                    s.StepType switch
+                    {
+                        ContactWorkflowStepType.Email => string.IsNullOrWhiteSpace(s.EmailTemplateId) ? null : s.EmailTemplateId,
+                        ContactWorkflowStepType.WhatsApp => null,
+                        _ => h.TemplateId
+                    },
+                    s.StepType == ContactWorkflowStepType.WhatsApp ? null : h.AccountId,
                     h.RepeatEvery,
-                    h.PackageSize)).ToList())).ToList();
+                    h.PackageSize,
+                    h.Id)).ToList(),
+                s.StepType == ContactWorkflowStepType.WhatsApp ? BuildWhatsApp(s) : null,
+                s.Id,
+                s.StepType == ContactWorkflowStepType.Email
+                    ? new ContactWorkflowEmailParams(s.EmailRemitenteNombre, s.EmailRemitenteCorreo, s.EmailResponderA)
+                    : null)).ToList();
 
             var req = new SaveContactWorkflowRequest(null, _activo, steps);
             var res = await WorkflowSvc.SaveAsync(_filtroId, req);
-            if (res.IsOk) { _saved = true; }
+            if (res.IsOk && res.Value is not null)
+            {
+                _saved = true;
+                // Los pasos/ventanas nuevos reciben su Id: se toma para que un segundo guardado los actualice
+                // (y no los cree otra vez, lo que reiniciaria su historial).
+                for (var i = 0; i < _steps.Count && i < res.Value.Steps.Count; i++)
+                {
+                    _steps[i].Id = res.Value.Steps[i].Id;
+                    for (var j = 0; j < _steps[i].Schedules.Count && j < res.Value.Steps[i].Schedules.Count; j++)
+                    {
+                        _steps[i].Schedules[j].Id = res.Value.Steps[i].Schedules[j].Id;
+                    }
+                }
+            }
             else { _error = res.Error ?? "No se pudo guardar el workflow."; }
         }
         finally { _busy = false; }
@@ -527,6 +767,156 @@
                 FormulariosPermitidos: s.FormulariosPermitidos.Count > 0 ? s.FormulariosPermitidos.ToList() : null)
             : new ContactWorkflowCallParams(s.Comercial, s.Prioridad, s.Categoria, s.Subcategoria);
 
+    // ---- Paso WhatsApp ----
+
+    private static bool RequiresTemplate(WhatsAppProvider provider)
+        => provider is WhatsAppProvider.YCloud or WhatsAppProvider.Cloud;
+
+    private static string LineLabel(WhatsAppLineDto l)
+    {
+        var estado = l.Status == WhatsAppLineStatus.Connected ? "" : " - desconectada";
+        var numero = string.IsNullOrWhiteSpace(l.PhoneNumber) ? "" : $" ({l.PhoneNumber})";
+        return $"{l.InstanceName}{numero} - {l.Provider}{estado}";
+    }
+
+    private async Task LoadWaTemplatesAsync()
+    {
+        var all = (await WaTemplateSvc.ListAsync()).Where(t => t.IsActive).OrderBy(t => t.Name).ToList();
+        _waTemplates = all.Where(t => t.Status == WhatsAppTemplateStatus.Approved).ToList();
+        _waPending = all.Where(t => t.Status is WhatsAppTemplateStatus.Submitted or WhatsAppTemplateStatus.Rejected or WhatsAppTemplateStatus.Paused).ToList();
+    }
+
+    // Plantillas de la linea que aun NO se pueden usar (en revision, rechazadas o pausadas por Meta).
+    private List<WhatsAppTemplateDto> PendingFor(Guid lineId) => _waPending.Where(t => t.WhatsAppLineId == lineId).ToList();
+
+    // ADR-0184: consulta ya en Meta el estado de las sometidas y recarga las listas del paso.
+    private async Task RefreshWaStatusAsync()
+    {
+        _waSyncing = true;
+        try
+        {
+            await WaTemplateSvc.SyncPendingAsync();
+            await LoadWaTemplatesAsync();
+        }
+        finally { _waSyncing = false; }
+    }
+
+    // Plantillas aprobadas de la linea; si la linea no tiene propias, todas las aprobadas del tenant.
+    private List<WhatsAppTemplateDto> TemplatesFor(Guid lineId)
+    {
+        var own = _waTemplates.Where(t => t.WhatsAppLineId == lineId).ToList();
+        return own.Count > 0 ? own : _waTemplates;
+    }
+
+    private void SetWaTemplate(StepVM s, object? value)
+    {
+        s.WaPlantillaId = Guid.TryParse(value?.ToString(), out var g) ? g : null;
+        s.WaVars.Clear();
+        var tpl = _waTemplates.FirstOrDefault(t => t.Id == s.WaPlantillaId);
+        if (tpl is null) { return; }
+        // Sugerencia inicial por nombre del token ({{cliente}} -> nombre del contacto, etc.).
+        foreach (var v in tpl.Variables)
+        {
+            var def = ContactWorkflowWhatsAppFields.DefaultFor(v.Token);
+            if (def.Length > 0) { s.WaVars[v.Token] = def; }
+        }
+    }
+
+    private static string WaSource(StepVM s, string token)
+        => s.WaVars.TryGetValue(token, out var v) ? v : string.Empty;
+
+    private static void SetWaSource(StepVM s, string token, object? value)
+    {
+        var v = value?.ToString() ?? string.Empty;
+        if (v.Length == 0) { s.WaVars.Remove(token); }
+        else if (v == FixedOption) { s.WaVars[token] = ContactWorkflowWhatsAppFields.FixedPrefix; }
+        else { s.WaVars[token] = v; }
+    }
+
+    private string? ValidateWhatsApp(StepVM s)
+    {
+        var line = _lines.FirstOrDefault(l => l.Id == s.WaLineaId);
+        if (line is null) { return $"En el paso \"{s.Label}\" elige la linea de WhatsApp."; }
+        if (RequiresTemplate(line.Provider))
+        {
+            var tpl = _waTemplates.FirstOrDefault(t => t.Id == s.WaPlantillaId);
+            if (tpl is null) { return $"En el paso \"{s.Label}\" elige una plantilla aprobada (la linea es {line.Provider})."; }
+            var sinAsignar = tpl.Variables.FirstOrDefault(v => ContactWorkflowWhatsAppFields.Resolve(
+                WaSource(s, v.Token), "x", "x", "x", "x", "x", "x") is null);
+            if (sinAsignar is not null) { return $"En el paso \"{s.Label}\" asigna un dato a la variable {{{{{sinAsignar.Token}}}}}."; }
+            return null;
+        }
+        return string.IsNullOrWhiteSpace(s.WaTexto) ? $"En el paso \"{s.Label}\" escribe el mensaje." : null;
+    }
+
+    private ContactWorkflowWhatsAppParams BuildWhatsApp(StepVM s)
+    {
+        var line = _lines.FirstOrDefault(l => l.Id == s.WaLineaId);
+        var tplMode = line is not null && RequiresTemplate(line.Provider);
+        return new ContactWorkflowWhatsAppParams(
+            LineaId: s.WaLineaId,
+            Texto: tplMode || string.IsNullOrWhiteSpace(s.WaTexto) ? null : s.WaTexto.Trim(),
+            PlantillaId: tplMode ? s.WaPlantillaId : null,
+            Variables: tplMode && s.WaVars.Count > 0 ? new Dictionary<string, string>(s.WaVars) : null);
+    }
+
+    // ---- Panel de ejecuciones ----
+
+    private async Task LoadRunsAsync()
+    {
+        _runsBusy = true;
+        try { _runs = (await WorkflowSvc.ListRecentRunsAsync(_filtroId, 30)).ToList(); }
+        catch { _runs = new(); }
+        finally { _runsBusy = false; }
+    }
+
+    private static string RunLabel(ContactWorkflowRunStatus st) => st switch
+    {
+        ContactWorkflowRunStatus.Sent => "Enviado",
+        ContactWorkflowRunStatus.Failed => "Fallo",
+        ContactWorkflowRunStatus.Skipped => "Omitido",
+        _ => "Pendiente"
+    };
+
+    private static string RunCss(ContactWorkflowRunStatus st) => st switch
+    {
+        ContactWorkflowRunStatus.Sent => "ok",
+        ContactWorkflowRunStatus.Failed => "err",
+        _ => "warn"
+    };
+
+    // Estado real de entrega del correo segun el webhook de SendGrid (ADR-0188).
+    private static string DeliveryLabel(EmailDeliveryStatus st) => st switch
+    {
+        EmailDeliveryStatus.Processed => "En cola",
+        EmailDeliveryStatus.Deferred => "Aplazado",
+        EmailDeliveryStatus.Delivered => "Entregado",
+        EmailDeliveryStatus.Opened => "Abierto",
+        EmailDeliveryStatus.Clicked => "Clic",
+        EmailDeliveryStatus.Unsubscribed => "Se dio de baja",
+        EmailDeliveryStatus.SpamReport => "Spam",
+        EmailDeliveryStatus.Bounced => "Rebote",
+        EmailDeliveryStatus.Dropped => "No enviado",
+        _ => ""
+    };
+
+    private static string DeliveryCss(EmailDeliveryStatus st) => st switch
+    {
+        EmailDeliveryStatus.Delivered or EmailDeliveryStatus.Opened or EmailDeliveryStatus.Clicked => "ok",
+        EmailDeliveryStatus.Bounced or EmailDeliveryStatus.Dropped or EmailDeliveryStatus.SpamReport => "err",
+        EmailDeliveryStatus.Processed => "mute",
+        _ => "warn"
+    };
+
+    private static string DeliveryTitle(ContactWorkflowRunDto r)
+    {
+        var parts = new List<string>();
+        if (r.AbiertoLocal is DateTime a) { parts.Add("Abierto " + a.ToString("dd/MM HH:mm")); }
+        if (r.ClicLocal is DateTime c) { parts.Add("Clic " + c.ToString("dd/MM HH:mm")); }
+        if (!string.IsNullOrWhiteSpace(r.EntregaDetalle)) { parts.Add(r.EntregaDetalle!); }
+        return string.Join(" · ", parts);
+    }
+
     private static void SetModo(StepVM s, object? val) => s.Modo = val?.ToString() == "ia" ? "ia" : "crm";
 
     private static string ObjetivoLabel(ContactCallObjetivo o) => o switch
@@ -551,6 +941,8 @@
 
     private sealed class StepVM
     {
+        // Id del paso guardado (null = nuevo). Conservarlo evita recrear el paso y perder su historial.
+        public Guid? Id { get; set; }
         public ContactWorkflowStepType StepType { get; set; }
         public string Label { get; set; } = "";
         public string? Comercial { get; set; }
@@ -565,11 +957,21 @@
         public List<Guid> FormulariosPermitidos { get; } = new();
         // Paso E-mail: plantilla seleccionada (Id como texto). Se replica a todas sus ventanas al guardar.
         public string? EmailTemplateId { get; set; }
+        // Paso E-mail: remitente comercial de la campana (ADR-0185).
+        public string? EmailRemitenteNombre { get; set; }
+        public string? EmailRemitenteCorreo { get; set; }
+        public string? EmailResponderA { get; set; }
+        // Paso WhatsApp: linea, texto libre (Evolution/Emulator) o plantilla aprobada + mapeo (YCloud/Cloud).
+        public Guid? WaLineaId { get; set; }
+        public string? WaTexto { get; set; }
+        public Guid? WaPlantillaId { get; set; }
+        public Dictionary<string, string> WaVars { get; } = new();
         public List<ScheduleVM> Schedules { get; } = new();
     }
 
     private sealed class ScheduleVM
     {
+        public Guid? Id { get; set; }
         public string? StartDate { get; set; }
         public string? EndDate { get; set; }
         public string StartTime { get; set; } = "09:00";

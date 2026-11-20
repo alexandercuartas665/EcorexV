@@ -1970,6 +1970,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
 
+                    b.Property<string>("MediaReaderPrompt")
+                        .HasColumnType("text")
+                        .HasColumnName("media_reader_prompt");
+
                     b.Property<string>("Model")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -2397,7 +2401,7 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("content");
 
-                    b.Property<Guid>("ConversationId")
+                    b.Property<Guid?>("ConversationId")
                         .HasColumnType("uuid")
                         .HasColumnName("conversation_id");
 
@@ -2441,13 +2445,23 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid?>("VoiceCallId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voice_call_id");
+
                     b.HasKey("Id")
                         .HasName("pk_ai_agent_run_logs");
 
                     b.HasIndex("TenantId", "ConversationId", "OccurredAt")
                         .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_conversation_id_occurred_at");
 
-                    b.ToTable("ai_agent_run_logs", (string)null);
+                    b.HasIndex("TenantId", "VoiceCallId", "OccurredAt")
+                        .HasDatabaseName("ix_ai_agent_run_logs_tenant_id_voice_call_id_occurred_at");
+
+                    b.ToTable("ai_agent_run_logs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_ai_agent_run_log_conv_xor_voice", "(conversation_id IS NOT NULL AND voice_call_id IS NULL) OR (conversation_id IS NULL AND voice_call_id IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.AiProviderConfig", b =>
@@ -2489,6 +2503,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("provider");
 
+                    b.Property<string>("TranscriptionModel")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("transcription_model");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -2500,6 +2519,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<bool>("UseForFormBuilder")
                         .HasColumnType("boolean")
                         .HasColumnName("use_for_form_builder");
+
+                    b.Property<bool>("UseForTemplateBuilder")
+                        .HasColumnType("boolean")
+                        .HasColumnName("use_for_template_builder");
 
                     b.HasKey("Id")
                         .HasName("pk_ai_provider_configs");
@@ -4852,11 +4875,22 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("Attempts")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("attempts");
+
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("channel");
+
+                    b.Property<DateTimeOffset?>("ClickedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("clicked_at_utc");
 
                     b.Property<Guid>("ContactWorkflowScheduleId")
                         .HasColumnType("uuid")
@@ -4874,6 +4908,23 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("DeliveryDetail")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("delivery_detail");
+
+                    b.Property<string>("DeliveryStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("None")
+                        .HasColumnName("delivery_status");
+
+                    b.Property<DateTimeOffset?>("DeliveryUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivery_updated_at_utc");
+
                     b.Property<DateTimeOffset>("DispatchedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("dispatched_at_utc");
@@ -4887,6 +4938,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("external_ref");
+
+                    b.Property<DateTimeOffset?>("OpenedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("opened_at_utc");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -7257,6 +7312,73 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("documento_versiones", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.EmailBrand", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ColorAcento")
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)")
+                        .HasColumnName("color_acento");
+
+                    b.Property<string>("ColorPrimario")
+                        .HasMaxLength(9)
+                        .HasColumnType("character varying(9)")
+                        .HasColumnName("color_primario");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("EstiloPorDefecto")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("estilo_por_defecto");
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("logo_url");
+
+                    b.Property<string>("PieTexto")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("pie_texto");
+
+                    b.Property<string>("SitioWeb")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("sitio_web");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_email_brands");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_email_brands_tenant_id");
+
+                    b.ToTable("email_brands", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.EmailConfig", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7271,6 +7393,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("EventWebhookToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("event_webhook_token");
 
                     b.Property<string>("FromEmail")
                         .HasMaxLength(200)
@@ -7356,6 +7483,25 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("cuerpo_html");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Estilo")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("estilo");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -7381,6 +7527,60 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_email_templates_tenant_id_activa");
 
                     b.ToTable("email_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.EmailUnsubscribe", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("Motivo")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("motivo");
+
+                    b.Property<string>("Origen")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("origen");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_email_unsubscribes");
+
+                    b.HasIndex("TenantId", "Email")
+                        .IsUnique()
+                        .HasDatabaseName("ix_email_unsubscribes_tenant_id_email");
+
+                    b.ToTable("email_unsubscribes", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Entidad", b =>
@@ -8121,6 +8321,78 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_external_data_source_grants_external_data_source_id_tenant_");
 
                     b.ToTable("external_data_source_grants", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalTaskLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ExternalKey")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("external_key");
+
+                    b.Property<string>("LastCaptureSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_capture_sha256");
+
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("text")
+                        .HasColumnName("metadata_json");
+
+                    b.Property<int>("ReceivedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("received_count");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("source");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("task_item_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_task_links");
+
+                    b.HasIndex("TaskItemId")
+                        .HasDatabaseName("ix_external_task_links_task_item_id");
+
+                    b.HasIndex("TenantId", "TaskItemId")
+                        .HasDatabaseName("ix_external_task_links_tenant_id_task_item_id");
+
+                    b.HasIndex("TenantId", "Source", "ExternalKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_external_task_links_tenant_id_source_external_key");
+
+                    b.ToTable("external_task_links", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>
@@ -9788,9 +10060,19 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("schedule_kind");
 
+                    b.Property<string>("SequenceJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("sequence_json");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
+
+                    b.Property<string>("TriggerJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("trigger_json");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -9962,6 +10244,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ItemTypeId")
                         .HasColumnType("uuid")
                         .HasColumnName("item_type_id");
+
+                    b.Property<decimal?>("IvaRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("iva_rate");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -11200,6 +11487,327 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_message_templates_tenant_id_category_sort_order");
 
                     b.ToTable("message_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AuthorName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("author_name");
+
+                    b.Property<Guid?>("AuthorTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("author_tenant_user_id");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("ImportedFrom")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("imported_from");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<Guid>("MockupProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("mockup_project_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("TitleKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title_key");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UpdatedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("updated_by_name");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_notes");
+
+                    b.HasIndex("MockupProjectId")
+                        .HasDatabaseName("ix_mockup_notes_mockup_project_id");
+
+                    b.HasIndex("TenantId", "MockupProjectId", "TitleKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mockup_notes_tenant_id_mockup_project_id_title_key")
+                        .HasFilter("is_deleted = false");
+
+                    b.ToTable("mockup_notes", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNoteLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FromNoteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_note_id");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<Guid>("MockupProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("mockup_project_id");
+
+                    b.Property<string>("TargetKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("target_key");
+
+                    b.Property<string>("TargetKind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("target_kind");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_note_links");
+
+                    b.HasIndex("FromNoteId")
+                        .HasDatabaseName("ix_mockup_note_links_from_note_id");
+
+                    b.HasIndex("TenantId", "FromNoteId")
+                        .HasDatabaseName("ix_mockup_note_links_tenant_id_from_note_id");
+
+                    b.HasIndex("TenantId", "MockupProjectId", "TargetKind", "TargetKey")
+                        .HasDatabaseName("ix_mockup_note_links_tenant_id_mockup_project_id_target_kind_t");
+
+                    b.ToTable("mockup_note_links", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupProject", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BoardName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("board_name");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("CurrentVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("current_version_id");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("description");
+
+                    b.Property<int>("LastVersionNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_version_number");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("slug");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_projects");
+
+                    b.HasIndex("TenantId", "Slug")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mockup_projects_tenant_id_slug");
+
+                    b.ToTable("mockup_projects", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("EntryPath")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("entry_path");
+
+                    b.Property<int>("FileCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("file_count");
+
+                    b.Property<bool>("HasAnotador")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_anotador");
+
+                    b.Property<Guid>("MockupProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("mockup_project_id");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(600)
+                        .HasColumnType("character varying(600)")
+                        .HasColumnName("notes");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer")
+                        .HasColumnName("number");
+
+                    b.Property<string>("RootPrefix")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("root_prefix");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("UploadedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("uploaded_by_name");
+
+                    b.Property<Guid>("ZipFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("zip_file_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_versions");
+
+                    b.HasIndex("MockupProjectId")
+                        .HasDatabaseName("ix_mockup_versions_mockup_project_id");
+
+                    b.HasIndex("TenantId", "MockupProjectId", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mockup_versions_tenant_id_mockup_project_id_number");
+
+                    b.ToTable("mockup_versions", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ModuleDefinition", b =>
@@ -12708,6 +13316,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Category")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("category");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -13079,6 +13692,16 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<decimal?>("DescuentoPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("descuento_pct");
+
+                    b.Property<decimal?>("DescuentoValor")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("descuento_valor");
+
                     b.Property<int>("Estado")
                         .HasColumnType("integer")
                         .HasColumnName("estado");
@@ -13086,6 +13709,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("FechaProgramadaCompra")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fecha_programada_compra");
+
+                    b.Property<decimal?>("IvaPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("iva_pct");
 
                     b.Property<decimal>("PrecioUnitario")
                         .HasPrecision(18, 4)
@@ -13171,6 +13799,16 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<decimal?>("DescuentoPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("descuento_pct");
+
+                    b.Property<decimal?>("DescuentoValor")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("descuento_valor");
+
                     b.Property<DateTimeOffset?>("FechaCotizacion")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("fecha_cotizacion");
@@ -13182,6 +13820,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ItemId")
                         .HasColumnType("uuid")
                         .HasColumnName("item_id");
+
+                    b.Property<decimal?>("IvaPct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("iva_pct");
 
                     b.Property<string>("Notas")
                         .HasMaxLength(1000)
@@ -17226,7 +17869,7 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("task_work_logs", (string)null);
                 });
 
-            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAsset", b =>
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentConversation", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -17241,11 +17884,189 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("provider");
+
+                    b.Property<Guid?>("StartedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("started_by_user_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_template_agent_conversations");
+
+                    b.HasIndex("TenantId", "Kind", "TemplateId")
+                        .HasDatabaseName("ix_template_agent_conversations_tenant_id_kind_template_id");
+
+                    b.ToTable("template_agent_conversations", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AttachmentsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("attachments_json");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ProposalState")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("proposal_state");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("role");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("ToolArgsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("tool_args_json");
+
+                    b.Property<string>("ToolCallId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("tool_call_id");
+
+                    b.Property<string>("ToolName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("tool_name");
+
+                    b.Property<string>("ToolResultJson")
+                        .HasColumnType("text")
+                        .HasColumnName("tool_result_json");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_template_agent_messages");
+
+                    b.HasIndex("ConversationId", "Sequence")
+                        .HasDatabaseName("ix_template_agent_messages_conversation_id_sequence");
+
+                    b.ToTable("template_agent_messages", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Alt")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("alt");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("file_name");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("integer")
+                        .HasColumnName("height");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<string>("MimeType")
                         .HasMaxLength(120)
@@ -17255,6 +18076,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint")
                         .HasColumnName("size_bytes");
+
+                    b.Property<Guid?>("StoredFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("stored_file_id");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
@@ -17274,6 +18099,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("url");
 
+                    b.Property<int?>("Width")
+                        .HasColumnType("integer")
+                        .HasColumnName("width");
+
                     b.HasKey("Id")
                         .HasName("pk_template_assets");
 
@@ -17281,6 +18110,71 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_template_assets_tenant_id_created_at");
 
                     b.ToTable("template_assets", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload_json");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_template_snapshots");
+
+                    b.HasIndex("TenantId", "Kind", "TemplateId", "CreatedAt")
+                        .HasDatabaseName("ix_template_snapshots_tenant_id_kind_template_id_created_at");
+
+                    b.ToTable("template_snapshots", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Tenant", b =>
@@ -17638,6 +18532,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("EventWebhookToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("event_webhook_token");
 
                     b.Property<string>("FromEmail")
                         .HasMaxLength(200)
@@ -18160,6 +19059,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .HasColumnName("email");
+
+                    b.Property<string>("FirmaHtml")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("firma_html");
 
                     b.Property<DateTimeOffset?>("InvitationExpiresAt")
                         .HasColumnType("timestamp with time zone")
@@ -19083,6 +19987,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("DisconnectionReason")
+                        .HasColumnType("text")
+                        .HasColumnName("disconnection_reason");
 
                     b.Property<int?>("DurationSeconds")
                         .HasColumnType("integer")
@@ -20161,9 +21069,21 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("ai_agent_id");
 
+                    b.Property<int?>("AllowedChannels")
+                        .HasColumnType("integer")
+                        .HasColumnName("allowed_channels");
+
                     b.Property<int>("Autonomy")
                         .HasColumnType("integer")
                         .HasColumnName("autonomy");
+
+                    b.Property<int?>("CallWindowEndHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("call_window_end_hour");
+
+                    b.Property<int?>("CallWindowStartHour")
+                        .HasColumnType("integer")
+                        .HasColumnName("call_window_start_hour");
 
                     b.Property<bool>("CanSendEmail")
                         .ValueGeneratedOnAdd()
@@ -20208,6 +21128,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("failure_route");
 
+                    b.Property<int?>("MaxVoiceCalls")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_voice_calls");
+
                     b.Property<Guid>("NodeId")
                         .HasColumnType("uuid")
                         .HasColumnName("node_id");
@@ -20233,6 +21157,14 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("VoiceAiAgentId")
                         .HasColumnType("uuid")
                         .HasColumnName("voice_ai_agent_id");
+
+                    b.Property<Guid?>("VoiceLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voice_line_id");
+
+                    b.Property<int?>("VoiceRetryMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("voice_retry_minutes");
 
                     b.Property<Guid?>("WhatsAppLineId")
                         .HasColumnType("uuid")
@@ -20271,6 +21203,9 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("VoiceAiAgentId")
                         .HasDatabaseName("ix_workflow_node_agents_voice_ai_agent_id");
+
+                    b.HasIndex("VoiceLineId")
+                        .HasDatabaseName("ix_workflow_node_agents_voice_line_id");
 
                     b.HasIndex("WhatsAppLineId")
                         .HasDatabaseName("ix_workflow_node_agents_whats_app_line_id");
@@ -20663,6 +21598,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
+
+                    b.Property<int>("VoiceCallCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("voice_call_count");
 
                     b.Property<DateTimeOffset?>("WhatsAppAnsweredInboundAt")
                         .HasColumnType("timestamp with time zone")
@@ -21721,6 +22660,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("ExternalDataSource");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.ExternalTaskLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany()
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_task_links_task_items_task_item_id");
+
+                    b.Navigation("TaskItem");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.FlowTag", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.CardTag", "CardTag")
@@ -22154,6 +23105,42 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_messages_conversations_conversation_id");
 
                     b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNote", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.MockupProject", "MockupProject")
+                        .WithMany()
+                        .HasForeignKey("MockupProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_notes_mockup_projects_mockup_project_id");
+
+                    b.Navigation("MockupProject");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupNoteLink", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.MockupNote", "FromNote")
+                        .WithMany()
+                        .HasForeignKey("FromNoteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_note_links_mockup_notes_from_note_id");
+
+                    b.Navigation("FromNote");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupVersion", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.MockupProject", "MockupProject")
+                        .WithMany("Versions")
+                        .HasForeignKey("MockupProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_versions_mockup_projects_mockup_project_id");
+
+                    b.Navigation("MockupProject");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Notification", b =>
@@ -22928,6 +23915,18 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("TenantUser");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentMessage", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.TemplateAgentConversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_template_agent_messages_template_agent_conversations_conver");
+
+                    b.Navigation("Conversation");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.TenantModule", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.ModuleDefinition", "ModuleDefinition")
@@ -23223,6 +24222,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_workflow_node_agents_ai_agents_voice_ai_agent_id");
 
+                    b.HasOne("Ecorex.Domain.Entities.RetellVoiceLine", "VoiceLine")
+                        .WithMany()
+                        .HasForeignKey("VoiceLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_workflow_node_agents_retell_voice_lines_voice_line_id");
+
                     b.HasOne("Ecorex.Domain.Entities.WhatsAppLine", "WhatsAppLine")
                         .WithMany()
                         .HasForeignKey("WhatsAppLineId")
@@ -23236,6 +24241,8 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Node");
 
                     b.Navigation("VoiceAiAgent");
+
+                    b.Navigation("VoiceLine");
 
                     b.Navigation("WhatsAppLine");
                 });
@@ -23469,6 +24476,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Messages");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupProject", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.RequerimientoCompra", b =>
                 {
                     b.Navigation("Hijos");
@@ -23513,6 +24525,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("Campos");
 
                     b.Navigation("Tipologias");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.TemplateAgentConversation", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Tercero", b =>

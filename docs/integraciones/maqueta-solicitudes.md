@@ -1,0 +1,167 @@
+# Integracion maqueta -> tarjetas (POST /api/maqueta/solicitudes)
+
+Decision y detalle: `docs/decisiones/ADR-0176-integracion-maqueta-anotaciones-a-tarjetas.md`.
+Contrato del cliente: `tronox.maqueta/docs/INTEGRACION-ECOREX-ANOTACIONES.md` (no cambiar nombres ni ruta).
+
+## 1. Emitir el token (una vez por usuario)
+
+1. Entrar a ECOREX con un usuario del tenant donde deben caer las tarjetas (ej. ACUARTAS).
+2. Barra superior -> **Conectar IA** (`/conectar-ia`) -> en "Nuevo conector" elegir **Maqueta (anotaciones)**,
+   nombre "Maqueta TRONOX" -> **Generar token**. Se muestra UNA sola vez; se revoca desde la misma pantalla.
+3. En el admin de la maqueta (`http://localhost:8096/admin.html`), boton **ECOREX**: URL base de ECOREX
+   (ej. `https://app2.bitcode.com.co` o `http://localhost:5234`) y el token.
+
+## 2. Prueba de aceptacion (curl)
+
+```bash
+curl -i -X POST "http://localhost:5234/api/maqueta/solicitudes" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  --data '{"origen":"maqueta-tronox","idLocal":"an-test-1","tablero":"Maqueta TRONOX - Ajustes","titulo":"Prueba de integracion","descripcion":"cuerpo","categoria":"Ajuste","prioridad":"Media","autor":"QA","modulo":"RQ07","pantalla":"Catalogo de Terceros","ruta":"modulo/terceros","archivoMaqueta":"rq07-terceros.html","origenApp":"Pages/Terceros.razor","handoff":"HANDOFF-rq07.md","elemento":{"tag":"button","texto":"+ Nuevo Tercero","clases":"btn","selector":"button.btn","rect":{"x":0,"y":0,"w":10,"h":10}},"tema":"classic-light","viewport":"desktop","creadoEn":"2026-11-17T00:00:00Z","captura":null}'
+```
+
+- Primera vez: `201` con `{"id":"T00012","url":".../actividades?board=...&task=...","estado":"creada"}`.
+- Repetir el mismo `idLocal`: `200` con `estado:"actualizada"` y el MISMO `id` (no duplica).
+- Sin token o token de otra integracion: `401`. JSON invalido o sin `idLocal`/`titulo`: `400`.
+
+Preflight CORS (lo hace el navegador):
+
+```bash
+curl -i -X OPTIONS "http://localhost:5234/api/maqueta/solicitudes" -H "Origin: http://localhost:8096" -H "Access-Control-Request-Method: POST"
+```
+
+Debe responder `204` con `Access-Control-Allow-Origin: http://localhost:8096`.
+
+## 3. Configuracion
+
+| Clave | Por defecto | Uso |
+|---|---|---|
+| `MaquetaIntegration:AllowedOrigins` | `http://localhost:8096,http://127.0.0.1:8096` | Origenes del navegador permitidos (coma) |
+| `ECOREX_PUBLIC_BASE_URL` | (la del request) | Base del enlace `url` de la respuesta |
+
+No hay clave secreta en configuracion: la autenticacion es el token personal (hash SHA-256 en BD).
+
+## 4. Hub de maquetas en ECOREX (ADR-0178, solo Development)
+
+Con `MaquetaHub` activo (por defecto en `appsettings.Development.json`, proyecto `tronox`):
+
+1. Entrar a ECOREX local y abrir `/maqueta`: elegir el proyecto; el anotador se abre en
+   `/maqueta/<id>/anotador/anotador.html` (mismo origen que ECOREX, detras del login).
+2. Envio de tarjetas: si el anotador postea a `/api/maqueta/solicitudes` SIN `Authorization`, se usa la sesion de
+   ECOREX (el tenant y el solicitante salen del usuario logueado; auditoria `integ-maqueta-hub`). Requiere
+   `Content-Type: application/json` y mismo origen. Con un token `ecx_` en el boton ECOREX tambien funciona.
+3. Agregar otra maqueta: una entrada en `MaquetaHub:Projects` (`Id` en minusculas, `Nombre`, `RutaFisica` absoluta)
+   y reiniciar.
+
+| Clave | Por defecto | Uso |
+|---|---|---|
+| `MaquetaHub:Enabled` | `false` (`true` en Development) | Activa el area /maqueta |
+| `MaquetaHub:AllowOutsideDevelopment` | `false` | Permite activarla fuera de Development |
+| `MaquetaHub:Projects` | `[]` | `{ Id, Nombre, RutaFisica }` por maqueta |
+
+## 5. Maquetas en la nube (ADR-0179)
+
+1. En ECOREX (prod o local) abrir `/maqueta` con un Owner/Admin -> **+ Nuevo proyecto** (nombre; el identificador de
+   URL se sugiere solo, ej. `tronox-sgdea`).
+2. **Versiones** -> subir el ZIP de la carpeta de la maqueta (con `anotador/` para poder anotar). Cada subida es una
+   version nueva y queda como actual; en la tabla se puede **Ver** una version (`/maqueta/<slug>~<n>/...`) o **Usar esta**.
+3. Cualquier usuario de la empresa abre `/maqueta`, elige el proyecto y anota; las tarjetas llegan con su sesion.
+
+Subir una version desde el PC (script o Claude Code), con un token "Maqueta (anotaciones)" de un Owner/Admin:
+
+```bash
+curl -X POST "https://app2.bitcode.com.co/api/maqueta/proyectos/tronox-sgdea/versiones?notas=Ajustes%20RQ07" \
+  -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/zip" --data-binary "@tronox-maqueta.zip"
+```
+
+Respuesta `201 {"proyecto","version","archivos","entrada","anotador","url"}`; `400` ZIP invalido, `401` token,
+`403` no es Owner/Admin, `404` proyecto inexistente, `413` mayor a 100 MB.
+
+## 6. Editor del sistema y maqueta en HTML puro (ADR-0180, v0.16.343)
+
+- El menu trae **Sistema - Actividades > Maquetas** en todos los tenants (debajo de "Administrar actividades").
+- `/maqueta` es una **galeria de tarjetas**: una por proyecto, con vista previa, version, archivos y solicitudes
+  abiertas. Owner/Admin: **+ Nuevo proyecto** y **Versiones** (configuracion: nombre y tablero destino; subir ZIP;
+  abrir o usar una version; archivar).
+- `/maqueta/<slug>` es el **editor** (tipo Lovable): solicitudes a la izquierda, maqueta a la derecha. **Seleccionar**
+  -> clic en un elemento -> captura + selector -> **Crear tarjeta**. La tarjeta cae en el tablero del proyecto (por
+  defecto "Maqueta <Nombre> - Ajustes") con origen `maqueta-<slug>`. Cada solicitud tiene **Ver en la maqueta**
+  (abre la pantalla y resalta el elemento) y **Abrir tarjeta**. `?v=<n>` anota una version especifica.
+- El ZIP ya **no necesita** el kit `anotador/`: basta el HTML de la maqueta (index.html + pantallas). Si la raiz trae
+  `anotador.config.js` (window.ANOTADOR_MANIFEST) el editor ofrece sus temas. Las pantallas salen de los `.html` del
+  ZIP (titulo de `<meta name="maq-titulo">` o `<title>`, modulo de `<meta name="maq-modulo">`).
+- La respuesta de `POST /api/maqueta/proyectos/{slug}/versiones` agrega `editor` (URL del editor del proyecto).
+
+## 7. MCP de maquetas para el PC local (ADR-0182, v0.16.345)
+
+1. En ECOREX: **Conectar IA** -> conector **Maquetas (MCP del PC local)** -> Generar token (se muestra una vez).
+2. En el PC (PowerShell, una vez): guardar el token en `ECOREX_MAQUETA_TOKEN` (la pantalla da el comando) y conectar
+   Claude Code en la carpeta de la maqueta:
+
+```bash
+claude mcp add --transport http ecorex-maquetas https://app2.bitcode.com.co/api/mcp/maquetas --header "Authorization: Bearer <TOKEN>"
+```
+
+3. Pedirle a Claude: "revisa las solicitudes abiertas de la maqueta y aplicalas". Herramientas:
+   `listar_proyectos`, `listar_solicitudes`, `ver_solicitud` (incluye la captura como imagen), `listar_versiones`,
+   `como_publicar_version` (comando PowerShell/bash para subir el ZIP con el mismo token), `comentar_solicitud`,
+   `mover_solicitud`, `resolver_solicitud`.
+4. Solo opera tarjetas nacidas de una maqueta (origen `maqueta-*`). Publicar exige Owner/Admin. Las escrituras quedan
+   en la bitacora de la tarjeta ("via IA") y en la auditoria (`mcp.maquetas.*`).
+
+## 8. Cerebro digital del proyecto (ADR-0183, v0.16.347)
+
+Segunda pestana del editor: `/maqueta/{slug}` -> **Cerebro** (o directo `/maqueta/{slug}?tab=cerebro&nota=Titulo`).
+Notas markdown enlazadas al estilo Obsidian, una coleccion por proyecto. Cualquier usuario del tenant escribe;
+archiva el autor de la nota o un Owner/Admin (soft-delete).
+
+1. **Enlaces**: `[[Titulo de nota]]` (o `[[Titulo|texto]]`, `[[Titulo#Seccion]]`), `[[pantalla.html]]` (pantalla de
+   la maqueta), `[[T00046]]` (solicitud) y `#etiqueta`. Al escribir `[[` el editor sugiere notas, pantallas y
+   solicitudes. Un enlace a una nota que no existe queda **pendiente** (gris punteado) y un clic la crea.
+2. **Panel derecho**: "Enlazan aqui" (backlinks), enlaces salientes, etiquetas y el grafo local de la nota.
+3. **Grafo completo**: boton Grafo. Colores por tipo (nota violeta, pantalla azul, tarjeta ambar, etiqueta verde,
+   pendiente gris), tamano por conexiones, filtros por tipo. Clic: nota -> la abre; pantalla -> vuelve a la pestana
+   Maqueta en esa pantalla; tarjeta -> abre la tarjeta.
+4. **Nota de esta pantalla**: boton de nota en la barra de la pestana Maqueta: abre (o prepara) la nota
+   "Pantalla - {titulo}" con el enlace a la pantalla abierta.
+5. **Renombrar** una nota actualiza los `[[enlaces]]` de las demas. Si otra persona la cambio mientras la editabas,
+   al guardar avisa (concurrencia optimista) y ofrece recargarla. `Ctrl+S` guarda.
+6. **Importar Obsidian**: icono de importar en la lista. ZIP de la carpeta del vault (max 80 MB, 3.000 notas): cada
+   `.md` es una nota con el nombre del archivo como titulo. Las imagenes (PNG, JPG, GIF, WEBP, BMP) y los PDF se suben
+   como adjuntos (max 10 MB cada uno) y se ven donde la nota los embebe (`![[foto.png]]`, `![[foto.png|300]]`,
+   `![alt](img/foto.png)`). Se ignoran `.obsidian/`, SVG y otros formatos. Las notas y adjuntos con nombre existente
+   se omiten salvo marcar "sobrescribir". Las notas entran todas o ninguna (una transaccion); los adjuntos se
+   guardan despues y, si alguno falla, se avisa.
+6b. **Adjuntar imagen** (ola 3b): en el editor de la nota, "Adjuntar imagen" sube una imagen o PDF y pone
+   `![[nombre]]` en su propia linea. Al escribir `[[` el autocompletado sugiere tambien los adjuntos. Las imagenes
+   de internet (`![x](https://...)`) no se cargan dentro de ECOREX: quedan como enlace.
+6c. **Panel Adjuntos** (clip en la lista de notas): miniatura, tamano y en que notas se usa cada adjunto; Subir,
+   Insertar en la nota abierta y Borrar. Borrar es definitivo (no hay papelera) y solo lo puede hacer un
+   Owner/Admin; antes avisa que notas lo usan, donde quedara como "no encontrado". Queda en la auditoria.
+   Por el MCP: `listar_adjuntos` y `ver_adjunto` (Claude ve la imagen); `ver_nota` lista los adjuntos de la nota.
+6d. **Exportar a Obsidian** (v0.16.352): icono de exportar en la lista. Descarga `{slug}-cerebro.zip` con una
+   `.md` por nota activa (el nombre del archivo es el titulo) y la carpeta `adjuntos/`; se abre como vault en
+   Obsidian o se vuelve a importar. Si un titulo tiene caracteres que Windows no acepta en un nombre de archivo
+   (`: * ? " < >`) el archivo se llama distinto y sus `[[enlaces]]` se reescriben en el ZIP; quedan listados en
+   `LEEME-exportacion.txt`. Cualquier usuario del tenant exporta; queda en la auditoria (`maqueta.nota.export`).
+6e. **Papelera** (v0.16.352): icono de papelera en la lista. Muestra las notas archivadas (quien y cuando) y
+   **Restaurar** (autor u Owner/Admin) las devuelve con sus enlaces; las notas que la enlazaban vuelven a
+   encontrarla. Si mientras tanto otra nota tomo el titulo, vuelve como "Titulo (restaurada)". Archivar nunca borra
+   la fila (soft-delete), asi que no hay "vaciar papelera".
+7. **Con Claude (plan Max)**: el mismo MCP de maquetas (seccion 7) trae `listar_notas`, `buscar_notas`, `ver_nota`,
+   `grafo_cerebro`, `crear_nota` y `editar_nota`. Ejemplo: "lee el cerebro de tronox-sgdea, dime que decisiones
+   estan sueltas y guarda un resumen en la nota 'Estado del proyecto'". Las escrituras quedan "(via IA)".
+
+## 9. Chatear con la maqueta desde Claude (ola 4, plan Max/Pro)
+
+No hay chat de IA dentro de ECOREX: con el plan de Claude del usuario no existe llave de API para el servidor. La
+conversacion ocurre en Claude Desktop o Claude Code conectado al MCP de maquetas (seccion 7), y la paga el plan.
+
+1. **Conectar IA** -> seccion "Chatea con tus maquetas desde Claude" (enlace directo `/conectar-ia?guia=maquetas`,
+   que deja preseleccionado el conector Maquetas). Genera el token y conecta Claude con la configuracion que aparece
+   (Claude Desktop: `claude_desktop_config.json` y reiniciar; Claude Code: el comando `claude mcp add`).
+2. **Pestana Cerebro** -> boton "Chatear con Claude sobre esta maqueta": los mismos pasos y prompts listos para
+   copiar, ya con el identificador del proyecto, la nota y la pantalla abiertas. Ejemplos: ponerse al dia,
+   profundizar en la nota abierta, pensar una pantalla, ordenar el cerebro, guardar una conclusion.
+3. Claude no cambia la maqueta publicada: lo que concluya lo guarda como notas del cerebro o como comentarios de
+   solicitudes; los cambios de archivos se aplican en la carpeta local (seccion 7).

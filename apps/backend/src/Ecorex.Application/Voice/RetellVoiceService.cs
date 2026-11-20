@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ecorex.Application.Common;
+using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -26,15 +27,17 @@ public sealed class RetellVoiceService : IRetellVoiceService
     private readonly IRetellApiClient _retell;
     private readonly TimeProvider _clock;
     private readonly ILogger<RetellVoiceService> _log;
+    private readonly INotifyLinkBuilder _links;
 
     public RetellVoiceService(IApplicationDbContext db, ISecretProtector protector, IRetellApiClient retell,
-        TimeProvider clock, ILogger<RetellVoiceService> log)
+        TimeProvider clock, ILogger<RetellVoiceService> log, INotifyLinkBuilder links)
     {
         _db = db;
         _protector = protector;
         _retell = retell;
         _clock = clock;
         _log = log;
+        _links = links;
     }
 
     public async Task<VoicePlaceCallResult> PlaceCallAsync(VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
@@ -88,9 +91,12 @@ public sealed class RetellVoiceService : IRetellVoiceService
             var voiceId = string.IsNullOrWhiteSpace(cfg.VoiceId) ? DefaultVoiceId : cfg.VoiceId!;
             var language = string.IsNullOrWhiteSpace(cfg.Language) ? "es-419" : cfg.Language;
             var prompt = ComposePrompt(systemPrompt, request.PromptExtra, request.Objetivo);
-            var hash = PromptHash(prompt + AnalysisSignature(request.AnalysisFields), voiceId, language);
+            var hash = PromptHash(
+                prompt + AnalysisSignature(request.AnalysisFields) + RetellAgentOptions.Signature(request.AgentOptions),
+                voiceId, language);
 
-            var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId, request.AnalysisFields, cancellationToken);
+            var ensure = await EnsureAgentAsync(apiKey, hash, prompt, voiceId, language, request.AiAgentId,
+                request.AnalysisFields, request.AgentOptions, cancellationToken);
             if (!ensure.Ok)
             {
                 return new VoicePlaceCallResult(false, null, ensure.Error, ensure.Retryable);
@@ -120,7 +126,10 @@ public sealed class RetellVoiceService : IRetellVoiceService
             OverrideAgentId: overrideAgentId,
             DynamicVariables: dyn,
             CustomSipHeaders: sipHeaders,
-            Metadata: metadata), cancellationToken);
+            Metadata: metadata,
+            // webhook_url por llamada: el flujo reanuda contra esta instancia. Null en dev (sin URL publica) ->
+            // el modal cae al sondeo get-call. La entrega a prod la valida el usuario (config de infra).
+            WebhookUrl: _links.BuildRetellWebhookUrl()), cancellationToken);
 
         if (!callRes.Ok || string.IsNullOrEmpty(callRes.CallId))
         {
@@ -129,7 +138,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
 
         // 6) Persistir la VoiceCall (snapshot de origen + whitelist de formularios).
-        _db.VoiceCalls.Add(new VoiceCall
+        var voiceCall = new VoiceCall
         {
             CallId = callRes.CallId!,
             RetellVoiceLineId = cfg.Id,
@@ -142,7 +151,11 @@ public sealed class RetellVoiceService : IRetellVoiceService
             FormulariosPermitidosJson = request.FormulariosPermitidos.Count > 0
                 ? JsonSerializer.Serialize(request.FormulariosPermitidos) : null,
             ContactWorkflowRunId = request.ContactWorkflowRunId
-        });
+        };
+        _db.VoiceCalls.Add(voiceCall);
+        // Ola 4 (ADR-0190): deja rastro en la bitacora del agente de que el flujo coloco la llamada (espejo del
+        // saliente de WhatsApp). Best-effort: solo si la llamada tiene agente ECOREX atribuible.
+        VoiceAgentJournal.LogPlaced(_db, voiceCall, _clock.GetUtcNow());
         await _db.SaveChangesAsync(cancellationToken);
 
         _log.LogInformation("Voz IA: llamada colocada call_id={CallId} agent={AgentId}", callRes.CallId, overrideAgentId);
@@ -202,6 +215,16 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
         catch (JsonException) { return; }
 
+        // Ola 4 (ADR-0190): red de seguridad del webhook -> si el sondeo trajo el resultado terminal, deja la
+        // entrada de resultado en la bitacora (y el resumen como Message para SARA), idempotente. Igual criterio
+        // que el webhook: en 'analyzed' (con resumen) o en terminal "sin contacto" (que puede no traer analyzed).
+        var noContactTerminal = vc.Status is VoiceCallStatus.Failed or VoiceCallStatus.Error
+            || IsNoContactReason(vc.DisconnectionReason);
+        if (vc.Status == VoiceCallStatus.Analyzed || noContactTerminal)
+        {
+            await VoiceAgentJournal.WriteResultAsync(_db, vc, _clock.GetUtcNow(), ct);
+        }
+
         try
         {
             await _db.SaveChangesAsync(ct);
@@ -221,6 +244,8 @@ public sealed class RetellVoiceService : IRetellVoiceService
         if (transcript is not null) { vc.TranscriptText = transcript; }
         var recording = JsonStr(call, "recording_url");
         if (recording is not null) { vc.RecordingUrl = recording; }
+        var disconnect = JsonStr(call, "disconnection_reason");
+        if (disconnect is not null) { vc.DisconnectionReason = disconnect; }
 
         var started = JsonUnixMs(call, "start_timestamp");
         if (started is not null) { vc.StartedAt = started; }
@@ -295,6 +320,27 @@ public sealed class RetellVoiceService : IRetellVoiceService
         }
         catch (JsonException) { }
         return null;
+    }
+
+    /// <summary>
+    /// Ola 3 (ADR-0190): clasifica un disconnection_reason de Retell como "SIN contacto" (la persona no atendio la
+    /// llamada: no contesto, buzon de voz, ocupado, o fallo de marcado) vs "hubo contacto" (user_hangup, agent_hangup,
+    /// etc., donde si hablaron). Es la senal DURA para la politica de auto-reintento de la llamada. Null/desconocido
+    /// => false (que el resto del flujo decida por duracion/transcripcion). Comparacion case-insensitive.
+    /// </summary>
+    public static bool IsNoContactReason(string? disconnectionReason)
+    {
+        if (string.IsNullOrWhiteSpace(disconnectionReason)) { return false; }
+        return disconnectionReason.Trim().ToLowerInvariant() switch
+        {
+            "dial_no_answer" => true,
+            "voicemail_reached" => true,
+            "dial_busy" => true,
+            "dial_failed" => true,
+            "no_valid_payment" => true,
+            "max_duration_reached" => false,
+            _ => false
+        };
     }
 
     /// <summary>call_analysis.custom_analysis_data: los campos estructurados que el agente extrajo (clave->valor).</summary>
@@ -415,7 +461,8 @@ public sealed class RetellVoiceService : IRetellVoiceService
     private sealed record EnsureResult(bool Ok, string? AgentId, string? Error, bool Retryable);
 
     private async Task<EnsureResult> EnsureAgentAsync(string apiKey, string hash, string prompt, string voiceId,
-        string language, Guid? aiAgentId, IReadOnlyList<RetellAnalysisField>? analysis, CancellationToken ct)
+        string language, Guid? aiAgentId, IReadOnlyList<RetellAnalysisField>? analysis, RetellAgentOptions? options,
+        CancellationToken ct)
     {
         var existing = await _db.RetellAgentMaps.FirstOrDefaultAsync(m => m.PromptHash == hash, ct);
         if (existing is not null)
@@ -425,14 +472,18 @@ public sealed class RetellVoiceService : IRetellVoiceService
             return new EnsureResult(true, existing.RetellAgentId, null, false);
         }
 
-        var llm = await _retell.CreateLlmAsync(apiKey, new RetellCreateLlmRequest(GeneralPrompt: prompt), ct);
+        var llm = await _retell.CreateLlmAsync(apiKey, new RetellCreateLlmRequest(
+            GeneralPrompt: prompt, EndCallTool: options?.EndCallTool ?? false), ct);
         if (!llm.Ok || string.IsNullOrEmpty(llm.LlmId))
         {
             return new EnsureResult(false, null, llm.Error ?? $"Retell create-llm HTTP {llm.StatusCode}.", IsTransient(llm.StatusCode));
         }
 
         var agent = await _retell.CreateAgentAsync(apiKey, new RetellCreateAgentRequest(
-            LlmId: llm.LlmId!, VoiceId: voiceId, Language: language, AgentName: "ECOREX voz", PostCallAnalysis: analysis), ct);
+            LlmId: llm.LlmId!, VoiceId: voiceId, Language: language, AgentName: "ECOREX voz", PostCallAnalysis: analysis,
+            VoicemailHangup: options?.VoicemailHangup ?? false,
+            EndCallAfterSilenceMs: options?.EndCallAfterSilenceMs,
+            MaxCallDurationMs: options?.MaxCallDurationMs), ct);
         if (!agent.Ok || string.IsNullOrEmpty(agent.AgentId))
         {
             return new EnsureResult(false, null, agent.Error ?? $"Retell create-agent HTTP {agent.StatusCode}.", IsTransient(agent.StatusCode));
@@ -473,6 +524,23 @@ public sealed class RetellVoiceService : IRetellVoiceService
         return sb.ToString();
     }
 
+    /// <summary>Directiva del objetivo <see cref="ContactCallObjetivo.SeguimientoCierre"/> (Ola 5, ADR-0190).</summary>
+    public const string SeguimientoCierreDirective =
+        "Objetivo de la llamada: hacer el SEGUIMIENTO del caso con el contacto y obtener de el una decision clara.\n" +
+        "Reglas de esta llamada telefonica:\n" +
+        "1. Al saludar, presentate como asistente virtual de inteligencia artificial y di en una frase por que llamas.\n" +
+        "2. Habla en frases cortas, una idea por turno, y espera la respuesta. No leas listas, simbolos, enlaces ni codigos largos.\n" +
+        "3. No inventes datos. Si te piden un precio, valor, fecha, estado o compromiso que no este en estas instrucciones, " +
+        "di que un asesor lo contactara con el dato exacto.\n" +
+        "4. Una cortesia (\"gracias\", \"no gracias\", \"despues lo miro\") no es un rechazo: pregunta con tacto que decide. " +
+        "No insistas mas de dos veces.\n" +
+        "5. Si el contacto pide que lo llamen en otro momento, pregunta dia y hora y confirmalos.\n" +
+        "6. Si contesta un buzon de voz o una grabacion, cuelga sin dejar mensaje.\n" +
+        "7. Antes de despedirte, repite en una frase la decision del contacto (por ejemplo: acepta, no le interesa, " +
+        "quiere hablar con un asesor o pide que lo llamen luego).\n" +
+        "8. Nunca hables por el contacto ni des por dicha una respuesta que no dio.\n" +
+        "9. Despues de despedirte, cuelga la llamada.";
+
     public static string ObjetivoDirective(string? objetivo)
     {
         if (Enum.TryParse<ContactCallObjetivo>(objetivo, ignoreCase: true, out var o))
@@ -483,6 +551,11 @@ public sealed class RetellVoiceService : IRetellVoiceService
                     "Objetivo de la llamada: ofrecer el producto o servicio al contacto de forma clara y cordial, resolviendo dudas.",
                 ContactCallObjetivo.LlenarFormulario =>
                     "Objetivo de la llamada: recopilar del contacto los datos necesarios para completar el formulario indicado; confirma cada dato antes de cerrar.",
+                // Ola 5 (ADR-0190): conducta BASE de una llamada de seguimiento/cierre, igual para todo tenant. La
+                // persona (tono, negocio, restricciones propias) va en el SystemPrompt del agente de voz del nodo; el
+                // caso concreto, en la instruccion por llamada. La regla 7 deja la decision dicha en voz alta para que
+                // el agente del nodo la lea en el transcript y elija la ruta.
+                ContactCallObjetivo.SeguimientoCierre => SeguimientoCierreDirective,
                 _ => ""
             };
         }
@@ -517,6 +590,7 @@ public sealed class RetellVoiceService : IRetellVoiceService
         Put("cargo", Get(contact, "cargo"));
         Put("ciudad", Get(contact, "ciudad"));
         Put("producto", Get(contact, "producto"));
+        Put("numero_caso", Get(contact, "numero_caso"));
         if (!string.IsNullOrWhiteSpace(objetivo)) { d["objetivo"] = objetivo!; }
         return d;
     }

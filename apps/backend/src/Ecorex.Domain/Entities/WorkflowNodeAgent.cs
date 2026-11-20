@@ -47,6 +47,39 @@ public class WorkflowNodeAgent : TenantEntity
     public Guid? VoiceAiAgentId { get; set; }
     public AiAgent? VoiceAiAgent { get; set; }
 
+    /// <summary>Ola 2 (ADR-0190): LINEA de voz (numero saliente de /config-voz) desde la que se coloca la llamada.
+    /// FK a <see cref="RetellVoiceLine"/> (restrict, nullable). Null = la linea por defecto del tenant (el
+    /// comportamiento actual de PlaceCallAsync, que la elige sola). Espejo de <see cref="WhatsAppLineId"/>.</summary>
+    public Guid? VoiceLineId { get; set; }
+    public RetellVoiceLine? VoiceLine { get; set; }
+
+    /// <summary>Ola 2 (ADR-0190): canales que ESTE nodo permite usar al agente (flags Voz|WhatsApp|Web|Correo).
+    /// Null = todos los configurados permitidos (RETROCOMPATIBLE). Con valor, el gating de cada herramienta exige
+    /// que el canal este marcado AQUI ademas de tener su recurso configurado. Ver <see cref="WorkflowAgentChannel"/>.</summary>
+    public WorkflowAgentChannel? AllowedChannels { get; set; }
+
+    // ---- Ola 3 (ADR-0190): politica de reintento de la LLAMADA DE VOZ (sin contacto / buzon) ----
+
+    /// <summary>Maximo de llamadas de voz que el nodo coloca antes de rendirse con la voz (incluida la primera).
+    /// Cuando "sin contacto" (no contesta / buzon / ocupado / fallo de marcado), el runner reintenta por su cuenta
+    /// hasta este tope, sin invocar al LLM. Agotado el tope, cae al comportamiento normal (el agente decide: WhatsApp
+    /// si esta permitido, u OnFailure). Null o &lt;=1 = una sola llamada (sin auto-reintento). Espejo de
+    /// <see cref="FailureRetries"/> pero para la llamada.</summary>
+    public int? MaxVoiceCalls { get; set; }
+
+    /// <summary>Minutos a esperar entre una llamada "sin contacto" y la siguiente (medidos desde que termino la
+    /// anterior). Null = valor por defecto del runner. Solo aplica cuando <see cref="MaxVoiceCalls"/> &gt; 1.</summary>
+    public int? VoiceRetryMinutes { get; set; }
+
+    /// <summary>Hora (0-23, zona horaria del TENANT) a partir de la cual se permite colocar llamadas. Null = sin
+    /// restriccion de inicio. Si una llamada toca fuera de ventana, el reintento se difiere al proximo inicio de
+    /// ventana en vez de colocarse de inmediato. Ver <see cref="CallWindowEndHour"/>.</summary>
+    public int? CallWindowStartHour { get; set; }
+
+    /// <summary>Hora (1-24, zona horaria del TENANT) hasta la cual se permite colocar llamadas (exclusiva: 18 = hasta
+    /// las 17:59). Null = sin restriccion de fin. Ver <see cref="CallWindowStartHour"/>.</summary>
+    public int? CallWindowEndHour { get; set; }
+
     // ---- ADR-0092: preguntar por WhatsApp para conseguir datos (pausa/reanudacion, como la llamada) ----
 
     /// <summary>Linea WhatsApp desde la que el agente puede usar 'preguntar_whatsapp'. FK a

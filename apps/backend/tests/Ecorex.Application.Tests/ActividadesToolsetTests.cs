@@ -160,6 +160,7 @@ public class ActividadesToolsetTests
         public Task<IReadOnlyList<CreationFlowFormDto>> GetSubcategoriaCreationFlowFormsAsync(Guid subcategoriaId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<TaskConceptFormItemDto>> CreateTaskFormAsync(Guid taskItemId, Guid definitionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<TaskConceptFormItemDto>> DuplicateResponseAsync(Guid responseId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<FormResult<TaskConceptFormItemDto>> CopyParentFormToTaskAsync(Guid responseId, Guid taskItemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<bool>> SetActiveTaskFormAsync(Guid responseId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<Guid>> CreateDerivedFormAsync(Guid sourceResponseId, Guid targetDefinitionId, IReadOnlyDictionary<string, string>? fieldMapping, IReadOnlyDictionary<string, string>? contextDefaults = null, Guid? actorTenantUserId = null, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? gridMapping = null, IReadOnlyDictionary<string, IReadOnlyList<GridDeriveRule>>? gridDerive = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<TaskRelatedFormDto>> GetTaskRelatedFormsAsync(Guid taskItemId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -456,6 +457,7 @@ public class ActividadesToolsetTests
         public DbSet<Rol> Roles => throw new NotSupportedException();
         public DbSet<Ciudad> Ciudades => throw new NotSupportedException();
         public DbSet<TenantApiToken> TenantApiTokens => throw new NotSupportedException();
+        public DbSet<ExternalTaskLink> ExternalTaskLinks => throw new NotSupportedException();
         public DbSet<RolPermiso> RolPermisos => throw new NotSupportedException();
         public DbSet<Tercero> Terceros => throw new NotSupportedException();
         public DbSet<TerceroContacto> TerceroContactos => throw new NotSupportedException();

@@ -9,6 +9,7 @@ using Ecorex.Infrastructure.Persistence;
 using Ecorex.SuperAdmin.Agents;
 using Ecorex.SuperAdmin.Auth;
 using Ecorex.SuperAdmin.Components;
+using Ecorex.SuperAdmin.Maqueta;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -113,6 +114,8 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy("SuperAdminOnly", p => p.RequireClaim("platform_role", "SuperAdmin"))
     // Miembro de una agencia: tiene claim tenant_id.
     .AddPolicy("TenantMember", p => p.RequireClaim("tenant_id"))
+    // Hub de maquetas (ADR-0178): usuario de un tenant (las tarjetas caen en su tenant). Solo Development/flag.
+    .AddPolicy(Ecorex.SuperAdmin.Maqueta.MaquetaHub.Policy, p => p.RequireClaim("tenant_id"))
     // ---- Policies por modulo ----
     // Ola 7 (endurecimiento) PASO 2 REALIZADO para la familia Tareas: estas policies ya no son
     // placeholder de tenant_id: derivan el requisito REAL del Module Registry (PermissionRequirement
@@ -250,6 +253,19 @@ builder.Services.AddScoped<Ecorex.Application.Tenancy.IFormRecordBroadcaster, Ec
 builder.Services.AddScoped<Ecorex.Application.Automatizaciones.ConciliacionDian.INewtonEventSender, Ecorex.SuperAdmin.Agents.NewtonEventSender>();
 // Gestor UNIFICADO de archivos (Azure Blob / disco), transversal a todos los modulos. Registra en StoredFile.
 builder.Services.AddScoped<Ecorex.Application.Storage.IFileStorageService, Ecorex.SuperAdmin.Services.FileStorageService>();
+// Integracion maqueta (ADR-0176): anotaciones del admin de la maqueta -> tarjetas (usa el gestor de archivos para la captura).
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMaquetaSolicitudService, Ecorex.Application.Integraciones.Maqueta.MaquetaSolicitudService>();
+// Hub de maquetas /maqueta (ADR-0178): registro de proyectos (seccion MaquetaHub). Inactivo salvo Development/flag.
+builder.Services.AddMaquetaHub(builder.Configuration, builder.Environment.IsDevelopment());
+// Maquetas en la nube (ADR-0179): proyectos/versiones por ZIP + cache en disco para servirlas en /maqueta/{slug}/.
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupService, Ecorex.Application.Integraciones.Maqueta.MockupService>();
+// Cerebro digital de la maqueta (ADR-0183): notas enlazadas tipo Obsidian, backlinks, grafo e importacion de vault.
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupBrainService, Ecorex.Application.Integraciones.Maqueta.MockupBrainService>();
+// MCP de maquetas (ADR-0182): aqui y no en Application porque depende de IMockupService/IMockupBrainService.
+builder.Services.AddScoped<Ecorex.Application.Mcp.IMaquetaMcpToolset, Ecorex.Application.Mcp.MaquetaMcpToolset>();
+builder.Services.AddSingleton<MockupSiteCache>();
+// Galeria de imagenes de plantillas (ADR-0177): sube al gestor unificado (por eso se registra aqui, no en Application).
+builder.Services.AddScoped<Ecorex.Application.Gestor.ITemplateGalleryService, Ecorex.Application.Gestor.TemplateGalleryService>();
 // Analizador de documentos (modulo /analizador-documentos): carga de lotes de PDF al almacenamiento unificado.
 builder.Services.AddScoped<Ecorex.Application.DocumentosAnalisis.IDocumentoAnalisisService, Ecorex.SuperAdmin.Services.DocumentoAnalisisService>();
 // Modulo de Analisis (ADR-0158): actor + compuerta unica de consultas por circuito (pagina, modal y embebidos).
@@ -287,6 +303,9 @@ if (!disableWorkers)
     // Motor de acciones por filtro de contactos (ADR-0056, Fase 2): dispara las ventanas vigentes de cada
     // ContactWorkflow activo (dedupe/rate). Mismo motivo para vivir aqui que los workers de arriba.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactWorkflowWorker>();
+    // Estado de aprobacion de plantillas WhatsApp sometidas a Meta via YCloud (ADR-0184): cada 10 min pasa las
+    // que estan en revision a Aprobada/Rechazada/Pausada, para que aparezcan solas en el paso WhatsApp del motor.
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WhatsAppTemplateStatusWorker>();
     // Auto-run de las busquedas de contactos programadas (Bolsa 000740): corre las que vencieron via el
     // mismo IContactSearchRunner que "Correr ahora". Config ContactSearchScheduler:Enabled/TickSeconds.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ContactSearchScheduleWorker>();
@@ -409,6 +428,11 @@ if (!app.Environment.IsDevelopment())
         await seeder.EnsureVozMenuItemAsync();
         //  - "Plantillas de documento" (feature plantillas de documento, ola 1) bajo Sistema - General.
         await seeder.EnsurePlantillasDocumentoMenuItemAsync();
+        //  - "Plantillas de correo" (v0.16.340) debajo de "Plantillas WhatsApp" en cada vista que lo tenga.
+        await seeder.EnsurePlantillasCorreoMenuItemAsync();
+        await seeder.EnsureMaquetasMenuItemAsync();
+        // Plantilla "Orden de compra" (grupo Compras) una vez por tenant (ADR-0189). Idempotente.
+        await seeder.EnsureOrdenCompraTemplateAsync();
         // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
         // catalogo esta vacio. Idempotente por catalogo (no resucita lo que se borre).
         await scope.ServiceProvider.GetRequiredService<Ecorex.SuperAdmin.Seeders.MarketplaceStarterSeeder>()
@@ -581,6 +605,11 @@ else
     await seeder.EnsureVozMenuItemAsync();
     // Backfill idempotente (plantillas de documento, ola 1): item "Plantillas de documento" bajo Sistema - General.
     await seeder.EnsurePlantillasDocumentoMenuItemAsync();
+    // Backfill idempotente (v0.16.340): item "Plantillas de correo" debajo de "Plantillas WhatsApp".
+    await seeder.EnsurePlantillasCorreoMenuItemAsync();
+    await seeder.EnsureMaquetasMenuItemAsync();
+    // Plantilla "Orden de compra" (grupo Compras) una vez por tenant (ADR-0189). Idempotente.
+    await seeder.EnsureOrdenCompraTemplateAsync();
     // Retira el item de menu "plantillas" (galeria ahora es modal en Flujos/Formularios, ADR-0097). Idempotente.
     await seeder.RemovePlantillasMenuItemAsync();
     // Plantillas de arranque del marketplace (ADR-0097): igual que en prod, corre tras ambas ramas
@@ -962,6 +991,8 @@ app.UseStaticFiles(new Microsoft.AspNetCore.Builder.StaticFileOptions
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+// Hub de maquetas (ADR-0178): /maqueta/{id}/... sirve la carpeta de cada maqueta detras del login. No-op si inactivo.
+app.UseMaquetaHub();
 // Enlace publico de libros de indicadores /a/{token} (ADR-0158 D7): tope por IP solo en /a
 // (el limitador global no limita nada fuera de esa ruta).
 app.UseRateLimiter();
@@ -980,6 +1011,8 @@ app.MapAgentEndpoints();
 // Motor de Reportes y BI (ADR-0051, Ola 1): catalogo + datasource tenant-safe como JSON.
 Ecorex.SuperAdmin.Endpoints.ReportingEndpoints.MapReportingEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.RetellWebhookEndpoints.MapRetellWebhook(app);
+// Eventos de entrega de correo de SendGrid (ADR-0188): estado real de las campanas + bajas por rebote/spam.
+Ecorex.SuperAdmin.Endpoints.SendGridWebhookEndpoints.MapSendGridWebhook(app);
 // Web Reporting API de Bold (Ola 2): controllers del visor/diseniador RDL.
 app.MapControllers();
 
@@ -1003,6 +1036,21 @@ app.MapGet("/archivo/{id:guid}", async (Guid id, HttpContext http, Ecorex.Applic
     }
     return Results.File(content.Content, content.ContentType);
 }).RequireAuthorization();
+
+// Imagen PUBLICA de la galeria de plantillas (ADR-0177): /i/{id-del-archivo}{ext}. Va dentro de los correos, que
+// se abren sin sesion (Gmail/Outlook descargan la imagen por su cuenta), por eso es anonima. Solo sirve archivos
+// del modulo de la galeria (ReadPublicAsync lo acota); el resto del gestor de archivos sigue exigiendo sesion.
+// El contenido de una llave nunca cambia -> cache larga e inmutable.
+app.MapGet("/i/{name}", async (string name, HttpContext http, Ecorex.Application.Storage.IFileStorageService files, CancellationToken ct) =>
+{
+    var stem = System.IO.Path.GetFileNameWithoutExtension(name ?? string.Empty);
+    if (stem.Length != 32 || !Guid.TryParseExact(stem, "N", out var fileId)) { return Results.NotFound(); }
+    var content = await files.ReadPublicAsync(fileId, Ecorex.Application.Gestor.TemplateGalleryService.Module, ct);
+    if (content is null) { return Results.NotFound(); }
+    http.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    http.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    return Results.File(content.Content, content.ContentType);
+}).AllowAnonymous();
 
 app.MapPost("/auth/login", async (
     HttpContext http,
@@ -2425,6 +2473,12 @@ Ecorex.SuperAdmin.Endpoints.ConfigApiEndpoints.MapConfigApiEndpoints(app);
 // Servidor MCP de TABLEROS para IAs externas (ADR-0159): token PERSONAL por usuario (emitido en /conectar-ia).
 Ecorex.SuperAdmin.Endpoints.McpTablerosEndpoints.MapMcpTablerosEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.MapMcpWhatsAppEndpoints(app);
+// ADR-0182: MCP de MAQUETAS para el PC local (mismo token personal integ:maqueta que la subida de versiones).
+Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.MapMcpMaquetasEndpoints(app);
+// Integracion maqueta (ADR-0176): POST /api/maqueta/solicitudes con token personal integ:maqueta + CORS propio.
+Ecorex.SuperAdmin.Endpoints.MaquetaSolicitudesEndpoints.MapMaquetaSolicitudesEndpoints(app);
+// Exportar el cerebro de la maqueta como vault de Obsidian (ADR-0183, v0.16.352), con la sesion del usuario.
+Ecorex.SuperAdmin.Endpoints.MaquetaCerebroEndpoints.MapMaquetaCerebroEndpoints(app);
 app.MapOpenApi();
 
 app.Run();

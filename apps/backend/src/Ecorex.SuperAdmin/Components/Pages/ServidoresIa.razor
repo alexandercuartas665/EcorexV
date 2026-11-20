@@ -5,6 +5,7 @@
 @using Ecorex.Application.Admin
 @using Ecorex.Domain.Enums
 @inject IAiServerConfigService AiSvc
+@inject Ecorex.Application.Tenancy.IAiProviderQuotaGuard QuotaGuard
 
 <PageTitle>Servidores de IA - ECOREX.tareas</PageTitle>
 
@@ -20,6 +21,17 @@
         <p class="page-sub" style="margin-bottom:0;">Cuentas de proveedores de IA de la plataforma. Las empresas usan los proveedores habilitados aqui en sus agentes. Las API keys se guardan cifradas.</p>
     </div>
 </div>
+
+@* Proveedor SIN CUPO/SALDO (tope de gasto): sus llamadas estan pausadas y se sondea al vencer la pausa. *@
+@foreach (var q in QuotaGuard.ActivePauses())
+{
+    <div class="alert alert-danger" style="margin:14px 0 0;font-size:.9rem;">
+        <strong>@q.Provider sin cupo o saldo</strong> desde @q.Since.ToString("yyyy-MM-dd HH:mm") UTC.
+        Las llamadas a este proveedor estan pausadas hasta @q.Until.ToString("HH:mm") UTC y se reintenta solo una vez al vencer.
+        Recarga el saldo o sube el tope de gasto en la consola del proveedor.
+        <div style="font-size:.78rem;opacity:.8;margin-top:4px;word-break:break-word;">@q.Detail</div>
+    </div>
+}
 
 @if (_loading)
 {
@@ -45,6 +57,10 @@ else
                     @if (p.UseForFormBuilder)
                     {
                         <div><span>Formularios</span><strong style="color:var(--bs-success, #198754);">&#10003; IA gestion de formularios</strong></div>
+                    }
+                    @if (p.UseForTemplateBuilder)
+                    {
+                        <div><span>Plantillas</span><strong style="color:var(--bs-success, #198754);">&#10003; IA gestion de plantillas</strong></div>
                     }
                 </div>
                 <button class="btn @(p.HasApiKey ? "btn-outline-secondary" : "btn-primary") btn-sm" style="margin-top:12px;width:100%;" @onclick="() => OpenEdit(p)">
@@ -94,6 +110,19 @@ else
                     <span>IA gestion de formularios</span>
                 </label>
                 <div class="text-muted" style="font-size:11px;">El asistente de creacion de formularios usara ESTE proveedor. Solo uno puede serlo (al marcarlo se apaga en los demas) y debe estar habilitado.</div>
+                <label class="ai-toggle" style="margin-top:10px;">
+                    <input type="checkbox" checked="@_form.UseForTemplateBuilder" @onchange="e => _form.UseForTemplateBuilder = (bool)e.Value!" />
+                    <span>IA gestion de plantillas</span>
+                </label>
+                <div class="text-muted" style="font-size:11px;">El agente editor de plantillas de correo y WhatsApp usara ESTE proveedor. Solo uno puede serlo; si ninguno lo esta, usa el de formularios.</div>
+                @if (_editing.Provider == AiProvider.Gemini)
+                {
+                    <div class="field" style="margin-top:12px;">
+                        <label class="form-label">Modelo del transcriptor de notas de voz</label>
+                        <input class="form-control" list="ai-models-@_editing.Provider" @bind="_form.TranscriptionModel" placeholder="@Ecorex.Application.Tenancy.AgentMediaReader.DefaultTranscriptionModel" autocomplete="off" />
+                        <div class="text-muted" style="font-size:11px;margin-top:4px;">Transcribe los audios de los agentes cuyo proveedor no oye audio (DeepSeek, ChatGPT, Claude). Usa un modelo barato; el consumo se carga a la empresa del agente. Vacio = @Ecorex.Application.Tenancy.AgentMediaReader.DefaultTranscriptionModel.</div>
+                    </div>
+                }
                 @if (_modalError is not null)
                 {
                     <div class="text-danger small" style="margin-top:8px;">@_modalError</div>
@@ -132,6 +161,8 @@ else
         _form.BaseUrl = p.BaseUrl;
         _form.IsEnabled = p.IsEnabled;
         _form.UseForFormBuilder = p.UseForFormBuilder;
+        _form.TranscriptionModel = p.TranscriptionModel;
+        _form.UseForTemplateBuilder = p.UseForTemplateBuilder;
     }
 
     private async Task SaveAsync()
@@ -142,7 +173,7 @@ else
         try
         {
             var actor = await ActorAsync();
-            var req = new SaveAiProviderRequest(_editing.Provider, _form.ApiKey, _form.Model, _form.BaseUrl, _form.IsEnabled, _form.UseForFormBuilder);
+            var req = new SaveAiProviderRequest(_editing.Provider, _form.ApiKey, _form.Model, _form.BaseUrl, _form.IsEnabled, _form.UseForFormBuilder, _form.UseForTemplateBuilder, TranscriptionModel: _form.TranscriptionModel);
             await AiSvc.SaveAsync(req, actor);
             _providers = (await AiSvc.ListAsync()).ToList();
             _editing = null;
@@ -183,5 +214,7 @@ else
         public string? BaseUrl { get; set; }
         public bool IsEnabled { get; set; }
         public bool UseForFormBuilder { get; set; }
+        public string? TranscriptionModel { get; set; }
+        public bool UseForTemplateBuilder { get; set; }
     }
 }

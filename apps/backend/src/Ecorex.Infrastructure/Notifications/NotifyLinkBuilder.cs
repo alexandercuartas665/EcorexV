@@ -31,4 +31,17 @@ public sealed class NotifyLinkBuilder : INotifyLinkBuilder
 
     public string? BuildSignatureLink(string token)
         => string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(token) ? null : $"{_baseUrl}/firmar/{token}";
+
+    public string? BuildUnsubscribeLink(string token)
+        => string.IsNullOrWhiteSpace(_baseUrl) || string.IsNullOrWhiteSpace(token) ? null : $"{_baseUrl}/baja/{token}";
+
+    public string? ToAbsoluteUrl(string? pathOrUrl)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrUrl)) { return null; }
+        if (pathOrUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || pathOrUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) { return pathOrUrl; }
+        return string.IsNullOrWhiteSpace(_baseUrl) ? null : $"{_baseUrl}/{pathOrUrl.TrimStart('/')}";
+    }
+
+    public string? BuildRetellWebhookUrl()
+        => string.IsNullOrWhiteSpace(_baseUrl) ? null : $"{_baseUrl}/api/voice/retell/webhook";
 }

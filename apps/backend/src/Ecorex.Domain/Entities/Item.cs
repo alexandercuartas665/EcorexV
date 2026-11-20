@@ -21,6 +21,11 @@ public class Item : TenantEntity
 
     public decimal? Price { get; set; }
 
+    /// <summary>IVA del producto en % (impuesto al valor agregado, Colombia). Ej: 19, 5, 0.
+    /// Null = usar el default del modulo de compras (19%). Lo arrastra la oferta/linea de compra como
+    /// valor inicial editable. Ver RequerimientoCotizacion/RequerimientoCompraHijo (IvaPct).</summary>
+    public decimal? IvaRate { get; set; }
+
     // ---- Catalogos normalizados (FKs opcionales, NO ACTION) ----
     public Guid? BrandId { get; set; }
     public Brand? Brand { get; set; }

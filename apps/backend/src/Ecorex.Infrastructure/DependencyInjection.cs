@@ -120,6 +120,9 @@ public static class DependencyInjection
         services.AddScoped<Ecorex.Application.Admin.ISqlConsoleService, Sql.SqlConsoleService>();
         // Store del asistente de creacion de formularios por chat (sobre EcorexDbContext).
         services.AddScoped<Ecorex.Application.Forms.Builder.IFormBuilderChatStore, Forms.FormBuilderChatStore>();
+        // Agente editor de plantillas (ADR-0175): persistencia del chat + token del enlace de baja.
+        services.AddScoped<Ecorex.Application.Gestor.TemplateAgent.ITemplateAgentStore, Forms.TemplateAgentStore>();
+        services.AddSingleton<Ecorex.Application.Gestor.IUnsubscribeTokenProtector, Security.DataProtectionUnsubscribeTokenProtector>();
         services.AddHttpClient<Ecorex.Application.Admin.IWompiApiClient, Wompi.WompiApiClient>();
         services.AddHttpClient<Ecorex.Application.Admin.IEvolutionApiClient, Evolution.EvolutionApiClient>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IWhatsAppCloudClient, WhatsAppCloud.WhatsAppCloudClient>();
@@ -129,6 +132,8 @@ public static class DependencyInjection
         // Timeout por LLAMADA al proveedor de IA: sin el, el HttpClient usa 100s por defecto y, con la
         // cadena de reintentos, una corrida del agente podia colgarse minutos. 60s acota cada llamada; el
         // tope de reloj de la corrida completa (RunTimeoutMinutes) y el reaper de esperas cubren el resto.
+        // Freno por cupo/saldo agotado del proveedor de IA (estado del proceso, compartido por todas las llamadas).
+        services.AddSingleton<Ecorex.Application.Tenancy.IAiProviderQuotaGuard, Ecorex.Application.Tenancy.AiProviderQuotaGuard>();
         services.AddHttpClient<Ecorex.Application.Tenancy.IAiProviderClient, Ai.AiProviderClient>(
                 static client => client.Timeout = TimeSpan.FromSeconds(60));
         services.AddHttpClient<Ecorex.Application.Auth.IGoogleOAuthClient, Auth.GoogleOAuthClient>();

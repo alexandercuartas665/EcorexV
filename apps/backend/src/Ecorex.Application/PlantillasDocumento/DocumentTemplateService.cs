@@ -338,6 +338,17 @@ public sealed class DocumentTemplateService : IDocumentTemplateService
         new("{sistema.hora}", "Hora actual", "Sistema"),
         new("{sistema.fechahora}", "Fecha y hora actual", "Sistema"),
         new("{form.CODIGO}", "Respuesta del formulario por codigo de campo", "Formulario"),
+        // Orden de compra (solo en actividades generadas por el modulo de Compras). {oc.tabla_html} ya trae
+        // la tabla completa con totales; {oc.lineas_html} son solo las filas si armas tu propia tabla.
+        new("{oc.numero}", "Numero de la orden de compra (= numero de la actividad)", "Orden de compra"),
+        new("{oc.proveedor}", "Proveedor de la orden", "Orden de compra"),
+        new("{oc.items}", "Cantidad de articulos (lineas)", "Orden de compra"),
+        new("{oc.subtotal}", "Subtotal (antes de descuento e IVA)", "Orden de compra"),
+        new("{oc.descuento}", "Descuento total", "Orden de compra"),
+        new("{oc.iva}", "IVA total", "Orden de compra"),
+        new("{oc.total}", "Total de la orden (con descuento e IVA)", "Orden de compra"),
+        new("{oc.tabla_html}", "Tabla completa de articulos con totales (insertar tal cual)", "Orden de compra"),
+        new("{oc.lineas_html}", "Solo las filas <tr> de los articulos (tabla propia)", "Orden de compra"),
         // Tercero del Directorio enlazado a la tarea (si se eligio del lookup al crearla). {directorio.*}
         // es alias de {tercero.*}; ademas admite campos de las fichas, p.ej. {directorio.direccion}.
         new("{tercero.nombre}", "Nombre/razon social del tercero", "Tercero / Directorio"),

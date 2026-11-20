@@ -185,7 +185,7 @@ public static class AgentMgmtEndpoints
                 var query = svc.Db.AiAgentRunLogs.AsNoTracking().Where(x => x.AgentId == id);
                 if (kind is { } kk) { query = query.Where(x => x.Kind == kk); }
                 var rows = await query.OrderByDescending(x => x.OccurredAt).Take(limit)
-                    .Select(x => new BitacoraEntryDto(x.OccurredAt, x.Kind, x.ConversationId, x.Title, x.Content, x.Response))
+                    .Select(x => new BitacoraEntryDto(x.OccurredAt, x.Kind, x.ConversationId, x.VoiceCallId, x.Title, x.Content, x.Response))
                     .ToListAsync(c);
                 return (object)rows;
             },
@@ -738,7 +738,8 @@ public static class AgentMgmtEndpoints
     // --- Cuerpos de entrada propios de esta API ---
     private sealed record SetSystemPromptRequest(string? SystemPrompt);
     private sealed record PromptUpsertBody(string? Name, string? Rule, string? Body);
-    private sealed record BitacoraEntryDto(DateTimeOffset OccurredAt, AiAgentRunLogKind Kind, Guid ConversationId, string Title, string? Content, string? Response);
+    // Ola 4 (ADR-0190): ConversationId es nullable (una entrada puede ser de voz, con VoiceCallId en vez de conversacion).
+    private sealed record BitacoraEntryDto(DateTimeOffset OccurredAt, AiAgentRunLogKind Kind, Guid? ConversationId, Guid? VoiceCallId, string Title, string? Content, string? Response);
 
     /// <summary>Servicios tenant-scoped resueltos dentro del scope con el tenant ya fijado.</summary>
     private readonly record struct MgmtServices(IAiAgentService Agents, IAiAgentCacheService Cache, IAuditWriter Audit,

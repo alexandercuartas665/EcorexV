@@ -47,6 +47,45 @@ public class RetellVoicePureTests
     }
 
     [Fact]
+    public void ObjetivoDirective_SeguimientoCierre_TraeLasReglasDeLaLlamada()
+    {
+        // Ola 5 (ADR-0190): antes era "" y la llamada de seguimiento no tenia conducta base.
+        var d = RetellVoiceService.ObjetivoDirective(nameof(ContactCallObjetivo.SeguimientoCierre));
+        Assert.Contains("SEGUIMIENTO", d);
+        Assert.Contains("asistente virtual", d);   // identidad IA al saludar
+        Assert.Contains("No inventes datos", d);   // precio/valor/estado -> asesor
+        Assert.Contains("buzon", d);               // buzon -> colgar sin mensaje
+        Assert.Contains("repite en una frase la decision", d); // decision audible para el ruteo
+        Assert.DoesNotContain("formulario", d);    // es una MARCA: no vuelca a formulario
+    }
+
+    [Fact]
+    public void ComposePrompt_SeguimientoCierre_Une_Persona_Instruccion_y_Directiva_EnOrden()
+    {
+        var prompt = RetellVoiceService.ComposePrompt(
+            systemPrompt: "Eres SARA-voz.",
+            promptExtra: "Confirma si aprueba la cotizacion {{numero_caso}}.",
+            objetivo: nameof(ContactCallObjetivo.SeguimientoCierre));
+
+        var persona = prompt.IndexOf("Eres SARA-voz.", StringComparison.Ordinal);
+        var extra = prompt.IndexOf("Instruccion adicional para esta llamada", StringComparison.Ordinal);
+        var directiva = prompt.IndexOf("Objetivo de la llamada: hacer el SEGUIMIENTO", StringComparison.Ordinal);
+        Assert.True(persona == 0 && extra > persona && directiva > extra);
+    }
+
+    [Fact]
+    public void AgentOptions_Signature_VaciaSinOpciones_y_CambiaElHash()
+    {
+        Assert.Equal("", RetellAgentOptions.Signature(null));   // demas consumidores: hash de siempre
+
+        var firma = RetellAgentOptions.Signature(RetellAgentOptions.WorkflowCall);
+        Assert.Contains("endcall=True", firma);
+        Assert.NotEqual(
+            RetellVoiceService.PromptHash("p", "v", "es-419"),
+            RetellVoiceService.PromptHash("p" + firma, "v", "es-419")); // no reusa agentes viejos sin end_call
+    }
+
+    [Fact]
     public void ObjetivoDirective_Personalizado_IsEmpty()
         => Assert.Equal("", RetellVoiceService.ObjetivoDirective(nameof(ContactCallObjetivo.Personalizado)));
 

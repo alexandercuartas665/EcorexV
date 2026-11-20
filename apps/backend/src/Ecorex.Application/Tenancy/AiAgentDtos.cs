@@ -19,7 +19,9 @@ public sealed record AiAgentDto(
     string? ReactionEmojis = null,
     IReadOnlyList<Guid>? AllowedBoardIds = null,
     IReadOnlyList<Guid>? AssigneeUserIds = null,
-    Guid? DefaultSubcategoriaId = null);
+    Guid? DefaultSubcategoriaId = null,
+    // Prompt del lector de medios (ADR-0174); null = lector generico.
+    string? MediaReaderPrompt = null);
 
 public sealed record AiAgentResourceDto(
     Guid Id,

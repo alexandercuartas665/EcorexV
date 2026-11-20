@@ -2,9 +2,8 @@ namespace Ecorex.Application.Tenancy;
 
 /// <summary>
 /// Servicio del modulo de plantillas HSM de WhatsApp (tenant-scoped). CRUD con resultados
-/// tipados. Submit y SyncStatus son STUBS: en este corte NO hay integracion real con la
-/// WhatsApp Cloud API de Meta (deuda documentada, ADR-0029). Submit solo cambia el estado a
-/// Submitted; SyncStatus es no-op.
+/// tipados. Con lineas YCloud, Submit crea la plantilla de verdad en Meta y SyncStatus/SyncPending
+/// traen el estado de aprobacion (ADR-0184); con Cloud/Emulator siguen siendo transiciones locales.
 /// </summary>
 public interface IWhatsAppTemplateService
 {
@@ -32,10 +31,20 @@ public interface IWhatsAppTemplateService
     Task<WhatsAppTemplateResult<bool>> TestSendAsync(Guid id, string phone, IReadOnlyList<string>? values = null, string? headerMediaUrl = null, IReadOnlyList<WhatsAppTestButtonValue>? buttonValues = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// STUB (ADR-0029): la sincronizacion de estado con el proveedor no esta implementada (no hay
-    /// integracion real con Meta). Devuelve un resultado NotImplemented sin tocar la plantilla.
+    /// Consulta en YCloud/Meta el estado de aprobacion de UNA plantilla (ADR-0184) y lo reconcilia (estado,
+    /// motivo de rechazo, id del proveedor). No toca el contenido. Solo aplica a plantillas de lineas YCloud.
     /// </summary>
-    Task<WhatsAppTemplateResult<bool>> SyncStatusAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<WhatsAppTemplateResult<WhatsAppStatusSyncReport>> SyncStatusAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sincroniza TODAS las plantillas del tenant activo que estan en revision (Submitted) en lineas YCloud
+    /// (ADR-0184). Una llamada de listado por linea. La usa el worker periodico y el boton de la pantalla.
+    /// </summary>
+    Task<WhatsAppTemplateResult<WhatsAppStatusSyncReport>> SyncPendingAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Barrido de PLATAFORMA (solo ids): tenants con alguna plantilla YCloud en revision. Lo usa el
+    /// worker antes de fijar el tenant ambiente; ignora el filtro global a proposito.</summary>
+    Task<IReadOnlyList<Guid>> FindTenantsWithPendingTemplatesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Trae (importa) al tenant las plantillas HSM que ya existen en la cuenta de YCloud de la
     /// linea indicada (debe ser una linea con Provider=YCloud y API key + WABA configurados). Hace UPSERT

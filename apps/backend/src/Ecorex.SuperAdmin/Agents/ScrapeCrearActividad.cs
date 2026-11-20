@@ -63,6 +63,39 @@ public static class ScrapeCrearActividad
         /// <summary>Guarda opcional: si la ruta resuelve a este valor (sin distinguir mayusculas), no se crea.</summary>
         public string? SaltarSiRuta { get; init; }
         public string? SaltarSiValor { get; init; }
+        /// <summary>Ruta o plantilla de la FECHA DE VENCIMIENTO de la tarea (ej. DETALLE.cabecera.plazoOferta,
+        /// "17/11/2026"). Se toma como fin del dia en la zona del tenant. Vacia o ilegible = sin vencimiento.</summary>
+        public string? Vencimiento { get; init; }
+        /// <summary>Valores FIJOS de cabecera (codigo del campo -> literal), para lo que el registro no trae
+        /// (ej. moneda "PESO COLOMBIANO", vigencia "{hoy+30}"). Acepta los tokens {hoy}/{hoy+N}. No pisa un
+        /// campo que ya lleno <see cref="Campos"/>.</summary>
+        public Dictionary<string, string>? CamposFijos { get; init; }
+        /// <summary>Prellenado de la grilla con la ULTIMA respuesta conocida del mismo codigo (opcional).</summary>
+        public PrellenadoConfig? Prellenado { get; init; }
+    }
+
+    /// <summary>
+    /// Sugerencias para las celdas VACIAS de la grilla tomadas de un Contenedor historico (ej. Drones Ingenios /
+    /// Items, con lo que ya se cotizo): por cada fila se busca en el contenedor la fila con la misma clave
+    /// (ej. CODIGO) y se elige la mas reciente segun <see cref="OrdenColumna"/>. Nunca pisa lo que ya trae la fila.
+    /// </summary>
+    public sealed record PrellenadoConfig
+    {
+        /// <summary>Contenedor historico.</summary>
+        public Guid? ContenedorId { get; init; }
+        /// <summary>Columna de la GRILLA con la clave de busqueda (ej. codigo).</summary>
+        public string? ClaveGrilla { get; init; }
+        /// <summary>Columna del CONTENEDOR con esa clave (ej. CODIGO).</summary>
+        public string? ColumnaClave { get; init; }
+        /// <summary>Columna del contenedor que ordena: gana el mayor (numerico si se puede; ej. PETOF).</summary>
+        public string? OrdenColumna { get; init; }
+        /// <summary>Columna del contenedor que identifica el registro (ej. PETOF): se excluyen las filas del
+        /// MISMO registro que se esta creando, para no sugerirse a si mismo.</summary>
+        public string? ExcluirColumna { get; init; }
+        /// <summary>Solo cuentan las filas con valor en esta columna (ej. VLR_UNI: que si se cotizaron).</summary>
+        public string? RequiereColumna { get; init; }
+        /// <summary>Columnas a sugerir: id de columna de la grilla -> columna del contenedor.</summary>
+        public Dictionary<string, string>? Columnas { get; init; }
     }
 
     public sealed record Result(bool Ok, bool Created, string Detail, string? TaskNumber);
@@ -185,12 +218,14 @@ public static class ScrapeCrearActividad
         }
 
         // ---- Crear la tarea ----
+        var zona = await TenantZoneAsync(db, tenantId, ct);
         var tasks = sp.GetRequiredService<ITaskItemService>();
         var req = new CreateTaskItemRequest(
             Title: titulo,
             ActivityTypeId: null,
             Description: NullIfEmpty(Resolve(ctx, cfg.Descripcion)),
             AssigneeTenantUserId: cfg.ResponsableId,
+            DueDate: EndOfDay(Resolve(ctx, cfg.Vencimiento), zona),
             RequesterName: NullIfEmpty(Resolve(ctx, cfg.Solicitante)),
             RequesterDocument: NullIfEmpty(Resolve(ctx, cfg.DocumentoSolicitante)),
             SubcategoriaId: subId);
@@ -207,7 +242,7 @@ public static class ScrapeCrearActividad
         var nota = string.Empty;
         if (concepto.FormDefinitionId is Guid fid)
         {
-            try { nota = await FillFormAsync(sp, db, fid, numero, cfg, ctx, ct); }
+            try { nota = await FillFormAsync(sp, db, fid, numero, clave, cfg, ctx, NowIn(zona), ct); }
             catch (Exception ex) { nota = " Formulario sin llenar: " + ex.Message; }
         }
         else { nota = " El concepto no tiene formulario."; }
@@ -218,7 +253,7 @@ public static class ScrapeCrearActividad
     }
 
     private static async Task<string> FillFormAsync(IServiceProvider sp, IApplicationDbContext db, Guid formId,
-        string numero, Config cfg, ScrapeRunContext ctx, CancellationToken ct)
+        string numero, string clave, Config cfg, ScrapeRunContext ctx, DateTimeOffset ahoraLocal, CancellationToken ct)
     {
         var tipos = await db.FormQuestions.AsNoTracking()
             .Where(q => q.DefinitionId == formId)
@@ -237,6 +272,17 @@ public static class ScrapeCrearActividad
             data[campo] = new FormFieldValue(Coerce(tipo, valor), tipo.ToString());
         }
 
+        // Valores fijos: solo donde el registro no trajo nada (no pisan lo leido del portal).
+        foreach (var (campo, literal) in cfg.CamposFijos ?? new())
+        {
+            if (data.ContainsKey(campo)) { continue; }
+            if (!tipoPorCodigo.TryGetValue(campo, out var tipo)) { faltan.Add(campo); continue; }
+            var valor = Ecorex.SuperAdmin.Components.Shared.Forms.FormSystemTokens.Resolve(literal ?? string.Empty, null, ahoraLocal).Trim();
+            if (valor.Length == 0) { continue; }
+            data[campo] = new FormFieldValue(Coerce(tipo, valor), tipo.ToString());
+        }
+
+        var sugeridas = 0;
         if (!string.IsNullOrWhiteSpace(cfg.GrillaCampo))
         {
             if (!tipoPorCodigo.TryGetValue(cfg.GrillaCampo!, out var tg) || tg != FormControlType.GridDetail)
@@ -246,6 +292,10 @@ public static class ScrapeCrearActividad
             else
             {
                 var filas = BuildGridRows(ctx, cfg);
+                if (filas.Count > 0 && cfg.Prellenado is { } pre)
+                {
+                    sugeridas = await PrefillAsync(db, pre, filas, clave, ct);
+                }
                 if (filas.Count > 0)
                 {
                     data[cfg.GrillaCampo!] = new FormFieldValue(JsonSerializer.Serialize(filas, Web), FormControlType.GridDetail.ToString());
@@ -264,7 +314,131 @@ public static class ScrapeCrearActividad
         // los avisos ({form.petof}, paso Notificar / reglas de nodo) solo lee el marcado como activo.
         await forms.SetActiveTaskFormAsync(draft.Value.Id, ct);
         return $" Formulario con {data.Count} campo(s)"
+            + (sugeridas > 0 ? $"; {sugeridas} item(s) prellenado(s) con la ultima cotizacion" : "")
             + (faltan.Count > 0 ? $"; no existen en el formulario: {string.Join(", ", faltan)}" : "") + ".";
+    }
+
+    // ---------------- Prellenado desde el historico ----------------
+
+    /// <summary>Llena las celdas VACIAS de <paramref name="filas"/> con la fila mas reciente del contenedor
+    /// historico que comparte la clave. Devuelve cuantas filas recibieron al menos una sugerencia.</summary>
+    private static async Task<int> PrefillAsync(IApplicationDbContext db, PrellenadoConfig pre,
+        List<Dictionary<string, string?>> filas, string claveRegistro, CancellationToken ct)
+    {
+        if (pre.ContenedorId is not Guid cid || string.IsNullOrWhiteSpace(pre.ClaveGrilla)
+            || string.IsNullOrWhiteSpace(pre.ColumnaClave) || pre.Columnas is not { Count: > 0 })
+        {
+            return 0;
+        }
+
+        var claves = filas.Select(f => f.GetValueOrDefault(pre.ClaveGrilla!)?.Trim())
+            .Where(v => !string.IsNullOrEmpty(v)).Select(v => v!).Distinct(StringComparer.Ordinal).ToList();
+        if (claves.Count == 0) { return 0; }
+
+        var nombres = new HashSet<string>(StringComparer.Ordinal) { pre.ColumnaClave! };
+        foreach (var n in new[] { pre.OrdenColumna, pre.ExcluirColumna, pre.RequiereColumna }.Concat(pre.Columnas.Values))
+        {
+            if (!string.IsNullOrWhiteSpace(n)) { nombres.Add(n.Trim()); }
+        }
+        var cols = await db.DataContainerColumns.AsNoTracking()
+            .Where(c => c.ContainerId == cid && nombres.Contains(c.Name))
+            .Select(c => new { c.Id, c.Name }).ToListAsync(ct);
+        var keyCol = cols.FirstOrDefault(c => c.Name == pre.ColumnaClave)?.Id;
+        if (keyCol is null) { return 0; }
+        var nombrePorId = cols.ToDictionary(c => c.Id, c => c.Name);
+        var colIds = cols.Select(c => c.Id).ToList();
+
+        var rowIds = await db.DataContainerCells.AsNoTracking()
+            .Where(c => c.ColumnId == keyCol && c.Value != null && claves.Contains(c.Value) && c.Row!.ContainerId == cid)
+            .Select(c => c.RowId).Distinct().ToListAsync(ct);
+        if (rowIds.Count == 0) { return 0; }
+
+        var celdas = await db.DataContainerCells.AsNoTracking()
+            .Where(c => rowIds.Contains(c.RowId) && colIds.Contains(c.ColumnId))
+            .Select(c => new { c.RowId, c.ColumnId, c.Value }).ToListAsync(ct);
+        var historico = celdas.GroupBy(c => c.RowId)
+            .Select(g => (IReadOnlyDictionary<string, string?>)g.ToDictionary(c => nombrePorId[c.ColumnId], c => c.Value, StringComparer.Ordinal))
+            .ToList();
+
+        return ApplyPrefill(filas, historico, pre, claveRegistro);
+    }
+
+    /// <summary>
+    /// Parte pura del prellenado (testeable): por cada fila de la grilla elige, entre las filas historicas con la
+    /// misma clave (sin las del mismo registro y con valor en RequiereColumna), la de mayor OrdenColumna, y copia
+    /// sus columnas mapeadas SOLO a celdas vacias. Devuelve cuantas filas recibieron alguna sugerencia.
+    /// </summary>
+    public static int ApplyPrefill(List<Dictionary<string, string?>> filas,
+        IReadOnlyList<IReadOnlyDictionary<string, string?>> historico, PrellenadoConfig pre, string? claveRegistro)
+    {
+        if (string.IsNullOrWhiteSpace(pre.ClaveGrilla) || string.IsNullOrWhiteSpace(pre.ColumnaClave)
+            || pre.Columnas is not { Count: > 0 })
+        {
+            return 0;
+        }
+
+        var porClave = historico
+            .Where(h => string.IsNullOrWhiteSpace(pre.ExcluirColumna)
+                || !string.Equals(h.GetValueOrDefault(pre.ExcluirColumna!)?.Trim(), claveRegistro?.Trim(), StringComparison.Ordinal))
+            .Where(h => string.IsNullOrWhiteSpace(pre.RequiereColumna)
+                || !string.IsNullOrWhiteSpace(h.GetValueOrDefault(pre.RequiereColumna!)))
+            .GroupBy(h => h.GetValueOrDefault(pre.ColumnaClave!)?.Trim() ?? string.Empty, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(h => h.GetValueOrDefault(pre.OrdenColumna ?? string.Empty), OrdenComparer.Instance).First(),
+                StringComparer.Ordinal);
+
+        var tocadas = 0;
+        foreach (var fila in filas)
+        {
+            var k = fila.GetValueOrDefault(pre.ClaveGrilla!)?.Trim();
+            if (string.IsNullOrEmpty(k) || !porClave.TryGetValue(k, out var src)) { continue; }
+            var algo = false;
+            foreach (var (colGrilla, colCont) in pre.Columnas)
+            {
+                if (string.IsNullOrWhiteSpace(colGrilla) || string.IsNullOrWhiteSpace(colCont)) { continue; }
+                if (!string.IsNullOrWhiteSpace(fila.GetValueOrDefault(colGrilla))) { continue; }
+                var v = src.GetValueOrDefault(colCont.Trim());
+                if (string.IsNullOrWhiteSpace(v)) { continue; }
+                fila[colGrilla] = v.Trim();
+                algo = true;
+            }
+            if (algo) { tocadas++; }
+        }
+        return tocadas;
+    }
+
+    /// <summary>Orden "natural" para elegir la mas reciente: numerico si ambos son numeros, si no ordinal.</summary>
+    private sealed class OrdenComparer : IComparer<string?>
+    {
+        public static readonly OrdenComparer Instance = new();
+
+        public int Compare(string? x, string? y)
+        {
+            if (decimal.TryParse(x?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var a)
+                && decimal.TryParse(y?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var b))
+            {
+                return a.CompareTo(b);
+            }
+            return string.CompareOrdinal(x ?? string.Empty, y ?? string.Empty);
+        }
+    }
+
+    // ---------------- Fechas (zona del tenant, regla 9) ----------------
+
+    private static async Task<TimeZoneInfo> TenantZoneAsync(IApplicationDbContext db, Guid tenantId, CancellationToken ct)
+    {
+        var tzId = await db.Tenants.AsNoTracking().Where(t => t.Id == tenantId).Select(t => t.TimeZoneId).FirstOrDefaultAsync(ct);
+        return Ecorex.Application.Scheduling.ScheduledJobRecurrence.ResolveTimeZone(tzId);
+    }
+
+    private static DateTimeOffset NowIn(TimeZoneInfo zona) => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zona);
+
+    /// <summary>Fecha (dd/MM/yyyy, yyyy-MM-dd...) -> 23:59 de ese dia en la zona del tenant. Ilegible -> null.</summary>
+    public static DateTimeOffset? EndOfDay(string? texto, TimeZoneInfo zona)
+    {
+        if (string.IsNullOrWhiteSpace(texto)) { return null; }
+        if (!DateTime.TryParseExact(texto.Trim(), Fechas, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)) { return null; }
+        var local = DateTime.SpecifyKind(d.Date.AddHours(23).AddMinutes(59), DateTimeKind.Unspecified);
+        return new DateTimeOffset(local, zona.GetUtcOffset(local));
     }
 
     /// <summary>Filas de la grilla: por cada objeto del arreglo de items, id de columna -> propiedad.</summary>

@@ -38,4 +38,9 @@ public interface IContactWorkflowService
     /// </summary>
     Task<ContactWorkflowResult<ContactWorkflowDto>> SaveAsync(
         Guid filtroId, SaveContactWorkflowRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Ultimas ejecuciones del motor para el workflow del filtro (mas recientes primero), con la
+    /// hora en la zona del tenant. Alimenta el panel "Ultimas ejecuciones" del disenador.</summary>
+    Task<IReadOnlyList<ContactWorkflowRunDto>> ListRecentRunsAsync(
+        Guid filtroId, int take = 50, CancellationToken cancellationToken = default);
 }

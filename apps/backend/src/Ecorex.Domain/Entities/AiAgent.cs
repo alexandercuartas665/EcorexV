@@ -22,6 +22,14 @@ public class AiAgent : TenantEntity
 
     public string SystemPrompt { get; set; } = "";
 
+    /// <summary>
+    /// Instrucciones del LECTOR DE MEDIOS (ADR-0174): el prompt con que se lee cada imagen o PDF que manda el
+    /// cliente antes de que responda el modelo principal; su salida se anexa al turno como "[Lectura automatica
+    /// ...]" (la ven el modelo y el extractor de cache). Null = lector generico (describe y transcribe todo el
+    /// texto legible). EPRING usa aqui su plantilla de campos (factura de energia / techo / motobomba).
+    /// </summary>
+    public string? MediaReaderPrompt { get; set; }
+
     /// <summary>En produccion (encendido) o apagado.</summary>
     public bool IsActive { get; set; }
 

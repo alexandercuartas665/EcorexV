@@ -65,7 +65,13 @@ public interface IBrowserRunService
     /// dron arranca descargas en 2do plano (sigue bajando tras cerrar el paso).</summary>
     Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
         IProgress<FlowStepProgress>? progress, CancellationToken ct = default,
-        IReadOnlyDictionary<string, string>? overrides = null);
+        IReadOnlyDictionary<string, string>? overrides = null,
+        ImportRunTrigger trigger = ImportRunTrigger.Manual);
+
+    /// <summary>true si el flujo tiene una corrida VIVA en este proceso (completa o por pasos, manual o
+    /// programada). Candado por flujo (ADR-0171): dos corridas del mismo flujo a la vez compartirian la sesion
+    /// del agente y la capa de variables de corrida.</summary>
+    bool IsFlowRunning(Guid flowId);
 
     /// <summary>Variables marcadas "Pedir al ejecutar" (no secretas) de los flujos dados, en el orden de los
     /// flujos, con su valor guardado como valor por defecto. El modulo que dispara los flujos las pregunta y
@@ -110,6 +116,12 @@ public sealed class BrowserRunService(
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
+    // Inicio del paso en curso (por flujo de ejecucion async): lo fija cada punto de entrada de un paso
+    // (RunStepNowAsync / RunLoopNowAsync / CloseStepSessionAsync) y RecordStepRunAsync lo usa como FiredAt,
+    // para que el historial muestre la DURACION real del paso (antes FiredAt == FinishedAt -> "0.0 s").
+    // AsyncLocal: el valor fijado dentro de un metodo async no se filtra al llamador ni a otras corridas.
+    private static readonly AsyncLocal<DateTimeOffset?> _stepStartedAt = new();
+
     /// <summary>Cliente HTTP compartido para las ingestas por API (p.ej. NEWTON). El servicio es Singleton,
     /// asi que se reusa una sola instancia (evita agotar sockets). Timeout amplio: la descarga de PDFs puede tardar.</summary>
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
@@ -129,6 +141,18 @@ public sealed class BrowserRunService(
     {
         if (_activeRuns.AddOrUpdate(runCorr, 0, (_, n) => n - 1) <= 0) { _activeRuns.TryRemove(runCorr, out _); }
     }
+
+    /// <summary>Flujos con corrida VIVA (flowId -> anidamiento), para el candado por flujo (ADR-0171).</summary>
+    private readonly ConcurrentDictionary<Guid, int> _activeFlows = new();
+
+    private void TrackFlow(Guid flowId) => _activeFlows.AddOrUpdate(flowId, 1, (_, n) => n + 1);
+
+    private void UntrackFlow(Guid flowId)
+    {
+        if (_activeFlows.AddOrUpdate(flowId, 0, (_, n) => n - 1) <= 0) { _activeFlows.TryRemove(flowId, out _); }
+    }
+
+    public bool IsFlowRunning(Guid flowId) => _activeFlows.ContainsKey(flowId);
 
     /// <summary>Variables de SESION del modo paso a paso, por flujo: valores efimeros producidos durante el
     /// stepping (p.ej. el token que leyo un paso OTP) que se superponen a las variables del flujo para los
@@ -370,8 +394,9 @@ public sealed class BrowserRunService(
 
     public Task<BrowserRunResult> RunFlowStepwiseAsync(Guid flowId, Guid tenantId, int flowIndex, int flowCount,
         IProgress<FlowStepProgress>? progress, CancellationToken ct = default,
-        IReadOnlyDictionary<string, string>? overrides = null)
-        => RunStepwiseCoreAsync(flowId, tenantId, flowIndex, flowCount, progress, ImportRunTrigger.Manual, NewCorr(),
+        IReadOnlyDictionary<string, string>? overrides = null,
+        ImportRunTrigger trigger = ImportRunTrigger.Manual)
+        => RunStepwiseCoreAsync(flowId, tenantId, flowIndex, flowCount, progress, trigger, NewCorr(),
             freshSession: false, ct, overrides);
 
     public async Task<IReadOnlyList<FlowAskVariable>> GetAskVariablesAsync(IReadOnlyList<Guid> flowIds, Guid tenantId,
@@ -448,6 +473,7 @@ public sealed class BrowserRunService(
         CancellationToken ct, IReadOnlyDictionary<string, string>? overrides = null)
     {
         TrackRun(runCorr);
+        TrackFlow(flowId);
         // Corrida completa nueva (Ejecutar ahora / programacion): sin salidas capturadas de corridas anteriores,
         // para que un bucle nunca consuma un LISTADO viejo si el paso que lo lee falla.
         if (freshSession) { _stepSessionVars.TryRemove(flowId, out _); }
@@ -474,6 +500,7 @@ public sealed class BrowserRunService(
         finally
         {
             UntrackRun(runCorr);
+            UntrackFlow(flowId);
             if (applied.Count > 0 && _stepSessionVars.TryGetValue(flowId, out var s))
             {
                 foreach (var k in applied) { s.TryRemove(k, out _); }
@@ -523,6 +550,7 @@ public sealed class BrowserRunService(
 
             int ins = 0, upd = 0, del = 0;
             var notas = new List<string>();
+            var errores = new List<string>(); // fallos DUROS (FlowStepOutcome): dejan la corrida en Error
             var consumidos = new HashSet<Guid>(); // pasos que ya corrio un bucle (cuerpo + avance de pagina)
             for (var i = 0; i < steps.Count; i++)
             {
@@ -538,6 +566,7 @@ public sealed class BrowserRunService(
                     flowIndex, flowCount, flowName, stepIdx, steps.Count, paso.Name, false, false, null, txt));
 
                 StepRunResult r;
+                var threw = false;
                 try
                 {
                     // Inicio de bucle: recorre TODAS las filas (y paginas) con su cuerpo; luego esos pasos no se
@@ -549,7 +578,7 @@ public sealed class BrowserRunService(
                     }
                     else { r = await RunStepNowAsync(flowId, paso.Id, tenantId, ct, stepLive); }
                 }
-                catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
+                catch (Exception ex) { threw = true; r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
                 ins += r.Inserted; upd += r.Updated; del += r.Deleted;
 
                 progress?.Report(new FlowStepProgress(flowIndex, flowCount, flowName, i, steps.Count, paso.Name, true, r.Ok, r.ScreenshotBase64, r.Error ?? r.Detail));
@@ -566,8 +595,14 @@ public sealed class BrowserRunService(
                     await runLog.CloseAsync(runCorr, false, ins, upd, del, $"Paso '{paso.Name}': {err}.", ct);
                     return new BrowserRunResult(false, runId, runCorr, false, $"{paso.Name}: {err}");
                 }
-                // Pasos guarda/driver (Exploracion/Variable sin filas) devuelven Ok=false de forma benigna: se anota y sigue.
-                if (!r.Ok) { notas.Add(paso.Name); }
+                // Pasos guarda/driver (Exploracion/Variable sin filas) devuelven Ok=false de forma benigna: se anota y
+                // sigue. Navegacion fallida, rechazo por allow-list/JS bloqueado o excepcion son DUROS: tambien se
+                // sigue, pero la corrida cierra en Error (antes quedaba Ok y el bloqueo se veia como corrida sana).
+                if (!r.Ok)
+                {
+                    if (FlowStepOutcome.IsHardFailure(paso.Kind, r, threw)) { errores.Add(FlowStepOutcome.HardNote(paso.Name, r)); }
+                    else { notas.Add(paso.Name); }
+                }
 
                 // Corrida completa nueva: respeta la espera del paso (WaitMs, en ms) antes del siguiente. El agente
                 // corre el JS y vuelve de inmediato; si el script dispara un postback (filtrar, consultar, login), sin
@@ -581,16 +616,23 @@ public sealed class BrowserRunService(
                 }
             }
 
-            var det = $"Flujo ejecutado paso a paso ({steps.Count} pasos)"
-                + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
+            var det = FlowStepOutcome.Summarize(steps.Count, errores, notas);
+            var runOk = errores.Count == 0;
             // Corrida completa nueva (Ejecutar ahora / programacion): no dejar la ventana del agente abierta.
             if (freshSession)
             {
                 try { await CloseStepSessionAsync(flowId, tenantId, ct); } catch { /* best-effort */ }
             }
-            await runLog.CloseAsync(runCorr, true, ins, upd, del, det, ct);
-            log.LogInformation("[NAV-RUN] stepwise OK corr={Corr} flow={Flow} pasos={N}", runCorr, flowId, steps.Count);
-            return new BrowserRunResult(true, runId, runCorr, false, det);
+            await runLog.CloseAsync(runCorr, runOk, ins, upd, del, det, ct);
+            if (runOk)
+            {
+                log.LogInformation("[NAV-RUN] stepwise OK corr={Corr} flow={Flow} pasos={N}", runCorr, flowId, steps.Count);
+            }
+            else
+            {
+                log.LogWarning("[NAV-RUN] stepwise con errores corr={Corr} flow={Flow}: {Detail}", runCorr, flowId, det);
+            }
+            return new BrowserRunResult(runOk, runId, runCorr, false, det);
         }
     }
 
@@ -599,6 +641,7 @@ public sealed class BrowserRunService(
     public async Task<StepRunResult> RunStepNowAsync(Guid flowId, Guid stepId, Guid tenantId, CancellationToken ct = default,
         Action<string>? live = null)
     {
+        _stepStartedAt.Value = _clock.GetUtcNow();
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -983,7 +1026,7 @@ public sealed class BrowserRunService(
                     NombreEmisor = doc.NombreEmisor,
                     NitEmisor = doc.NitEmisor,
                     PrefijoFolio = doc.NumFactura,
-                    IdCompra = "",
+                    IdCompra = doc.OrdenCompra,
                     SubtotalBruto = doc.SubtotalBruto,
                     DescuentoComercial = doc.Descuento,
                     Subtotal = doc.SubtotalNeto,
@@ -1006,6 +1049,7 @@ public sealed class BrowserRunService(
                 existente.Iva = doc.Iva; existente.TotalAntesRet = doc.TotalAntesRet;
                 existente.RetencionFuente = doc.Retefuente; existente.RetencionIca = doc.ReteIca;
                 existente.Total = doc.Total; existente.TipoPago = doc.TipoPago;
+                if (!string.IsNullOrEmpty(doc.OrdenCompra)) { existente.IdCompra = doc.OrdenCompra; }
                 actualizados++;
             }
             periodos.Add((doc.Fecha.Year, doc.Fecha.Month));
@@ -1218,7 +1262,7 @@ public sealed class BrowserRunService(
                     NombreEmisor = doc.NombreEmisor,
                     NitEmisor = doc.NitEmisor,
                     PrefijoFolio = doc.NumFactura,
-                    IdCompra = "",
+                    IdCompra = doc.OrdenCompra,
                     SubtotalBruto = doc.SubtotalBruto,
                     DescuentoComercial = doc.Descuento,
                     Subtotal = doc.SubtotalNeto,
@@ -1241,6 +1285,7 @@ public sealed class BrowserRunService(
                 existente.Iva = doc.Iva; existente.TotalAntesRet = doc.TotalAntesRet;
                 existente.RetencionFuente = doc.Retefuente; existente.RetencionIca = doc.ReteIca;
                 existente.Total = doc.Total; existente.TipoPago = doc.TipoPago;
+                if (!string.IsNullOrEmpty(doc.OrdenCompra)) { existente.IdCompra = doc.OrdenCompra; }
                 actualizados++;
             }
             periodos.Add((doc.Fecha.Year, doc.Fecha.Month));
@@ -1933,6 +1978,7 @@ public sealed class BrowserRunService(
 
     public async Task<StepRunResult> RunLoopNowAsync(Guid flowId, Guid loopStepId, Guid tenantId, CancellationToken ct = default)
     {
+        _stepStartedAt.Value = _clock.GetUtcNow();
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
         {
@@ -2146,6 +2192,7 @@ public sealed class BrowserRunService(
 
     public async Task<StepRunResult> CloseStepSessionAsync(Guid flowId, Guid tenantId, CancellationToken ct = default)
     {
+        _stepStartedAt.Value = _clock.GetUtcNow();
         _stepSessionVars.TryRemove(flowId, out _);
         using var scope = scopeFactory.CreateScope();
         using (AmbientTenantContext.Begin(tenantId))
@@ -2177,11 +2224,12 @@ public sealed class BrowserRunService(
         int inserted, int updated, int deleted, string? detail, CancellationToken ct)
     {
         var now = _clock.GetUtcNow();
+        var started = _stepStartedAt.Value is DateTimeOffset st && st <= now ? st : now;
         var text = $"Paso: {stepName}" + (string.IsNullOrWhiteSpace(detail) ? "" : $" - {detail}");
         db.ScrapeFlowRuns.Add(new ScrapeFlowRun
         {
             FlowId = flowId,
-            FiredAt = now,
+            FiredAt = started,
             FinishedAt = now,
             Trigger = ImportRunTrigger.Manual,
             Result = ok ? ImportRunResult.Ok : ImportRunResult.Error,
@@ -2299,8 +2347,9 @@ public sealed class BrowserRunService(
         string? secret, IReadOnlyDictionary<string, string> variables)
     {
         TrackRun(runCorr);
+        TrackFlow(flowId);
         try { await ExecuteFlowTrackedAsync(flowId, tenantId, runCorr, clientId, secret, variables); }
-        finally { UntrackRun(runCorr); }
+        finally { UntrackRun(runCorr); UntrackFlow(flowId); }
     }
 
     private async Task ExecuteFlowTrackedAsync(Guid flowId, Guid tenantId, string runCorr, string clientId,
@@ -2330,12 +2379,14 @@ public sealed class BrowserRunService(
                 if (steps.Any(s => s.Kind == ScrapeStepKind.LeerCorreoOtp))
                 {
                     var notas = new List<string>();
+                    var errores = new List<string>(); // fallos DUROS (FlowStepOutcome)
                     var hechos = 0;
                     foreach (var paso in steps)
                     {
                         StepRunResult r;
+                        var threw = false;
                         try { r = await RunStepNowAsync(flowId, paso.Id, tenantId, CancellationToken.None); }
-                        catch (Exception ex) { r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
+                        catch (Exception ex) { threw = true; r = new StepRunResult(false, false, ex.Message, null, null, 0, 0, 0, ex.Message); }
                         hechos++;
                         ins += r.Inserted; upd += r.Updated; del += r.Deleted;
 
@@ -2353,15 +2404,19 @@ public sealed class BrowserRunService(
                             return;
                         }
                         // Pasos guarda/driver (EXPLORACION/Variable sin filas) devuelven Ok=false de forma
-                        // benigna: se anota y se sigue, igual que el operador en el paso a paso.
-                        if (!r.Ok) { notas.Add(paso.Name); }
+                        // benigna: se anota y se sigue, igual que el operador en el paso a paso. Los fallos
+                        // DUROS (navegacion, allow-list/JS bloqueado, excepcion) dejan la corrida en Error.
+                        if (!r.Ok)
+                        {
+                            if (FlowStepOutcome.IsHardFailure(paso.Kind, r, threw)) { errores.Add(FlowStepOutcome.HardNote(paso.Name, r)); }
+                            else { notas.Add(paso.Name); }
+                        }
                     }
                     // Nota: el paso-bucle de descarga sigue bajando en 2do plano (setTimeouts en el navegador);
                     // la corrida se cierra aqui aunque las descargas continuen unos minutos mas.
-                    var det = $"Flujo ejecutado paso a paso ({hechos} pasos)"
-                        + (notas.Count > 0 ? $"; sin filas en: {string.Join(", ", notas)}" : "") + ".";
-                    await runLog.CloseAsync(runCorr, true, ins, upd, del, det);
-                    log.LogInformation("[NAV-RUN] corr={Corr} OK (stepwise/OTP) pasos={N}", runCorr, hechos);
+                    var det = FlowStepOutcome.Summarize(hechos, errores, notas);
+                    await runLog.CloseAsync(runCorr, errores.Count == 0, ins, upd, del, det);
+                    log.LogInformation("[NAV-RUN] corr={Corr} stepwise/OTP ok={Ok} pasos={N}", runCorr, errores.Count == 0, hechos);
                     return;
                 }
 

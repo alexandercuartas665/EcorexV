@@ -16,11 +16,20 @@ public sealed class AgendaService : IAgendaService
 
     private readonly IApplicationDbContext _db;
     private readonly ITenantContext _tenant;
+    private readonly Func<DateTimeOffset> _ahoraUtc;
 
     public AgendaService(IApplicationDbContext db, ITenantContext tenant)
+        : this(db, tenant, () => DateTimeOffset.UtcNow)
+    {
+    }
+
+    /// <summary>Constructor con reloj inyectable (pruebas), igual que <see cref="AgendaTurnosService"/>: fija el "hoy"
+    /// del tenant que usan la ocupacion y el candado de "turnos proximos" al quitar un recurso.</summary>
+    public AgendaService(IApplicationDbContext db, ITenantContext tenant, Func<DateTimeOffset> ahoraUtc)
     {
         _db = db;
         _tenant = tenant;
+        _ahoraUtc = ahoraUtc;
     }
 
     private Guid TenantId => _tenant.TenantId ?? Guid.Empty;
@@ -731,7 +740,7 @@ public sealed class AgendaService : IAgendaService
         {
             tz = TimeZoneInfo.CreateCustomTimeZone("COT", TimeSpan.FromHours(-5), "COT", "COT");
         }
-        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, tz).DateTime);
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(_ahoraUtc(), tz).DateTime);
     }
 
     private static void MarcarBorrado(Ecorex.Domain.Common.ISoftDeletable e)

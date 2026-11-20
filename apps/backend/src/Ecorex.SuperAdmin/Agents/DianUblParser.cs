@@ -8,7 +8,8 @@ namespace Ecorex.SuperAdmin.Agents;
 public sealed record DianDoc(
     string Cufe, string TipoDoc, DateTimeOffset Fecha, string NitEmisor, string NombreEmisor,
     string NumFactura, decimal SubtotalBruto, decimal Descuento, decimal SubtotalNeto, decimal Iva,
-    decimal TotalAntesRet, decimal Retefuente, decimal ReteIca, decimal Total, string TipoPago);
+    decimal TotalAntesRet, decimal Retefuente, decimal ReteIca, decimal Total, string TipoPago,
+    string OrdenCompra = "");
 
 /// <summary>
 /// Parser TOLERANTE de la factura electronica DIAN (UBL 2.1). Trabaja por <c>local-name</c> (ignora
@@ -117,8 +118,66 @@ public static class DianUblParser
 
         var subtotalNeto = lineExt - descuento;
         return new DianDoc(cufe, tipoDoc, fecha, nit, nombre, numFactura, lineExt, descuento, subtotalNeto,
-            iva, Math.Round(subtotalNeto + iva, 2), retefuente, reteica, total, pago);
+            iva, Math.Round(subtotalNeto + iva, 2), retefuente, reteica, total, pago, OrdenCompra(root));
     }
+
+    // Orden de compra que el proveedor cita en la factura. 1) cac:OrderReference/cbc:ID (UBL estandar),
+    // TAL CUAL la manda el proveedor (aunque no tenga el formato OMP de SOLDARCO). 2) Si no viene, se busca
+    // una orden OMP dentro de las notas (ej. "ORDEN DE COMPRA OMP.0012356") y se normaliza a OMP0012356.
+    private static readonly System.Text.RegularExpressions.Regex OmpEnNota = new(
+        @"\bOMP[\s.\-]*(\d{4,})", System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static string OrdenCompra(XElement root)
+    {
+        foreach (var orf in Descendants(root, "OrderReference"))
+        {
+            var id = DirectChild(orf, "ID")?.Value.Trim();
+            if (!string.IsNullOrEmpty(id)) { return Recortar(id); }
+        }
+        foreach (var note in Descendants(root, "Note"))
+        {
+            var m = OmpEnNota.Match(note.Value);
+            if (m.Success) { return "OMP" + m.Groups[1].Value; }
+        }
+        return "";
+    }
+
+    /// <summary>
+    /// ADR-0191: texto libre del documento para que el asistente de IA busque un dato (p. ej. la orden de compra mal
+    /// escrita): notas (cbc:Note), referencias de orden y de documentos (OrderReference / AdditionalDocumentReference /
+    /// DespatchDocumentReference) y descripciones de los items. Espacios colapsados y recortado a <paramref name="max"/>
+    /// caracteres para controlar el consumo. Vacio si el XML no se puede leer.
+    /// </summary>
+    public static string TextoParaIa(string xml, int max = 1500)
+    {
+        XElement? root;
+        try { root = XDocument.Parse(xml).Root; } catch { return ""; }
+        if (root is null) { return ""; }
+        root = Unwrap(root);
+
+        var partes = new List<string>();
+        foreach (var n in Descendants(root, "Note")) { partes.Add("Nota: " + n.Value); }
+        foreach (var refName in new[] { "OrderReference", "AdditionalDocumentReference", "DespatchDocumentReference" })
+        {
+            foreach (var r in Descendants(root, refName))
+            {
+                var id = DirectChild(r, "ID")?.Value;
+                if (!string.IsNullOrWhiteSpace(id)) { partes.Add(refName + ": " + id); }
+            }
+        }
+        foreach (var item in Descendants(root, "Item").Take(15))
+        {
+            var d = DirectChild(item, "Description")?.Value;
+            if (!string.IsNullOrWhiteSpace(d)) { partes.Add("Item: " + d); }
+        }
+        var texto = System.Text.RegularExpressions.Regex.Replace(string.Join(" | ", partes), @"\s+", " ").Trim();
+        return texto.Length <= max ? texto : texto[..max];
+    }
+
+    // La columna del renglon es texto libre; se acota al largo de bot_dummies.id_compra y de
+    // conciliacion_dian_renglones.orden_compra_soldarco (HasMaxLength(80)) para que el guardado nunca falle.
+    private static string Recortar(string v) => v.Length <= 80 ? v : v[..80];
 
     // ---- helpers (local-name) ----
     private static XElement Unwrap(XElement root)

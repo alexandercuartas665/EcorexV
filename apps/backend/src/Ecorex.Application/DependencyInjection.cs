@@ -75,6 +75,16 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IQuoteTemplateService, Tenancy.QuoteTemplateService>();
         // Plantillas de correo del motor de acciones por filtro (ADR-0056, paso E-mail).
         services.AddScoped<Gestor.IEmailTemplateService, Gestor.EmailTemplateService>();
+        // Agente editor de plantillas + bajas de correo + firma por usuario (ADR-0175).
+        services.AddScoped<Gestor.IEmailUnsubscribeService, Gestor.EmailUnsubscribeService>();
+        services.AddScoped<Gestor.IEmailDeliveryEventService, Gestor.EmailDeliveryEventService>();
+        // Marca de correo del tenant (ADR-0177): logo, colores, estilo por defecto y datos del pie.
+        services.AddScoped<Gestor.IEmailBrandService, Gestor.EmailBrandService>();
+        services.AddScoped<Gestor.IUserSignatureService, Gestor.UserSignatureService>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.EmailTemplateAgentToolset>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateAgentToolset, Gestor.TemplateAgent.WhatsAppTemplateAgentToolset>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateSnapshotService, Gestor.TemplateAgent.TemplateSnapshotService>();
+        services.AddScoped<Gestor.TemplateAgent.ITemplateAgentChatService, Gestor.TemplateAgent.TemplateAgentChatService>();
         services.AddScoped<Tenancy.ITemplateAssetService, Tenancy.TemplateAssetService>();
         services.AddScoped<Tenancy.IQuoteRenderService, Tenancy.QuoteRenderService>();
         // Broadcaster por defecto (no-op); la app host con SignalR lo reemplaza.
@@ -344,6 +354,8 @@ public static class DependencyInjection
         services.AddScoped<Mcp.ITableroMcpToolset, Mcp.TableroMcpToolset>();
         // ADR-0164: MCP de WhatsApp por linea Evolution (token personal mcp:whatsapp).
         services.AddScoped<Mcp.IWhatsAppMcpToolset, Mcp.WhatsAppMcpToolset>();
+        // ADR-0182: el MCP de MAQUETAS se registra en Ecorex.SuperAdmin/Program.cs junto a IMockupService e
+        // IMockupBrainService (sus dependencias viven solo en ese host; registrarlo aqui rompia el arranque de Ecorex.Api).
         services.AddScoped<Tenancy.TasksToolset>();
         services.AddScoped<Tenancy.ITasksToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.TasksToolset>());

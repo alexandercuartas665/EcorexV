@@ -22,6 +22,19 @@ public sealed record AgentRunLogEntryDto(DateTimeOffset OccurredAt, AiAgentRunLo
 /// <summary>Conversacion atendida por un agente (para el listado de la bitacora).</summary>
 public sealed record AgentConversationDto(Guid ConversationId, string? ContactName, string ContactPhone, string? LineLabel, DateTimeOffset? LastActivityAt, int Events);
 
+/// <summary>Ola 4 (ADR-0190, opcion A): CONTACTO del riel de la bitacora, agrupando WhatsApp y voz por telefono.
+/// <paramref name="ContactKey"/> es la clave de agrupacion (ultimos 10 digitos del telefono); <paramref name="ConversationId"/>
+/// es la conversacion de WhatsApp de respaldo (si existe) para los botones de reiniciar memoria/liberar; null si el
+/// contacto solo tuvo voz. <paramref name="HasVoice"/> indica que hay al menos una llamada de voz en el historial.</summary>
+public sealed record AgentContactDto(
+    string ContactKey, string? ContactName, string ContactPhone, Guid? ConversationId, string? LineLabel,
+    DateTimeOffset? LastActivityAt, int Events, bool HasVoice);
+
+/// <summary>Ola 4 (ADR-0190): grabacion de una llamada de voz para la pestana "Grabacion de llamadas"
+/// (reproductor + fecha + duracion + estado), desde <see cref="Ecorex.Domain.Entities.VoiceCall.RecordingUrl"/>.</summary>
+public sealed record VoiceRecordingDto(
+    Guid VoiceCallId, string ContactPhone, DateTimeOffset At, int? DurationSeconds, string Status, string RecordingUrl, string? Objetivo);
+
 /// <summary>ADR-0120: conversacion "tomada por el flujo" (un paso vigente de una tarea espera una respuesta por
 /// esta linea). Mientras exista, el agente de la linea (SARA) se calla; el flujo la libera al resolver la salida.</summary>
 public sealed record FlowHeldConversationDto(
@@ -54,6 +67,18 @@ public interface IAiAgentLineService
 
     Task<IReadOnlyList<AgentConversationDto>> ListAttendedConversationsAsync(int take = 50, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AgentRunLogEntryDto>> GetConversationLogAsync(Guid conversationId, CancellationToken cancellationToken = default);
+
+    /// <summary>Ola 4 (ADR-0190, opcion A): riel de la bitacora agrupado por CONTACTO (telefono), uniendo las
+    /// entradas de WhatsApp (por conversacion) y las de VOZ (por llamada). Mas recientes primero. Tenant-scoped.</summary>
+    Task<IReadOnlyList<AgentContactDto>> ListAttendedContactsAsync(int take = 50, CancellationToken cancellationToken = default);
+
+    /// <summary>Ola 4: bitacora COMPLETA de un contacto (por su clave de telefono), intercalando WhatsApp y voz,
+    /// ordenada cronologicamente. Tenant-scoped.</summary>
+    Task<IReadOnlyList<AgentRunLogEntryDto>> GetContactLogAsync(string contactKey, CancellationToken cancellationToken = default);
+
+    /// <summary>Ola 4: grabaciones de llamadas de voz del tenant (las que tienen RecordingUrl), mas recientes
+    /// primero, para la pestana "Grabacion de llamadas". Tenant-scoped.</summary>
+    Task<IReadOnlyList<VoiceRecordingDto>> ListVoiceRecordingsAsync(int take = 100, CancellationToken cancellationToken = default);
 
     /// <summary>ADR-0120: conversaciones "tomadas por el flujo" ahora mismo (un paso vigente espera respuesta por
     /// WhatsApp). Es la lista visible de "esta linea atiende el flujo de la tarea X"; se vacia sola cuando el
@@ -167,9 +192,12 @@ public sealed class AiAgentLineService : IAiAgentLineService
 
     public async Task<IReadOnlyList<AgentConversationDto>> ListAttendedConversationsAsync(int take = 50, CancellationToken cancellationToken = default)
     {
-        // Conversaciones que tienen actividad de bitacora, mas recientes primero.
+        // Conversaciones de WhatsApp que tienen actividad de bitacora, mas recientes primero. (Esta vista legacy
+        // la consume el API de agentes/MCP; es solo WhatsApp. El riel humano usa ListAttendedContactsAsync, que
+        // ademas intercala voz.) Ola 4: se excluyen las entradas de voz (ConversationId null).
         var grouped = await _db.AiAgentRunLogs.AsNoTracking()
-            .GroupBy(l => l.ConversationId)
+            .Where(l => l.ConversationId != null)
+            .GroupBy(l => l.ConversationId!.Value)
             .Select(g => new { ConversationId = g.Key, Last = g.Max(x => x.OccurredAt), Events = g.Count() })
             .OrderByDescending(g => g.Last)
             .Take(take)
@@ -196,18 +224,146 @@ public sealed class AiAgentLineService : IAiAgentLineService
             .Select(l => new AgentRunLogEntryDto(l.OccurredAt, l.Kind, l.Title, l.Content, l.Response))
             .ToListAsync(cancellationToken);
 
+    /// <summary>Clave de contacto para agrupar WhatsApp y voz: ultimos 10 digitos del telefono (empareja +57XXXXXXXXXX
+    /// con el local XXXXXXXXXX). Vacio si no hay digitos.</summary>
+    private static string ContactKey(string? phone)
+    {
+        var digits = new string((phone ?? string.Empty).Where(char.IsDigit).ToArray());
+        return digits.Length > 10 ? digits[^10..] : digits;
+    }
+
+    public async Task<IReadOnlyList<AgentContactDto>> ListAttendedContactsAsync(int take = 50, CancellationToken cancellationToken = default)
+    {
+        // Agregados de bitacora por los DOS origenes: WhatsApp (por conversacion) y voz (por llamada).
+        var waGroups = await _db.AiAgentRunLogs.AsNoTracking()
+            .Where(l => l.ConversationId != null)
+            .GroupBy(l => l.ConversationId!.Value)
+            .Select(g => new { Id = g.Key, Last = g.Max(x => x.OccurredAt), Events = g.Count() })
+            .ToListAsync(cancellationToken);
+        var voiceGroups = await _db.AiAgentRunLogs.AsNoTracking()
+            .Where(l => l.VoiceCallId != null)
+            .GroupBy(l => l.VoiceCallId!.Value)
+            .Select(g => new { Id = g.Key, Last = g.Max(x => x.OccurredAt), Events = g.Count() })
+            .ToListAsync(cancellationToken);
+        if (waGroups.Count == 0 && voiceGroups.Count == 0) { return Array.Empty<AgentContactDto>(); }
+
+        var convIds = waGroups.Select(g => g.Id).ToList();
+        var convs = await _db.Conversations.AsNoTracking().Where(c => convIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.ContactName, c.ContactPhone, c.WhatsAppLineId, c.LastMessageAt }).ToListAsync(cancellationToken);
+        var callIds = voiceGroups.Select(g => g.Id).ToList();
+        var calls = await _db.VoiceCalls.AsNoTracking().Where(v => callIds.Contains(v.Id))
+            .Select(v => new { v.Id, v.ToNumber }).ToListAsync(cancellationToken);
+        var lineLabels = await _db.WhatsAppLines.AsNoTracking()
+            .ToDictionaryAsync(l => l.Id, l => string.IsNullOrWhiteSpace(l.PhoneNumber) ? l.InstanceName : l.PhoneNumber!, cancellationToken);
+
+        // Buckets por contacto (clave = telefono normalizado). Cada bucket junta WhatsApp + voz del mismo numero.
+        var buckets = new Dictionary<string, AgentContactAccum>(StringComparer.Ordinal);
+        AgentContactAccum Bucket(string key)
+        {
+            if (!buckets.TryGetValue(key, out var b)) { b = new AgentContactAccum(); buckets[key] = b; }
+            return b;
+        }
+
+        foreach (var g in waGroups)
+        {
+            var c = convs.FirstOrDefault(x => x.Id == g.Id);
+            if (c is null) { continue; }
+            var key = ContactKey(c.ContactPhone);
+            if (key.Length == 0) { continue; }
+            var b = Bucket(key);
+            b.Events += g.Events;
+            if (b.Last is null || g.Last > b.Last) { b.Last = g.Last; }
+            b.Phone ??= c.ContactPhone;
+            if (string.IsNullOrWhiteSpace(b.Name) && !string.IsNullOrWhiteSpace(c.ContactName)) { b.Name = c.ContactName; }
+            // Conversacion de respaldo = la mas reciente (para reiniciar memoria/liberar).
+            if (b.ConversationId is null || (c.LastMessageAt is not null && (b.ConvLastAt is null || c.LastMessageAt > b.ConvLastAt)))
+            {
+                b.ConversationId = c.Id;
+                b.ConvLastAt = c.LastMessageAt;
+                if (c.WhatsAppLineId is Guid lid && lineLabels.TryGetValue(lid, out var lbl)) { b.LineLabel = lbl; }
+            }
+        }
+        foreach (var g in voiceGroups)
+        {
+            var v = calls.FirstOrDefault(x => x.Id == g.Id);
+            if (v is null) { continue; }
+            var key = ContactKey(v.ToNumber);
+            if (key.Length == 0) { continue; }
+            var b = Bucket(key);
+            b.Events += g.Events;
+            if (b.Last is null || g.Last > b.Last) { b.Last = g.Last; }
+            b.Phone ??= v.ToNumber;
+            b.HasVoice = true;
+        }
+
+        return buckets
+            .Select(kv => new AgentContactDto(
+                kv.Key, kv.Value.Name, kv.Value.Phone ?? kv.Key, kv.Value.ConversationId, kv.Value.LineLabel,
+                kv.Value.Last, kv.Value.Events, kv.Value.HasVoice))
+            .OrderByDescending(d => d.LastActivityAt)
+            .Take(take)
+            .ToList();
+    }
+
+    private sealed class AgentContactAccum
+    {
+        public string? Name;
+        public string? Phone;
+        public Guid? ConversationId;
+        public DateTimeOffset? ConvLastAt;
+        public string? LineLabel;
+        public DateTimeOffset? Last;
+        public int Events;
+        public bool HasVoice;
+    }
+
+    public async Task<IReadOnlyList<AgentRunLogEntryDto>> GetContactLogAsync(string contactKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(contactKey)) { return Array.Empty<AgentRunLogEntryDto>(); }
+        // Conversaciones y llamadas del contacto (tenant-scoped). Se normaliza el telefono en memoria para emparejar
+        // formatos (+57 vs local), igual que el riel; el volumen de la bitacora de un tenant lo admite.
+        var convIds = (await _db.Conversations.AsNoTracking().Select(c => new { c.Id, c.ContactPhone }).ToListAsync(cancellationToken))
+            .Where(c => ContactKey(c.ContactPhone) == contactKey).Select(c => c.Id).ToList();
+        var callIds = (await _db.VoiceCalls.AsNoTracking().Select(v => new { v.Id, v.ToNumber }).ToListAsync(cancellationToken))
+            .Where(v => ContactKey(v.ToNumber) == contactKey).Select(v => v.Id).ToList();
+        if (convIds.Count == 0 && callIds.Count == 0) { return Array.Empty<AgentRunLogEntryDto>(); }
+
+        return await _db.AiAgentRunLogs.AsNoTracking()
+            .Where(l => (l.ConversationId != null && convIds.Contains(l.ConversationId.Value))
+                || (l.VoiceCallId != null && callIds.Contains(l.VoiceCallId.Value)))
+            .OrderBy(l => l.OccurredAt)
+            .Select(l => new AgentRunLogEntryDto(l.OccurredAt, l.Kind, l.Title, l.Content, l.Response))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<VoiceRecordingDto>> ListVoiceRecordingsAsync(int take = 100, CancellationToken cancellationToken = default)
+    {
+        var rows = await _db.VoiceCalls.AsNoTracking()
+            .Where(v => v.RecordingUrl != null && v.RecordingUrl != "")
+            .OrderByDescending(v => v.StartedAt ?? v.CreatedAt)
+            .Take(take)
+            .Select(v => new { v.Id, v.ToNumber, v.StartedAt, v.CreatedAt, v.DurationSeconds, v.Status, v.RecordingUrl, v.Objetivo })
+            .ToListAsync(cancellationToken);
+        return rows.Select(v => new VoiceRecordingDto(
+            v.Id, v.ToNumber, v.StartedAt ?? v.CreatedAt, v.DurationSeconds, v.Status.ToString(), v.RecordingUrl!, v.Objetivo)).ToList();
+    }
+
     public async Task<IReadOnlyList<FlowHeldConversationDto>> ListFlowHeldConversationsAsync(CancellationToken cancellationToken = default)
     {
         // Pasos vigentes que "poseen" una conversacion (preguntaron por WhatsApp y esperan la respuesta). El
         // filtro global por tenant aplica a todas (son TenantEntity). La liberacion es automatica: cuando el
         // agente resuelve la salida, PendingWhatsAppConversationId se limpia y la fila desaparece de esta lista.
+        // Ola 4 (ADR-0190, 4.6b): se parte de la CONVERSACION tomada (FlowHoldStepId), no de PendingWhatsAppConversationId,
+        // para cubrir TAMBIEN el candado de VOZ (un paso de voz estampa el hold en la conversacion del contacto pero su
+        // pending es PendingVoiceCallId, no PendingWhatsAppConversationId). Asi el operador ve y puede soltar ambos.
         var rows = await (
-            from h in _db.WorkflowStepHistories.AsNoTracking()
-            where h.IsCurrent && h.PendingWhatsAppConversationId != null
+            from c in _db.Conversations.AsNoTracking()
+            where c.FlowHoldStepId != null
+            join h in _db.WorkflowStepHistories.AsNoTracking() on c.FlowHoldStepId equals h.Id
+            where h.IsCurrent
             join i in _db.WorkflowInstances.AsNoTracking() on h.InstanceId equals i.Id
             join t in _db.TaskItems.AsNoTracking() on i.TaskItemId equals t.Id
             join n in _db.WorkflowNodes.AsNoTracking() on h.NodeId equals n.Id
-            join c in _db.Conversations.AsNoTracking() on h.PendingWhatsAppConversationId equals c.Id
             select new
             {
                 c.Id,
@@ -331,18 +487,18 @@ public sealed class AiAgentLineService : IAiAgentLineService
     public async Task<int> ReleaseFlowHoldAsync(Guid conversationId, CancellationToken cancellationToken = default)
     {
         if (_tenant.UserId is not Guid actor) { return 0; }
-        // Pasos vigentes que poseen esta conversacion. CancelAsync devuelve el paso a una persona y limpia los
-        // pending (misma via que el "Terminar" del agente), asi que la linea queda libre y SARA retoma.
-        var stepIds = await _db.WorkflowStepHistories.AsNoTracking()
-            .Where(s => s.IsCurrent && s.PendingWhatsAppConversationId == conversationId)
-            .Select(s => s.Id)
-            .ToListAsync(cancellationToken);
-        var released = 0;
-        foreach (var stepId in stepIds)
-        {
-            if (await _agentRunner.CancelAsync(stepId, actor, cancellationToken)) { released++; }
-        }
-        return released;
+        // Ola 4 (ADR-0190): se libera el paso DUENO del hold de esta conversacion (FlowHoldStepId), asi cubre tanto el
+        // hold de WhatsApp como el de VOZ (cuyo pending es PendingVoiceCallId). CancelAsync devuelve el paso a una
+        // persona, limpia los pending y suelta el hold (ReleaseConversationHoldAsync por dueno), asi SARA retoma.
+        var holderStepId = await _db.Conversations.AsNoTracking()
+            .Where(c => c.Id == conversationId)
+            .Select(c => c.FlowHoldStepId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (holderStepId is not Guid stepId) { return 0; }
+        var isCurrent = await _db.WorkflowStepHistories.AsNoTracking()
+            .AnyAsync(s => s.Id == stepId && s.IsCurrent, cancellationToken);
+        if (!isCurrent) { return 0; }
+        return await _agentRunner.CancelAsync(stepId, actor, cancellationToken) ? 1 : 0;
     }
 
     public async Task<(int Logs, int Cache)> ClearAllLogsAsync(CancellationToken cancellationToken = default)

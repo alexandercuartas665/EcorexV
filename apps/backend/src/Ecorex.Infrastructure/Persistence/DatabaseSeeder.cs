@@ -3049,6 +3049,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         // que no habia forma de llegar a el salvo escribiendo la URL.
         Item(act.Id, "Tableros", "tableros", "000635");
         Item(act.Id, "Administrar actividades", "actividades", "000636");
+        // Maquetas (ADR-0180): galeria de proyectos de maqueta + editor de anotaciones; las solicitudes caen como tarjetas.
+        Item(act.Id, "Maquetas", "maqueta");
         Item(act.Id, "Conceptos", "conceptos", "000270");
         // Prioridades, Estados y Tipos de proyecto se unificaron en un solo modulo con CRUD
         // (cards + modal), igual que se hizo con inventarios. Un solo item de menu.
@@ -3118,6 +3120,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(ia.Id, "Conversaciones", "conversaciones");
         Item(ia.Id, "Bitacora del agente", "bitacora-agente");
         Item(ia.Id, "Plantillas WhatsApp", "plantillas-whatsapp");
+        // Backfill idempotente para BD ya sembradas: EnsurePlantillasCorreoMenuItemAsync (v0.16.340).
+        Item(ia.Id, "Plantillas de correo", "plantillas-correo");
         Item(ia.Id, "Configuracion de voz", "config-voz");
 
         // ---- Seccion: CRM (heredado) (slug crm) ----
@@ -3429,6 +3433,167 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
                 State = MenuNodeState.Ready,
                 IsVisible = true,
                 SortOrder = maxSort + 1
+            });
+            added = true;
+        }
+
+        if (added) { await _db.SaveChangesAsync(cancellationToken); }
+    }
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE: asegura el item "Plantillas de correo" (ruta plantillas-correo) justo debajo de
+    /// "Plantillas WhatsApp" en toda vista de menu YA sembrada que tenga ese item (v0.16.340). Se ancla al item de
+    /// WhatsApp y no a la seccion "ia" porque varios tenants lo movieron o renombraron la seccion; las vistas
+    /// recortadas (sin Plantillas WhatsApp) no se tocan. Hereda la visibilidad del item de WhatsApp. Corre en cada
+    /// arranque; no duplica. Los menus NUEVOS ya lo traen via <see cref="EnsureDefaultMenuAsync"/>.
+    /// </summary>
+    public Task EnsurePlantillasCorreoMenuItemAsync(CancellationToken cancellationToken = default)
+        => EnsureMenuItemAfterAsync("plantillas-whatsapp", "plantillas-correo", "Plantillas de correo", cancellationToken);
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE: asegura el item "Maquetas" (ruta maqueta, ADR-0180) justo debajo de "Administrar
+    /// actividades" en toda vista de menu ya sembrada que tenga ese item (v0.16.343), para que cualquier tenant cliente
+    /// encuentre sus maquetas. Hereda la visibilidad del ancla; no duplica. Los menus NUEVOS ya lo traen.
+    /// </summary>
+    public Task EnsureMaquetasMenuItemAsync(CancellationToken cancellationToken = default)
+        => EnsureMenuItemAfterAsync("actividades", "maqueta", "Maquetas", cancellationToken);
+
+    /// <summary>Marca por tenant (TenantConfiguration) de que la plantilla de orden de compra ya se sembro una vez.</summary>
+    public const string OrdenCompraTemplateSeedKey = "seed.plantilla_orden_compra";
+
+    /// <summary>Nombre del grupo de plantillas de documento del modulo de compras.</summary>
+    public const string ComprasTemplateGroupName = "Compras";
+
+    /// <summary>Nombre de la plantilla de documento de la orden de compra (tokens {oc.*}, v0.16.344).</summary>
+    public const string OrdenCompraTemplateName = "Orden de compra";
+
+    private const string ComprasGroupHeaderHtml =
+        "<div style=\"display:flex;align-items:center;gap:16px;border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px\">"
+        + "<img src=\"{empresa.logo}\" style=\"max-height:64px\" /><div>"
+        + "<div style=\"font-size:18px;font-weight:bold\">{empresa.razonsocial}</div>"
+        + "<div style=\"font-size:12px\">NIT {empresa.nit} - {empresa.direccion}, {empresa.ciudad}</div>"
+        + "<div style=\"font-size:12px\">{empresa.telefono} - {empresa.email}</div></div></div>";
+
+    private const string OrdenCompraTemplateHtml =
+        "<h2 style=\"text-align:center;margin:4px 0\">ORDEN DE COMPRA {oc.numero}</h2>"
+        + "<p><b>Fecha:</b> {sistema.fechalarga}</p><p><b>Proveedor:</b> {oc.proveedor}</p>"
+        + "<p>Por medio de la presente se formaliza la orden de compra de los siguientes articulos ({oc.items}):</p>"
+        + "{oc.tabla_html}"
+        + "<p style=\"margin-top:16px;text-align:right\"><b>Total de la orden: {oc.total}</b></p>"
+        + "<p style=\"margin-top:40px\">Autorizado por: ____________________________</p>";
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE (ADR-0189): siembra en cada tenant el grupo de plantillas "Compras" (membrete {empresa.*})
+    /// con la plantilla "Orden de compra" (tokens {oc.*} de v0.16.344), la misma que se valido en ANDINAS. Corre en cada
+    /// arranque (tambien en prod) y cubre los tenants nuevos. UNA sola vez por tenant: deja la marca
+    /// <see cref="OrdenCompraTemplateSeedKey"/> en TenantConfiguration, asi que si el tenant borra o renombra la
+    /// plantilla no se resucita. Si el tenant ya tenia un grupo "Compras" o una plantilla "Orden de compra" no crea
+    /// nada (solo marca). No liga la plantilla a ningun concepto: cada tenant asigna el grupo a su concepto de OC.
+    /// Se omiten los tenants archivados.
+    /// </summary>
+    public async Task EnsureOrdenCompraTemplateAsync(CancellationToken cancellationToken = default)
+    {
+        var tenantIds = await _db.Tenants.IgnoreQueryFilters()
+            .Where(t => t.Status != TenantStatus.Archived)
+            .Select(t => t.Id)
+            .ToListAsync(cancellationToken);
+        var marcados = await _db.TenantConfigurations.IgnoreQueryFilters()
+            .Where(c => c.ConfigKey == OrdenCompraTemplateSeedKey)
+            .Select(c => c.TenantId)
+            .ToListAsync(cancellationToken);
+        var pendientes = tenantIds.Except(marcados).ToList();
+        if (pendientes.Count == 0) { return; }
+
+        var sembrados = 0;
+        foreach (var tenantId in pendientes)
+        {
+            var yaTiene = await _db.DocumentTemplateGroups.IgnoreQueryFilters()
+                    .AnyAsync(g => g.TenantId == tenantId && g.Name == ComprasTemplateGroupName, cancellationToken)
+                || await _db.DocumentTemplates.IgnoreQueryFilters()
+                    .AnyAsync(t => t.TenantId == tenantId && t.Name == OrdenCompraTemplateName, cancellationToken);
+
+            if (!yaTiene)
+            {
+                var maxSort = await _db.DocumentTemplateGroups.IgnoreQueryFilters()
+                    .Where(g => g.TenantId == tenantId)
+                    .Select(g => (int?)g.SortOrder)
+                    .MaxAsync(cancellationToken) ?? 0;
+                var group = new DocumentTemplateGroup
+                {
+                    TenantId = tenantId,
+                    Name = ComprasTemplateGroupName,
+                    Description = "Plantillas del modulo de compras (orden de compra).",
+                    IsActive = true,
+                    SortOrder = maxSort + 10,
+                    HeaderHtml = ComprasGroupHeaderHtml
+                };
+                _db.DocumentTemplateGroups.Add(group);
+                _db.DocumentTemplates.Add(new DocumentTemplate
+                {
+                    TenantId = tenantId,
+                    GroupId = group.Id,
+                    Name = OrdenCompraTemplateName,
+                    HtmlContent = OrdenCompraTemplateHtml,
+                    IsActive = true,
+                    SortOrder = 0
+                });
+                sembrados++;
+            }
+
+            _db.TenantConfigurations.Add(new TenantConfiguration
+            {
+                TenantId = tenantId,
+                ConfigKey = OrdenCompraTemplateSeedKey,
+                ConfigValue = "1"
+            });
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation(
+            "Plantilla de orden de compra (ADR-0189): sembrada en {Sembrados} tenant(s); {Marcados} tenant(s) marcados.",
+            sembrados, pendientes.Count);
+    }
+
+    /// <summary>
+    /// Inserta el item (<paramref name="route"/>, <paramref name="name"/>) inmediatamente despues del item con ruta
+    /// <paramref name="anchorRoute"/> en cada vista de menu que tenga el ancla y aun no tenga la ruta. Abre el hueco
+    /// corriendo los hermanos siguientes y hereda padre y visibilidad del ancla.
+    /// </summary>
+    private async Task EnsureMenuItemAfterAsync(string anchorRoute, string route, string name, CancellationToken cancellationToken)
+    {
+        var anchors = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.Kind == MenuNodeKind.Item && n.Route == anchorRoute)
+            .ToListAsync(cancellationToken);
+
+        var added = false;
+        var handledViews = new HashSet<Guid>();
+        foreach (var anchor in anchors.OrderBy(n => n.SortOrder))
+        {
+            if (!handledViews.Add(anchor.MenuViewId)) { continue; }
+
+            var exists = await _db.MenuNodes.IgnoreQueryFilters()
+                .AnyAsync(n => n.MenuViewId == anchor.MenuViewId && n.Route == route, cancellationToken);
+            if (exists) { continue; }
+
+            // Abre un hueco inmediatamente despues del ancla entre sus hermanos.
+            var siblingsAfter = await _db.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.MenuViewId == anchor.MenuViewId && n.ParentId == anchor.ParentId && n.SortOrder > anchor.SortOrder)
+                .ToListAsync(cancellationToken);
+            foreach (var sibling in siblingsAfter) { sibling.SortOrder += 1; }
+
+            _db.MenuNodes.Add(new MenuNode
+            {
+                TenantId = anchor.TenantId,
+                MenuViewId = anchor.MenuViewId,
+                ParentId = anchor.ParentId,
+                Kind = MenuNodeKind.Item,
+                Name = name,
+                IconKey = null,
+                LegacyCode = null,
+                Route = route,
+                State = MenuNodeState.Ready,
+                IsVisible = anchor.IsVisible,
+                SortOrder = anchor.SortOrder + 1
             });
             added = true;
         }

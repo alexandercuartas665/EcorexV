@@ -14,8 +14,12 @@
   DIAN existente sin OC se completa; nunca pisa una OC escrita a mano/regla; fantasma promovido conserva la suya.
 - PRUEBAS: unitarias DianUblParserOrdenCompra 5/5; integracion dual ConciliacionImportOrdenCompra 2/2 (PG + SQL
   Server). Contra 679 XML reales locales: 67 traen OC (28 formato OMP); ~600 (PEAJES, transporte, FEDEX) no la traen.
-- SIGUIENTE: integrar al tronco + deploy con OK. Punto 3 (rellenar las ~600 ya cargadas releyendo sus XML del blob)
-  requiere OK aparte (escritura en prod). Opcional: OC para fantasmas NEWTON.
+- RELLENO EN PROD (2026-11-19, OK del usuario "solo el relleno", SIN deploy): XML de los ZIP/NEWTON locales + 54
+  XML copiados (solo lectura) del almacenamiento Local del servidor, leidos con el parser nuevo -> 67 CUFE con OC.
+  Una transaccion, solo campos vacios: 57 conciliacion_dian_bot_dummies.id_compra y 67 renglones (57 DIAN + 10
+  fantasmas NEWTON). Prod queda: DIAN 63/606 con OC (26 OMP), NEWTON 10/74. Ids tocados en el scratchpad de la
+  sesion (backfill_result.txt); rollback = volver a '' esos ids.
+- SIGUIENTE: integrar al tronco + deploy con OK (hasta entonces los documentos nuevos siguen llegando sin OC).
 
 ## 2026-11-19 - v0.16.357: agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - DESPLEGADA
 

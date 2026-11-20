@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-20 - v0.16.358: Conciliacion DIAN: la orden de compra de la factura llega a la parrilla (rama feat/dian-orden-compra)
+
+Integracion (sesion dev principal): merge --no-ff de feat/dian-orden-compra (a41e99f2) sobre 02477fab, sin conflictos. Ajuste al integrar: el recorte de la OC en DianUblParser bajo de 100 a 80 caracteres, el largo real de bot_dummies.id_compra y de conciliacion_dian_renglones.orden_compra_soldarco (HasMaxLength(80)); con 100, una OC de 81-100 caracteres habria hecho fallar el guardado.
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes). Pedido del usuario: "no estamos trayendo a la parrilla de
+  conciliacion el campo de orden de compra del proveedor".
+- CAUSA: desde la ingesta real (4-nov) el lector DianUblParser no leia la OC y el paso "Procesar descargas DIAN"
+  guardaba IdCompra = "" fijo. Prod: 600 documentos reales, 0 con OC (solo 6 dummy del 14-oct).
+- HECHO: DianUblParser lee cac:OrderReference/cbc:ID TAL CUAL (decision del usuario: guardar aunque no sea formato
+  OMP, ej. FINKARGO "CO:890322642:1:4:PAG"); si no viene, busca OMP en las notas y normaliza (OMP.0012356 ->
+  OMP0012356). Se guarda en IdCompra (alta y re-proceso). ImportarDesdeBotAsync: renglon nuevo toma la OC; renglon
+  DIAN existente sin OC se completa; nunca pisa una OC escrita a mano/regla; fantasma promovido conserva la suya.
+- PRUEBAS: unitarias DianUblParserOrdenCompra 5/5; integracion dual ConciliacionImportOrdenCompra 2/2 (PG + SQL
+  Server). Contra 679 XML reales locales: 67 traen OC (28 formato OMP); ~600 (PEAJES, transporte, FEDEX) no la traen.
+- RELLENO EN PROD (2026-11-19, OK del usuario "solo el relleno", SIN deploy): XML de los ZIP/NEWTON locales + 54
+  XML copiados (solo lectura) del almacenamiento Local del servidor, leidos con el parser nuevo -> 67 CUFE con OC.
+  Una transaccion, solo campos vacios: 57 conciliacion_dian_bot_dummies.id_compra y 67 renglones (57 DIAN + 10
+  fantasmas NEWTON). Prod queda: DIAN 63/606 con OC (26 OMP), NEWTON 10/74. Ids tocados en el scratchpad de la
+  sesion (backfill_result.txt); rollback = volver a '' esos ids.
+- SIGUIENTE: integrar al tronco + deploy con OK (hasta entonces los documentos nuevos siguen llegando sin OC).
+
 ## 2026-11-19 - v0.16.357: agente de voz, Ola 5 - persona SARA-voz + conducta base de la llamada (ADR-0190) - DESPLEGADA
 
 Integracion (sesion dev principal): fast-forward de f12b8b3f sobre f4a593dc, sin conflictos; version en f8bb7fed. Build 0 errores; unitarias 1624/304/35; format OK; integracion dual 684/750 en la corrida larga (66 fallas solo SqlServer por arranque del contenedor, ~1 ms c/u) y 66/66 al repetir esas 8 clases. Desplegada 2026-11-19 ~18:01 Bogota via GHCR: footer /login v0.16.357, Restarts=0, 0 errores en logs. Pendiente (configuracion, lo decide el usuario): crear/asignar persona SARA-voz en PROD y linea de voz de AGRO en modo COMPUESTO.

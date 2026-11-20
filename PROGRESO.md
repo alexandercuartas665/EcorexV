@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-20 - v0.16.360: Galeria de reportes con boton Configurar, tuerca por reporte y categorias (ADR-0192) - rama feat/reportes-galeria-config
+## 2026-11-20 - v0.16.360: Galeria de reportes con boton Configurar, tuerca por reporte y categorias (ADR-0192) - rama feat/reportes-galeria-config - DESPLEGADA
+
+Integracion y deploy (sesion dev principal): merge --no-ff sobre 1e3bd74a sin conflictos (01db3d58). Build Release 0 errores; unitarias 1633/311/35; Integration.Tests duales Report* + TenantIsolation 46/46. Deploy 2026-11-20 ~13:00 Bogota via GHCR (el usuario autorizo sin esperar ventana DRON; corre el DRON a mano): footer /login v0.16.360, Restarts=0, 0 errores en logs; migracion 20261120155025_AddReportCategory aplicada (report_definitions.category varchar(80)).
 
 Agente: sesion dev principal (ECOREX.desarrollo).
 

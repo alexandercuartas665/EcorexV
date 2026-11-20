@@ -143,6 +143,38 @@ public static class DianUblParser
         return "";
     }
 
+    /// <summary>
+    /// ADR-0191: texto libre del documento para que el asistente de IA busque un dato (p. ej. la orden de compra mal
+    /// escrita): notas (cbc:Note), referencias de orden y de documentos (OrderReference / AdditionalDocumentReference /
+    /// DespatchDocumentReference) y descripciones de los items. Espacios colapsados y recortado a <paramref name="max"/>
+    /// caracteres para controlar el consumo. Vacio si el XML no se puede leer.
+    /// </summary>
+    public static string TextoParaIa(string xml, int max = 1500)
+    {
+        XElement? root;
+        try { root = XDocument.Parse(xml).Root; } catch { return ""; }
+        if (root is null) { return ""; }
+        root = Unwrap(root);
+
+        var partes = new List<string>();
+        foreach (var n in Descendants(root, "Note")) { partes.Add("Nota: " + n.Value); }
+        foreach (var refName in new[] { "OrderReference", "AdditionalDocumentReference", "DespatchDocumentReference" })
+        {
+            foreach (var r in Descendants(root, refName))
+            {
+                var id = DirectChild(r, "ID")?.Value;
+                if (!string.IsNullOrWhiteSpace(id)) { partes.Add(refName + ": " + id); }
+            }
+        }
+        foreach (var item in Descendants(root, "Item").Take(15))
+        {
+            var d = DirectChild(item, "Description")?.Value;
+            if (!string.IsNullOrWhiteSpace(d)) { partes.Add("Item: " + d); }
+        }
+        var texto = System.Text.RegularExpressions.Regex.Replace(string.Join(" | ", partes), @"\s+", " ").Trim();
+        return texto.Length <= max ? texto : texto[..max];
+    }
+
     // La columna del renglon es texto libre; se acota al largo de bot_dummies.id_compra y de
     // conciliacion_dian_renglones.orden_compra_soldarco (HasMaxLength(80)) para que el guardado nunca falle.
     private static string Recortar(string v) => v.Length <= 80 ? v : v[..80];

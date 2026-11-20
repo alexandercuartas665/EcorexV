@@ -1388,7 +1388,7 @@ else
 
                     @* ---- Reglas por proveedor: la instruccion (prompt) con la que el asistente elige la ruta de flujo ---- *@
                     <div class="cd-muted" style="margin:12px 0 2px; font-weight:800; color:var(--ink,#111827);">Reglas por proveedor</div>
-                    <div class="cd-muted" style="font-size:12px; margin-bottom:6px;">Por cada proveedor escribi la instruccion que usara el asistente para validar los datos del documento (NIT, concepto, valores) y elegir la ruta de flujo (salida). Aun NO se cablea la IA: esto es solo la configuracion.</div>
+                    <div class="cd-muted" style="font-size:12px; margin-bottom:6px;">Por cada proveedor (o <b>*</b> para todos) escribi la instruccion con la que el asistente decide la ruta de flujo (usuario y salida) y, si quieres, que campo debe extraer del documento. Todo se resuelve en la misma consulta de «Analizar con IA» y nada se escribe hasta que confirmas.</div>
                     <datalist id="cd-prov-sug">
                         @foreach (var p in ProveedoresSugeridos())
                         {
@@ -1406,7 +1406,7 @@ else
                             <div class="cd-rule-grid">
                                 <div class="cd-rule-row">
                                     <label class="cd-rule-lbl">Proveedor</label>
-                                    <input class="cd-in" style="flex:1" list="cd-prov-sug" value="@rg.Proveedor" @onchange="e => rg.Proveedor = e.Value?.ToString() ?? string.Empty" placeholder="NIT o nombre del proveedor" />
+                                    <input class="cd-in" style="flex:1" list="cd-prov-sug" value="@rg.Proveedor" @onchange="e => rg.Proveedor = e.Value?.ToString() ?? string.Empty" placeholder="NIT o nombre del proveedor (* = todos)" />
                                     <button type="button" class="cd-ic cd-ic-del" @onclick="() => _asisReglas.RemoveAt(ridx)" title="Quitar regla">&times;</button>
                                 </div>
                                 <div class="cd-rule-row" style="align-items:flex-start;">
@@ -1433,6 +1433,61 @@ else
                                         }
                                     </select>
                                 </div>
+                                @* ---- ADR-0191: extraer un campo del documento (IA propone, el sistema valida contra un contenedor) ---- *@
+                                <div class="cd-rule-row">
+                                    <label style="display:flex; gap:6px; align-items:center; font-size:12.5px; cursor:pointer;">
+                                        <input type="checkbox" checked="@rg.ExOn" @onchange="e => rg.ExOn = e.Value is bool b && b" />
+                                        Extraer un campo del documento (la IA busca el valor en las notas/items y el sistema lo valida contra un contenedor)
+                                    </label>
+                                </div>
+                                @if (rg.ExOn)
+                                {
+                                    var exCols = rg.ExContainerId is Guid exc ? ColsDe(exc) : Array.Empty<string>();
+                                    <div class="cd-rule-row">
+                                        <label class="cd-rule-lbl">Campo a llenar</label>
+                                        <select class="cd-in" style="flex:1" @onchange='e => rg.ExTarget = e.Value?.ToString() ?? "oc"'>
+                                            @foreach (var t in ExTargets())
+                                            {
+                                                <option value="@t.Key" selected="@(rg.ExTarget == t.Key)">@t.Label</option>
+                                            }
+                                        </select>
+                                        <label class="cd-rule-lbl">Prefijos validos</label>
+                                        <input class="cd-in" style="flex:1" value="@rg.ExPrefijos" @onchange="e => rg.ExPrefijos = e.Value?.ToString() ?? string.Empty" placeholder="Ej: OMP, OSE (vacio = cualquiera)" title="Si el proveedor escribio solo el numero, se busca por numero dentro de estos prefijos" />
+                                    </div>
+                                    <div class="cd-rule-row" style="align-items:flex-start;">
+                                        <label class="cd-rule-lbl" style="padding-top:6px;">Que extraer</label>
+                                        <textarea class="cd-in" style="flex:1; min-height:56px; resize:vertical;" @onchange="e => rg.ExInstruccion = e.Value?.ToString() ?? string.Empty"
+                                                  placeholder="Ej: busca en las observaciones el codigo de la orden de compra (OMP0012345). Puede venir sin prefijo o con espacios/puntos; devuelve todos los numeros que puedan ser la orden.">@rg.ExInstruccion</textarea>
+                                    </div>
+                                    <div class="cd-rule-row">
+                                        <label class="cd-rule-lbl">Validar en contenedor</label>
+                                        <select class="cd-in" style="flex:1" @onchange="e => { rg.ExContainerId = Guid.TryParse(e.Value?.ToString(), out var gc) ? gc : null; rg.ExSearchCol = string.Empty; rg.ExReturnCol = string.Empty; }">
+                                            <option value="" selected="@(rg.ExContainerId is null)">&mdash; Elegir contenedor &mdash;</option>
+                                            @foreach (var c in _contenedores.Where(c => !ConciliacionRuleSources.IsBuiltIn(c.ContainerId)))
+                                            {
+                                                <option value="@c.ContainerId" selected="@(rg.ExContainerId == c.ContainerId)">@c.Label</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="cd-rule-row">
+                                        <label class="cd-rule-lbl">Buscar en columna</label>
+                                        <select class="cd-in" style="flex:1" @onchange="e => rg.ExSearchCol = e.Value?.ToString() ?? string.Empty">
+                                            <option value="" selected="@(rg.ExSearchCol.Length == 0)">&mdash; Columna &mdash;</option>
+                                            @foreach (var col in exCols)
+                                            {
+                                                <option value="@col" selected="@(rg.ExSearchCol == col)">@col</option>
+                                            }
+                                        </select>
+                                        <label class="cd-rule-lbl">Valor a escribir</label>
+                                        <select class="cd-in" style="flex:1" @onchange="e => rg.ExReturnCol = e.Value?.ToString() ?? string.Empty">
+                                            <option value="" selected="@(rg.ExReturnCol.Length == 0)">&mdash; Columna &mdash;</option>
+                                            @foreach (var col in exCols)
+                                            {
+                                                <option value="@col" selected="@(rg.ExReturnCol == col)">@col</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
                             </div>
                         </div>
                     }
@@ -1749,7 +1804,7 @@ else
             <div class="cd-doc-head">
                 <div class="cd-doc-title">
                     <div class="cd-doc-title-main">Propuestas del asistente de IA</div>
-                    <div class="cd-doc-title-sub">El agente evaluo las reglas por proveedor. Revisa y marca cuales crear; la tarea se crea solo al confirmar.</div>
+                    <div class="cd-doc-title-sub">El agente evaluo las reglas por proveedor y extrajo los campos configurados (validados contra el contenedor). Revisa y marca; nada se escribe ni se crea hasta confirmar.</div>
                 </div>
                 <button class="cd-doc-close" title="Cerrar" @onclick="() => _iaPropOpen = false">&times;</button>
             </div>
@@ -1769,13 +1824,17 @@ else
                                 <th>Resultado</th>
                                 <th>Usuario</th>
                                 <th>Salida (ruta)</th>
+                                @if (_iaProps.Any(x => x.ExTarget is not null))
+                                {
+                                    <th>Campo extraido</th>
+                                }
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var p in _iaProps)
                             {
                                 var prop = p;
-                                <tr class="@(prop.Estado == "ok" ? "" : "cd-ia-off")">
+                                <tr class="@(prop.Estado == "ok" || prop.EstadoCampo is "validada" or "varias" ? "" : "cd-ia-off")">
                                     <td><input type="checkbox" checked="@prop.Incluir" disabled="@(prop.Estado != "ok")" @onchange="e => prop.Incluir = (e.Value is bool b && b)" /></td>
                                     <td>@prop.Factura</td>
                                     <td title="@prop.Proveedor">@prop.Proveedor</td>
@@ -1793,6 +1852,10 @@ else
                                         {
                                             <span class="cd-ia-badge ok">Tarea creada</span>
                                         }
+                                        else if (prop.Estado == "no-aplica")
+                                        {
+                                            <span class="cd-muted" title="Ya tiene tarea o no hay regla de asignacion para este proveedor">—</span>
+                                        }
                                         else
                                         {
                                             <span class="cd-ia-badge warn">@(prop.Estado == "sin-usuario" ? "Falta usuario en la regla" : "Falta salida en la regla")</span>
@@ -1800,6 +1863,52 @@ else
                                     </td>
                                     <td>@(prop.UserId is Guid uu ? UserNameById(uu) : "—")</td>
                                     <td>@(_salidasRun.FirstOrDefault(s => s.Id == prop.SalidaId)?.Nombre ?? "—")</td>
+                                    @if (_iaProps.Any(x => x.ExTarget is not null))
+                                    {
+                                        <td>
+                                            @if (prop.ExTarget is null)
+                                            {
+                                                <span class="cd-muted">—</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="cd-muted" style="font-size:11px;" title="Lo que la IA encontro en el texto del documento">@ExTargetLabel(prop.ExTarget)@(prop.Hallazgos.Count > 0 ? " · leido: " + string.Join(", ", prop.Hallazgos) : "")</div>
+                                                @switch (prop.EstadoCampo)
+                                                {
+                                                    case "validada":
+                                                        <label style="display:flex; gap:6px; align-items:center;" title="Encontrada por la IA y validada en el contenedor">
+                                                            <input type="checkbox" checked="@prop.AplicarCampo" @onchange="e => prop.AplicarCampo = (e.Value is bool b && b)" />
+                                                            <span class="cd-ia-badge ok">@prop.ValorElegido</span>
+                                                        </label>
+                                                        break;
+                                                    case "varias":
+                                                        <select class="cd-in" style="min-width:150px;" title="Varias coincidencias en el contenedor: elige la correcta" @onchange="e => ElegirValorCampo(prop, e.Value?.ToString())">
+                                                            <option value="" selected="@(prop.ValorElegido is null)">Elegir (@prop.Coincidencias.Count)...</option>
+                                                            @foreach (var c in prop.Coincidencias)
+                                                            {
+                                                                <option value="@c" selected="@(prop.ValorElegido == c)">@c</option>
+                                                            }
+                                                        </select>
+                                                        break;
+                                                    case "aplicada":
+                                                        <span class="cd-ia-badge ok">Escrita: @prop.ValorElegido</span>
+                                                        break;
+                                                    case "ocupado":
+                                                        <span class="cd-ia-badge warn">El campo ya tenia valor</span>
+                                                        break;
+                                                    case "no-existe":
+                                                        <span class="cd-ia-badge warn" title="La IA encontro estos valores pero no existen en el contenedor">No existe: @string.Join(", ", prop.Hallazgos)</span>
+                                                        break;
+                                                    case "sin-texto":
+                                                        <span class="cd-ia-badge no">Sin XML guardado</span>
+                                                        break;
+                                                    default:
+                                                        <span class="cd-ia-badge no">No encontrado</span>
+                                                        break;
+                                                }
+                                            }
+                                        </td>
+                                    }
                                 </tr>
                             }
                         </tbody>
@@ -1811,10 +1920,10 @@ else
                 }
             </div>
             <div class="cd-rules-foot">
-                <span class="cd-muted">@_iaProps.Count(p => p.Incluir) de @_iaProps.Count seleccionada(s) para crear.</span>
+                <span class="cd-muted">@_iaProps.Count(p => p.Incluir) tarea(s) y @_iaProps.Count(p => p.AplicarCampo && p.ValorElegido is not null) campo(s) seleccionados.</span>
                 <div style="flex:1"></div>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _iaPropOpen = false" disabled="@_iaBusy">Cerrar</button>
-                <button class="btn btn-primary btn-sm" @onclick="CrearPropuestasAsync" disabled="@(_iaBusy || !_iaProps.Any(p => p.Incluir))">Crear tareas seleccionadas</button>
+                <button class="btn btn-primary btn-sm" @onclick="CrearPropuestasAsync" disabled="@(_iaBusy || !_iaProps.Any(p => p.Incluir || (p.AplicarCampo && p.ValorElegido is not null)))">Aplicar seleccion</button>
             </div>
         </div>
     }
@@ -2073,7 +2182,36 @@ else
     private List<AiAgentDto> _agentes = new();                      // agentes de IA del tenant (tab Asistente)
     private Guid? _asistenteSel;                                    // agente asistente elegido
     // Regla del asistente por proveedor: proveedor (NIT o nombre) + prompt para elegir la ruta de flujo.
-    private sealed class AsisReglaEdit { public Guid Id { get; set; } public string Proveedor { get; set; } = string.Empty; public string Prompt { get; set; } = string.Empty; public Guid? AssignUserId { get; set; } public Guid? SalidaId { get; set; } }
+    private sealed class AsisReglaEdit
+    {
+        public Guid Id { get; set; } public string Proveedor { get; set; } = string.Empty; public string Prompt { get; set; } = string.Empty;
+        public Guid? AssignUserId { get; set; } public Guid? SalidaId { get; set; }
+        // ADR-0191: extraer un campo del documento (la IA propone candidatos; el sistema los valida contra un contenedor)
+        public bool ExOn { get; set; }
+        public string ExTarget { get; set; } = "oc";
+        public string ExInstruccion { get; set; } = string.Empty;
+        public Guid? ExContainerId { get; set; }
+        public string ExSearchCol { get; set; } = string.Empty;
+        public string ExReturnCol { get; set; } = string.Empty;
+        public string ExPrefijos { get; set; } = string.Empty;
+
+        public static AsisReglaEdit From(AsistenteProveedorReglaDto r) => new()
+        {
+            Id = r.Id, Proveedor = r.Proveedor, Prompt = r.Prompt, AssignUserId = r.AssignUserId, SalidaId = r.SalidaId,
+            ExOn = r.Extraer is not null,
+            ExTarget = r.Extraer?.Target ?? "oc",
+            ExInstruccion = r.Extraer?.Instruccion ?? string.Empty,
+            ExContainerId = r.Extraer?.ContainerId,
+            ExSearchCol = r.Extraer?.SearchColumn ?? string.Empty,
+            ExReturnCol = r.Extraer?.ReturnColumn ?? string.Empty,
+            ExPrefijos = r.Extraer?.Prefijos ?? string.Empty,
+        };
+
+        public AsistenteProveedorReglaDto ToDto(string containerLabel) => new(Id, Proveedor, Prompt, AssignUserId, SalidaId,
+            ExOn && ExContainerId is Guid cid
+                ? new AsistenteExtraccionDto(ExTarget, ExInstruccion, cid, containerLabel, ExSearchCol, ExReturnCol, ExPrefijos)
+                : null);
+    }
     private List<AsisReglaEdit> _asisReglas = new();
 
     // ---- Extraccion de datos: flujos (drones) que "Importar del bot" corre, en orden ----
@@ -2196,8 +2334,7 @@ else
             await LoadReglasDataAsync();   // contenedores + _ruleList para la pestaña Reglas
             _agentes = (await AiAgents.ListAsync()).ToList();        // pestaña Asistente de IA
             _asistenteSel = await TaskCfg.GetAsistenteAgentIdAsync();
-            _asisReglas = (await TaskCfg.GetAsistenteReglasAsync())
-                .Select(r => new AsisReglaEdit { Id = r.Id, Proveedor = r.Proveedor, Prompt = r.Prompt, AssignUserId = r.AssignUserId, SalidaId = r.SalidaId }).ToList();
+            _asisReglas = (await TaskCfg.GetAsistenteReglasAsync()).Select(AsisReglaEdit.From).ToList();
             var integ = await TaskCfg.GetIntegracionAsync();   // pestaña Integraciones (API del sistema contable)
             _integs = integ.Integraciones.Select(i => new IntegracionEdit
             {
@@ -2231,11 +2368,13 @@ else
         try
         {
             await TaskCfg.SetAsistenteAgentIdAsync(_asistenteSel);
+            var incompletas = _asisReglas.Count(r => r.ExOn && (r.ExContainerId is null || string.IsNullOrWhiteSpace(r.ExSearchCol) || string.IsNullOrWhiteSpace(r.ExReturnCol)));
             await TaskCfg.SaveAsistenteReglasAsync(_asisReglas
-                .Select(r => new AsistenteProveedorReglaDto(r.Id, r.Proveedor, r.Prompt, r.AssignUserId, r.SalidaId)).ToList());
+                .Select(r => r.ToDto(_contenedores.FirstOrDefault(c => c.ContainerId == r.ExContainerId)?.Label ?? string.Empty)).ToList());
             var nombre = _asistenteSel is Guid a ? _agentes.FirstOrDefault(x => x.Id == a)?.Name : null;
             var n = _asisReglas.Count(r => !string.IsNullOrWhiteSpace(r.Proveedor) || !string.IsNullOrWhiteSpace(r.Prompt));
-            _cfgMsg = (nombre is null ? "Asistente sin agente" : $"Asistente: {nombre}") + $" · {n} regla(s) por proveedor guardada(s).";
+            _cfgMsg = (nombre is null ? "Asistente sin agente" : $"Asistente: {nombre}") + $" · {n} regla(s) por proveedor guardada(s)."
+                + (incompletas > 0 ? $" Ojo: {incompletas} extraccion(es) sin contenedor/columnas no se guardaron (completa contenedor, columna de busqueda y columna a devolver)." : "");
         }
         catch (Exception ex) { _cfgMsg = "Error al guardar el asistente: " + ex.Message; }
         finally { _busy = false; }
@@ -2593,12 +2732,68 @@ else
         public string? Motivo { get; set; }
         public Guid? UserId { get; set; }
         public Guid? SalidaId { get; set; }
-        public string Estado { get; set; } = "sin-regla";   // ok | sin-regla | sin-usuario | sin-salida | creada
+        public string Estado { get; set; } = "sin-regla";   // ok | sin-regla | sin-usuario | sin-salida | creada | no-aplica
         public bool Incluir { get; set; }
+        // ADR-0191: campo extraido (independiente de la asignacion)
+        public string? ExTarget { get; set; }                // oc | numsol | dyn:{key}; null = sin extraccion
+        public List<string> Hallazgos { get; set; } = new(); // candidatos que la IA encontro en el texto
+        public List<string> Coincidencias { get; set; } = new(); // valores que SI existen en el contenedor
+        public string? ValorElegido { get; set; }
+        public string EstadoCampo { get; set; } = "";        // validada | varias | no-existe | sin-hallazgo | sin-texto | aplicada | ocupado
+        public bool AplicarCampo { get; set; }
     }
     private List<IaProp> _iaProps = new();
 
+    // Campos que puede llenar la extraccion: OC, N. factura SISTEMA y campos a medida de texto.
+    private IEnumerable<(string Key, string Label)> ExTargets()
+    {
+        yield return ("oc", "Orden de compra");
+        yield return ("numsol", "N. factura SISTEMA");
+        foreach (var d in _dynDefs.Where(d => d.Type is "Text" or "ReadOnly"))
+        {
+            yield return ("dyn:" + d.FieldKey, d.Label);
+        }
+    }
+    private string ExTargetLabel(string? key) => ExTargets().FirstOrDefault(t => t.Key == key).Label ?? key ?? "";
+
+    /// <summary>Valor actual del campo destino en el renglon (para escribir solo si esta vacio).</summary>
+    private string ValorCampo(ConciliacionDianRenglonDto r, string target)
+    {
+        if (target == "oc") { return r.OrdenCompraSoldarco ?? ""; }
+        if (target == "numsol") { return r.NumFacturaSoldarco ?? ""; }
+        if (target.StartsWith("dyn:", StringComparison.Ordinal))
+        {
+            var d = _dynDefs.FirstOrDefault(x => "dyn:" + x.FieldKey == target);
+            return d is null ? "" : DynVal(r.Id, d.Id);
+        }
+        return "";
+    }
+
+    /// <summary>Texto libre del XML de la factura (notas, referencias, items) para la extraccion. Prefiere el XML de
+    /// la DIAN y cae al del proveedor de facturacion. Vacio si no hay XML guardado.</summary>
+    private async Task<string> TextoDocumentoAsync(ConciliacionDianRenglonDto r)
+    {
+        if (string.IsNullOrWhiteSpace(r.Cufe)) { return ""; }
+        try
+        {
+            var files = await Files.ListAsync("ConciliacionDian", r.Cufe);
+            var xml = files.FirstOrDefault(f => string.Equals(f.Ref2, "DIAN_XML", StringComparison.OrdinalIgnoreCase))
+                      ?? files.FirstOrDefault(f => string.Equals(f.Ref2, "NEWTON_XML", StringComparison.OrdinalIgnoreCase))
+                      ?? files.FirstOrDefault(f => f.FileName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase));
+            if (xml is null) { return ""; }
+            var content = await Files.ReadAsync(xml.Id);
+            if (content is null) { return ""; }
+            return Ecorex.SuperAdmin.Agents.DianUblParser.TextoParaIa(System.Text.Encoding.UTF8.GetString(content.Content));
+        }
+        catch { return ""; }
+    }
+
     private void ToggleAllProps(bool v) { foreach (var p in _iaProps.Where(x => x.Estado == "ok")) { p.Incluir = v; } }
+    private void ElegirValorCampo(IaProp p, string? v)
+    {
+        p.ValorElegido = string.IsNullOrWhiteSpace(v) ? null : v;
+        p.AplicarCampo = p.ValorElegido is not null;
+    }
 
     private async Task AnalizarConIaAsync()
     {
@@ -2608,43 +2803,79 @@ else
         {
             var agentId = await TaskCfg.GetAsistenteAgentIdAsync();
             if (agentId is not Guid aid) { _msg = "Configura primero el agente en «Configuracion → Asistente de IA»."; return; }
-            var reglas = (await TaskCfg.GetAsistenteReglasAsync()).Where(r => !string.IsNullOrWhiteSpace(r.Prompt)).ToList();
-            if (reglas.Count == 0) { _msg = "No hay reglas por proveedor configuradas (Configuracion → Asistente de IA)."; return; }
+            var todas = await TaskCfg.GetAsistenteReglasAsync();
+            var reglas = todas.Where(r => !string.IsNullOrWhiteSpace(r.Prompt)).ToList();
+            var extr = todas.Where(r => r.Extraer is { EsValida: true }).ToList();
+            if (reglas.Count == 0 && extr.Count == 0) { _msg = "No hay reglas por proveedor configuradas (Configuracion → Asistente de IA)."; return; }
             await LoadSalidasRunAsync();   // salidas frescas para resolver la ruta
 
+            static bool EsTodos(AsistenteProveedorReglaDto rg) => (rg.Proveedor ?? string.Empty).Trim() == "*";
             static bool ProvMatch(ConciliacionDianRenglonDto r, AsistenteProveedorReglaDto rg)
             {
                 var p = (rg.Proveedor ?? string.Empty).Trim();
                 if (p.Length == 0) { return false; }
+                if (p == "*") { return true; }   // regla para todos los proveedores
                 var nom = r.NombreProveedor ?? string.Empty;
                 var nit = r.NitProveedor ?? string.Empty;
                 return nom.Contains(p, StringComparison.OrdinalIgnoreCase)
                     || (nit.Length > 0 && nit.Equals(p, StringComparison.OrdinalIgnoreCase))
                     || (nom.Length > 0 && p.Contains(nom, StringComparison.OrdinalIgnoreCase));
             }
+            // Extraccion que aplica a la factura: la del proveedor especifico gana sobre la de "*".
+            AsistenteProveedorReglaDto? ExtrPara(ConciliacionDianRenglonDto r)
+                => extr.FirstOrDefault(x => !EsTodos(x) && ProvMatch(r, x)) ?? extr.FirstOrDefault(EsTodos);
+            bool EvaluaAsignacion(ConciliacionDianRenglonDto r)
+                => r.Origen != OrigenRenglonConciliacionDian.Newton       // fila fantasma no genera tarea
+                   && !_tareaDeRenglon.ContainsKey(r.Id)
+                   && reglas.Any(rg => ProvMatch(r, rg));
+            bool EvaluaExtraccion(ConciliacionDianRenglonDto r)
+                => ExtrPara(r) is { Extraer: { } x } && string.IsNullOrWhiteSpace(ValorCampo(r, x.Target));
 
             var candidatos = _renglones
-                .Where(r => r.Origen != OrigenRenglonConciliacionDian.Newton)   // fila fantasma no genera tarea
-                .Where(r => !_tareaDeRenglon.ContainsKey(r.Id))
-                .Where(r => reglas.Any(rg => ProvMatch(r, rg)))
+                .Where(r => EvaluaAsignacion(r) || EvaluaExtraccion(r))
                 .Take(100)
                 .ToList();
-            if (candidatos.Count == 0) { _msg = "No hay facturas pendientes cuyo proveedor tenga una regla configurada."; return; }
+            if (candidatos.Count == 0) { _msg = "No hay facturas pendientes con regla de asignacion aplicable ni campos por extraer."; return; }
 
-            // Lista de reglas (indice global; estable entre lotes).
+            // Lista de reglas de ASIGNACION (indice global; estable entre lotes).
             var reglasText = new System.Text.StringBuilder();
-            reglasText.AppendLine("REGLAS (indice global; una regla aplica solo a facturas de su mismo proveedor):");
+            reglasText.AppendLine("REGLAS DE ASIGNACION (indice global; una regla aplica solo a facturas de su mismo proveedor; proveedor=\"*\" aplica a todas):");
             for (var k = 0; k < reglas.Count; k++)
             {
                 reglasText.AppendLine($"{k + 1}) proveedor=\"{reglas[k].Proveedor}\" condicion=\"{reglas[k].Prompt}\"");
             }
 
+            // ADR-0191: por cada factura con extraccion, su texto del documento y su validador (uno por regla).
+            var exPorRenglon = new Dictionary<Guid, AsistenteExtraccionDto>();
+            var textoPorRenglon = new Dictionary<Guid, string>();
+            var matchers = new Dictionary<Guid, ExtraccionCampoMatcher>();
+            var nEx = 0;
+            foreach (var r in candidatos.Where(EvaluaExtraccion))
+            {
+                var rg = ExtrPara(r)!;
+                var x = rg.Extraer!;
+                exPorRenglon[r.Id] = x;
+                _iaMsg = $"Leyendo documentos {++nEx}...";
+                StateHasChanged();
+                textoPorRenglon[r.Id] = await TextoDocumentoAsync(r);
+                if (!matchers.ContainsKey(rg.Id))
+                {
+                    matchers[rg.Id] = await Reglas.BuildExtraccionMatcherAsync(x.ContainerId, x.SearchColumn, x.ReturnColumn, x.Prefijos);
+                }
+            }
+            var matcherPorRenglon = candidatos.Where(r => exPorRenglon.ContainsKey(r.Id))
+                .ToDictionary(r => r.Id, r => matchers[ExtrPara(r)!.Id]);
+
             // El PROMPT DEL AGENTE (criterio general que configuro el usuario) va como base y se REFUERZA con el
             // framing de la tarea; las reglas por proveedor (condiciones especificas) viajan en el mensaje de usuario.
             var basePrompt = (await AiAgents.GetAsync(aid))?.Agent.SystemPrompt?.Trim();
-            const string tarea = "Actua como clasificador del conciliador DIAN. Para CADA factura, evalua SOLO las reglas cuyo proveedor coincide (por nombre o NIT) y determina la PRIMERA regla cuya condicion se cumple segun los datos de la factura (incluidos sus campos adicionales). Si ninguna se cumple, usa null. Responde UNICAMENTE con un JSON array, un objeto por factura en el MISMO orden: [{\"f\":<indice_factura>,\"r\":<indice_regla o null>}]. Sin texto fuera del JSON ni markdown.";
+            const string tarea = "Actua como asistente del conciliador DIAN. Para CADA factura haz dos cosas independientes. "
+                + "(1) ASIGNACION: si la factura dice evaluar_reglas=si, evalua SOLO las reglas de asignacion cuyo proveedor coincide (por nombre o NIT; proveedor=\"*\" aplica a todas) y devuelve en r la PRIMERA regla cuya condicion se cumple segun los datos de la factura (incluidos sus campos adicionales); si ninguna se cumple o dice evaluar_reglas=no, r=null. "
+                + "(2) EXTRACCION: si la factura trae extraer=..., sigue su instruccion_extraccion sobre texto_documento y devuelve en v un array con TODOS los valores candidatos tal como aparecen en el texto (maximo 5); si no encuentras nada, v=[]. No inventes valores que no esten en el texto. "
+                + "Responde UNICAMENTE con un JSON array, un objeto por factura en el MISMO orden: [{\"f\":<indice_factura>,\"r\":<indice_regla o null>,\"v\":[\"...\"]}]. Sin texto fuera del JSON ni markdown.";
             var system = string.IsNullOrWhiteSpace(basePrompt) ? tarea : basePrompt + "\n\n---\n" + tarea;
 
+            static string Q(string? s) => (s ?? string.Empty).Replace("\"", "'");
             // Arma la linea de una factura (indice local del lote) incluyendo sus campos EAV con valor.
             string FacturaLinea(int n, ConciliacionDianRenglonDto r)
             {
@@ -2652,12 +2883,18 @@ else
                     .Select(d => (d.Label, Val: DynVal(r.Id, d.Id)))
                     .Where(x => !string.IsNullOrWhiteSpace(x.Val))
                     .Select(x => $"{x.Label}=\"{x.Val}\""));
-                return $"{n}) proveedor=\"{r.NombreProveedor}\" nit={r.NitProveedor} total={r.TotalFactura} subtotal_neto={r.SubtotalNeto} iva={r.IvaDescontable} fecha={r.FechaEmision:yyyy-MM-dd} tipo_doc={r.TipoDocDian} orden_compra={r.OrdenCompraSoldarco} num_factura={r.NumFacturaProveedor}{(dyn.Length > 0 ? " " + dyn : "")}";
+                var linea = $"{n}) evaluar_reglas={(EvaluaAsignacion(r) ? "si" : "no")} proveedor=\"{r.NombreProveedor}\" nit={r.NitProveedor} total={r.TotalFactura} subtotal_neto={r.SubtotalNeto} iva={r.IvaDescontable} fecha={r.FechaEmision:yyyy-MM-dd} tipo_doc={r.TipoDocDian} orden_compra={r.OrdenCompraSoldarco} num_factura={r.NumFacturaProveedor}{(dyn.Length > 0 ? " " + dyn : "")}";
+                if (exPorRenglon.TryGetValue(r.Id, out var x))
+                {
+                    linea += $" extraer=\"{Q(ExTargetLabel(x.Target))}\" instruccion_extraccion=\"{Q(x.Instruccion)}\" texto_documento=\"{Q(textoPorRenglon.GetValueOrDefault(r.Id))}\"";
+                }
+                return linea;
             }
 
             // Procesar en LOTES (prompts mas chicos y confiables). El indice de factura es LOCAL por lote;
-            // el indice de regla es GLOBAL (la lista de reglas es la misma en todos los lotes).
-            const int batchSize = 20;
+            // el indice de regla es GLOBAL (la lista de reglas es la misma en todos los lotes). Con texto de
+            // documento (extraccion) los lotes son mas chicos.
+            var batchSize = exPorRenglon.Count > 0 ? 10 : 20;
             _iaProps = new();
             var soloUna = _salidasRun.Count == 1 ? _salidasRun[0].Id : (Guid?)null;
             var totalLotes = (candidatos.Count + batchSize - 1) / batchSize;
@@ -2669,44 +2906,69 @@ else
                 StateHasChanged();
 
                 var sb = new System.Text.StringBuilder();
-                sb.AppendLine("FACTURAS (evalua cada una contra las reglas de SU proveedor):");
+                sb.AppendLine("FACTURAS:");
                 for (var i = 0; i < lote.Count; i++) { sb.AppendLine(FacturaLinea(i + 1, lote[i])); }
                 sb.AppendLine();
                 sb.Append(reglasText);
 
                 var res = await AiInfer.TestChatAsync(aid, new List<AiChatTurn> { new("user", sb.ToString()) }, systemPromptOverride: system, actorUserId: _actorId);
-                var map = (res.Ok && !string.IsNullOrWhiteSpace(res.Text)) ? ParseIaArray(res.Text!) : new Dictionary<int, int?>();
+                var map = (res.Ok && !string.IsNullOrWhiteSpace(res.Text)) ? ParseIaArray(res.Text!) : new Dictionary<int, (int? R, List<string> V)>();
                 if (!res.Ok) { errores++; }
 
                 for (var i = 0; i < lote.Count; i++)
                 {
                     var r = lote[i];
-                    map.TryGetValue(i + 1, out var ridx);
-                    AsistenteProveedorReglaDto? regla = (ridx is int rk && rk >= 1 && rk <= reglas.Count) ? reglas[rk - 1] : null;
+                    map.TryGetValue(i + 1, out var resp);
                     var prop = new IaProp { RenglonId = r.Id, Factura = r.NumFacturaProveedor ?? string.Empty, Proveedor = r.NombreProveedor ?? string.Empty };
-                    if (regla is null) { prop.Estado = "sin-regla"; }
+
+                    // (1) asignacion
+                    if (!EvaluaAsignacion(r)) { prop.Estado = "no-aplica"; }
                     else
                     {
-                        prop.UserId = regla.AssignUserId ?? r.AssignedTenantUserId;
-                        prop.SalidaId = regla.SalidaId ?? soloUna;
-                        prop.Estado = prop.UserId is null ? "sin-usuario" : prop.SalidaId is null ? "sin-salida" : "ok";
-                        prop.Incluir = prop.Estado == "ok";
+                        AsistenteProveedorReglaDto? regla = (resp.R is int rk && rk >= 1 && rk <= reglas.Count) ? reglas[rk - 1] : null;
+                        if (regla is null) { prop.Estado = "sin-regla"; }
+                        else
+                        {
+                            prop.UserId = regla.AssignUserId ?? r.AssignedTenantUserId;
+                            prop.SalidaId = regla.SalidaId ?? soloUna;
+                            prop.Estado = prop.UserId is null ? "sin-usuario" : prop.SalidaId is null ? "sin-salida" : "ok";
+                            prop.Incluir = prop.Estado == "ok";
+                        }
+                    }
+
+                    // (2) extraccion: la IA propone, el contenedor valida
+                    if (exPorRenglon.TryGetValue(r.Id, out var x))
+                    {
+                        prop.ExTarget = x.Target;
+                        prop.Hallazgos = (resp.V ?? new List<string>()).Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).Distinct().Take(5).ToList();
+                        prop.Coincidencias = matcherPorRenglon[r.Id].Match(prop.Hallazgos).ToList();
+                        if (string.IsNullOrWhiteSpace(textoPorRenglon.GetValueOrDefault(r.Id))) { prop.EstadoCampo = "sin-texto"; }
+                        else if (prop.Hallazgos.Count == 0) { prop.EstadoCampo = "sin-hallazgo"; }
+                        else if (prop.Coincidencias.Count == 0) { prop.EstadoCampo = "no-existe"; }
+                        else if (prop.Coincidencias.Count == 1)
+                        {
+                            prop.EstadoCampo = "validada"; prop.ValorElegido = prop.Coincidencias[0]; prop.AplicarCampo = true;
+                        }
+                        else { prop.EstadoCampo = "varias"; }
                     }
                     _iaProps.Add(prop);
                 }
             }
             var aplican = _iaProps.Count(p => p.Estado == "ok");
-            _iaMsg = $"{candidatos.Count} factura(s) en {totalLotes} lote(s); {aplican} con regla aplicable." + (errores > 0 ? $" ({errores} lote(s) con error de IA.)" : "");
+            var campos = _iaProps.Count(p => p.EstadoCampo is "validada" or "varias");
+            _iaMsg = $"{candidatos.Count} factura(s) en {totalLotes} lote(s); {aplican} con regla de asignacion aplicable"
+                + (exPorRenglon.Count > 0 ? $"; {campos} de {exPorRenglon.Count} con {ExTargetLabel(exPorRenglon.Values.First().Target)} encontrada en el contenedor." : ".")
+                + (errores > 0 ? $" ({errores} lote(s) con error de IA.)" : "");
             _iaPropOpen = true;
         }
         catch (Exception ex) { _msg = "Error en el analisis con IA: " + ex.Message; }
         finally { _iaBusy = false; _busy = false; }
     }
 
-    // Extrae del texto del modelo el mapa indice_factura(1..n) -> indice_regla(1..k) o null.
-    private static Dictionary<int, int?> ParseIaArray(string text)
+    // Extrae del texto del modelo el mapa indice_factura(1..n) -> (indice_regla(1..k) o null, candidatos extraidos).
+    private static Dictionary<int, (int? R, List<string> V)> ParseIaArray(string text)
     {
-        var map = new Dictionary<int, int?>();
+        var map = new Dictionary<int, (int? R, List<string> V)>();
         var a = text.IndexOf('['); var b = text.LastIndexOf(']');
         if (a < 0 || b <= a) { return map; }
         try
@@ -2722,20 +2984,58 @@ else
                 {
                     r = rp.ValueKind == JsonValueKind.Number ? rp.GetInt32() : (int.TryParse(rp.GetString(), out var ri) ? ri : (int?)null);
                 }
-                map[f] = r;
+                var v = new List<string>();
+                if (el.TryGetProperty("v", out var vp))
+                {
+                    if (vp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var x in vp.EnumerateArray())
+                        {
+                            var sv = x.ValueKind == JsonValueKind.String ? x.GetString() : x.ValueKind == JsonValueKind.Number ? x.GetRawText() : null;
+                            if (!string.IsNullOrWhiteSpace(sv)) { v.Add(sv!); }
+                        }
+                    }
+                    else if (vp.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(vp.GetString())) { v.Add(vp.GetString()!); }
+                }
+                map[f] = (r, v);
             }
         }
-        catch { /* respuesta no parseable -> queda sin reglas */ }
+        catch { /* respuesta no parseable -> queda sin reglas ni hallazgos */ }
         return map;
     }
 
+    // Confirma la seleccion del modal: PRIMERO escribe los campos extraidos marcados (solo si el campo sigue vacio
+    // y respetando "no reusar"), y LUEGO crea las tareas marcadas (asi el formulario de la tarea ya sale con el dato).
     private async Task CrearPropuestasAsync()
     {
         if (_iaBusy) { return; }
         _iaBusy = true; _busy = true;
-        var creadas = 0; var fallos = 0;
+        var creadas = 0; var fallos = 0; var escritos = 0; var ocupados = 0;
         try
         {
+            foreach (var p in _iaProps.Where(x => x.AplicarCampo && !string.IsNullOrWhiteSpace(x.ValorElegido) && x.ExTarget is not null).ToList())
+            {
+                var r = _renglones.FirstOrDefault(x => x.Id == p.RenglonId);
+                if (r is null) { fallos++; continue; }
+                var target = p.ExTarget!;
+                var valor = p.ValorElegido!.Trim();
+                if (!string.IsNullOrWhiteSpace(ValorCampo(r, target))) { p.EstadoCampo = "ocupado"; p.AplicarCampo = false; ocupados++; continue; }
+                if (target is "oc" or "numsol")
+                {
+                    if (await IsDupBlockedAsync(r, target, valor)) { p.AplicarCampo = false; fallos++; continue; }
+                    if (target == "oc") { await Svc.UpdateOrdenCompraAsync(r.Id, valor); }
+                    else { await Svc.UpdateNumFacturaSoldarcoAsync(r.Id, valor); }
+                }
+                else
+                {
+                    var d = _dynDefs.FirstOrDefault(x => "dyn:" + x.FieldKey == target);
+                    if (d is null) { fallos++; continue; }
+                    await Fields.SetValueAsync(r.Id, d.Id, valor);
+                }
+                p.EstadoCampo = "aplicada"; p.AplicarCampo = false; escritos++;
+            }
+            if (escritos > 0) { await ReloadAsync(); }   // renglones frescos: la tarea se prellena con el campo nuevo
+
             foreach (var p in _iaProps.Where(x => x.Incluir && x.Estado == "ok").ToList())
             {
                 var r = _renglones.FirstOrDefault(x => x.Id == p.RenglonId);
@@ -2745,11 +3045,13 @@ else
                 var (ok, _) = await CrearTareaCoreAsync(r, salida, uid);
                 if (ok) { creadas++; p.Estado = "creada"; p.Incluir = false; } else { fallos++; }
             }
-            _iaMsg = $"{creadas} tarea(s) creada(s)" + (fallos > 0 ? $", {fallos} con error." : ".");
+            _iaMsg = $"{escritos} campo(s) escrito(s), {creadas} tarea(s) creada(s)"
+                + (ocupados > 0 ? $", {ocupados} campo(s) ya tenian valor (no se pisaron)" : "")
+                + (fallos > 0 ? $", {fallos} con error." : ".");
             _msg = _iaMsg;
             RebuildItems();
         }
-        catch (Exception ex) { _iaMsg = "Error al crear: " + ex.Message; }
+        catch (Exception ex) { _iaMsg = "Error al aplicar: " + ex.Message; }
         finally { _iaBusy = false; _busy = false; }
     }
 

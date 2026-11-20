@@ -2,6 +2,25 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-20 - Conciliacion DIAN: el asistente de IA extrae un campo (OC) del documento y lo valida contra un contenedor (ADR-0191) - rama feat/asistente-extraer-campo, SIN deploy
+
+- AGENTE: Claude Opus 5.5 (sesion ECOREX.agentes). Pedido del usuario: que el agente, ademas de asignar, llene el
+  campo de orden de compra cuando viene en las observaciones y mal escrito (sin prefijo), comparando los posibles
+  numeros contra un contenedor configurable; todo en la misma consulta.
+- DECISIONES (usuario): mostrar y aplicar al confirmar; si hay varias coincidencias, el usuario elige; regla por
+  proveedor + "*" para todos; extraccion independiente de la asignacion.
+- HECHO: AsistenteExtraccionDto en la regla (campo destino, instruccion, contenedor/columna busqueda/columna valor,
+  prefijos validos); DianUblParser.TextoParaIa (notas + referencias + items); ExtraccionCampoMatcher (exacto + por
+  numero dentro de prefijos, min 4 digitos); IConciliacionRuleService.BuildExtraccionMatcherAsync (contexto
+  efimero); "Analizar con IA" envia el texto y recibe {f,r,v}; modal con columna "Campo extraido" y "Aplicar
+  seleccion" (campos primero, solo si vacios y respetando "no reusar"; luego tareas). Sin migracion.
+- PRUEBAS: unitarias ExtraccionCampoMatcher 9/9 + TextoParaIa 2/2; suites Application 1633/1633 y SuperAdmin
+  311/311. E2E local 5263 (SOLDARCO, CCD00002, MECANIZADOS 6 facturas, DeepSeek real): prefijo OMP -> OSE "no
+  existe"; "OMP, OSE" -> 5/6 validadas (descarta PRD0089626); aplicar escribio solo MSEF3011=OSE006876. Estado local
+  restaurado (reglas del asistente identicas al respaldo, OC de prueba vuelta a vacio).
+- SIGUIENTE: integrar al tronco + deploy con OK; en prod configurar la regla (contenedor COMPRA_REFERENCIAS,
+  buscar/escribir REF1, prefijos segun el criterio de compras: OMP u OMP, OSE).
+
 ## 2026-11-20 - v0.16.358: Conciliacion DIAN: la orden de compra de la factura llega a la parrilla (rama feat/dian-orden-compra) - DESPLEGADA
 
 Deploy 2026-11-20 ~04:31 Bogota via GHCR (antes de la Diaria DRON de las 06:00), sin reintentos: footer /login v0.16.358, Restarts=0, 0 errores en logs. Smoke en BD prod (solo lectura): CENTRAL DE SOLDADURAS BTA3124308 -> OMP0012371 y CODINTER FVE826688 -> OMP0012377; 73 de 680 renglones con OC. Tras la proxima Diaria los documentos nuevos deben llegar con OC.

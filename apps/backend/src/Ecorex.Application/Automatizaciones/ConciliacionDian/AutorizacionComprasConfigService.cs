@@ -52,7 +52,27 @@ public sealed record FormContainerOptionDto(Guid Id, string Name);
 /// </summary>
 public sealed record AsistenteProveedorReglaDto(
     Guid Id, string Proveedor, string Prompt,
-    Guid? AssignUserId = null, Guid? SalidaId = null);
+    Guid? AssignUserId = null, Guid? SalidaId = null,
+    AsistenteExtraccionDto? Extraer = null);
+
+/// <summary>
+/// Extraccion de un campo con el asistente (ADR-0191): en la MISMA consulta en que evalua la regla, la IA lee el
+/// texto del documento (notas, referencia de orden, descripcion de items) siguiendo <see cref="Instruccion"/> y
+/// devuelve los valores candidatos; el SISTEMA (no la IA) los valida contra el contenedor <see cref="ContainerId"/>
+/// buscando en <see cref="SearchColumn"/> y propone el valor de <see cref="ReturnColumn"/> para escribirlo en
+/// <see cref="Target"/> (oc | numsol | dyn:{fieldKey}). <see cref="Prefijos"/> = prefijos validos separados por coma
+/// (p. ej. "OMP,OSE") para el match por numero cuando el proveedor omitio el prefijo. Solo se propone; se escribe al
+/// confirmar y solo si el campo esta vacio.
+/// </summary>
+public sealed record AsistenteExtraccionDto(
+    string Target, string Instruccion, Guid ContainerId, string ContainerLabel,
+    string SearchColumn, string ReturnColumn, string Prefijos = "")
+{
+    /// <summary>true si tiene lo minimo para correr (campo destino, contenedor y columnas).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool EsValida => !string.IsNullOrWhiteSpace(Target) && ContainerId != Guid.Empty
+        && !string.IsNullOrWhiteSpace(SearchColumn) && !string.IsNullOrWhiteSpace(ReturnColumn);
+}
 
 /// <summary>
 /// Config de las integraciones con el sistema contable (core VB.NET): al habilitarse, el conciliador puede ENVIAR
@@ -733,7 +753,10 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .Select(r => new AsistenteProveedorReglaDto(
                 r.Id == Guid.Empty ? Guid.CreateVersion7() : r.Id,
                 (r.Proveedor ?? string.Empty).Trim(), (r.Prompt ?? string.Empty).Trim(),
-                r.AssignUserId, r.SalidaId))
+                r.AssignUserId, r.SalidaId,
+                r.Extraer is { EsValida: true } x
+                    ? x with { Instruccion = (x.Instruccion ?? string.Empty).Trim(), Prefijos = (x.Prefijos ?? string.Empty).Trim() }
+                    : null))
             .ToList();
         var json = JsonSerializer.Serialize(clean);
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsistenteReglasKey, ct);

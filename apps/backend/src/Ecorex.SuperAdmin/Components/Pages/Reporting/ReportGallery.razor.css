@@ -52,8 +52,8 @@
 
 .rg-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: 20px;
 }
 
 /* ---- Tarjeta ---- */
@@ -74,24 +74,61 @@
     outline: none;
 }
 
-/* Portada: degradado suave del color del tipo, icono grande y etiqueta. */
+/* Portada: degradado suave del color del tipo, icono grande y etiqueta. Encima pasan "nubes" (dos capas de
+   manchas difusas que se desplazan en loop a distinta velocidad); al pasar el mouse van mas rapido. */
 .rg-cover {
-    position: relative; height: 84px; padding: 14px 16px;
+    position: relative; overflow: hidden; height: 118px; padding: 16px 18px;
     display: flex; align-items: flex-start; justify-content: space-between;
     background:
-        radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--rg-c) 22%, transparent) 0%, transparent 60%),
-        linear-gradient(135deg, color-mix(in srgb, var(--rg-c) 10%, transparent), color-mix(in srgb, var(--rg-c) 3%, transparent));
+        radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--rg-c) 24%, transparent) 0%, transparent 60%),
+        linear-gradient(135deg, color-mix(in srgb, var(--rg-c) 12%, transparent), color-mix(in srgb, var(--rg-c) 4%, transparent));
     border-bottom: 1px solid color-mix(in srgb, var(--rg-c) 12%, transparent);
+}
+.rg-cover::before, .rg-cover::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 200%;
+    pointer-events: none; z-index: 0;
+    background-repeat: repeat-x;
+}
+/* Cada capa mide 200% del ancho y su patron se repite cada 50% (= el ancho de la tarjeta), asi el
+   desplazamiento de -50% cierra el loop sin saltos. Las nubes se ubican dentro de cada tile con "at x y". */
+/* Capa lejana: nubes grandes y tenues del color del tipo, lentas. */
+.rg-cover::before {
+    background-image:
+        radial-gradient(ellipse 22% 42% at 18% 30%, color-mix(in srgb, var(--rg-c) 26%, transparent), transparent 70%),
+        radial-gradient(ellipse 26% 38% at 62% 78%, color-mix(in srgb, var(--rg-c) 20%, transparent), transparent 70%),
+        radial-gradient(ellipse 18% 34% at 88% 18%, color-mix(in srgb, var(--rg-c) 18%, transparent), transparent 70%);
+    background-size: 50% 100%;
+    animation: rg-drift 40s linear infinite;
+}
+/* Capa cercana: nubes blancas mas chicas, un poco mas rapidas. */
+.rg-cover::after {
+    background-image:
+        radial-gradient(ellipse 14% 26% at 30% 82%, rgba(255, 255, 255, .85), transparent 70%),
+        radial-gradient(ellipse 11% 22% at 74% 30%, rgba(255, 255, 255, .7), transparent 70%),
+        radial-gradient(ellipse 9% 18% at 52% 12%, rgba(255, 255, 255, .6), transparent 70%);
+    background-size: 50% 100%;
+    animation: rg-drift 26s linear infinite;
+}
+.rg-card:hover .rg-cover::before { animation-duration: 16s; }
+.rg-card:hover .rg-cover::after { animation-duration: 10s; }
+.rg-cover > * { position: relative; z-index: 1; }
+.rg-cover > .rg-badge { position: absolute; z-index: 1; }
+@keyframes rg-drift {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .rg-cover::before, .rg-cover::after { animation: none; }
 }
 .rg-icon {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 42px; height: 42px; border-radius: 12px;
+    width: 48px; height: 48px; border-radius: 14px;
     background: var(--surface, #fff); color: var(--rg-c);
     box-shadow: 0 2px 8px color-mix(in srgb, var(--rg-c) 22%, transparent);
 }
-.rg-icon svg { width: 21px; height: 21px; }
+.rg-icon svg { width: 24px; height: 24px; }
 .rg-badge {
-    position: absolute; left: 16px; bottom: 10px;
+    position: absolute; left: 18px; bottom: 12px;
     font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
     padding: 2px 9px; border-radius: 999px;
     background: var(--surface, #fff); color: var(--rg-c);
@@ -110,15 +147,15 @@
 .rg-gear:hover { color: var(--brand, #4f46e5); border-color: var(--brand, #4f46e5); transform: rotate(45deg); }
 @media (hover: none) { .rg-gear { opacity: 1; } }
 
-.rg-body { padding: 12px 16px 4px; flex: 1; }
-.rg-name { font-weight: 650; font-size: 14.5px; color: var(--ink, #111827); line-height: 1.3; }
+.rg-body { padding: 14px 18px 4px; flex: 1; min-height: 78px; }
+.rg-name { font-weight: 650; font-size: 16px; color: var(--ink, #111827); line-height: 1.3; }
 .rg-desc {
-    margin-top: 4px; font-size: 12.5px; color: var(--ink-3, #6b7280); line-height: 1.4;
+    margin-top: 6px; font-size: 13px; color: var(--ink-3, #6b7280); line-height: 1.45;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .rg-foot {
     display: flex; align-items: center; justify-content: space-between;
-    margin: 10px 16px 0; padding: 10px 0 12px;
+    margin: 12px 18px 0; padding: 11px 0 14px;
     border-top: 1px solid var(--line, #f3f4f6);
     font-size: 11.5px; color: var(--ink-3, #9ca3af);
 }

@@ -16,6 +16,10 @@ public class ReportDefinition : TenantEntity, IVersioned
     public string Name { get; set; } = null!;
     public string? Description { get; set; }
 
+    /// <summary>Categoria con la que la galeria agrupa el reporte (ADR-0192). Texto libre del tenant; las
+    /// categorias existen mientras algun reporte las use. Null o vacio = "Sin categoria".</summary>
+    public string? Category { get; set; }
+
     /// <summary>Dashboard interactivo (ECharts) o documento imprimible (RDL/Bold).</summary>
     public ReportDefinitionKind Kind { get; set; } = ReportDefinitionKind.Dashboard;
 

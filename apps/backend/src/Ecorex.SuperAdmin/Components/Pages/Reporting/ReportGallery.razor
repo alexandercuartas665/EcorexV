@@ -34,31 +34,58 @@
         </div>
         @if (_canCreate)
         {
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
-                        @onclick="OpenNewPanel" disabled="@_busy" title="Crear un panel GENERICO pegando un PanelSpec (ADR-0066): sin codigo ni deploy">Nuevo panel</button>
-                <button style="background:#f0fdf4;color:#166534;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
-                        @onclick="OpenImportAsync" disabled="@_busy" title="Importar un RDL alimentado por una fuente de datos externa concedida">Importar RDL externo</button>
-                <button style="background:#eef2ff;color:#4338ca;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;"
-                        @onclick="CreateExamplesAsync" disabled="@_busy">@(_busy ? "Generando..." : "Generar reportes de ejemplo")</button>
-            </div>
+            @* ADR-0192: las opciones de la galeria (nuevo panel, importar RDL, ejemplos) viven en UN solo boton. *@
+            <button type="button" class="rg-config-btn" @onclick="() => _galleryCfgOpen = true" disabled="@_busy"
+                    title="Crear paneles, importar RDL externos o generar los reportes de ejemplo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                @(_busy ? "Generando..." : "Configurar")
+            </button>
         }
     </div>
 
     @* Pestanas Activos / Archivados (los archivados se pueden reactivar). *@
     <div style="display:flex;gap:6px;margin:16px 0 6px;border-bottom:1px solid #eef0f3;">
-        <button type="button" @onclick='() => _tab = "activos"'
+        <button type="button" @onclick='() => { _tab = "activos"; _catFilter = null; }'
                 style="border:none;background:none;border-bottom:2px solid @(_tab == "activos" ? "#4f46e5" : "transparent");color:@(_tab == "activos" ? "#4f46e5" : "#6b7280");padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;">
             Activos (@_cards.Count)
         </button>
-        <button type="button" @onclick='() => _tab = "archivados"'
+        <button type="button" @onclick='() => { _tab = "archivados"; _catFilter = null; }'
                 style="border:none;background:none;border-bottom:2px solid @(_tab == "archivados" ? "#4f46e5" : "transparent");color:@(_tab == "archivados" ? "#4f46e5" : "#6b7280");padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;">
             Archivados (@_archived.Count)
         </button>
     </div>
 
-    @{ var _list = _tab == "archivados" ? _archived : _cards; }
-    @if (_list.Count == 0)
+    @{
+        var _all = _tab == "archivados" ? _archived : _cards;
+        var _list = Filtered(_all);
+        var _cats = CategoryChips(_all);
+    }
+
+    @* Barra: chips de categoria (filtran) + buscador por nombre. *@
+    @if (_all.Count > 0)
+    {
+        <div class="rg-toolbar">
+            <div class="rg-chips">
+                <button type="button" class="rg-chip @(_catFilter is null ? "on" : "")" @onclick="() => _catFilter = null">
+                    Todas <span>@_all.Count</span>
+                </button>
+                @foreach (var (cat, count) in _cats)
+                {
+                    var key = cat;
+                    <button type="button" class="rg-chip @(_catFilter == key ? "on" : "")" @onclick="() => _catFilter = key">
+                        @(key == SinCategoria ? "Sin categoria" : key) <span>@count</span>
+                    </button>
+                }
+            </div>
+            <input class="rg-search" placeholder="Buscar reporte..." @bind="_search" @bind:event="oninput" />
+        </div>
+    }
+
+    @if (_list.Count == 0 && _all.Count > 0)
+    {
+        <div style="text-align:center;color:#9ca3af;padding:40px 0;font-size:14px;">Ningun reporte coincide con el filtro.</div>
+    }
+    else if (_list.Count == 0)
     {
         <div style="text-align:center;color:#9ca3af;padding:48px 0;">
             @if (_tab == "archivados")
@@ -78,48 +105,184 @@
     }
     else
     {
-        <div class="rg-grid">
-            @foreach (var c in _list)
-            {
-                var card = c;
-                var printable = card.Kind == ReportDefinitionKind.Printable;
-                <div class="rg-card" role="button" tabindex="0" style="cursor:pointer;" @onclick="() => OpenAsync(card)">
-                    <span class="rg-accent @(printable ? "print" : "dash")"></span>
-                    <div class="rg-card-top">
-                        <span class="rg-icon @(printable ? "print" : "dash")">
-                            @if (printable)
-                            {
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>
-                            }
-                            else
-                            {
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-                            }
-                        </span>
-                        <span class="rg-badge @(printable ? "print" : "dash")">@(printable ? "Imprimible" : "Tablero")</span>
-                    </div>
-                    <div class="rg-name">@card.Name</div>
-                    <div class="rg-src">@card.SourceKey</div>
-                    <div class="rg-foot">
-                        <span>@(card.UpdatedAt?.LocalDateTime.ToString("yyyy-MM-dd") ?? "")</span>
-                        @if (_tab == "archivados")
-                        {
-                            <button type="button" title="Reactivar este reporte (vuelve a Activos)"
-                                    style="border:1px solid #bbf7d0;background:#fff;color:#15803d;border-radius:6px;padding:2px 10px;font-size:11.5px;font-weight:700;cursor:pointer;"
-                                    @onclick:stopPropagation="true" @onclick="() => UnarchiveAsync(card)">Activar</button>
-                        }
-                        else
-                        {
-                            <button type="button" title="Archivar (pide confirmacion; no se borra, se puede reactivar)"
-                                    style="border:1px solid #fecaca;background:#fff;color:#b91c1c;border-radius:6px;padding:2px 10px;font-size:11.5px;font-weight:700;cursor:pointer;"
-                                    @onclick:stopPropagation="true" @onclick="() => AskArchive(card)">Archivar</button>
-                        }
-                    </div>
+        @* Agrupado por categoria (ADR-0192); con un chip elegido queda un solo grupo. *@
+        @foreach (var grupo in Grouped(_list))
+        {
+            <div class="rg-group">
+                <div class="rg-group-head">
+                    <span class="rg-group-name">@(grupo.Key == SinCategoria ? "Sin categoria" : grupo.Key)</span>
+                    <span class="rg-group-count">@grupo.Count()</span>
+                    <span class="rg-group-line"></span>
                 </div>
-            }
-        </div>
+                <div class="rg-grid">
+                    @foreach (var c in grupo)
+                    {
+                        var card = c;
+                        var printable = card.Kind == ReportDefinitionKind.Printable;
+                        var tipo = TypeOf(card);
+                        <div class="rg-card @tipo.Css @(_tab == "archivados" ? "archived" : "")" role="button" tabindex="0"
+                             @onclick="() => OpenAsync(card)" title="Abrir @card.Name">
+                            <div class="rg-cover">
+                                <span class="rg-icon">
+                                    @if (printable)
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>
+                                    }
+                                    else if (tipo.Css == "panel")
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                                    }
+                                </span>
+                                <span class="rg-badge">@tipo.Label</span>
+                                @if (_canCreate)
+                                {
+                                    <button type="button" class="rg-gear" title="Configurar reporte (nombre, categoria, archivar)"
+                                            @onclick:stopPropagation="true" @onclick="() => OpenCardCfgAsync(card)">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                                    </button>
+                                }
+                            </div>
+                            <div class="rg-body">
+                                <div class="rg-name">@card.Name</div>
+                                @if (!string.IsNullOrWhiteSpace(card.Description))
+                                {
+                                    <div class="rg-desc">@card.Description</div>
+                                }
+                            </div>
+                            <div class="rg-foot">
+                                <span>@(card.UpdatedAt is { } u ? "Actualizado " + u.LocalDateTime.ToString("yyyy-MM-dd") : "")</span>
+                                @if (_tab == "archivados")
+                                {
+                                    <span class="rg-archived-tag">Archivado</span>
+                                }
+                                else
+                                {
+                                    <span class="rg-open">Abrir &rarr;</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
     }
 </div>
+
+@* ===================== MODAL: Configurar la galeria (ADR-0192) ===================== *@
+@if (_galleryCfgOpen)
+{
+    <div class="modal-overlay" @onclick="() => _galleryCfgOpen = false">
+        <div class="modal-dialog" style="max-width:560px;width:94vw;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Configurar galeria</h3>
+                <button class="modal-close" @onclick="() => _galleryCfgOpen = false">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px 20px;">
+                <p style="font-size:12.5px;color:#6b7280;margin:0 0 12px;">Agrega reportes a la galeria. Para renombrar, categorizar o archivar un reporte usa la tuerca de su tarjeta.</p>
+                <div class="rg-opts">
+                    <button type="button" class="rg-opt" @onclick="FromCfgNewPanel">
+                        <span class="rg-opt-ico indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+                        <span class="rg-opt-txt"><strong>Nuevo panel</strong><small>Crea un panel pegando su PanelSpec (JSON), sin codigo ni despliegue.</small></span>
+                    </button>
+                    <button type="button" class="rg-opt" @onclick="FromCfgImportAsync">
+                        <span class="rg-opt-ico green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></span>
+                        <span class="rg-opt-txt"><strong>Importar RDL externo</strong><small>Sube un .rdl alimentado por una fuente de datos externa concedida.</small></span>
+                    </button>
+                    <button type="button" class="rg-opt" @onclick="FromCfgExamplesAsync" disabled="@_busy">
+                        <span class="rg-opt-ico amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.9 5.8L20 10l-5 3.6L16.8 20 12 16.4 7.2 20 9 13.6 4 10l6.1-1.2z"/></svg></span>
+                        <span class="rg-opt-txt"><strong>@(_busy ? "Generando..." : "Generar reportes de ejemplo")</strong><small>Activa los paneles compatibles y crea tableros de ejemplo (no duplica los existentes).</small></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* ===================== MODAL: Configurar un reporte (tuerca de la tarjeta, ADR-0192) ===================== *@
+@if (_cardCfg is not null)
+{
+    <div class="modal-overlay" @onclick="CloseCardCfg">
+        <div class="modal-dialog" style="max-width:560px;width:94vw;max-height:92vh;display:flex;flex-direction:column;" @onclick:stopPropagation="true">
+            <div class="modal-head">
+                <h3>Configurar reporte</h3>
+                <button class="modal-close" @onclick="CloseCardCfg">&times;</button>
+            </div>
+            <div class="modal-body" style="flex:1;overflow:auto;padding:16px 20px;">
+                <label class="rg-lbl">Nombre del reporte
+                    <input class="form-control" @bind="_cfgName" maxlength="200" />
+                </label>
+
+                <label class="rg-lbl">Categoria
+                    <input class="form-control" @bind="_cfgCategory" @bind:event="oninput" maxlength="80" list="rg-cat-list"
+                           placeholder="Escribe una nueva o elige una existente" />
+                    <datalist id="rg-cat-list">
+                        @foreach (var c in _categories) { <option value="@c"></option> }
+                    </datalist>
+                </label>
+                @if (_categories.Count > 0)
+                {
+                    <div class="rg-cat-pick">
+                        @foreach (var c in _categories)
+                        {
+                            var cat = c;
+                            <button type="button" class="rg-chip sm @(string.Equals(_cfgCategory?.Trim(), cat, StringComparison.CurrentCultureIgnoreCase) ? "on" : "")"
+                                    @onclick="() => _cfgCategory = cat">@cat</button>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_cfgCategory))
+                        {
+                            <button type="button" class="rg-chip sm" @onclick='() => _cfgCategory = ""' title="Dejar el reporte sin categoria">Quitar categoria</button>
+                        }
+                    </div>
+                }
+
+                <label class="rg-lbl">Descripcion <span style="font-weight:400;color:#9ca3af;">(opcional, se ve en la tarjeta)</span>
+                    <textarea class="form-control" rows="2" @bind="_cfgDesc" maxlength="1000"></textarea>
+                </label>
+
+                <div class="rg-meta">
+                    <span><strong>Tipo:</strong> @TypeOf(_cardCfg).Label</span>
+                    @if (!string.IsNullOrWhiteSpace(_cardCfg.SourceKey))
+                    {
+                        <span><strong>Fuente:</strong> <code>@_cardCfg.SourceKey</code></span>
+                    }
+                </div>
+
+                @if (_cfgError is not null)
+                {
+                    <div class="tk-field-error" style="margin-top:10px;">@_cfgError</div>
+                }
+
+                <div class="rg-danger">
+                    @if (_cardCfg.Status == ReportDefinitionStatus.Archived)
+                    {
+                        <div>
+                            <strong>Reporte archivado</strong>
+                            <small>Al reactivarlo vuelve a la pestana Activos.</small>
+                        </div>
+                        <button type="button" class="rg-btn-ok" @onclick="ReactivateFromCfgAsync" disabled="@_cfgBusy">Reactivar</button>
+                    }
+                    else
+                    {
+                        <div>
+                            <strong>Archivar reporte</strong>
+                            <small>No se borra: pasa a Archivados y se puede reactivar.</small>
+                        </div>
+                        <button type="button" class="rg-btn-danger" @onclick="ArchiveFromCfg" disabled="@_cfgBusy">Archivar</button>
+                    }
+                </div>
+            </div>
+            <div class="modal-head" style="border-top:1px solid #eef0f3;border-bottom:none;justify-content:flex-end;gap:8px;">
+                <button class="modal-close" style="width:auto;padding:8px 14px;font-size:13px;" @onclick="CloseCardCfg" disabled="@_cfgBusy">Cancelar</button>
+                <button style="background:#4f46e5;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;"
+                        @onclick="SaveCardCfgAsync" disabled="@_cfgBusy">@(_cfgBusy ? "Guardando..." : "Guardar")</button>
+            </div>
+        </div>
+    </div>
+}
 
 @* ===================== CONFIRMACION DE ARCHIVAR (doble confirmacion: accion + este dialogo) ============ *@
 @if (_confirmArchive is not null)
@@ -177,7 +340,7 @@
                     }
                     @if (_isSpecPanel && _canCreate)
                     {
-                        @* Acciones del reporte agrupadas en un menu (Editar / Duplicar / Generar Excel / Archivar). *@
+                        @* Acciones del reporte (Editar / Duplicar / Generar Excel). Archivar vive en la tuerca de la tarjeta (ADR-0192). *@
                         <div style="position:relative;">
                             <button title="Acciones del reporte" style="border:1px solid #e5e7eb;background:#fff;color:#374151;border-radius:8px;padding:4px 11px;font-size:17px;font-weight:700;line-height:1;cursor:pointer;" @onclick="ToggleMenu">&#8942;</button>
                             @if (_menuOpen)
@@ -186,8 +349,7 @@
                                     <button style="@MenuItemStyle" @onclick="EditFromMenu">Editar</button>
                                     <button style="@MenuItemStyle" @onclick="DuplicateFromMenu">Duplicar</button>
                                     <button style="@MenuItemStyle" @onclick="GenerateExcelFromMenu" disabled="@_excelBusy">@(_excelBusy ? "Generando..." : "Generar Excel")</button>
-                                    <button style="@MenuItemDangerStyle" @onclick="ArchiveFromMenu">Archivar</button>
-                                </div>
+                               </div>
                             }
                         </div>
                     }
@@ -437,8 +599,116 @@
     private bool _canCreate;
     private bool _busy;
 
+    // ---- Galeria agrupada por categoria + configuracion (ADR-0192) ----
+    private const string SinCategoria = "\u0000sin";        // clave interna del grupo sin categoria (nunca choca con un texto real)
+    private string? _catFilter;                              // null = todas
+    private string _search = "";
+    private IReadOnlyList<string> _categories = Array.Empty<string>();
+    private bool _galleryCfgOpen;
+    private ReportDefinitionSummary? _cardCfg;               // reporte abierto en la tuerca
+    private string _cfgName = "";
+    private string? _cfgCategory;
+    private string? _cfgDesc;
+    private string? _cfgError;
+    private bool _cfgBusy;
+
+    private static string CatKey(ReportDefinitionSummary r) =>
+        string.IsNullOrWhiteSpace(r.Category) ? SinCategoria : r.Category.Trim();
+
+    private IReadOnlyList<ReportDefinitionSummary> Filtered(IReadOnlyList<ReportDefinitionSummary> src)
+    {
+        IEnumerable<ReportDefinitionSummary> q = src;
+        if (_catFilter is not null) { q = q.Where(r => CatKey(r) == _catFilter); }
+        var s = _search?.Trim();
+        if (!string.IsNullOrEmpty(s))
+        {
+            q = q.Where(r => r.Name.Contains(s, StringComparison.CurrentCultureIgnoreCase)
+                          || (r.Description?.Contains(s, StringComparison.CurrentCultureIgnoreCase) ?? false)
+                          || (r.Category?.Contains(s, StringComparison.CurrentCultureIgnoreCase) ?? false));
+        }
+        return q.ToList();
+    }
+
+    // Categorias con reportes en la pestana actual, alfabeticas; "Sin categoria" al final.
+    private static List<(string Key, int Count)> CategoryChips(IReadOnlyList<ReportDefinitionSummary> src) =>
+        src.GroupBy(CatKey)
+            .Select(g => (g.Key, g.Count()))
+            .OrderBy(x => x.Key == SinCategoria ? 1 : 0)
+            .ThenBy(x => x.Key, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+    private static IEnumerable<IGrouping<string, ReportDefinitionSummary>> Grouped(IReadOnlyList<ReportDefinitionSummary> src) =>
+        src.GroupBy(CatKey)
+            .OrderBy(g => g.Key == SinCategoria ? 1 : 0)
+            .ThenBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase);
+
+    // Tipo visible de la tarjeta (color + etiqueta).
+    private static (string Css, string Label) TypeOf(ReportDefinitionSummary r)
+    {
+        if (r.Kind == ReportDefinitionKind.Printable) { return ("print", "Imprimible"); }
+        if (r.SourceKey is not null && r.SourceKey.StartsWith("panel:", StringComparison.OrdinalIgnoreCase)) { return ("panel", "Panel"); }
+        return ("dash", "Tablero");
+    }
+
+    // Opciones del modal "Configurar galeria".
+    private void FromCfgNewPanel() { _galleryCfgOpen = false; OpenNewPanel(); }
+    private async Task FromCfgImportAsync() { _galleryCfgOpen = false; await OpenImportAsync(); }
+    private async Task FromCfgExamplesAsync() { await CreateExamplesAsync(); _galleryCfgOpen = false; }
+
+    // Tuerca de la tarjeta.
+    private async Task OpenCardCfgAsync(ReportDefinitionSummary card)
+    {
+        _cardCfg = card;
+        _cfgName = card.Name;
+        _cfgCategory = card.Category ?? "";
+        _cfgDesc = card.Description ?? "";
+        _cfgError = null;
+        try { _categories = await Defs.ListCategoriesAsync(); }
+        catch { _categories = Array.Empty<string>(); }
+    }
+
+    private void CloseCardCfg() { _cardCfg = null; _cfgError = null; }
+
+    private async Task SaveCardCfgAsync()
+    {
+        if (_cardCfg is null) { return; }
+        if (string.IsNullOrWhiteSpace(_cfgName)) { _cfgError = "Ponle un nombre al reporte."; return; }
+        _cfgBusy = true;
+        _cfgError = null;
+        try
+        {
+            var ok = await Defs.UpdateCardAsync(_cardCfg.Id, _cfgName, _cfgCategory, _cfgDesc);
+            if (!ok) { _cfgError = "El reporte ya no existe."; return; }
+            _cardCfg = null;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _cfgBusy = false; }
+    }
+
+    // Archivar desde la tuerca: cierra este modal y abre la doble confirmacion de siempre.
+    private void ArchiveFromCfg()
+    {
+        var c = _cardCfg;
+        CloseCardCfg();
+        AskArchive(c);
+    }
+
+    private async Task ReactivateFromCfgAsync()
+    {
+        if (_cardCfg is null) { return; }
+        _cfgBusy = true;
+        try
+        {
+            await Defs.UnarchiveAsync(_cardCfg.Id);
+            _cardCfg = null;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { _cfgError = ex.Message; }
+        finally { _cfgBusy = false; }
+    }
+
     private const string MenuItemStyle = "display:block;width:100%;text-align:left;border:none;background:#fff;color:#374151;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;";
-    private const string MenuItemDangerStyle = "display:block;width:100%;text-align:left;border:none;background:#fff;color:#b91c1c;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;border-top:1px solid #f3f4f6;";
 
     private ReportDefinitionSummary? _open;
     private string _view = "tablero";
@@ -490,8 +760,7 @@
     private void ToggleMenu() => _menuOpen = !_menuOpen;
     private async Task EditFromMenu() { _menuOpen = false; await EditOpenPanel(); }
     private async Task DuplicateFromMenu() { _menuOpen = false; await DuplicateOpenPanel(); }
-    private void ArchiveFromMenu() { _menuOpen = false; AskArchive(_open); }
-    private async Task GenerateExcelFromMenu() { _menuOpen = false; await GenerateExcelAsync(); }
+   private async Task GenerateExcelFromMenu() { _menuOpen = false; await GenerateExcelAsync(); }
 
     // ---- Generar Excel del reporte (KPIs + tablas + series, con los filtros actuales del tablero) ----
     private async Task GenerateExcelAsync()
@@ -536,16 +805,6 @@
         }
         catch (Exception ex) { _error = ex.Message; _confirmArchive = null; }
         finally { _busy = false; }
-    }
-
-    private async Task UnarchiveAsync(ReportDefinitionSummary card)
-    {
-        try
-        {
-            await Defs.UnarchiveAsync(card.Id);
-            await ReloadAsync();
-        }
-        catch (Exception ex) { _error = ex.Message; }
     }
 
     private async Task CreateExamplesAsync()

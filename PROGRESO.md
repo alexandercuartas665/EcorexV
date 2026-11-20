@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-20 - v0.16.359: Conciliacion DIAN: el asistente de IA extrae un campo (OC) del documento y lo valida contra un contenedor (ADR-0191) - rama feat/asistente-extraer-campo
+## 2026-11-20 - v0.16.359: Conciliacion DIAN: el asistente de IA extrae un campo (OC) del documento y lo valida contra un contenedor (ADR-0191) - rama feat/asistente-extraer-campo - DESPLEGADA
+
+Gates: build Release 0 errores; unitarias 1633/311/35; format OK; Integration.Tests duales Conciliacion + AutorizacionCompras + TenantIsolation 10/10. Deploy 2026-11-20 ~09:20 Bogota via GHCR (despues de la ventana DRON 06-09, sin actividad DRON en logs): footer /login v0.16.359, Restarts=0, 0 errores en logs. Smoke de UI (Configuracion -> Asistente de IA -> 'Extraer un campo del documento') pendiente de validar por el usuario (requiere login).
 
 Integracion (sesion dev principal): merge --no-ff de feat/asistente-extraer-campo (41be6f6a) sobre ad425284, sin conflictos; ADR-0191 libre en el tronco. Sin migracion.
 

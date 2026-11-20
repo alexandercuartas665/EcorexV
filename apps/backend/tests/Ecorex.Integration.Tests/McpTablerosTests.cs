@@ -6,6 +6,7 @@ using Ecorex.Application.Directorio;
 using Ecorex.Application.Mcp;
 using Ecorex.Application.Organization;
 using Ecorex.Application.Roles;
+using Ecorex.Application.Scraping;
 using Ecorex.Application.Tenancy;
 using Ecorex.Application.Workflows;
 using Ecorex.Domain.Entities;
@@ -703,7 +704,7 @@ public abstract class McpTablerosTestsBase
     // ---- Helpers ----
 
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
-        EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null)
+        EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
@@ -716,7 +717,7 @@ public abstract class McpTablerosTestsBase
             new DataLookupService(ctx, new DataContainerService(ctx, tenant)));
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
             new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
-            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant));
+            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape);
         return (boards, engine, toolset);
     }
 
@@ -734,6 +735,132 @@ public abstract class McpTablerosTestsBase
         Assert.False(r.IsError, r.Json);
         using var doc = JsonDocument.Parse(r.Json);
         return doc.RootElement.Clone();
+    }
+
+    // ===================== Extraccion de datos (drones) =====================
+
+    [Fact]
+    public async Task McpCatalog_ConExtraccion_EsConsistente_YDespacha()
+    {
+        var seed = await SeedTenantAsync("Mcp Extraccion Catalogo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var scrape = new ScrapeFlowService(ctx, tenantCtx, new PlainSecrets());
+        var (_, _, toolset) = Build(ctx, tenantCtx, new FakeFormAuthoring(), scrape);
+        var owner = Actor(seed, owner: true);
+
+        var specs = toolset.GetSpecs();
+        var names = specs.Select(s => s.Name).ToList();
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(16 + 12 + 16 + 3 + 17, specs.Count); // nucleo + directorio + flujos + formularios + EXTRACCION
+
+        // Las 17 de extraccion estan expuestas, 6 de lectura y 4 destructivas, sin solape.
+        foreach (var n in new[] { "listar_drones", "ver_dron", "crear_dron", "agregar_paso", "guardar_programacion", "eliminar_dron" })
+        {
+            Assert.Contains(n, names);
+        }
+        Assert.Contains("listar_drones", toolset.ReadOnlyTools);
+        Assert.DoesNotContain("crear_dron", toolset.ReadOnlyTools); // escritura: se audita
+        Assert.Contains("eliminar_dron", toolset.DestructiveTools);
+        Assert.Empty(toolset.ReadOnlyTools.Intersect(toolset.DestructiveTools));
+
+        foreach (var s in specs.Where(x => x.Name.Contains("dron") || x.Name.Contains("paso") || x.Name.Contains("extraccion") || x.Name.Contains("programaci") || x.Name.Contains("variable") || x.Name.Contains("corrida")))
+        {
+            Assert.True(s.Description!.Length >= 25, $"{s.Name}: descripcion corta");
+            using var schema = JsonDocument.Parse(s.ParametersJsonSchema);
+            Assert.Equal("object", schema.RootElement.GetProperty("type").GetString());
+        }
+
+        // Toda herramienta de extraccion despacha con "{}" (sin "Herramienta desconocida"); las que exigen
+        // argumentos devuelven ok:false marcado como error (validacion limpia, no excepcion).
+        foreach (var name in new[] { "listar_drones", "listar_destinos_extraccion", "listar_reglas_extraccion",
+            "ver_dron", "crear_dron", "agregar_paso", "guardar_programacion", "eliminar_dron" })
+        {
+            var r = await toolset.ExecuteAsync(name, "{}", owner);
+            Assert.DoesNotContain("Herramienta desconocida", r.Json);
+            using var doc = JsonDocument.Parse(r.Json);
+            if (doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+            {
+                Assert.True(r.IsError, $"{name}: ok=false sin marcar error");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Extraccion_CrearDron_ArmarPasos_Variables_Programacion_Corridas_Borrar()
+    {
+        var seed = await SeedTenantAsync("Mcp Drones");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var scrape = new ScrapeFlowService(ctx, tenantCtx, new PlainSecrets());
+        var (_, _, toolset) = Build(ctx, tenantCtx, scrape: scrape);
+        var owner = Actor(seed, owner: true);
+
+        // Crear el dron (cabecera).
+        var crear = Payload(await toolset.ExecuteAsync("crear_dron",
+            Args(new { nombre = "Dron DIAN prueba", descripcion = "demo", url_inicio = "https://portal.test/login", estado = "activo" }), owner));
+        var dronId = crear.GetProperty("dron_id").GetString()!;
+        Assert.False(string.IsNullOrWhiteSpace(dronId));
+
+        // Dos pasos: navegar y extraer.
+        var p1 = Payload(await toolset.ExecuteAsync("agregar_paso",
+            Args(new { dron = dronId, tipo = "navegar", nombre = "Ir al login", url = "https://portal.test/login" }), owner));
+        var paso1 = p1.GetProperty("paso_id").GetString()!;
+        Assert.Equal("navegar", p1.GetProperty("tipo").GetString());
+        var p2 = Payload(await toolset.ExecuteAsync("agregar_paso",
+            Args(new { dron = dronId, tipo = "extraer", nombre = "Sacar filas", script = "return [];", out_var = "filas" }), owner));
+        var paso2 = p2.GetProperty("paso_id").GetString()!;
+        Assert.Equal(1, p2.GetProperty("orden").GetInt32()); // se agrega al final
+
+        // Variables: una normal y una secreta (no se devuelve el valor).
+        Payload(await toolset.ExecuteAsync("definir_variable", Args(new { dron = dronId, nombre = "USUARIO", valor = "juan" }), owner));
+        Payload(await toolset.ExecuteAsync("definir_variable", Args(new { dron = dronId, nombre = "CLAVE", valor = "secreta123", secreta = true }), owner));
+
+        // Programacion cron.
+        var prog = Payload(await toolset.ExecuteAsync("guardar_programacion",
+            Args(new { dron = dronId, tipo = "cron", cron = "0 6 * * *", activa = true, nombre = "Diaria 6am" }), owner));
+        var progId = prog.GetProperty("programacion_id").GetString()!;
+        Assert.Equal("cron", prog.GetProperty("tipo").GetString());
+
+        // ver_dron: 2 pasos, 2 variables (la secreta sin valor), 1 programacion.
+        var ver = Payload(await toolset.ExecuteAsync("ver_dron", Args(new { dron = "Dron DIAN prueba" }), owner));
+        Assert.Equal(2, ver.GetProperty("pasos").GetArrayLength());
+        Assert.Equal(2, ver.GetProperty("variables").GetArrayLength());
+        Assert.Equal(1, ver.GetProperty("programaciones").GetArrayLength());
+        var secreta = ver.GetProperty("variables").EnumerateArray().First(v => v.GetProperty("nombre").GetString() == "CLAVE");
+        Assert.True(secreta.GetProperty("secreta").GetBoolean());
+        // El valor de una secreta NO se expone: el serializador omite la propiedad null (WhenWritingNull).
+        Assert.False(secreta.TryGetProperty("valor", out var secretVal) && secretVal.ValueKind != JsonValueKind.Null,
+            "la variable secreta no debe exponer 'valor'");
+        Assert.True(secreta.GetProperty("tiene_valor").GetBoolean());
+
+        // listar_drones / listar_corridas (vacia aun).
+        var lista = Payload(await toolset.ExecuteAsync("listar_drones", "{}", owner));
+        Assert.Contains(lista.GetProperty("drones").EnumerateArray(), d => d.GetProperty("dron_id").GetString() == dronId);
+        var corridas = Payload(await toolset.ExecuteAsync("listar_corridas", Args(new { dron = dronId }), owner));
+        Assert.Equal(0, corridas.GetProperty("corridas").GetArrayLength());
+
+        // Reordenar (invertir) y editar un paso.
+        Payload(await toolset.ExecuteAsync("reordenar_pasos", Args(new { dron = dronId, pasos = new[] { paso2, paso1 } }), owner));
+        var edit = Payload(await toolset.ExecuteAsync("editar_paso", Args(new { paso_id = paso1, nombre = "Ir al login (v2)" }), owner));
+        Assert.Equal("Ir al login (v2)", edit.GetProperty("nombre").GetString());
+
+        // Borrar todo.
+        var varId = ver.GetProperty("variables").EnumerateArray().First(v => v.GetProperty("nombre").GetString() == "USUARIO").GetProperty("variable_id").GetString()!;
+        Payload(await toolset.ExecuteAsync("eliminar_variable", Args(new { variable_id = varId }), owner));
+        Payload(await toolset.ExecuteAsync("eliminar_programacion", Args(new { programacion_id = progId }), owner));
+        Payload(await toolset.ExecuteAsync("eliminar_paso", Args(new { paso_id = paso1 }), owner));
+        Payload(await toolset.ExecuteAsync("eliminar_dron", Args(new { dron = dronId }), owner));
+
+        // Ya no existe.
+        var verMuerto = await toolset.ExecuteAsync("ver_dron", Args(new { dron = dronId }), owner);
+        Assert.True(verMuerto.IsError);
+    }
+
+    private sealed class PlainSecrets : ISecretProtector
+    {
+        public string Protect(string plaintext) => plaintext;
+        public string Unprotect(string ciphertext) => ciphertext;
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

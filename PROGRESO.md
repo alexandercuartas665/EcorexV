@@ -2,6 +2,42 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-20 - MCP personal: autoria de drones de extraccion de datos (ADR-0193) - v0.16.361 (integrada al tronco; deploy pendiente de OK)
+
+Agente: sesion MCP (Claude Opus 4.8). Pedido del usuario: "agregar al modulo de extraccion de datos, con mi token
+de conexion poder crear nuevos drones de extraccion de datos". Alcance elegido por el usuario: config completa del
+dron + programaciones + bitacora de corridas.
+
+Hecho:
+- Nuevo partial `TableroMcpToolset.Extraccion.cs`: 17 herramientas (6 lectura / 7 escritura / 4 destructivas),
+  capa delgada sobre `IScrapeFlowService`. El MCP personal pasa de 84 a 101 herramientas.
+  - Lectura: listar_drones, ver_dron, listar_destinos_extraccion, listar_reglas_extraccion, listar_corridas,
+    listar_programaciones.
+  - Escritura: crear_dron, editar_dron, agregar_paso (24 tipos de paso por alias; config fina en mapeo_json),
+    editar_paso, reordenar_pasos, definir_variable (upsert por nombre; secretos cifrados, nunca en claro),
+    guardar_programacion (manual/intervalo/cron + barrido por tramos, FlowSequenceSpec).
+  - Destructivas: eliminar_paso, eliminar_variable, eliminar_programacion, eliminar_dron.
+- Cableado opcional: `IScrapeFlowService?` como ultimo parametro del constructor de `TableroMcpToolset`; las
+  herramientas solo se publican si esta inyectado (en prod por DI). Build*/dispatch condicionados a `_scrape`.
+- `instructions` del servidor con una linea de drones. Resolucion de dron/contenedor/regla por id o por nombre.
+- Docs: ADR-0193, seccion 2.5 del INVENTARIO-MCP (conteo 84->101, fila de suficiencia CUBIERTO).
+
+DECISION (permiso): la pantalla gobierna extraccion con la policy `ExtraccionDatos.Editar`, que solo exige
+`tenant_id` (NO esta en la matriz de roles, a diferencia de flujos/directorio). Por coherencia, las herramientas
+quedan para cualquier portador del token, sin gate de rol extra; el aislamiento lo da el filtro global.
+
+Pruebas: build de la solucion 0 errores (214 advertencias preexistentes). Nuevas en `McpTablerosTests` (dual
+PG+SQL): `McpCatalog_ConExtraccion_EsConsistente_YDespacha` (catalogo con extraccion: 101 specs, R/D, schemas,
+despacho) y `Extraccion_CrearDron_ArmarPasos_Variables_Programacion_Corridas_Borrar` (flujo funcional de punta a
+punta). Resultado dual: `McpTablerosTests` 28/28 verde (PostgreSQL + SQL Server).
+
+Siguiente: entregar a la sesion dev principal para integrar al tronco, correr gates (build Release, format,
+Integration dual) y desplegar; validar en vivo las 17 herramientas desde Claude con el token (que `/mcp` las liste
+y un recorrido crear->paso->programar). Candidatos futuros: export/import de pasos, revelar secreto, desencadenador
+estilo Windows, disparar una corrida.
+
+Bloqueos: ninguno. La sesion MCP no despliega: solo push a `feat/mcp-terminar-tarea` + prompt de integracion.
+
 ## 2026-11-20 - v0.16.360: Galeria de reportes con boton Configurar, tuerca por reporte y categorias (ADR-0192) - rama feat/reportes-galeria-config - DESPLEGADA
 
 Integracion y deploy (sesion dev principal): merge --no-ff sobre 1e3bd74a sin conflictos (01db3d58). Build Release 0 errores; unitarias 1633/311/35; Integration.Tests duales Report* + TenantIsolation 46/46. Deploy 2026-11-20 ~13:00 Bogota via GHCR (el usuario autorizo sin esperar ventana DRON; corre el DRON a mano): footer /login v0.16.360, Restarts=0, 0 errores en logs; migracion 20261120155025_AddReportCategory aplicada (report_definitions.category varchar(80)).

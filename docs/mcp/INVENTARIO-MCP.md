@@ -2,6 +2,8 @@
 
 > Inventario y revision de suficiencia de TODOS los servidores MCP y toolsets de IA del sistema.
 > Fuente: el codigo (no la memoria) + validacion en vivo contra el servidor local. Revision: 2026-11-12, v0.16.304
+> (addendum 2026-11-20: +17 herramientas de Extraccion de datos / drones, ADR-0193, total 101; rama
+> `feat/mcp-terminar-tarea`, AUN NO integrada ni validada en vivo)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -12,7 +14,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **84** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **101** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -129,6 +131,36 @@ no se expone sola):
 | list_menu_views, list_menu_nodes, set_module | Configuracion del MENU del tenant: otro modulo y otro permiso |
 | create_data_container, add_container_rows | Escritura en el Contenedor de datos: otro modulo y otro permiso (sus lecturas si van) |
 
+### 2.5 Extraccion de datos / drones (17) - `TableroMcpToolset.Extraccion.cs` (ADR-0193)
+
+Capa delgada sobre `IScrapeFlowService` (CRUD del modulo 000730 /extraccion-datos). Solo CONFIGURACION: el runtime
+(sub-agente Navegador) es diferido, igual que en la pantalla. **Permiso**: la policy `ExtraccionDatos.Editar` solo
+exige `tenant_id` (NO esta en la matriz de roles); por coherencia estas herramientas quedan para CUALQUIER portador
+del token, sin gate de rol extra. Solo se publican si `IScrapeFlowService` esta inyectado (lo esta por DI en prod).
+
+| Herramienta | Tipo | Que hace |
+|---|---|---|
+| listar_drones | R | Drones del tenant: id, nombre, estado, pasos, contenedor, ultima corrida |
+| ver_dron | R | Dron completo: cabecera + pasos ordenados + variables (sin secretos) + programaciones |
+| listar_destinos_extraccion | R | Tablas destino ("Modelo / Tabla") para cabecera o paso |
+| listar_reglas_extraccion | R | Reglas del tenant para el paso tipo ensamblado |
+| listar_corridas | R | Bitacora de ejecuciones (resultado, insertados/actualizados, detalle) |
+| listar_programaciones | R | Programaciones del dron (varias por dron, ADR-0171) |
+| crear_dron | W | Cabecera nueva (nombre + url_inicio obligatorios; estado, contenedor). Devuelve dron_id |
+| editar_dron | W | Cambia solo los campos de cabecera enviados |
+| agregar_paso | W | Paso al final (o en 'orden'); 24 tipos por alias; config fina en mapeo_json. Devuelve paso_id |
+| editar_paso | W | Cambia solo los campos del paso enviados (puede cambiar el tipo) |
+| reordenar_pasos | W | Reordena por lista de paso_id |
+| definir_variable | W | Upsert por nombre; secretas cifradas (ISecretProtector), nunca devueltas en claro |
+| guardar_programacion | W | Alta/edicion: manual / intervalo / cron + barrido por tramos (FlowSequenceSpec) |
+| eliminar_paso | D | Borra un paso (confirmar) |
+| eliminar_variable | D | Borra una variable (confirmar) |
+| eliminar_programacion | D | Borra una programacion (confirmar) |
+| eliminar_dron | D | Borra el dron completo (confirmar) |
+
+Fuera de esta ola (candidatos futuros): export/import de pasos, revelar secreto, desencadenador estilo Windows
+(`ScheduleTrigger`), disparar una corrida.
+
 ---
 
 ## 2b. MCP de WHATSAPP por linea Evolution - `/api/mcp/whatsapp/{lineId}` (ADR-0164)
@@ -215,6 +247,7 @@ Estado: CUBIERTO / PARCIAL / NO / EXCLUIDO (a proposito: admin o seguridad).
 | Conversaciones WhatsApp (lineas Evolution) | CUBIERTO (MCP de WhatsApp, 2b) | Leer, enviar todo tipo de mensaje, gestionar chats, etiquetas, grupos, pausar SARA, perfil de la linea. Lineas YCloud/Cloud: no (otro proveedor) |
 | Notificaciones | NO | Lectura util |
 | Pipeline / CRM | NO | Solo `crear_lead` en agentes |
+| Extraccion de datos (drones, 000730) | CUBIERTO (ADR-0193) | 17 herramientas: crear/editar/ver/listar/borrar dron, pasos (24 tipos, config fina en mapeo_json), variables (secretos cifrados), programaciones (intervalo/cron/tramos) y bitacora de corridas. Runtime del Navegador diferido (solo config) |
 | Compras / DIAN / conciliacion / gestor documental | NO | Especializados |
 | Usuarios, roles, menu, tenants, servidores, IA, facturacion | EXCLUIDO | Administracion y seguridad: no deben ir por token personal |
 
@@ -239,7 +272,7 @@ Brechas priorizadas (propuesta):
 | ADR-0159 (personal) | Completo, con addenda por fase; conteo corregido en esta revision |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 84/84 con descripcion >= 25 caracteres y JSON-Schema valido (verificado en vivo y por prueba) |
+| Descripciones y esquemas | 101/101 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion por prueba, pendientes de validar en vivo) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

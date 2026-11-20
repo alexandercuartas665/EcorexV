@@ -39,8 +39,12 @@ public static class McpTablerosEndpoints
         "Para cambiar un flujo publicado usa nueva_version_flujo. Publica (publicar_flujo) y engancha a un concepto " +
         "(enganchar_flujo_a_concepto) para que las tareas lo arranquen. Autoria de formularios: apply_form_spec arma " +
         "uno completo (o create_form + add_container + add_question) y activate lo deja activo; consulta list_forms/" +
-        "get_form antes de cambiar uno y confirma con el usuario antes de create_share_link (enlace publico). La IA " +
-        "solo puede lo que el usuario puede (permisos de flujos/formularios).";
+        "get_form antes de cambiar uno y confirma con el usuario antes de create_share_link (enlace publico). " +
+        "Extraccion de datos (drones): crear_dron abre la cabecera (nombre + url_inicio); agrega pasos con agregar_paso " +
+        "(tipo navegar/extraer/ia/procesar_archivos..., config fina en mapeo_json), variables con definir_variable " +
+        "(marca 'secreta' las claves) y programalo con guardar_programacion (intervalo/cron/tramos). ver_dron muestra " +
+        "pasos, variables y programaciones; listar_corridas, la bitacora. Confirma antes de eliminar un dron o un paso. " +
+        "La IA solo puede lo que el usuario puede (permisos de flujos/formularios).";
 
     public static WebApplication MapMcpTablerosEndpoints(this WebApplication app)
     {

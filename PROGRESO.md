@@ -2,7 +2,8 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-20 - MCP personal: autoria de drones de extraccion de datos (ADR-0193) - v0.16.361 (integrada al tronco; deploy pendiente de OK)
+## 2026-11-20 - MCP personal: autoria de drones de extraccion de datos (ADR-0193) - v0.16.361 DESPLEGADA
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff c702968d al tronco y main. Gates: build Release, dotnet format, unitarias 1633/311/35, McpTablerosTests dual 28/28. Deploy 2026-11-20 ~17:38 Bogota (OK del usuario): footer /login v0.16.361, Restarts=0, 0 errores en logs. Validacion en vivo del MCP con token: a cargo de la sesion ECOREX.mcp.
 
 Agente: sesion MCP (Claude Opus 4.8). Pedido del usuario: "agregar al modulo de extraccion de datos, con mi token
 de conexion poder crear nuevos drones de extraccion de datos". Alcance elegido por el usuario: config completa del

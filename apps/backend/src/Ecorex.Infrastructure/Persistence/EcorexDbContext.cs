@@ -2019,6 +2019,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         {
             b.Property(x => x.Name).HasMaxLength(200).IsRequired();
             b.Property(x => x.Description).HasMaxLength(1000);
+            // Categoria libre con la que la galeria agrupa los reportes (ADR-0192). Null = "Sin categoria".
+            b.Property(x => x.Category).HasMaxLength(80);
             b.Property(x => x.SourceKey).HasMaxLength(200);
             b.Property(x => x.SpecJson).HasColumnType(jsonColumnType).IsRequired();
             b.Property(x => x.Rdl).HasColumnType(longTextColumnType);

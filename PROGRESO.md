@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-20 - v0.16.360: Galeria de reportes con boton Configurar, tuerca por reporte y categorias (ADR-0192) - rama feat/reportes-galeria-config
+
+Agente: sesion dev principal (ECOREX.desarrollo).
+
+Hecho:
+- `/reportes/galeria`: los tres botones de arriba (Nuevo panel, Importar RDL externo, Generar reportes de ejemplo)
+  pasan a UN boton "Configurar" con un modal de opciones. Los flujos que abren no cambian.
+- Tarjetas nuevas: portada con degradado e icono por tipo (Tablero / Panel / Imprimible), descripcion en dos
+  lineas, "Abrir" al pasar el mouse. Galeria agrupada por categoria (alfabetica, "Sin categoria" al final), chips
+  que filtran y buscador por nombre/descripcion/categoria.
+- Tuerca en cada tarjeta (permiso de crear reportes): modal "Configurar reporte" con nombre, categoria (nueva o
+  existente, con chips y autocompletado), descripcion, tipo/fuente y archivar (doble confirmacion de siempre) o
+  reactivar. Se quito "Archivar"/"Activar" de la tarjeta y "Archivar" del menu del visor.
+- Servicio: `UpdateCardAsync` (no toca spec/RDL; en panel por spec sincroniza el `title`) y `ListCategoriesAsync`;
+  `ReportDefinitionSummary` gana `Category` y `Description`.
+- Migracion dual `AddReportCategory`: columna `category` (80, nullable) en `report_definitions`.
+
+Pruebas: build 0 errores; unitarias 1633/311/35; format OK; has-pending-model-changes "No changes" en ambos
+motores; nueva `ReportCardConfigTests` (dual) + `ReportGovernanceTests` 6/6. Verificado en local (5275, BITCODE):
+configurar galeria, nuevo panel, tuerca, guardar categoria (agrupa), archivar con doble confirmacion (cancelado).
+
+Ajuste tras revision del usuario: tarjetas mas grandes (min 290 px, portada 118 px) y portada con nubes animadas en dos capas (loop continuo, mas rapido al pasar el mouse, quietas con "reducir movimiento").
+
 ## 2026-11-20 - v0.16.359: Conciliacion DIAN: el asistente de IA extrae un campo (OC) del documento y lo valida contra un contenedor (ADR-0191) - rama feat/asistente-extraer-campo - DESPLEGADA
 
 Gates: build Release 0 errores; unitarias 1633/311/35; format OK; Integration.Tests duales Conciliacion + AutorizacionCompras + TenantIsolation 10/10. Deploy 2026-11-20 ~09:20 Bogota via GHCR (despues de la ventana DRON 06-09, sin actividad DRON en logs): footer /login v0.16.359, Restarts=0, 0 errores en logs. Smoke de UI (Configuracion -> Asistente de IA -> 'Extraer un campo del documento') pendiente de validar por el usuario (requiere login).

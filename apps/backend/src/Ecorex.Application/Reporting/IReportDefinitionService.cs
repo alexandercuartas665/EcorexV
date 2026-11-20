@@ -73,6 +73,18 @@ public interface IReportDefinitionService
     /// (filtro global); auditado por el interceptor (updated_at/by). Idempotente: si no existe, no hace nada.</summary>
     Task UnarchiveAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Configuracion de la tarjeta (ADR-0192): nombre, categoria y descripcion del reporte, sin tocar su spec
+    /// ni su RDL. El nombre es obligatorio; categoria y descripcion vacias quedan en null. En un panel por spec
+    /// tambien se sincroniza el "title" del spec para que el visor muestre el mismo nombre. Tenant-scoped.
+    /// Devuelve false si el reporte no existe; lanza <see cref="ArgumentException"/> si el nombre es vacio.
+    /// </summary>
+    Task<bool> UpdateCardAsync(Guid id, string name, string? category, string? description, CancellationToken ct = default);
+
+    /// <summary>Categorias en uso en el tenant (activos y archivados), distintas y ordenadas, para el selector
+    /// de la tuerca y los chips de la galeria (ADR-0192). Tenant-scoped.</summary>
+    Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken ct = default);
+
     Task<ReportRunResult?> RunAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>Devuelve el RDL de un imprimible + su dataset ya ejecutado por el datasource tenant-safe,
@@ -110,9 +122,11 @@ public interface IReportDefinitionService
 /// <summary>RDL de un imprimible + las filas ya filtradas por tenant que lo alimentan.</summary>
 public sealed record ReportPrintable(string Rdl, ReportDataSet DataSet);
 
+/// <summary>Tarjeta de la galeria. <see cref="Category"/> agrupa (ADR-0192); null = "Sin categoria".</summary>
 public sealed record ReportDefinitionSummary(
     Guid Id, string Name, ReportDefinitionKind Kind, string? SourceKey,
-    ReportDefinitionStatus Status, DateTimeOffset? UpdatedAt);
+    ReportDefinitionStatus Status, DateTimeOffset? UpdatedAt,
+    string? Category = null, string? Description = null);
 
 public sealed record ReportDefinitionDetail(
     Guid Id, string Name, string? Description, ReportDefinitionKind Kind, ReportSpec Spec, long Version);
@@ -256,7 +270,7 @@ public sealed class ReportDefinitionService : IReportDefinitionService
 
         return await q
             .OrderByDescending(d => d.UpdatedAt ?? d.CreatedAt)
-            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt))
+            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt, d.Category, d.Description))
             .ToListAsync(ct);
     }
 
@@ -264,7 +278,7 @@ public sealed class ReportDefinitionService : IReportDefinitionService
     {
         return await _db.ReportDefinitions.AsNoTracking()
             .OrderByDescending(d => d.UpdatedAt ?? d.CreatedAt)
-            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt))
+            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt, d.Category, d.Description))
             .ToListAsync(ct);
     }
 
@@ -273,7 +287,7 @@ public sealed class ReportDefinitionService : IReportDefinitionService
         return await _db.ReportDefinitions.AsNoTracking()
             .Where(d => d.Status == ReportDefinitionStatus.Archived)
             .OrderByDescending(d => d.UpdatedAt ?? d.CreatedAt)
-            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt))
+            .Select(d => new ReportDefinitionSummary(d.Id, d.Name, d.Kind, d.SourceKey, d.Status, d.UpdatedAt, d.Category, d.Description))
             .ToListAsync(ct);
     }
 
@@ -431,6 +445,72 @@ public sealed class ReportDefinitionService : IReportDefinitionService
 
         def.Status = ReportDefinitionStatus.Active;
         await _db.SaveChangesAsync(ct);
+    }
+
+    public const int CategoryMaxLength = 80;
+
+    public async Task<bool> UpdateCardAsync(Guid id, string name, string? category, string? description, CancellationToken ct = default)
+    {
+        var nombre = (name ?? string.Empty).Trim();
+        if (nombre.Length == 0)
+        {
+            throw new ArgumentException("El reporte necesita un nombre.", nameof(name));
+        }
+        if (nombre.Length > 200) { nombre = nombre[..200]; }
+
+        var def = await _db.ReportDefinitions.FirstOrDefaultAsync(d => d.Id == id, ct);
+        if (def is null)
+        {
+            return false;
+        }
+
+        def.Name = nombre;
+        var cat = NormalizeCategory(category);
+        if (cat is not null)
+        {
+            // "ventas" y "Ventas" son la misma categoria: se reutiliza la escritura que ya existe en el tenant.
+            var existentes = await ListCategoriesAsync(ct);
+            cat = existentes.FirstOrDefault(e => string.Equals(e, cat, StringComparison.CurrentCultureIgnoreCase)) ?? cat;
+        }
+        def.Category = cat;
+        var desc = (description ?? string.Empty).Trim();
+        def.Description = desc.Length == 0 ? null : (desc.Length > 1000 ? desc[..1000] : desc);
+
+        // Panel por spec: el visor toma el titulo del spec, asi que se sincroniza para que no se vea el viejo.
+        // Si el JSON no se puede leer se deja intacto (renombrar nunca debe romper el panel).
+        if (PanelSpecSource.Is(def.SourceKey) && !string.IsNullOrWhiteSpace(def.SpecJson))
+        {
+            try
+            {
+                if (System.Text.Json.Nodes.JsonNode.Parse(def.SpecJson) is System.Text.Json.Nodes.JsonObject obj)
+                {
+                    obj["title"] = nombre;
+                    def.SpecJson = obj.ToJsonString();
+                }
+            }
+            catch (System.Text.Json.JsonException) { /* spec ilegible: solo cambia el nombre de la tarjeta */ }
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken ct = default)
+    {
+        var cats = await _db.ReportDefinitions.AsNoTracking()
+            .Where(d => d.Category != null && d.Category != "")
+            .Select(d => d.Category!)
+            .Distinct()
+            .ToListAsync(ct);
+        return cats.OrderBy(c => c, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    /// <summary>Espacios colapsados y recortada a <see cref="CategoryMaxLength"/>; vacia = null.</summary>
+    public static string? NormalizeCategory(string? category)
+    {
+        var c = System.Text.RegularExpressions.Regex.Replace((category ?? string.Empty).Trim(), @"\s+", " ");
+        if (c.Length == 0) { return null; }
+        return c.Length <= CategoryMaxLength ? c : c[..CategoryMaxLength].TrimEnd();
     }
 
     public async Task<ReportRunResult?> RunAsync(Guid id, CancellationToken ct = default)

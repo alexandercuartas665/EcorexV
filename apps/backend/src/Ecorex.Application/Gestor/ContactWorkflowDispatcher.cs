@@ -171,12 +171,43 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                         .Where(r => r.ContactWorkflowStepId == step.Id
                             && r.ContactWorkflowScheduleId == schedule.Id
                             && r.WindowDate == localDate)
-                        .Select(r => new { r.Id, r.TerceroId, r.Status, r.Attempts, r.DispatchedAtUtc })
+                        .Select(r => new { r.Id, r.TerceroId, r.Status, r.Attempts, r.DispatchedAtUtc, r.Channel, r.ExternalRef })
                         .ToListAsync(cancellationToken);
                     var alreadySet = existing.Select(r => r.TerceroId).ToHashSet();
                     var retryIds = existing
                         .Where(r => ContactWorkflowRetryPolicy.ShouldRetry(r.Status, r.Attempts, r.DispatchedAtUtc, nowUtc))
                         .ToDictionary(r => r.TerceroId, r => r.Id);
+
+                    // Llamada IA (ADR-0190): volver a llamar a quien no contesto / ocupado / buzon / rechazo, sobre la
+                    // MISMA fila, si el paso lo pide y ya paso la espera. El run queda Enviado: se permite repetirlo.
+                    var voiceRetryRuns = new HashSet<Guid>();
+                    if (step.StepType == ContactWorkflowStepType.Llamada
+                        && DeserializeCall(step.ParamsJson) is { Modo: "ia" } voiceCfg
+                        && VoiceCallOutcomeRetries(voiceCfg) > 0)
+                    {
+                        var candidates = existing
+                            .Where(r => r.Status == ContactWorkflowRunStatus.Sent && r.Channel == VoiceChannel
+                                && !string.IsNullOrEmpty(r.ExternalRef) && !retryIds.ContainsKey(r.TerceroId))
+                            .ToList();
+                        if (candidates.Count > 0)
+                        {
+                            var refs = candidates.Select(r => r.ExternalRef!).ToList();
+                            var outcomes = await _db.VoiceCalls.AsNoTracking()
+                                .Where(v => refs.Contains(v.CallId))
+                                .Select(v => new { v.CallId, v.Status, v.DisconnectionReason })
+                                .ToDictionaryAsync(v => v.CallId, v => Voice.VoiceCallOutcomes.Classify(v.Status, v.DisconnectionReason), cancellationToken);
+                            foreach (var r in candidates)
+                            {
+                                if (outcomes.TryGetValue(r.ExternalRef!, out var outcome)
+                                    && Voice.VoiceCallOutcomes.ShouldRetry(outcome, r.Attempts, voiceCfg.Reintentos,
+                                        voiceCfg.ReintentarCadaMin, r.DispatchedAtUtc, nowUtc))
+                                {
+                                    retryIds[r.TerceroId] = r.Id;
+                                    voiceRetryRuns.Add(r.Id);
+                                }
+                            }
+                        }
+                    }
 
                     // Reintentos primero (son los mas antiguos), luego contactos nuevos; todo bajo el mismo tope.
                     var retries = segment.Where(c => retryIds.ContainsKey(c.Id)).ToList();
@@ -190,7 +221,9 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                     foreach (var contact in retryBatch)
                     {
                         if (cancellationToken.IsCancellationRequested) { break; }
-                        if (await RetryRunAsync(retryIds[contact.Id], step.StepType, step.ParamsJson, schedule, contact, nowUtc, cancellationToken))
+                        var retryRunId = retryIds[contact.Id];
+                        if (await RetryRunAsync(retryRunId, step.StepType, step.ParamsJson, schedule, contact, nowUtc,
+                                voiceRetryRuns.Contains(retryRunId), cancellationToken))
                         {
                             written++;
                         }
@@ -255,13 +288,14 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     /// Reintenta un Failed/Skipped sobre la MISMA fila. Primero la "reclama" (Attempts++ y nueva hora) con
     /// Attempts como token de concurrencia: si otra instancia del worker la tomo antes, el UPDATE no aplica y
     /// este proceso NO envia (sin dobles envios). Luego ejecuta el paso y guarda el resultado en la fila.
+    /// <paramref name="allowSent"/> = reintento de una llamada que no contesto (ADR-0190): la fila esta Enviada.
     /// </summary>
     private async Task<bool> RetryRunAsync(
         Guid runId, ContactWorkflowStepType type, string? paramsJson, ScheduleRow schedule, SegmentContact contact,
-        DateTimeOffset nowUtc, CancellationToken cancellationToken)
+        DateTimeOffset nowUtc, bool allowSent, CancellationToken cancellationToken)
     {
         var run = await _db.ContactWorkflowRuns.FirstOrDefaultAsync(r => r.Id == runId, cancellationToken);
-        if (run is null || run.Status == ContactWorkflowRunStatus.Sent) { return false; }
+        if (run is null || (run.Status == ContactWorkflowRunStatus.Sent && !allowSent)) { return false; }
 
         run.Attempts++;
         // Misma hora de la corrida que usan el rate-gate (RepeatEvery) y la regla de reintento.
@@ -316,7 +350,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 return await ExecuteEmailAsync(paramsJson, schedule, contact, runId, cancellationToken);
 
             case ContactWorkflowStepType.Llamada:
-                return await ExecuteLlamadaAsync(paramsJson, contact, actor, cancellationToken);
+                return await ExecuteLlamadaAsync(paramsJson, contact, actor, runId, cancellationToken);
 
             case ContactWorkflowStepType.MensajeRed:
                 // No hay canal de "responder redes" para INICIAR una conversacion saliente: el dispatcher
@@ -578,17 +612,23 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
         return (sender ?? new EmailSenderOverride(null, null, null)) with { CustomArgs = args };
     }
 
+    /// <summary>Canal de los runs de Llamada IA (su ExternalRef es el call_id de Retell).</summary>
+    private const string VoiceChannel = "voz-ia";
+
+    private static int VoiceCallOutcomeRetries(ContactWorkflowCallParams call)
+        => Voice.VoiceCallOutcomes.ClampRetries(call.Reintentos);
+
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteLlamadaAsync(
-        string? paramsJson, SegmentContact contact, Guid actor, CancellationToken cancellationToken)
+        string? paramsJson, SegmentContact contact, Guid actor, Guid runId, CancellationToken cancellationToken)
     {
         const string channel = "crm";
         var call = DeserializeCall(paramsJson);
         // Llamada IA (ADR-0056): coloca la llamada con Retell reutilizando el AiAgent (su SystemPrompt +
         // PromptExtra + objetivo componen el prompt que REEMPLAZA el del agente Retell). El dedupe del
-        // ContactWorkflowRun evita re-llamar; nunca se reintenta a ciegas.
+        // ContactWorkflowRun evita re-llamar; el unico reintento es el configurado por "no contesto" (ADR-0190).
         if (call?.Modo == "ia")
         {
-            const string voiceChannel = "voz-ia";
+            const string voiceChannel = VoiceChannel;
             var e164 = PhoneNumber.ToE164(contact.Telefono);
             if (!Voice.RetellVoiceService.IsE164(e164))
             {
@@ -607,7 +647,9 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 PromptExtra: call.PromptExtra,
                 Objetivo: call.Objetivo,
                 FormulariosPermitidos: call.FormulariosPermitidos ?? Array.Empty<Guid>(),
-                ContactVariables: contactVars), cancellationToken);
+                ContactVariables: contactVars,
+                ContactWorkflowRunId: runId,
+                RetellVoiceLineId: call.LineaVozId), cancellationToken);
 
             return voiceRes.Placed
                 ? (ContactWorkflowRunStatus.Sent, voiceChannel, voiceRes.CallId, null)

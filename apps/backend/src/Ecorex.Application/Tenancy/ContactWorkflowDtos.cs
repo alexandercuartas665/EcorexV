@@ -118,7 +118,21 @@ public sealed record ContactWorkflowRunDto(
     EmailDeliveryStatus Entrega = EmailDeliveryStatus.None,
     string? EntregaDetalle = null,
     DateTime? AbiertoLocal = null,
-    DateTime? ClicLocal = null);
+    DateTime? ClicLocal = null,
+    // Resultado de la llamada IA (ADR-0190); null si el run no es una llamada.
+    ContactWorkflowCallResultDto? Llamada = null);
+
+/// <summary>Resultado de la ULTIMA llamada de un run del motor (ADR-0190): lo que paso, cuanto duro y que se hablo.</summary>
+public sealed record ContactWorkflowCallResultDto(
+    Voice.VoiceCallOutcome Resultado,
+    string? Motivo,
+    int? DuracionSeg,
+    string? Resumen,
+    bool? Exitosa,
+    string? GrabacionUrl,
+    string? Transcripcion,
+    decimal? CostoUsd,
+    DateTime? InicioLocal);
 
 /// <summary>
 /// Parametros del paso Llamada (contenido de ParamsJson). Dos modos:
@@ -140,7 +154,12 @@ public sealed record ContactWorkflowCallParams(
     // Nombre de ContactCallObjetivo (que se quiere que haga el agente).
     string? Objetivo = null,
     // Formularios (FormDefinition.Id) que el agente puede llenar durante la llamada.
-    IReadOnlyList<Guid>? FormulariosPermitidos = null);
+    IReadOnlyList<Guid>? FormulariosPermitidos = null,
+    // Linea de voz (RetellVoiceLine.Id) con la que llama este paso. Null = la linea por defecto (ADR-0190).
+    Guid? LineaVozId = null,
+    // Reintentos EXTRA si no contesta / ocupado / buzon / rechaza (0..5) y minutos entre intentos (ADR-0190).
+    int? Reintentos = null,
+    int? ReintentarCadaMin = null);
 
 /// <summary>Ventana de horario de un paso.</summary>
 public sealed record ContactWorkflowScheduleDto(

@@ -326,6 +326,7 @@ public static class DependencyInjection
         services.AddScoped<Voice.IRetellVoiceLineService, Voice.RetellVoiceLineService>();
         services.AddScoped<Voice.IRetellVoiceService, Voice.RetellVoiceService>();
         services.AddScoped<Voice.IRetellWebhookProcessor, Voice.RetellWebhookProcessor>();
+        services.AddScoped<Voice.IVoiceCallSyncService, Voice.VoiceCallSyncService>();
         // Plantillas HSM de WhatsApp (ADR-0029): CRUD con resultados tipados. Submit/SyncStatus
         // son STUBS: sin integracion real con la WhatsApp Cloud API de Meta.
         services.AddScoped<Tenancy.IWhatsAppTemplateService, Tenancy.WhatsAppTemplateService>();

@@ -56,8 +56,12 @@ public class VoiceCall : TenantEntity
     /// Es la whitelist DURA para el volcado a FormResponse: jamas se escribe fuera de esta lista.</summary>
     public string? FormulariosPermitidosJson { get; set; }
 
-    /// <summary>Enlace best-effort al run del motor de acciones (se crea DESPUES del place-call).</summary>
+    /// <summary>Run del motor de acciones que coloco la llamada (su Id se asigna antes de llamar). Un run con
+    /// reintentos por "no contesto" queda con varias VoiceCall (una por intento); ExternalRef = la ultima.</summary>
     public Guid? ContactWorkflowRunId { get; set; }
 
     public string? ErrorText { get; set; }
+
+    /// <summary>Ultima vez que se consulto a Retell (GET get-call) por respaldo, cuando el webhook no llego.</summary>
+    public DateTimeOffset? LastSyncedAtUtc { get; set; }
 }

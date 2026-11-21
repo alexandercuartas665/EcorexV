@@ -26,6 +26,13 @@ public interface IRetellWebhookProcessor
 
     /// <summary>Procesa el evento (tenant ambiente ya fijado). Verifica firma y actualiza.</summary>
     Task<RetellWebhookOutcome> ProcessAsync(string rawBody, string? signatureHeader, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// RESPALDO del webhook (ADR-0190): aplica el objeto "call" leido con GET get-call (tenant ambiente ya fijado)
+    /// con los MISMOS efectos que el webhook (estado, motivo de corte, volcado a formulario, reanudar el paso en
+    /// espera, estado del run). No guarda: el llamador hace SaveChanges. Devuelve true si la llamada cambio de estado.
+    /// </summary>
+    Task<bool> ApplyPolledCallAsync(Domain.Entities.VoiceCall voiceCall, JsonElement call, CancellationToken cancellationToken = default);
 }
 
 public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
@@ -109,13 +116,55 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
         // Actualizar la VoiceCall segun el evento + datos del payload.
         using var doc = JsonDocument.Parse(rawBody);
         var call = doc.RootElement.GetProperty("call");
-        ApplyEvent(voiceCall, eventType!, call);
+        await ApplyWithEffectsAsync(voiceCall, eventType!, call, cancellationToken);
+
+        await _db.SaveChangesAsync(cancellationToken);
+        _log.LogInformation("Voz IA: webhook {Event} aplicado call_id={CallId} status={Status}", eventType, callId, voiceCall.Status);
+        return RetellWebhookOutcome.Ok;
+    }
+
+    public async Task<bool> ApplyPolledCallAsync(Domain.Entities.VoiceCall voiceCall, JsonElement call, CancellationToken cancellationToken = default)
+    {
+        var before = (voiceCall.Status, voiceCall.DisconnectionReason);
+        var callStatus = ReadString(call, "call_status")?.ToLowerInvariant();
+        var hasAnalysis = call.TryGetProperty("call_analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Object;
+
+        // GET get-call trae el estado ACTUAL: se reproduce como los eventos que el webhook habria mandado.
+        if (callStatus is "ongoing" && voiceCall.Status == VoiceCallStatus.Registered)
+        {
+            await ApplyWithEffectsAsync(voiceCall, "call_started", call, cancellationToken);
+        }
+        else if (callStatus is "ended" or "not_connected" or "error")
+        {
+            if (voiceCall.Status is VoiceCallStatus.Registered or VoiceCallStatus.Ongoing)
+            {
+                voiceCall.StartedAt = ReadUnixMs(call, "start_timestamp") ?? voiceCall.StartedAt;
+                await ApplyWithEffectsAsync(voiceCall, "call_ended", call, cancellationToken);
+            }
+            if (hasAnalysis && voiceCall.Status != VoiceCallStatus.Analyzed)
+            {
+                await ApplyWithEffectsAsync(voiceCall, "call_analyzed", call, cancellationToken);
+            }
+            if (callStatus == "error" && voiceCall.Status != VoiceCallStatus.Analyzed)
+            {
+                voiceCall.Status = VoiceCallStatus.Error;
+                await SyncRunStatusAsync(voiceCall, cancellationToken);
+            }
+        }
+        return before != (voiceCall.Status, voiceCall.DisconnectionReason);
+    }
+
+    /// <summary>Aplica un evento a la VoiceCall y sus efectos: volcado a formulario, paso de flujo en espera y run.</summary>
+    private async Task ApplyWithEffectsAsync(Domain.Entities.VoiceCall voiceCall, string eventType, JsonElement call, CancellationToken cancellationToken)
+    {
+        var callId = voiceCall.CallId;
+        ApplyEvent(voiceCall, eventType, call);
 
         // Volcado a formulario (solo si el objetivo era LlenarFormulario y hay whitelist).
         if (string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase)
             && string.Equals(voiceCall.Objetivo, nameof(ContactCallObjetivo.LlenarFormulario), StringComparison.OrdinalIgnoreCase))
         {
-            await DumpCapturedFormsAsync(voiceCall, call, callId!, cancellationToken);
+            await DumpCapturedFormsAsync(voiceCall, call, callId, cancellationToken);
         }
 
         // Ola 4 (ADR-0190): deja la entrada de RESULTADO en la bitacora del agente (y un resumen como Message para
@@ -144,20 +193,25 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
             }
         }
 
-        // Actualizar el run del motor de acciones (best-effort) por su ExternalRef = call_id.
-        var run = await _db.ContactWorkflowRuns.FirstOrDefaultAsync(r => r.ExternalRef == callId, cancellationToken);
-        if (run is not null)
-        {
-            run.Status = voiceCall.Status switch
-            {
-                VoiceCallStatus.Error or VoiceCallStatus.Failed => ContactWorkflowRunStatus.Failed,
-                _ => run.Status
-            };
-        }
+        await SyncRunStatusAsync(voiceCall, cancellationToken);
+    }
 
-        await _db.SaveChangesAsync(cancellationToken);
-        _log.LogInformation("Voz IA: webhook {Event} aplicado call_id={CallId} status={Status}", eventType, callId, voiceCall.Status);
-        return RetellWebhookOutcome.Ok;
+    /// <summary>
+    /// Estado del run del motor de acciones (best-effort, por ExternalRef = call_id). Solo un FALLO real marca el
+    /// run como fallido; "no contesto", "ocupado" o "buzon" lo dejan Enviado para que el reintento del paso
+    /// (ADR-0190) decida si vuelve a llamar.
+    /// </summary>
+    private async Task SyncRunStatusAsync(Domain.Entities.VoiceCall voiceCall, CancellationToken cancellationToken)
+    {
+        var run = await _db.ContactWorkflowRuns.FirstOrDefaultAsync(r => r.ExternalRef == voiceCall.CallId, cancellationToken);
+        if (run is null) { return; }
+        var outcome = VoiceCallOutcomes.Classify(voiceCall.Status, voiceCall.DisconnectionReason);
+        if (outcome == VoiceCallOutcome.Fallo
+            && (voiceCall.Status is VoiceCallStatus.Error or VoiceCallStatus.Failed || voiceCall.DisconnectionReason is not null))
+        {
+            run.Status = ContactWorkflowRunStatus.Failed;
+            run.Error = "Llamada: " + (VoiceCallOutcomes.ReasonText(voiceCall.DisconnectionReason) ?? "error del proveedor de voz");
+        }
     }
 
     private static void ApplyEvent(Domain.Entities.VoiceCall vc, string eventType, JsonElement call)
@@ -174,13 +228,15 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
                 vc.DurationSeconds = ReadDurationSeconds(call) ?? vc.DurationSeconds;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
-                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
+                vc.DisconnectionReason = Truncate(ReadString(call, "disconnection_reason"), 80) ?? vc.DisconnectionReason;
                 break;
             case "call_analyzed":
                 vc.Status = VoiceCallStatus.Analyzed;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
-                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
+                vc.DisconnectionReason = Truncate(ReadString(call, "disconnection_reason"), 80) ?? vc.DisconnectionReason;
+                vc.EndedAt ??= ReadUnixMs(call, "end_timestamp");
+                vc.DurationSeconds ??= ReadDurationSeconds(call);
                 if (call.TryGetProperty("call_analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Object)
                 {
                     vc.AnalysisJson = analysis.GetRawText();
@@ -189,6 +245,9 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
                 break;
         }
     }
+
+    private static string? Truncate(string? value, int max)
+        => value is null ? null : value.Length <= max ? value : value[..max];
 
     // ---- Volcado a formulario (whitelist DURA) ----
 

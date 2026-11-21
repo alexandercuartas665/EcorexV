@@ -244,8 +244,8 @@ public sealed class RetellVoiceService : IRetellVoiceService
         if (transcript is not null) { vc.TranscriptText = transcript; }
         var recording = JsonStr(call, "recording_url");
         if (recording is not null) { vc.RecordingUrl = recording; }
-        var disconnect = JsonStr(call, "disconnection_reason");
-        if (disconnect is not null) { vc.DisconnectionReason = disconnect; }
+        var reason = JsonStr(call, "disconnection_reason");
+        if (reason is not null) { vc.DisconnectionReason = reason.Length <= 80 ? reason : reason[..80]; }
 
         var started = JsonUnixMs(call, "start_timestamp");
         if (started is not null) { vc.StartedAt = started; }

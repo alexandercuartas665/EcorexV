@@ -1,4 +1,5 @@
 using Ecorex.Application.Gestor;
+using Ecorex.Application.Voice;
 using Ecorex.SuperAdmin.Auth;
 
 namespace Ecorex.SuperAdmin.RealTime;
@@ -69,6 +70,10 @@ public sealed class ContactWorkflowWorker : BackgroundService
     {
         var nowUtc = _timeProvider.GetUtcNow();
 
+        // 0) Respaldo del webhook de Retell (ADR-0190): llamadas sin resultado se consultan a Retell ANTES de
+        //    disparar, para que el reintento por "no contesto" decida con el resultado al dia.
+        await SyncVoiceCallsAsync(nowUtc, cancellationToken);
+
         // 1) Barrido de plataforma: que tenants tienen algun workflow activo (solo ids, ningun dato).
         IReadOnlyList<Guid> tenants;
         await using (var scope = _scopeFactory.CreateAsyncScope())
@@ -101,6 +106,40 @@ public sealed class ContactWorkflowWorker : BackgroundService
             {
                 // El fallo de un tenant no debe frenar a los demas.
                 _logger.LogError(ex, "Fallo el disparo de acciones del tenant {TenantId}.", tenantId);
+            }
+        }
+    }
+
+    private async Task SyncVoiceCallsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Guid> tenants;
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var sync = scope.ServiceProvider.GetRequiredService<IVoiceCallSyncService>();
+            tenants = await sync.FindTenantsWithPendingCallsAsync(nowUtc, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Fallo el barrido de llamadas de voz pendientes.");
+            return;
+        }
+
+        foreach (var tenantId in tenants)
+        {
+            if (cancellationToken.IsCancellationRequested) { break; }
+            try
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                using (AmbientTenantContext.Begin(tenantId))
+                {
+                    var sync = scope.ServiceProvider.GetRequiredService<IVoiceCallSyncService>();
+                    await sync.SyncPendingAsync(nowUtc, cancellationToken);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Fallo el respaldo de llamadas de voz del tenant {TenantId}.", tenantId);
             }
         }
     }

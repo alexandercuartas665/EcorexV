@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - v0.16.367: Reportes e indicadores por el MCP personal (ADR-0198) - rama feat/reportes-mcp - PENDIENTE DE DEPLOY
+
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/reportes-mcp (290ab341) al tronco y main como v0.16.367. Gates: build Release, format whitespace/style, ASCII, unitarias 1676/312/35, integracion dual McpTablerosTests 40/40 (PG + SQL Server). Deploy: SOLO con OK del usuario.
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). Pedido: spec de la sesion ECOREX.mcp (crear reportes e indicadores con
+fuente = contenedor de datos desde el MCP personal).
+
+Hecho:
+- `TableroMcpToolset.Reportes.cs`: 9 herramientas (listar_fuentes_reporte, ver_fuente_reporte, listar_reportes,
+  ver_reporte, crear_reporte, listar_libros_indicadores, ver_libro_indicadores, crear_libro_indicadores,
+  agregar_indicador) sobre IReportCatalog/IReportDataSource/IReportDefinitionService (ADR-0051) y
+  IAnalisisService/IAnalisisWidgetRunner (ADR-0158), inyectados opcionales.
+- Diseno de fuente: cada tabla raiz de un contenedor YA es su fuente `container:{id_tabla}` (sin subclave nueva); se
+  indica por clave, por contenedor + tabla o por nombre. Consulta en nombres de campo; se ejecuta antes de guardar.
+- Permisos de la matriz: reportes/galeria, reportes/ia, reportes/admin y analisis. v1 solo paneles (RDL en pantalla).
+- MCP personal 142 -> 151; linea en las instrucciones del servidor; INVENTARIO-MCP seccion 2.9; ADR-0198.
+
+Siguiente: OK del usuario para desplegar; validacion en vivo en BITCODE a cargo de ECOREX.mcp (oportunidades tech por
+departamento, monto por sector -> requiere precio_base decimal, procesos por modalidad).
+
 ## 2026-11-21 - v0.16.366: Clasificacion por lotes de filas de un contenedor con un agente de IA (ADR-0197) - rama feat/clasificar-lote-contenedor - DESPLEGADA
 
 - **Integracion y deploy (ECOREX.desarrollo)**: merge --no-ff 7ddcb194 al tronco y main. Gates: build Release, format, ASCII, unitarias 1676/312/35, integracion dual ContenedorClasificacion|McpTablerosTests|DataContainer|DataModel 66/66. Deploy 2026-11-21 ~14:01 Bogota (OK del usuario, junto con v0.16.365): footer /login v0.16.366, Restarts=0, 0 errores.

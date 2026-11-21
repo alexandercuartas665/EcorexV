@@ -10,6 +10,7 @@
 > `feat/mcp-terminar-tarea`, AUN NO integrada ni validada en vivo)
 > (addendum 2026-11-21: +1 herramienta `clasificar_lote`, ADR-0197, total 142; rama
 > `feat/clasificar-lote-contenedor`)
+> (addendum 2026-11-21: +9 herramientas de Reportes e indicadores, ADR-0198, total 151; rama `feat/reportes-mcp`)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -20,7 +21,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **142** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **151** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -251,6 +252,25 @@ contenedores estan inyectados. Complemento del agente: `actualizar_filas_por_cla
 |---|---|---|---|
 | clasificar_lote | W | Edit | Clasifica un lote de filas pendientes con un agente y escribe salida + marca por clave |
 
+### 2.9 Reportes e indicadores (9) - `TableroMcpToolset.Reportes.cs` (ADR-0198) - permisos `reportes/*` y `analisis`
+
+Capa delgada sobre el motor de reportes (ADR-0051) y los libros de indicadores (ADR-0158). Cada TABLA raiz de un
+contenedor es su propia fuente `container:{id_tabla}`; la fuente se indica por clave, por `contenedor` + `tabla` o
+por nombre. La consulta va en NOMBRES de campo (se traducen a las claves del catalogo) y se EJECUTA antes de guardar:
+si no corre, no se guarda nada. v1 solo paneles (los imprimibles RDL se disenian en pantalla).
+
+| Herramienta | Tipo | Permiso | Que hace |
+|---|---|---|---|
+| listar_fuentes_reporte | R | reportes/galeria o analisis View | Fuentes (tablas de contenedor con su contenedor, nativas, formularios) |
+| ver_fuente_reporte | R | reportes/galeria o analisis View | Campos de una fuente: tipo y si filtra/agrupa/suma |
+| listar_reportes | R | reportes/galeria View | Reportes visibles (reportes/admin ve todos) |
+| ver_reporte | R | reportes/galeria View | Ejecuta un reporte guardado: columnas, total y muestra |
+| crear_reporte | W | reportes/ia Create o reportes/admin View | Panel tabla/barras/torta/linea con categoria opcional |
+| listar_libros_indicadores | R | analisis View | Libros visibles |
+| ver_libro_indicadores | R | analisis View | Hojas y widgets de un libro |
+| crear_libro_indicadores | W | analisis Create/Edit | Libro privado con su Hoja 1 |
+| agregar_indicador | W | analisis Create/Edit (dueno o admin) | Widget kpi/barras/dona/embudo/treemap/linea/area/tabla; crea la hoja si no existe |
+
 ---
 
 ## 2b. MCP de WHATSAPP por linea Evolution - `/api/mcp/whatsapp/{lineId}` (ADR-0164)
@@ -332,7 +352,7 @@ Estado: CUBIERTO / PARCIAL / NO / EXCLUIDO (a proposito: admin o seguridad).
 | Conceptos (000270) | PARCIAL | Solo listar. Falta crear/editar concepto (para armar un proceso de punta a punta sin la app) |
 | Tableros (configurar) | NO | Crear tablero y columnas |
 | Proyectos | NO | Modulo con permiso propio (`proyectos`) sin herramientas |
-| Reportes / analisis / datasets | NO | Existe `datos` (listar/ver/ejecutar dataset) solo en el MCP admin: candidato a puente |
+| Reportes / analisis (indicadores) | CUBIERTO (ADR-0198) | 9 herramientas: fuentes y campos, reportes tipo panel (crear/listar/ejecutar) y libros de indicadores (crear libro, agregar widget). Fuera: imprimibles RDL, editar/borrar reportes o widgets, datasets (`datos` sigue solo en el MCP admin) |
 | Inventario / Contenedor de datos (consulta) | NO | Existen toolsets de agente: candidatos a puente de lectura |
 | Conversaciones WhatsApp (lineas Evolution) | CUBIERTO (MCP de WhatsApp, 2b) | Leer, enviar todo tipo de mensaje, gestionar chats, etiquetas, grupos, pausar SARA, perfil de la linea. Lineas YCloud/Cloud: no (otro proveedor) |
 | Notificaciones | NO | Lectura util |
@@ -366,7 +386,7 @@ Brechas priorizadas (propuesta):
 | ADR-0193 (extraccion) / ADR-0194 (contenedor de datos) / ADR-0195 (agentes de IA) | Nuevos; 17 + 23 + 17 herramientas en la rama `feat/mcp-terminar-tarea` |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 142/142 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
+| Descripciones y esquemas | 151/151 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

@@ -95,6 +95,11 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private readonly MenuConfig.IMenuConfigService? _menu;
     private readonly IAiAgentService? _agents;
     private readonly IContenedorClasificacionService? _clasificador;
+    private readonly Reporting.IReportCatalog? _reportCatalog;
+    private readonly Reporting.IReportDataSource? _reportData;
+    private readonly Reporting.IReportDefinitionService? _reportDefs;
+    private readonly Analisis.IAnalisisService? _analisis;
+    private readonly Analisis.IAnalisisWidgetRunner? _widgetRunner;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
         ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
@@ -103,8 +108,16 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         Organization.IWorkflowNodePolicyService? nodePolicies = null, Scraping.IScrapeFlowService? scrape = null,
         DataContainers.IDataModelService? dataModel = null, DataContainers.IDataImportConfigService? dataImport = null,
         DataContainers.IDataContainerModuleService? dataModule = null, MenuConfig.IMenuConfigService? menu = null,
-        IAiAgentService? agents = null, IContenedorClasificacionService? clasificador = null)
+        IAiAgentService? agents = null, IContenedorClasificacionService? clasificador = null,
+        Reporting.IReportCatalog? reportCatalog = null, Reporting.IReportDataSource? reportData = null,
+        Reporting.IReportDefinitionService? reportDefs = null, Analisis.IAnalisisService? analisis = null,
+        Analisis.IAnalisisWidgetRunner? widgetRunner = null)
     {
+        _reportCatalog = reportCatalog;
+        _reportData = reportData;
+        _reportDefs = reportDefs;
+        _analisis = analisis;
+        _widgetRunner = widgetRunner;
         _clasificador = clasificador;
         _scrape = scrape;
         _agents = agents;
@@ -147,6 +160,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         if (_scrape is not null) { set.UnionWith(ExtractionReadOnly); }
         if (_dataModel is not null) { set.UnionWith(ContainerReadOnly); }
         if (_agents is not null) { set.UnionWith(AgentReadOnly); }
+        set.UnionWith(ReportingReadOnlyExposed());
         if (_formAuthoring is not null) { set.UnionWith(_formAuthoring.ReadOnlyTools.Where(FormToolNames.Contains)); }
         return set;
     }
@@ -171,6 +185,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         if (_dataModel is not null) { all.AddRange(ContainerSpecs); }
         if (_agents is not null) { all.AddRange(AgentSpecs); }
         if (HasClassify) { all.AddRange(ClassifySpecs); }
+        all.AddRange(ReportingSpecsExposed());
         // Solo las herramientas de formularios PERMITIDAS al usuario final (ver FormBridgeAllowed).
         if (_formAuthoring is not null) { all.AddRange(_formAuthoring.GetSpecs().Where(s => FormBridgeAllowed.Contains(s.Name))); }
         return all.ToArray();
@@ -280,6 +295,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 _ when _dataModel is not null && ContainerToolNames.Contains(toolName) => await ExecuteContainerAsync(toolName, args, actor, cancellationToken),
                 _ when _agents is not null && AgentToolNames.Contains(toolName) => await ExecuteAgentAsync(toolName, args, actor, cancellationToken),
                 _ when HasClassify && ClassifyToolNames.Contains(toolName) => await ExecuteClassifyAsync(args, actor, cancellationToken),
+                _ when IsReportingTool(toolName) => await ExecuteReportingAsync(toolName, args, actor, cancellationToken),
                 _ when _formAuthoring is not null && FormToolNames.Contains(toolName) => await ExecuteFormAsync(toolName, argumentsJson, actor, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };

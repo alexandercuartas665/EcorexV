@@ -56,6 +56,9 @@ public static class McpTablerosEndpoints
         "contenedor con agregar_filas_a_contenedor. Confirma antes de eliminar un agente. " +
         "Para clasificar filas de una tabla con un agente (encendido) usa clasificar_lote y repitela hasta restantes=0; " +
         "consume tokens de IA, asi que confirma con el usuario antes de procesar muchas filas. " +
+        "Reportes e indicadores: mira las fuentes con listar_fuentes_reporte y sus campos con ver_fuente_reporte (cada " +
+        "tabla de un contenedor es una fuente); crear_reporte arma un panel y agregar_indicador un widget de un libro " +
+        "(crear_libro_indicadores); la consulta va con nombres de campo y se ejecuta antes de guardar. " +
         "La IA solo puede lo que el usuario puede (permisos de flujos/formularios/contenedor-datos/agentes).";
 
     public static WebApplication MapMcpTablerosEndpoints(this WebApplication app)

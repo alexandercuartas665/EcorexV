@@ -760,6 +760,239 @@ public abstract class McpTablerosTestsBase
         Assert.Equal(llamadas, runner.Calls);
     }
 
+    // ===================== Reportes e indicadores (ADR-0198) =====================
+
+    [Fact]
+    public async Task Reportes_FuentePorContenedorYTabla_CreaPanelEIndicadores_QueCorren()
+    {
+        var seed = await SeedTenantAsync("Mcp Reportes");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var owner = Actor(seed, owner: true);
+
+        // Sin el motor de reportes las herramientas no existen.
+        var (_, _, sinReportes) = Build(ctx, tenantCtx);
+        Assert.DoesNotContain("crear_reporte", sinReportes.GetSpecs().Select(s => s.Name));
+        Assert.True((await sinReportes.ExecuteAsync("crear_reporte", "{}", owner)).IsError);
+
+        var (_, _, toolset) = Build(ctx, tenantCtx, withReports: true);
+        var names = toolset.GetSpecs().Select(s => s.Name).ToList();
+        foreach (var t in new[] { "listar_fuentes_reporte", "ver_fuente_reporte", "listar_reportes", "ver_reporte", "crear_reporte",
+            "listar_libros_indicadores", "ver_libro_indicadores", "crear_libro_indicadores", "agregar_indicador" })
+        {
+            Assert.Contains(t, names);
+        }
+        Assert.Contains("listar_fuentes_reporte", toolset.ReadOnlyTools);
+        Assert.DoesNotContain("crear_reporte", toolset.ReadOnlyTools);
+        Assert.DoesNotContain("agregar_indicador", toolset.ReadOnlyTools);
+        Assert.Equal(sinReportes.GetSpecs().Count + 9, toolset.GetSpecs().Count);
+        Assert.All(toolset.ReadOnlyTools, n => Assert.Contains(n, names));
+        foreach (var spec in toolset.GetSpecs().Where(s => s.Name.Contains("reporte") || s.Name.Contains("indicador")))
+        {
+            Assert.True(spec.Description.Length >= 25, $"{spec.Name}: descripcion demasiado corta");
+            using var schema = JsonDocument.Parse(spec.ParametersJsonSchema);
+            var props = schema.RootElement.GetProperty("properties");
+            if (schema.RootElement.TryGetProperty("required", out var req))
+            {
+                Assert.All(req.EnumerateArray(), r => Assert.True(props.TryGetProperty(r.GetString()!, out _), $"{spec.Name}: required {r}"));
+            }
+            if (spec.Name is "crear_reporte" or "agregar_indicador")
+            {
+                Assert.Equal("object", props.GetProperty("consulta").GetProperty("type").GetString());
+            }
+        }
+
+        // Contenedor con DOS tablas (como SECOP): cada tabla es su propia fuente.
+        var (tecnologiaId, _) = await SeedSecopAsync(ctx, seed.TenantId);
+
+        var fuentes = Payload(await toolset.ExecuteAsync("listar_fuentes_reporte", Args(new { tipo = "contenedor" }), owner));
+        var secop = fuentes.GetProperty("fuentes").EnumerateArray().Where(f => f.GetProperty("contenedor").GetString() == "SECOP Mcp").ToList();
+        Assert.Equal(2, secop.Count);
+        Assert.Contains(secop, f => f.GetProperty("fuente").GetString() == $"container:{tecnologiaId}" && f.GetProperty("tabla").GetString() == "Tecnologia");
+
+        var campos = Payload(await toolset.ExecuteAsync("ver_fuente_reporte", Args(new { contenedor = "SECOP Mcp", tabla = "Tecnologia" }), owner));
+        Assert.Equal($"container:{tecnologiaId}", campos.GetProperty("fuente").GetString());
+        Assert.Contains(campos.GetProperty("campos").EnumerateArray(), c => c.GetProperty("campo").GetString() == "precio_base" && c.GetProperty("sumable").GetBoolean());
+        // Sin tabla en un contenedor de dos tablas: pide la tabla.
+        Assert.True((await toolset.ExecuteAsync("ver_fuente_reporte", Args(new { contenedor = "SECOP Mcp" }), owner)).IsError);
+
+        // "Oportunidades tech por departamento": filtro + agrupacion + conteo ordenado.
+        var rep = Payload(await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "Oportunidades tech por departamento",
+            categoria = "SECOP",
+            grafico = "barras",
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            consulta = new
+            {
+                filtros = new[] { new { campo = "es_tecnologia", operador = "igual", valor = "si" } },
+                agrupar_por = "departamento",
+                orden = new[] { new { campo = "conteo", desc = true } }
+            }
+        }), owner));
+        var reporteId = Guid.Parse(rep.GetProperty("reporte_id").GetString()!);
+        Assert.Equal(2, rep.GetProperty("resultado").GetProperty("filas").GetInt32());
+        var def = await ctx.ReportDefinitions.AsNoTracking().SingleAsync(d => d.Id == reporteId);
+        Assert.Equal($"container:{tecnologiaId}", def.SourceKey);
+        Assert.Equal("SECOP", def.Category);
+
+        // El reporte guardado corre por el motor (galeria): Antioquia 2, Cundinamarca 1.
+        var run = await new Ecorex.Application.Reporting.ReportDefinitionService(ctx, tenantCtx,
+            ReportServices(ctx, tenantCtx).Data!).RunAsync(reporteId);
+        Assert.NotNull(run);
+        Assert.Equal(2, run!.DataSet.RowCount);
+        Assert.Equal("Antioquia", run.DataSet.Rows[0][0]);
+        Assert.Equal(2L, Convert.ToInt64(run.DataSet.Rows[0][1]));
+
+        var listado = Payload(await toolset.ExecuteAsync("listar_reportes", "{}", owner));
+        Assert.Contains(listado.GetProperty("reportes").EnumerateArray(), r => r.GetProperty("reporte_id").GetString() == reporteId.ToString());
+        var visto = Payload(await toolset.ExecuteAsync("ver_reporte", Args(new { reporte = "Oportunidades tech" }), owner));
+        Assert.Equal(2, visto.GetProperty("resultado").GetProperty("filas").GetInt32());
+
+        // "Monto por sector": suma de un campo decimal.
+        var monto = Payload(await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "Monto por sector",
+            fuente = $"container:{tecnologiaId}",
+            grafico = "torta",
+            consulta = new { agrupar_por = "sector", agregaciones = new[] { new { funcion = "sumar", campo = "precio_base" } } }
+        }), owner));
+        Assert.Equal(2, monto.GetProperty("resultado").GetProperty("filas").GetInt32());
+
+        // Errores: suma sobre texto, campo inexistente, grafico sin agrupar. No guardan nada.
+        var antes = await ctx.ReportDefinitions.CountAsync();
+        Assert.True((await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "x",
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            consulta = new { agrupar_por = "sector", agregaciones = new[] { new { funcion = "sumar", campo = "departamento" } } }
+        }), owner)).IsError);
+        Assert.True((await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "x",
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            consulta = new { campos = new[] { "no_existe" } }
+        }), owner)).IsError);
+        Assert.True((await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "x",
+            grafico = "barras",
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            consulta = new { campos = new[] { "sector" } }
+        }), owner)).IsError);
+        Assert.Equal(antes, await ctx.ReportDefinitions.CountAsync());
+
+        // Libro de indicadores: KPI + barras; una hoja nueva por nombre.
+        var libro = Payload(await toolset.ExecuteAsync("crear_libro_indicadores", Args(new { nombre = "SECOP tablero", descripcion = "prueba" }), owner));
+        var libroId = Guid.Parse(libro.GetProperty("libro_id").GetString()!);
+        var kpi = Payload(await toolset.ExecuteAsync("agregar_indicador", Args(new
+        {
+            libro = "SECOP tablero",
+            titulo = "Procesos tech",
+            tipo = "kpi",
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            consulta = new
+            {
+                filtros = new[] { new { campo = "es_tecnologia", operador = "igual", valor = "si" } },
+                agregaciones = new[] { new { funcion = "contar" } }
+            }
+        }), owner));
+        Assert.Equal(3m, kpi.GetProperty("resultado").GetProperty("valor").GetDecimal());
+        var barras = Payload(await toolset.ExecuteAsync("agregar_indicador", Args(new
+        {
+            libro = libroId.ToString(),
+            hoja = "Por modalidad",
+            titulo = "Procesos por modalidad",
+            tipo = "barras",
+            ancho = 3,
+            fuente = $"container:{tecnologiaId}",
+            consulta = new { agrupar_por = "modalidad" }
+        }), owner));
+        Assert.True(barras.GetProperty("hoja_creada").GetBoolean());
+        Assert.Equal(2, barras.GetProperty("resultado").GetProperty("total").GetInt32());
+
+        // Errores: kpi con agrupacion; barras sin agrupar. No agregan widgets.
+        Assert.True((await toolset.ExecuteAsync("agregar_indicador", Args(new
+        {
+            libro = "SECOP tablero",
+            titulo = "x",
+            tipo = "kpi",
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            consulta = new { agrupar_por = "sector" }
+        }), owner)).IsError);
+        Assert.True((await toolset.ExecuteAsync("agregar_indicador", Args(new
+        {
+            libro = "SECOP tablero",
+            titulo = "x",
+            tipo = "barras",
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            consulta = new { campos = new[] { "sector" } }
+        }), owner)).IsError);
+
+        var verLibro = Payload(await toolset.ExecuteAsync("ver_libro_indicadores", Args(new { libro = "SECOP tablero" }), owner));
+        var hojas = verLibro.GetProperty("hojas").EnumerateArray().ToList();
+        Assert.Equal(2, hojas.Count);
+        Assert.Equal(2, hojas.Sum(h => h.GetProperty("widgets").GetArrayLength()));
+
+        // Los widgets guardados corren con el runner de la hoja.
+        var svc = ReportServices(ctx, tenantCtx);
+        var detalle = await svc.Analisis!.ObtenerLibroAsync(libroId, new Ecorex.Application.Analisis.AnalisisActor(seed.OwnerPlatformId, true));
+        foreach (var w in detalle!.Hojas.SelectMany(h => h.Widgets))
+        {
+            var res = await svc.Runner!.RunAsync(w, new Ecorex.Application.Reporting.ReportContext(seed.TenantId));
+            Assert.True(res.Ok, res.Error);
+        }
+
+        var libros = Payload(await toolset.ExecuteAsync("listar_libros_indicadores", "{}", owner));
+        Assert.Contains(libros.GetProperty("libros").EnumerateArray(), l => l.GetProperty("libro_id").GetString() == libroId.ToString());
+    }
+
+    /// <summary>Contenedor "SECOP Mcp" con tablas Procesos y Tecnologia; Tecnologia con 4 procesos (3 tech).</summary>
+    private static async Task<(Guid Tecnologia, Guid Procesos)> SeedSecopAsync(EcorexDbContext ctx, Guid tenantId)
+    {
+        var model = new DataModel { TenantId = tenantId, Name = "SECOP Mcp" };
+        ctx.DataModels.Add(model);
+        var procesos = new DataContainer { TenantId = tenantId, Name = "Procesos", ModelId = model.Id };
+        var tec = new DataContainer { TenantId = tenantId, Name = "Tecnologia", ModelId = model.Id };
+        ctx.DataContainers.AddRange(procesos, tec);
+        var cols = new Dictionary<string, DataContainerColumn>();
+        var order = 0;
+        foreach (var (n, t) in new[] { ("id_proceso", DataContainerColumnType.Text), ("departamento", DataContainerColumnType.Text),
+            ("es_tecnologia", DataContainerColumnType.Text), ("sector", DataContainerColumnType.Text),
+            ("modalidad", DataContainerColumnType.Text), ("precio_base", DataContainerColumnType.Decimal) })
+        {
+            cols[n] = new DataContainerColumn { TenantId = tenantId, ContainerId = tec.Id, Name = n, Type = t, SortOrder = order++ };
+        }
+        ctx.DataContainerColumns.AddRange(cols.Values);
+        ctx.DataContainerColumns.Add(new DataContainerColumn { TenantId = tenantId, ContainerId = procesos.Id, Name = "id_proceso", SortOrder = 0 });
+        var rows = new[]
+        {
+            new[] { "P1", "Antioquia", "si", "Salud", "Licitacion", "100" },
+            new[] { "P2", "Antioquia", "si", "Educacion", "Minima cuantia", "50.5" },
+            new[] { "P3", "Cundinamarca", "si", "Salud", "Licitacion", "200" },
+            new[] { "P4", "Cundinamarca", "no", "Salud", "Licitacion", "10" }
+        };
+        var keys = new[] { "id_proceso", "departamento", "es_tecnologia", "sector", "modalidad", "precio_base" };
+        foreach (var r in rows)
+        {
+            var row = new DataContainerRow { TenantId = tenantId, ContainerId = tec.Id };
+            ctx.DataContainerRows.Add(row);
+            for (var i = 0; i < keys.Length; i++)
+            {
+                ctx.DataContainerCells.Add(new DataContainerCell { TenantId = tenantId, RowId = row.Id, ColumnId = cols[keys[i]].Id, Value = r[i] });
+            }
+        }
+        await ctx.SaveChangesAsync();
+        return (tec.Id, procesos.Id);
+    }
+
     /// <summary>Doble del runner (sus pruebas reales viven en ContenedorClasificacionTests): verifica SOLO el puente MCP.</summary>
     private sealed class FakeClasificador : IContenedorClasificacionService
     {
@@ -781,7 +1014,8 @@ public abstract class McpTablerosTestsBase
 
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
         EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null,
-        bool withContainers = false, bool withAgents = false, IContenedorClasificacionService? clasificador = null)
+        bool withContainers = false, bool withAgents = false, IContenedorClasificacionService? clasificador = null,
+        bool withReports = false)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
@@ -805,11 +1039,30 @@ public abstract class McpTablerosTestsBase
             dataModule = new DataContainerModuleService(ctx, menu);
         }
         IAiAgentService? agents = withAgents ? new AiAgentService(ctx, tenant, new AuditWriter(ctx)) : null;
+        var rep = withReports ? ReportServices(ctx, tenant) : default;
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
             new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
             forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu, agents,
-            clasificador);
+            clasificador,
+            reportCatalog: rep.Catalog, reportData: rep.Data, reportDefs: rep.Defs, analisis: rep.Analisis, widgetRunner: rep.Runner);
         return (boards, engine, toolset);
+    }
+
+    /// <summary>Motor de reportes + libros de indicadores reales (sin fuentes nativas: bastan contenedores).</summary>
+    private (Ecorex.Application.Reporting.IReportCatalog? Catalog, Ecorex.Application.Reporting.IReportDataSource? Data,
+        Ecorex.Application.Reporting.IReportDefinitionService? Defs, Ecorex.Application.Analisis.IAnalisisService? Analisis,
+        Ecorex.Application.Analisis.IAnalisisWidgetRunner? Runner) ReportServices(EcorexDbContext ctx, ITenantContext tenant)
+    {
+        var native = Array.Empty<Ecorex.Application.Reporting.IReportableSource>();
+        var containers = new Ecorex.Application.Reporting.Sources.ContainerReportReader(ctx);
+        var external = ExternalTestDoubles.Reader(ctx);
+        var formsReader = new Ecorex.Application.Reporting.Sources.FormResponseReportReader(ctx);
+        var catalog = new Ecorex.Application.Reporting.ReportCatalog(native, containers, external, formsReader, tenant, ctx);
+        var data = new Ecorex.Application.Reporting.ReportDataSource(catalog, native, containers, external, formsReader, tenant);
+        var registry = new Ecorex.Application.Analisis.IndicadorCuradoRegistry(Array.Empty<Ecorex.Application.Analisis.IIndicadorCurado>());
+        return (catalog, data, new Ecorex.Application.Reporting.ReportDefinitionService(ctx, tenant, data, catalog: catalog),
+            new Ecorex.Application.Analisis.AnalisisService(_fixture.CreateFactory(tenant.TenantId!.Value), registry),
+            new Ecorex.Application.Analisis.AnalisisWidgetRunner(data, registry, catalog));
     }
 
     private static McpActor Actor(SeedData s, bool owner) => owner

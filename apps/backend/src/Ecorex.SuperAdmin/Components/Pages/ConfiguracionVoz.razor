@@ -5,6 +5,7 @@
 @using Ecorex.Application.Voice
 @inject IRetellVoiceLineService VozSvc
 @inject IRetellVoiceService CallSvc
+@inject Ecorex.Application.Workflows.INotifyLinkBuilder Links
 @inject IJSRuntime JS
 
 <PageTitle>Lineas de voz IA (Retell) - ECOREX.tareas</PageTitle>
@@ -16,6 +17,30 @@
         <p class="module-sub">Cada linea tiene su nombre, numero saliente y credenciales cifradas. La API key y la clave SIP nunca se muestran ni salen del servidor.</p>
     </div>
     <button class="btn btn-primary" @onclick="OpenNew">+ Nueva linea</button>
+</div>
+
+@* Avisos de Retell (ADR-0190): la URL se manda SOLA en cada llamada (webhook_url por llamada); aqui solo se
+   muestra para diagnostico. Si el webhook no llega, el motor consulta el resultado a Retell cada minuto. *@
+<div class="cv-webhook">
+    <div class="cv-webhook-title">Avisos de resultado de las llamadas</div>
+    @if (_webhookUrl is null)
+    {
+        <div class="cv-webhook-warn">
+            El servidor no tiene URL publica (Ecorex:PublicBaseUrl / ECOREX_PUBLIC_BASE_URL), asi que Retell no puede
+            avisar el resultado. Igual el sistema lo consulta a Retell cada minuto; solo tarda un poco mas.
+        </div>
+    }
+    else
+    {
+        <div class="cv-webhook-row">
+            <input class="form-control cv-webhook-url" readonly value="@_webhookUrl" onfocus="this.select()" />
+            <button class="btn btn-outline-secondary" @onclick="CopyWebhookAsync">@(_webhookCopied ? "Copiada" : "Copiar")</button>
+        </div>
+        <div class="cv-webhook-sub">
+            No tienes que configurarla en Retell: ECOREX la envia en cada llamada. Si un aviso no llega, el sistema
+            consulta el resultado a Retell cada minuto (respaldo).
+        </div>
+    }
 </div>
 
 @if (_loading)
@@ -338,10 +363,25 @@ else
     private bool _fEnabled = true;
     private bool _fDefault;
 
+    private string? _webhookUrl;
+    private bool _webhookCopied;
+
     protected override async Task OnInitializedAsync()
     {
+        _webhookUrl = Links.BuildRetellWebhookUrl();
         await ReloadAsync();
         _loading = false;
+    }
+
+    private async Task CopyWebhookAsync()
+    {
+        if (_webhookUrl is null) { return; }
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _webhookUrl);
+            _webhookCopied = true;
+        }
+        catch (JSException) { _webhookCopied = false; }
     }
 
     private async Task ReloadAsync() => _lines = (await VozSvc.ListAsync()).ToList();

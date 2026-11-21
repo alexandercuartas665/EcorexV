@@ -71,9 +71,11 @@ public static class VoiceCallOutcomes
                 case "ivr_reached":
                     return VoiceCallOutcome.Contesto;
                 default:
-                    // dial_failed, invalid_destination, telephony_provider_*, sip_routing_error, marked_as_spam,
-                    // no_valid_payment, concurrency_limit_reached, scam_detected, error_*: no se completo.
-                    return VoiceCallOutcome.Fallo;
+                    // "Sin contacto" lo define RetellVoiceService.IsNoContactReason (fuente unica, compartida con
+                    // los flujos): dial_failed, no_valid_payment... cuentan como no contesto (se reintentan).
+                    // El resto (invalid_destination, telephony_provider_*, sip_routing_error, marked_as_spam,
+                    // concurrency_limit_reached, scam_detected, error_*): no se completo.
+                    return RetellVoiceService.IsNoContactReason(reason) ? VoiceCallOutcome.NoContesto : VoiceCallOutcome.Fallo;
             }
         }
 

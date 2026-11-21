@@ -4,6 +4,8 @@
 > Fuente: el codigo (no la memoria) + validacion en vivo contra el servidor local. Revision: 2026-11-12, v0.16.304
 > (addendum 2026-11-20: +17 herramientas de Extraccion de datos / drones, ADR-0193, total 101; rama
 > `feat/mcp-terminar-tarea`, AUN NO integrada ni validada en vivo)
+> (addendum 2026-11-20: +23 herramientas de Contenedor de datos, ADR-0194, total 124; misma rama
+> `feat/mcp-terminar-tarea`, AUN NO integrada ni validada en vivo)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -14,7 +16,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **101** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **124** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -161,6 +163,45 @@ del token, sin gate de rol extra. Solo se publican si `IScrapeFlowService` esta 
 Fuera de esta ola (candidatos futuros): export/import de pasos, revelar secreto, desencadenador estilo Windows
 (`ScheduleTrigger`), disparar una corrida.
 
+### 2.6 Contenedor de datos (23) - `TableroMcpToolset.Contenedores.cs` (ADR-0194) - permiso `contenedor-datos`
+
+Capa delgada sobre `IDataModelService` (contenedor = modelo ER que agrupa tablas + relaciones),
+`IDataImportConfigService` (conectores + procesos con horario + bitacora) y `IDataContainerModuleService` +
+`IMenuConfigService` (publicar una tabla al menu). Abstraccion: contenedor -> tablas -> columnas; conectores/
+horarios por contenedor; publicar por tabla raiz. **Permiso**: el modulo SI esta en la matriz de roles
+(`Perm:contenedor-datos:View`), asi que se exige el permiso del actor (View/Create/Edit/Delete), como en flujos.
+Conectores SIN secreto: el MCP nunca recibe credenciales (se ponen en la pantalla). Solo se publican si
+`IDataModelService` esta inyectado (lo esta por DI en prod).
+
+| Herramienta | Tipo | Permiso | Que hace |
+|---|---|---|---|
+| listar_contenedores_datos | R | View | Contenedores: id, nombre, #tablas, #relaciones |
+| ver_contenedor_datos | R | View | Tablas (con columnas tipo/requerido/derivada) + relaciones |
+| crear_contenedor_datos | W | Create | Cabecera nueva (nombre + descripcion). Devuelve contenedor_id |
+| editar_contenedor_datos | W | Edit | Cambia nombre/descripcion |
+| eliminar_contenedor_datos | D | Delete | Borra el contenedor completo (cascada) |
+| agregar_tabla | W | Edit | Tabla con columnas opcionales. Devuelve tabla_id |
+| editar_tabla | W | Edit | Renombra/redescribe (conserva columnas) |
+| eliminar_tabla | D | Delete | Borra una tabla (columnas y filas) |
+| agregar_columna | W | Edit | Columna nueva (texto/numero/decimal/fecha/booleano/submodelo) |
+| editar_columna | W | Edit | Cambia nombre/tipo/requerido de una columna |
+| eliminar_columna | D | Delete | Borra una columna (no si tiene datos) |
+| agregar_relacion | W | Edit | Relacion n1/nn entre dos tablas del mismo contenedor |
+| eliminar_relacion | D | Delete | Borra una relacion por id |
+| listar_conectores | R | View | Conectores (fuentes) del contenedor: tipo, destino, si tiene credenciales |
+| guardar_conector | W | Edit | Alta/edicion (excel/api/bd/tabla) SIN secreto (se pone en pantalla) |
+| eliminar_conector | D | Delete | Borra un conector |
+| listar_programaciones_importacion | R | View | Procesos con horario: tipo, cada cuanto, modo, activo, proxima |
+| guardar_programacion_importacion | W | Edit | Alta/edicion: manual/intervalo/cron + modo append/replace/upsert |
+| eliminar_programacion_importacion | D | Delete | Borra un proceso |
+| listar_corridas_importacion | R | View | Bitacora del proceso (trigger, resultado, filas, detalle) |
+| ver_publicacion_contenedor | R | View | Si la tabla esta publicada: ruta, icono, columnas de grilla/filtro |
+| publicar_contenedor | W | Edit | Saca la tabla raiz al menu (vista por nombre o defecto; padre opcional) |
+| despublicar_contenedor | D | Delete | Quita la tabla del menu (conserva la ruta y los permisos) |
+
+Fuera de esta ola (candidatos futuros): clientes remotos (webhooks) + secreto, destino de BD aliada, filas
+(upsert de registros ya existe en el toolset de agente), tablas derivadas (ADR-0127), disparar una importacion.
+
 ---
 
 ## 2b. MCP de WHATSAPP por linea Evolution - `/api/mcp/whatsapp/{lineId}` (ADR-0164)
@@ -248,6 +289,7 @@ Estado: CUBIERTO / PARCIAL / NO / EXCLUIDO (a proposito: admin o seguridad).
 | Notificaciones | NO | Lectura util |
 | Pipeline / CRM | NO | Solo `crear_lead` en agentes |
 | Extraccion de datos (drones, 000730) | CUBIERTO (ADR-0193) | 17 herramientas: crear/editar/ver/listar/borrar dron, pasos (24 tipos, config fina en mapeo_json), variables (secretos cifrados), programaciones (intervalo/cron/tramos) y bitacora de corridas. Runtime del Navegador diferido (solo config) |
+| Contenedor de datos (crear/estructurar/programar/publicar) | CUBIERTO (ADR-0194) | 23 herramientas: contenedor+tablas+columnas+relaciones, conectores (SIN secreto), programaciones (manual/intervalo/cron + modo) + bitacora, y publicar/despublicar como modulo del menu (privacidad por Roles). Carga de filas (upsert) sigue en el toolset de agente |
 | Compras / DIAN / conciliacion / gestor documental | NO | Especializados |
 | Usuarios, roles, menu, tenants, servidores, IA, facturacion | EXCLUIDO | Administracion y seguridad: no deben ir por token personal |
 
@@ -270,9 +312,10 @@ Brechas priorizadas (propuesta):
 | Pieza | Estado |
 |---|---|
 | ADR-0159 (personal) | Completo, con addenda por fase; conteo corregido en esta revision |
+| ADR-0193 (extraccion) / ADR-0194 (contenedor de datos) | Nuevos; 17 + 23 herramientas en la rama `feat/mcp-terminar-tarea` |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 101/101 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion por prueba, pendientes de validar en vivo) |
+| Descripciones y esquemas | 124/124 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor por prueba, pendientes de validar en vivo) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

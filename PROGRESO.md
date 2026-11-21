@@ -2,6 +2,50 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-20 - MCP personal: autoria de contenedores de datos (ADR-0194) - v0.16.362 (integrada al tronco; deploy pendiente de OK)
+
+Agente: sesion MCP (Claude Opus 4.8). Pedido del usuario: que el token pueda, por MCP, "crear contenedores y
+programarlos y configurarlos ajustar los tiempos y la privacidad" (surgio al no poder aterrizar en un Contenedor
+el dron de FOMAG). Alcance elegido: TODO (datos + conectores + programaciones + publicar); conectores SIN secreto
+por MCP (la credencial se pone en la pantalla).
+
+Hecho:
+- Nuevo partial `TableroMcpToolset.Contenedores.cs`: 23 herramientas (6 lectura / 10 escritura / 7 destructivas),
+  capa delgada sobre `IDataModelService`, `IDataImportConfigService` y `IDataContainerModuleService` +
+  `IMenuConfigService`. El MCP personal pasa de 101 a 124 herramientas.
+  - Abstraccion: contenedor (DataModel) -> tablas (DataContainer) -> columnas; conectores/horarios por contenedor
+    (ModelId); publicar por tabla raiz.
+  - Contenedor: listar/ver/crear/editar/eliminar. Tablas: agregar/editar/eliminar. Columnas: agregar/editar/
+    eliminar (replace-all por Id via SaveTableAsync; no borra columna con datos). Relaciones: agregar/eliminar.
+  - Conectores (excel/api/bd/tabla) SIN secreto (Credentials=null). Programaciones manual/intervalo/cron + modo
+    append/replace/upsert + bitacora (listar_corridas_importacion). Publicar/despublicar al menu + ver_publicacion.
+- Cableado opcional: 4 parametros opcionales nuevos en el constructor de `TableroMcpToolset` (dataModel, dataImport,
+  dataModule, menu); las herramientas solo se publican si `IDataModelService` esta inyectado (en prod por DI).
+  Build*/dispatch condicionados a `_dataModel`. Linea de contenedores en `instructions`.
+- Docs: ADR-0194, seccion 2.6 del INVENTARIO-MCP (conteo 101->124, fila de suficiencia CUBIERTO).
+
+DECISION (permiso): a diferencia de extraccion, el modulo Contenedor de datos SI esta en la matriz de roles (la
+pantalla usa `Perm:contenedor-datos:View`). Por coherencia, las herramientas exigen el permiso efectivo del actor
+sobre `contenedor-datos` (NeedContainer -> perms.Can): lecturas View, crear Create, eliminar/despublicar Delete,
+resto Edit. Owner/Admin y sin-rol = acceso total. DECISION (secretos): el MCP nunca recibe credenciales de
+conectores; se fijan en la pantalla y el servicio las cifra (ISecretProtector).
+
+Pruebas: build de la solucion 0 errores. Nuevas en `McpTablerosTests` (dual PG+SQL):
+`McpCatalog_ConContenedores_EsConsistente_YDespacha` (catalogo con contenedores: 124 specs totales, R/D, schemas,
+despacho) y `Contenedores_CrearEstructurarProgramarPublicar_Borrar` (flujo funcional: crear contenedor -> tablas +
+columnas -> editar/eliminar columna -> relacion -> conector sin secreto -> programacion cron -> corridas vacias ->
+publicar/despublicar -> borrar). Resultado dual: VERDE (4/4 en PostgreSQL y SQL Server via Testcontainers).
+Nota de test: el DbContext compartido del test trackea la relacion creada, asi que se limpia el ChangeTracker
+antes del borrado para simular el contexto fresco de cada request (en prod la cascada de BD borra la relacion).
+
+Siguiente: entregar a la sesion dev principal para integrar al tronco, correr gates (build Release, format,
+Integration dual) y desplegar; validar en vivo desde Claude con el token (que `/mcp` liste las 23 y un recorrido
+crear contenedor -> tabla -> columnas -> conector -> programacion). Con esto ya se puede armar el Contenedor
+destino del dron de FOMAG. Candidatos futuros: clientes remotos + secreto, destino BD aliada, tablas derivadas
+(ADR-0127), disparar una importacion.
+
+Bloqueos: ninguno. La sesion MCP no despliega: solo push a `feat/mcp-terminar-tarea` + prompt de integracion.
+
 ## 2026-11-20 - Ofertas de portales (ADR-0181): configuracion llevada a PROD (solo BD, sin deploy ni codigo)
 
 - AGENTE: Claude Opus 5.5 (sesion ECOREX.plataformas, rama feat/agentes-sistema). Tenant SOLDARCO. El codigo ya

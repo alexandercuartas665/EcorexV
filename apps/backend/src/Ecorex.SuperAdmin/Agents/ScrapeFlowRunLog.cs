@@ -62,6 +62,16 @@ public sealed class ScrapeFlowRunLog(IApplicationDbContext db, ILogger<ScrapeFlo
         run.Detail = Trim(detail);
         run.FinishedAt = DateTimeOffset.UtcNow;
         await SealFlowAsync(run, ok, detail, ct);
+
+        // ADR-0199: las programaciones de este flujo con PASO DE CLASIFICACION quedan pedidas (patron dron:
+        // extraer -> clasificar solo lo nuevo). Lo corre ImportClassifyWorker.
+        if (ok)
+        {
+            var conPaso = await db.ImportProcesses
+                .Where(p => p.FlowId == run.FlowId && p.ClassifyStepJson != null && p.ClassifyRequestedAt == null)
+                .ToListAsync(ct);
+            foreach (var p in conPaso) { p.ClassifyRequestedAt = run.FinishedAt; }
+        }
         await db.SaveChangesAsync(ct);
         log.LogInformation("[NAV-RUN] corr={Corr} cerrada ok={Ok} ins={Ins} upd={Upd} del={Del}",
             correlationId, ok, inserted, updated, deleted);

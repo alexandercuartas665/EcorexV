@@ -826,7 +826,9 @@ public sealed partial class TableroMcpToolset
         activa = p.IsActive,
         proxima_corrida = p.NextRunAt,
         ultima_corrida = p.LastRunAt,
-        aviso = p.DisabledReason
+        aviso = p.DisabledReason,
+        paso_clasificacion = StepView(ImportClassifyStep.Parse(p.ClassifyStepJson)),
+        clasificacion_pedida = p.ClassifyRequestedAt
     };
 
     // ===================== Parsers de enum (alias en espanol) =====================

@@ -9978,6 +9978,15 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<DateTimeOffset?>("ClassifyRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("classify_requested_at");
+
+                    b.Property<string>("ClassifyStepJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("classify_step_json");
+
                     b.Property<Guid?>("ClientId")
                         .HasColumnType("uuid")
                         .HasColumnName("client_id");

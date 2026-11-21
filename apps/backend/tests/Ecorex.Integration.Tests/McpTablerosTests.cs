@@ -760,6 +760,152 @@ public abstract class McpTablerosTestsBase
         Assert.Equal(llamadas, runner.Calls);
     }
 
+    // ===================== Paso de clasificacion en la importacion (ADR-0199) =====================
+
+    [Fact]
+    public async Task PasoClasificacion_ToolsExpuestas_ConfiguraSolicitaLimpiaYQuita()
+    {
+        var seed = await SeedTenantAsync("Mcp Paso Clasificacion");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var owner = Actor(seed, owner: true);
+        var fake = new FakeClasificador();
+
+        // Sin el servicio del paso: clasificar_lote y limpiar_marca si, las del paso no.
+        var (_, _, sinPaso) = Build(ctx, tenantCtx, withContainers: true, clasificador: fake);
+        var namesSin = sinPaso.GetSpecs().Select(s => s.Name).ToList();
+        Assert.Contains("limpiar_marca", namesSin);
+        Assert.DoesNotContain("configurar_paso_clasificacion", namesSin);
+        Assert.True((await sinPaso.ExecuteAsync("configurar_paso_clasificacion", "{}", owner)).IsError);
+
+        var svc = new Ecorex.Application.DataContainers.ImportClassificationService(ctx, tenantCtx, fake, TimeProvider.System);
+        var (_, _, toolset) = Build(ctx, tenantCtx, withContainers: true, clasificador: fake, importClassify: svc);
+        var specs = toolset.GetSpecs();
+        var names = specs.Select(s => s.Name).ToList();
+        foreach (var t in new[] { "configurar_paso_clasificacion", "quitar_paso_clasificacion", "ejecutar_clasificacion_ahora" })
+        {
+            Assert.Contains(t, names);
+            Assert.DoesNotContain(t, toolset.ReadOnlyTools);
+            using var schema = JsonDocument.Parse(specs.First(s => s.Name == t).ParametersJsonSchema);
+            Assert.Equal("object", schema.RootElement.GetProperty("type").GetString());
+            Assert.True(specs.First(s => s.Name == t).Description.Length >= 25);
+        }
+        Assert.Equal(namesSin.Count + 3, names.Count);
+        Assert.Contains("limpiar_marca", toolset.DestructiveTools);
+        Assert.All(toolset.ReadOnlyTools, n => Assert.Contains(n, names));
+
+        // Contenedor con tabla, conector API a esa tabla y programacion cron que lo dispara.
+        Payload(await toolset.ExecuteAsync("crear_contenedor_datos", Args(new { nombre = "SECOP Paso" }), owner));
+        Payload(await toolset.ExecuteAsync("agregar_tabla", Args(new
+        {
+            contenedor = "SECOP Paso",
+            nombre = "Procesos",
+            columnas = new[]
+            {
+                new { nombre = "id_proceso", tipo = "texto", requerido = false },
+                new { nombre = "nombre_proceso", tipo = "texto", requerido = false },
+                new { nombre = "sector", tipo = "texto", requerido = false },
+                new { nombre = "clasificado_en", tipo = "texto", requerido = false }
+            }
+        }), owner));
+        Payload(await toolset.ExecuteAsync("guardar_conector", Args(new
+        {
+            contenedor = "SECOP Paso",
+            nombre = "Socrata",
+            tipo = "api",
+            destino = "Procesos",
+            endpoint = "https://example.test/api"
+        }), owner));
+        Payload(await toolset.ExecuteAsync("guardar_programacion_importacion", Args(new
+        {
+            contenedor = "SECOP Paso",
+            nombre = "Recientes diaria",
+            tipo = "cron",
+            cron = "0 5 * * *",
+            modo = "upsert",
+            columna_clave = "id_proceso",
+            conector = "Socrata"
+        }), owner));
+        var tableId = await ctx.DataContainers.AsNoTracking().Where(t => t.Name == "Procesos").Select(t => t.Id).SingleAsync();
+        var agent = new AiAgent { TenantId = seed.TenantId, Name = "Clasificador General", SystemPrompt = "x", Provider = AiProvider.DeepSeek, IsActive = false };
+        ctx.AiAgents.Add(agent);
+        await ctx.SaveChangesAsync();
+
+        // Ejecutar sin paso: error claro.
+        Assert.True((await toolset.ExecuteAsync("ejecutar_clasificacion_ahora", Args(new { contenedor = "SECOP Paso", programacion = "Recientes diaria" }), owner)).IsError);
+
+        // Configurar: tabla por defecto = destino del conector; agente apagado = aviso.
+        var conf = Payload(await toolset.ExecuteAsync("configurar_paso_clasificacion", Args(new
+        {
+            contenedor = "SECOP Paso",
+            programacion = "Recientes diaria",
+            agente = "Clasificador General",
+            columna_clave = "id_proceso",
+            columna_marca = "clasificado_en",
+            columnas_salida = new[] { "sector" },
+            columnas_entrada = new[] { "nombre_proceso" },
+            limite = 50,
+            max_lotes = 500
+        }), owner));
+        Assert.Equal("Procesos", conf.GetProperty("tabla").GetString());
+        Assert.Contains("APAGADO", conf.GetProperty("aviso").GetString());
+        var paso = conf.GetProperty("paso_clasificacion");
+        Assert.Equal(tableId, paso.GetProperty("tabla_id").GetGuid());
+        Assert.Equal(agent.Id.ToString(), paso.GetProperty("agente_id").GetString());
+        Assert.Equal(200, paso.GetProperty("max_lotes").GetInt32()); // se acota al tope
+
+        // Columna inexistente o salida = clave: error sin guardar.
+        Assert.True((await toolset.ExecuteAsync("configurar_paso_clasificacion", Args(new
+        {
+            contenedor = "SECOP Paso",
+            programacion = "Recientes diaria",
+            agente = "Clasificador General",
+            columna_clave = "id_proceso",
+            columna_marca = "no_existe",
+            columnas_salida = new[] { "sector" }
+        }), owner)).IsError);
+        Assert.True((await toolset.ExecuteAsync("configurar_paso_clasificacion", Args(new
+        {
+            contenedor = "SECOP Paso",
+            programacion = "Recientes diaria",
+            agente = "Clasificador General",
+            columna_clave = "id_proceso",
+            columna_marca = "clasificado_en",
+            columnas_salida = new[] { "id_proceso" }
+        }), owner)).IsError);
+
+        // listar_programaciones_importacion muestra el paso.
+        var lista = Payload(await toolset.ExecuteAsync("listar_programaciones_importacion", Args(new { contenedor = "SECOP Paso" }), owner));
+        var prog = lista.GetProperty("programaciones")[0];
+        Assert.Equal("clasificado_en", prog.GetProperty("paso_clasificacion").GetProperty("columna_marca").GetString());
+        Assert.False(prog.TryGetProperty("clasificacion_pedida", out _)); // null = se omite
+
+        // Ejecutar ahora: deja la solicitud para el worker.
+        Payload(await toolset.ExecuteAsync("ejecutar_clasificacion_ahora", Args(new { contenedor = "SECOP Paso", programacion = "Recientes diaria" }), owner));
+        var proc = await ctx.ImportProcesses.AsNoTracking().SingleAsync(p => p.Name == "Recientes diaria");
+        Assert.NotNull(proc.ClassifyRequestedAt);
+
+        // limpiar_marca: despacha al servicio con la tabla, salidas y filtro.
+        var limpio = Payload(await toolset.ExecuteAsync("limpiar_marca", Args(new
+        {
+            contenedor = "SECOP Paso",
+            tabla = "Procesos",
+            columna_marca = "clasificado_en",
+            columnas_salida = new[] { "sector" },
+            filtro = new Dictionary<string, string> { ["sector"] = "otro" }
+        }), owner));
+        Assert.Equal(4, limpio.GetProperty("filas").GetInt32());
+        Assert.Equal(tableId, fake.LastLimpiar!.TableId);
+        Assert.Equal("otro", fake.LastLimpiar.Filtro!["sector"]);
+        Assert.Equal(new[] { "sector" }, fake.LastLimpiar.ColumnasSalida);
+
+        // Quitar: limpia paso y solicitud.
+        Payload(await toolset.ExecuteAsync("quitar_paso_clasificacion", Args(new { contenedor = "SECOP Paso", programacion = "Recientes diaria" }), owner));
+        proc = await ctx.ImportProcesses.AsNoTracking().SingleAsync(p => p.Name == "Recientes diaria");
+        Assert.Null(proc.ClassifyStepJson);
+        Assert.Null(proc.ClassifyRequestedAt);
+    }
+
     // ===================== Reportes e indicadores (ADR-0198) =====================
 
     [Fact]
@@ -996,6 +1142,14 @@ public abstract class McpTablerosTestsBase
     /// <summary>Doble del runner (sus pruebas reales viven en ContenedorClasificacionTests): verifica SOLO el puente MCP.</summary>
     private sealed class FakeClasificador : IContenedorClasificacionService
     {
+        public LimpiarMarcaRequest? LastLimpiar { get; private set; }
+
+        public Task<LimpiarMarcaResultado> LimpiarMarcaAsync(LimpiarMarcaRequest request, CancellationToken ct = default)
+        {
+            LastLimpiar = request;
+            return Task.FromResult(new LimpiarMarcaResultado(true, null, Filas: 4, Celdas: 8));
+        }
+
         public ClasificarLoteRequest? Last { get; private set; }
         public int Calls { get; private set; }
         public bool Fail { get; set; }
@@ -1015,7 +1169,7 @@ public abstract class McpTablerosTestsBase
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
         EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null,
         bool withContainers = false, bool withAgents = false, IContenedorClasificacionService? clasificador = null,
-        bool withReports = false)
+        bool withReports = false, Ecorex.Application.DataContainers.IImportClassificationService? importClassify = null)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
@@ -1044,7 +1198,8 @@ public abstract class McpTablerosTestsBase
             new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
             forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu, agents,
             clasificador,
-            reportCatalog: rep.Catalog, reportData: rep.Data, reportDefs: rep.Defs, analisis: rep.Analisis, widgetRunner: rep.Runner);
+            reportCatalog: rep.Catalog, reportData: rep.Data, reportDefs: rep.Defs, analisis: rep.Analisis, widgetRunner: rep.Runner,
+            importClassify: importClassify);
         return (boards, engine, toolset);
     }
 

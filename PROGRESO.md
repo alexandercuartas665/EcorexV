@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - v0.16.368: Clasificacion con IA como paso de la importacion + limpiar_marca (ADR-0199) - rama feat/clasificacion-en-importacion - PENDIENTE DE DEPLOY
+
+- **Agente**: ECOREX.desarrollo (dev principal), a pedido de ECOREX.mcp (spec del usuario: que la clasificacion deje de ser manual y corra como paso de la extraccion/importacion, y poder resetear la marca).
+- **Hecho**: `ImportProcess` gana `ClassifyStepJson` + `ClassifyRequestedAt` (migracion dual `AddImportClassifyStep`, 2 columnas nullable). El cierre OK de una corrida (`ImportRunLog` y `ScrapeFlowRunLog` para programaciones de flujo) pide la clasificacion; el nuevo `ImportClassifyWorker` (hosted service, cada minuto) la toma y corre `ImportClassificationService`: lotes de `clasificar_lote` sobre filas con marca vacia hasta completar, tope de lotes (default 20, max 200), cupo del plan, falla transitoria (3 reintentos 5s/20s/60s) o sin avance; resumen anexado al detalle de la corrida. `LimpiarMarcaAsync` (UPDATE masivo tenant-scoped, todo o por filtro). MCP personal 151 -> 155: `configurar_paso_clasificacion`, `quitar_paso_clasificacion`, `ejecutar_clasificacion_ahora`, `limpiar_marca`.
+- **Gates**: build Release 0 errores; format whitespace/style verify 0; ASCII OK (solo BOM de migraciones EF); unitarias 1676/312/35; integracion dual `ImportClasificacionPasoTests` 10/10 + `McpTablerosTests` + `ContenedorClasificacionTests` (PG + SQL Server).
+- **Siguiente**: deploy SOLO con OK del usuario (lleva migracion). Luego ECOREX.mcp configura el paso en BITCODE ("SECOP II - Procesos" / Procesos / "Recientes diaria").
+- **Decisiones**: ADR-0199 (worker aparte del scheduler; disparo por cierre de corrida; ejecutar_ahora encola).
+
 ## 2026-11-21 - v0.16.367: Reportes e indicadores por el MCP personal (ADR-0198) - rama feat/reportes-mcp - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/reportes-mcp (290ab341) al tronco y main como v0.16.367. Gates: build Release, format whitespace/style, ASCII, unitarias 1676/312/35, integracion dual McpTablerosTests 40/40 (PG + SQL Server). Deploy: SOLO con OK del usuario.

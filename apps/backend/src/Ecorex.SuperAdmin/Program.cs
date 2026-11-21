@@ -297,6 +297,8 @@ if (!disableWorkers)
     // Importaciones programadas (contenedor de datos): dispara los refrescos vencidos via agente y cierra
     // las peticiones colgadas. Mismo motivo para vivir aqui que el worker de arriba.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportSchedulerWorker>();
+    // ADR-0199: paso de clasificacion con IA despues de cada importacion ok (aparte para no frenar la ingesta).
+    builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.ImportClassifyWorker>();
     // Agentes de IA en nodos (ola 2): atiende los pasos de flujo cuyo nodo tiene agente. Es el disparo
     // ASINCRONO que mantiene la llamada al proveedor de IA fuera de la transaccion del motor de flujos.
     builder.Services.AddHostedService<Ecorex.SuperAdmin.RealTime.WorkflowAgentStepWorker>();

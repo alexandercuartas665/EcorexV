@@ -197,6 +197,19 @@ public class ImportProcess : TenantEntity
     /// la bitacora entera; por eso esta indexado. null = no esta esperando a nadie.
     /// </summary>
     public DateTimeOffset? PendingSince { get; set; }
+
+    /// <summary>
+    /// ADR-0199: PASO DE CLASIFICACION con IA que corre despues de cada importacion exitosa (JSON
+    /// <c>ImportClassifyStep</c>: agente, tabla, columna clave, marca, salidas, entradas, limite, tope de lotes).
+    /// null = la programacion solo importa.
+    /// </summary>
+    public string? ClassifyStepJson { get; set; }
+
+    /// <summary>
+    /// ADR-0199: desde cuando hay una clasificacion PEDIDA (la puso el cierre ok de una corrida o
+    /// "ejecutar ahora"). La barre <c>ImportClassifyWorker</c> y la limpia al tomarla. null = nada pendiente.
+    /// </summary>
+    public DateTimeOffset? ClassifyRequestedAt { get; set; }
 }
 
 /// <summary>

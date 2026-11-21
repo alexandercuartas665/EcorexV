@@ -159,19 +159,20 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
     {
         var callId = voiceCall.CallId;
 
-        // Idempotencia (ADR-0190): el respaldo por get-call y un webhook tardio o repetido pueden traer el mismo
-        // evento dos veces. Un evento ANTERIOR al estado actual no hace retroceder la llamada (call_ended tardio
-        // sobre una ya analizada), y el PRIMER call_analyzed es el unico que dispara efectos no idempotentes
-        // (volcado a formulario y reanudar el paso de flujo en espera de este PendingVoiceCallId).
+        // Orden (ADR-0190): el respaldo por get-call y un webhook tardio pueden llegar fuera de orden. Un evento
+        // ANTERIOR al estado PREVIO (call_ended tardio sobre una ya analizada) se ignora: la llamada no retrocede.
+        // OJO: NO se condiciona call_analyzed a "primera vez". El sondeo de la UI (RetellVoiceService
+        // TryRefreshFromRetellAsync) puede dejar la llamada en Analyzed SIN efectos; el webhook real debe igual
+        // volcar y reanudar. Los efectos ya son idempotentes: el borrador "voz:{callId}" se reusa, la bitacora
+        // revisa su entrada y el runner pone PendingVoiceCallId = null al consumir el resultado.
         var incomingRank = EventRank(eventType);
         if (incomingRank >= 0 && incomingRank < StatusRank(voiceCall.Status)) { return; }
-        var firstAnalysis = string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase)
-            && voiceCall.Status != VoiceCallStatus.Analyzed;
+        var isAnalyzed = string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase);
 
         ApplyEvent(voiceCall, eventType, call);
 
         // Volcado a formulario (solo si el objetivo era LlenarFormulario y hay whitelist).
-        if (firstAnalysis
+        if (isAnalyzed
             && string.Equals(voiceCall.Objetivo, nameof(ContactCallObjetivo.LlenarFormulario), StringComparison.OrdinalIgnoreCase))
         {
             await DumpCapturedFormsAsync(voiceCall, call, callId, cancellationToken);
@@ -192,7 +193,7 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
         // ADR-0091: si un PASO de flujo estaba EN ESPERA de esta llamada, reanudarlo. Se limpia
         // AgentAttemptedAt (conservando PendingVoiceCallId, que el agente lee para tener el resultado en su
         // contexto) para que el barrido de agentes vuelva a correr el paso con el transcript/datos capturados.
-        if (firstAnalysis)
+        if (isAnalyzed)
         {
             var waitingSteps = await _db.WorkflowStepHistories
                 .Where(s => s.PendingVoiceCallId == callId && s.IsCurrent)

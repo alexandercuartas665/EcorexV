@@ -95,9 +95,7 @@ public static class MockupBrainAssets
         foreach (System.Text.RegularExpressions.Match m in MockupBrainLinks.WikiLink().Matches(text))
         {
             if (m.Groups[1].Value != "!") { continue; }
-            var inner = m.Groups[2].Value;
-            var pipe = inner.IndexOf('|');
-            Add(pipe >= 0 ? inner[..pipe] : inner);
+            Add(MockupBrainLinks.SplitAlias(m.Groups[2].Value).Target);
         }
         foreach (System.Text.RegularExpressions.Match m in MdImagePattern.Matches(text))
         {

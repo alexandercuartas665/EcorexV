@@ -37,6 +37,16 @@ public sealed class MockupMarkdownTests
     }
 
     [Fact]
+    public void EnlaceConPipeEscapado_DeTablaDeObsidian_SaleResuelto()
+    {
+        var html = MockupMarkdown.ToHtml("| a | [[Modelo de Datos\\|Modelo]] |", (kind, key) => key == "modelo de datos");
+
+        Assert.Contains("class=\"mb-wl k-note\" data-kind=\"note\" data-key=\"Modelo de Datos\"", html);
+        Assert.Contains(">Modelo</a>", html);
+        Assert.DoesNotContain("missing", html);
+    }
+
+    [Fact]
     public void Bloques_EncabezadosListasTareasCodigoYCitas()
     {
         var html = MockupMarkdown.ToHtml("## Titulo\n- uno\n- [x] hecho\n- [ ] pendiente\n1. primero\n> cita\n```\n<b>[[no]]</b>\n```\n---\ntexto **fuerte** y _suave_ y `co<de>`");

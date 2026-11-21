@@ -2,7 +2,8 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-21 - Cerebro de maquetas: enlaces [[Nota\|alias]] de tablas de Obsidian (ADR-0183) - v0.16.364 (integrada al tronco; deploy pendiente de OK)
+## 2026-11-21 - Cerebro de maquetas: enlaces [[Nota\|alias]] de tablas de Obsidian (ADR-0183) - v0.16.364 DESPLEGADA
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff 596999a5 al tronco y main (limpio). Gates: build Release, format, unitarias 1634/312/35, integracion Maqueta|MockupBrain dual 55/55. Deploy 2026-11-21 ~11:40 Bogota (OK del usuario): footer /login v0.16.364, Restarts=0, 0 errores.
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro`. Sin migracion.
 - **Contexto**: se cargo en PROD (tenant PROYECTOS) la maqueta VISAL v3 (manuales de Hospitalizacion y UCI) y su

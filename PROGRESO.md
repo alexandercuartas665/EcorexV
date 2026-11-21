@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-21 - v0.16.366: Clasificacion por lotes de filas de un contenedor con un agente de IA (ADR-0197) - rama feat/clasificar-lote-contenedor - deploy pendiente
+## 2026-11-21 - v0.16.366: Clasificacion por lotes de filas de un contenedor con un agente de IA (ADR-0197) - rama feat/clasificar-lote-contenedor - DESPLEGADA
+
+- **Integracion y deploy (ECOREX.desarrollo)**: merge --no-ff 7ddcb194 al tronco y main. Gates: build Release, format, ASCII, unitarias 1676/312/35, integracion dual ContenedorClasificacion|McpTablerosTests|DataContainer|DataModel 66/66. Deploy 2026-11-21 ~14:01 Bogota (OK del usuario, junto con v0.16.365): footer /login v0.16.366, Restarts=0, 0 errores.
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). Pedido: spec de la sesion ECOREX.mcp (clasificar la tabla "Tecnologia"
 del contenedor "SECOP II - Procesos" de BITCODE con el agente "Clasificador de Procesos SECOP"), aprobada por el
@@ -25,7 +27,7 @@ Pruebas: `ContenedorClasificacionTests` (dual PG + SQL Server, 4 por motor) y `M
 Siguiente: deploy (OK del usuario dado junto con la v0.16.365); validacion en vivo con el token en BITCODE a cargo de
 ECOREX.mcp: encender el agente y correr clasificar_lote (clave id_proceso, marca clasificado_en, salida ["sector"]).
 
-## 2026-11-21 - Call center: llamada IA del motor de acciones con resultado, reintento y preguntas al formulario del contacto (ADR-0196) - v0.16.365 (integrada al tronco; deploy pendiente de OK)
+## 2026-11-21 - Call center: llamada IA del motor de acciones con resultado, reintento y preguntas al formulario del contacto (ADR-0196) - v0.16.365 DESPLEGADA (salio en el deploy de v0.16.366, 2026-11-21 ~14:01 Bogota; migracion AddVoiceCallLastSynced aplicada en prod)
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/whatsapp-sync-estado-ycloud (0ba2f68e) al tronco y main como v0.16.365 (limpio). Migracion dual AddVoiceCallLastSynced (solo AddColumn nullable); has-pending-model-changes sin cambios en ambos motores. Gates: build Release, format, escaneo de secretos del diff, unitarias 1676/312/35, integracion dual Voice|Retell|ContactWorkflow|AgendaRecordatorios|DynamicForms|EmailDeliveryEvents|WorkflowAgentStep 64/64.
 Agente: sesion ECOREX.call_center (Claude Opus 5.5), rama `feat/whatsapp-sync-estado-ycloud`. Migracion dual
 `AddVoiceCallLastSynced` (voice_calls.last_synced_at_utc, nullable).

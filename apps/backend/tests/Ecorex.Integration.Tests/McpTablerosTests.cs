@@ -703,11 +703,85 @@ public abstract class McpTablerosTestsBase
         }
     }
 
+    // ===================== Clasificacion por lotes (ADR-0197) =====================
+
+    [Fact]
+    public async Task ClasificarLote_SoloConRunnerYContenedores_YDespachaConLaTablaResuelta()
+    {
+        var seed = await SeedTenantAsync("Mcp Clasificacion");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var owner = Actor(seed, owner: true);
+
+        // Sin runner la herramienta no existe (ni se despacha).
+        var (_, _, sinRunner) = Build(ctx, tenantCtx, withContainers: true);
+        Assert.DoesNotContain("clasificar_lote", sinRunner.GetSpecs().Select(s => s.Name));
+        Assert.True((await sinRunner.ExecuteAsync("clasificar_lote", "{}", owner)).IsError);
+
+        var runner = new FakeClasificador();
+        var (_, _, toolset) = Build(ctx, tenantCtx, withContainers: true, clasificador: runner);
+        var specs = toolset.GetSpecs();
+        Assert.Contains("clasificar_lote", specs.Select(s => s.Name));
+        Assert.DoesNotContain("clasificar_lote", toolset.ReadOnlyTools);      // escribe: se audita
+        Assert.DoesNotContain("clasificar_lote", toolset.DestructiveTools);
+        using (var schema = JsonDocument.Parse(specs.First(s => s.Name == "clasificar_lote").ParametersJsonSchema))
+        {
+            Assert.Equal("object", schema.RootElement.GetProperty("type").GetString());
+        }
+
+        Payload(await toolset.ExecuteAsync("crear_contenedor_datos", Args(new { nombre = "SECOP Mcp" }), owner));
+        Payload(await toolset.ExecuteAsync("agregar_tabla",
+            Args(new { contenedor = "SECOP Mcp", nombre = "Tecnologia", columnas = new[] { new { nombre = "id_proceso", tipo = "texto", requerido = false } } }), owner));
+        var tableId = await ctx.DataContainers.AsNoTracking().Where(t => t.Name == "Tecnologia").Select(t => t.Id).SingleAsync();
+
+        var r = Payload(await toolset.ExecuteAsync("clasificar_lote", Args(new
+        {
+            contenedor = "SECOP Mcp",
+            tabla = "Tecnologia",
+            agente = "Clasificador",
+            columna_clave = "id_proceso",
+            columna_marca = "clasificado_en",
+            columnas_salida = new[] { "sector" },
+            limite = 7
+        }), owner));
+        Assert.Equal(3, r.GetProperty("restantes").GetInt32());
+        Assert.Equal(2, r.GetProperty("actualizados").GetInt32());
+        var req = runner.Last!;
+        Assert.Equal(tableId, req.TableId);
+        Assert.Equal(new[] { "sector" }, req.ColumnasSalida);
+        Assert.Null(req.ColumnasEntrada);
+        Assert.Equal(7, req.Limite);
+
+        // Error del runner -> error MCP; tabla inexistente -> error sin llamar al runner.
+        runner.Fail = true;
+        Assert.True((await toolset.ExecuteAsync("clasificar_lote", Args(new { contenedor = "SECOP Mcp", tabla = "Tecnologia", agente = "x", columna_clave = "id_proceso", columna_marca = "m", columnas_salida = new[] { "sector" } }), owner)).IsError);
+        var llamadas = runner.Calls;
+        Assert.True((await toolset.ExecuteAsync("clasificar_lote", Args(new { contenedor = "SECOP Mcp", tabla = "NoExiste", agente = "x", columna_clave = "id_proceso", columna_marca = "m", columnas_salida = new[] { "sector" } }), owner)).IsError);
+        Assert.Equal(llamadas, runner.Calls);
+    }
+
+    /// <summary>Doble del runner (sus pruebas reales viven en ContenedorClasificacionTests): verifica SOLO el puente MCP.</summary>
+    private sealed class FakeClasificador : IContenedorClasificacionService
+    {
+        public ClasificarLoteRequest? Last { get; private set; }
+        public int Calls { get; private set; }
+        public bool Fail { get; set; }
+
+        public Task<ClasificarLoteResultado> ClasificarLoteAsync(ClasificarLoteRequest request, CancellationToken ct = default)
+        {
+            Calls++;
+            Last = request;
+            return Task.FromResult(Fail
+                ? ClasificarLoteResultado.Falla("forzado")
+                : new ClasificarLoteResultado(true, null, Procesados: 2, Actualizados: 2, Restantes: 3, Agente: "Clasificador", Modelo: "m"));
+        }
+    }
+
     // ---- Helpers ----
 
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
         EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null,
-        bool withContainers = false, bool withAgents = false)
+        bool withContainers = false, bool withAgents = false, IContenedorClasificacionService? clasificador = null)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
@@ -733,7 +807,8 @@ public abstract class McpTablerosTestsBase
         IAiAgentService? agents = withAgents ? new AiAgentService(ctx, tenant, new AuditWriter(ctx)) : null;
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
             new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
-            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu, agents);
+            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu, agents,
+            clasificador);
         return (boards, engine, toolset);
     }
 

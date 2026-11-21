@@ -54,6 +54,8 @@ public static class McpTablerosEndpoints
         "tableros, round-robin, concepto), agente_lector_medios (como lee PDF/imagenes), agregar_prompt_agente y " +
         "agregar_recurso_agente; ver_agente muestra todo. Si NO deshabilitas herramientas, el agente puede escribir en un " +
         "contenedor con agregar_filas_a_contenedor. Confirma antes de eliminar un agente. " +
+        "Para clasificar filas de una tabla con un agente (encendido) usa clasificar_lote y repitela hasta restantes=0; " +
+        "consume tokens de IA, asi que confirma con el usuario antes de procesar muchas filas. " +
         "La IA solo puede lo que el usuario puede (permisos de flujos/formularios/contenedor-datos/agentes).";
 
     public static WebApplication MapMcpTablerosEndpoints(this WebApplication app)

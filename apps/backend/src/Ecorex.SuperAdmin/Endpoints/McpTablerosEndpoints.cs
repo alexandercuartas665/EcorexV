@@ -49,7 +49,12 @@ public static class McpTablerosEndpoints
         "Programa su importacion con guardar_programacion_importacion (manual/intervalo/cron, modo append/replace/upsert) y " +
         "revisa listar_corridas_importacion. guardar_conector NO recibe el secreto (ponlo en la pantalla). publicar_contenedor " +
         "saca una tabla al menu (privacidad por Roles y permisos). Confirma antes de borrar o despublicar. " +
-        "La IA solo puede lo que el usuario puede (permisos de flujos/formularios/contenedor-datos).";
+        "Agentes de IA: crear_agente abre un agente (proveedor claude/gemini/chatgpt/deepseek, prompt de sistema); " +
+        "nace apagado, enciendelo con encender_agente tras validarlo. Configuralo con editar_agente (herramientas on/off, " +
+        "tableros, round-robin, concepto), agente_lector_medios (como lee PDF/imagenes), agregar_prompt_agente y " +
+        "agregar_recurso_agente; ver_agente muestra todo. Si NO deshabilitas herramientas, el agente puede escribir en un " +
+        "contenedor con agregar_filas_a_contenedor. Confirma antes de eliminar un agente. " +
+        "La IA solo puede lo que el usuario puede (permisos de flujos/formularios/contenedor-datos/agentes).";
 
     public static WebApplication MapMcpTablerosEndpoints(this WebApplication app)
     {

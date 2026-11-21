@@ -707,7 +707,7 @@ public abstract class McpTablerosTestsBase
 
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
         EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null,
-        bool withContainers = false)
+        bool withContainers = false, bool withAgents = false)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
@@ -730,9 +730,10 @@ public abstract class McpTablerosTestsBase
             menu = new MenuConfigService(ctx, tenant);
             dataModule = new DataContainerModuleService(ctx, menu);
         }
+        IAiAgentService? agents = withAgents ? new AiAgentService(ctx, tenant, new AuditWriter(ctx)) : null;
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
             new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
-            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu);
+            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu, agents);
         return (boards, engine, toolset);
     }
 
@@ -1010,6 +1011,142 @@ public abstract class McpTablerosTestsBase
         Payload(await toolset.ExecuteAsync("eliminar_contenedor_datos", Args(new { contenedor = contId }), owner));
         var verMuerto = await toolset.ExecuteAsync("ver_contenedor_datos", Args(new { contenedor = contId }), owner);
         Assert.True(verMuerto.IsError);
+    }
+
+    // ===================== Agentes de IA (ADR-0195) =====================
+
+    [Fact]
+    public async Task McpCatalog_ConAgentes_EsConsistente_YDespacha()
+    {
+        var seed = await SeedTenantAsync("Mcp Agentes Catalogo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var scrape = new ScrapeFlowService(ctx, tenantCtx, new PlainSecrets());
+        var (_, _, toolset) = Build(ctx, tenantCtx, new FakeFormAuthoring(), scrape, withContainers: true, withAgents: true);
+        var owner = Actor(seed, owner: true);
+
+        var specs = toolset.GetSpecs();
+        var names = specs.Select(s => s.Name).ToList();
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(16 + 12 + 16 + 3 + 17 + 23 + 17, specs.Count); // ... + AGENTES
+
+        // Las 17 de agentes estan expuestas; 3 de lectura y 3 destructivas, sin solape.
+        foreach (var n in new[] { "listar_agentes", "ver_agente", "crear_agente", "editar_agente",
+            "agente_lector_medios", "encender_agente", "apagar_agente", "duplicar_agente",
+            "agregar_prompt_agente", "agregar_recurso_agente", "eliminar_agente" })
+        {
+            Assert.Contains(n, names);
+        }
+        Assert.Contains("listar_agentes", toolset.ReadOnlyTools);
+        Assert.DoesNotContain("crear_agente", toolset.ReadOnlyTools); // escritura: se audita
+        Assert.Contains("eliminar_agente", toolset.DestructiveTools);
+        Assert.Contains("eliminar_recurso_agente", toolset.DestructiveTools);
+        Assert.Contains("eliminar_prompt_agente", toolset.DestructiveTools);
+        Assert.Empty(toolset.ReadOnlyTools.Intersect(toolset.DestructiveTools));
+
+        foreach (var s in specs.Where(x => x.Name.Contains("agente") || x.Name.Contains("prompt")
+            || x.Name.Contains("recurso") || x.Name.Contains("lector")))
+        {
+            Assert.True(s.Description!.Length >= 25, $"{s.Name}: descripcion corta");
+            using var schema = JsonDocument.Parse(s.ParametersJsonSchema);
+            Assert.Equal("object", schema.RootElement.GetProperty("type").GetString());
+        }
+
+        // Toda herramienta de agentes despacha con "{}" (sin "Herramienta desconocida"); las que exigen
+        // argumentos devuelven ok:false marcado como error (validacion limpia, no excepcion).
+        foreach (var name in new[] { "listar_agentes", "ver_agente", "historial_prompts_agente", "crear_agente",
+            "editar_agente", "agente_lector_medios", "encender_agente", "apagar_agente", "duplicar_agente",
+            "restaurar_version_prompt", "agregar_recurso_agente", "editar_recurso_agente", "agregar_prompt_agente",
+            "editar_prompt_agente", "eliminar_agente", "eliminar_recurso_agente", "eliminar_prompt_agente" })
+        {
+            var r = await toolset.ExecuteAsync(name, "{}", owner);
+            Assert.DoesNotContain("Herramienta desconocida", r.Json);
+            using var doc = JsonDocument.Parse(r.Json);
+            if (doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+            {
+                Assert.True(r.IsError, $"{name}: ok=false sin marcar error");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Agentes_CrearConfigurarDuplicar_Borrar()
+    {
+        var seed = await SeedTenantAsync("Mcp Agentes");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx, withAgents: true);
+        var owner = Actor(seed, owner: true);
+
+        // Crear agente DeepSeek: nace APAGADO y sin herramientas deshabilitadas (todas habilitadas).
+        var crear = Payload(await toolset.ExecuteAsync("crear_agente",
+            Args(new { nombre = "Inspector FOMAG prueba", rol = "Analista de pliegos", proveedor = "deepseek", prompt = "Analiza pliegos." }), owner));
+        var agentId = crear.GetProperty("agente_id").GetString()!;
+        Assert.False(string.IsNullOrWhiteSpace(agentId));
+        Assert.Equal("deepseek", crear.GetProperty("proveedor").GetString());
+        Assert.False(crear.GetProperty("encendido").GetBoolean());
+
+        // ver_agente: proveedor deepseek, apagado, SIN herramientas deshabilitadas (agregar_filas_a_contenedor queda habilitada).
+        var ver = Payload(await toolset.ExecuteAsync("ver_agente", Args(new { agente = "Inspector FOMAG prueba" }), owner));
+        Assert.Equal("deepseek", ver.GetProperty("proveedor").GetString());
+        Assert.False(ver.GetProperty("encendido").GetBoolean());
+        Assert.Equal(0, ver.GetProperty("herramientas_deshabilitadas").GetArrayLength());
+        Assert.True(ver.TryGetProperty("aviso_herramientas", out var aviso) && aviso.ValueKind == JsonValueKind.String,
+            "con 0 herramientas deshabilitadas debe venir el aviso de que todas estan habilitadas");
+
+        // editar_agente: prompt de sistema + apagar una herramienta. El resto se conserva.
+        var edit = Payload(await toolset.ExecuteAsync("editar_agente",
+            Args(new { agente = agentId, prompt = "Extrae objeto, presupuesto y fecha de cierre.", herramientas_deshabilitadas = new[] { "crear_tarea" } }), owner));
+        Assert.Equal("deepseek", edit.GetProperty("proveedor").GetString()); // conservado
+        var ver2 = Payload(await toolset.ExecuteAsync("ver_agente", Args(new { agente = agentId }), owner));
+        Assert.Equal("Extrae objeto, presupuesto y fecha de cierre.", ver2.GetProperty("prompt").GetString());
+        Assert.Equal(1, ver2.GetProperty("herramientas_deshabilitadas").GetArrayLength());
+
+        // Lector de medios (como lee cada PDF).
+        var media = Payload(await toolset.ExecuteAsync("agente_lector_medios",
+            Args(new { agente = agentId, prompt = "Lee el PDF del pliego y vuelca los campos." }), owner));
+        Assert.False(media.GetProperty("generico").GetBoolean());
+
+        // Prompt enrutado + recurso (pdf).
+        var prompt = Payload(await toolset.ExecuteAsync("agregar_prompt_agente",
+            Args(new { agente = agentId, nombre = "Convocatoria", regla = "pliego", cuerpo = "Responde en JSON." }), owner));
+        var promptId = prompt.GetProperty("prompt_id").GetString()!;
+        var recurso = Payload(await toolset.ExecuteAsync("agregar_recurso_agente",
+            Args(new { agente = agentId, nombre = "Plantilla pliego", tipo = "pdf", detalle = "Estructura esperada" }), owner));
+        var recursoId = recurso.GetProperty("recurso_id").GetString()!;
+
+        // ver_agente: 1 prompt enrutado y 1 recurso.
+        var ver3 = Payload(await toolset.ExecuteAsync("ver_agente", Args(new { agente = agentId }), owner));
+        Assert.Equal(1, ver3.GetProperty("prompts_enrutados").GetArrayLength());
+        Assert.Equal(1, ver3.GetProperty("recursos").GetArrayLength());
+
+        // Editar prompt + recurso (reemplazo por campo: lo omitido se conserva).
+        var pe = Payload(await toolset.ExecuteAsync("editar_prompt_agente", Args(new { prompt_id = promptId, cuerpo = "Responde solo con los campos." }), owner));
+        Assert.Equal("Convocatoria", pe.GetProperty("nombre").GetString()); // nombre conservado
+        Payload(await toolset.ExecuteAsync("editar_recurso_agente", Args(new { recurso_id = recursoId, detalle = "v2" }), owner));
+
+        // Encender / apagar.
+        var on = Payload(await toolset.ExecuteAsync("encender_agente", Args(new { agente = agentId }), owner));
+        Assert.True(on.GetProperty("encendido").GetBoolean());
+        var off = Payload(await toolset.ExecuteAsync("apagar_agente", Args(new { agente = agentId }), owner));
+        Assert.False(off.GetProperty("encendido").GetBoolean());
+
+        // Duplicar: la copia queda apagada y con otro id.
+        var dup = Payload(await toolset.ExecuteAsync("duplicar_agente", Args(new { agente = agentId }), owner));
+        var dupId = dup.GetProperty("agente_id").GetString()!;
+        Assert.NotEqual(agentId, dupId);
+        Assert.False(dup.GetProperty("encendido").GetBoolean());
+
+        // Borrar prompt, recurso y el agente original.
+        Payload(await toolset.ExecuteAsync("eliminar_prompt_agente", Args(new { prompt_id = promptId }), owner));
+        Payload(await toolset.ExecuteAsync("eliminar_recurso_agente", Args(new { recurso_id = recursoId }), owner));
+        Payload(await toolset.ExecuteAsync("eliminar_agente", Args(new { agente = agentId }), owner));
+        var verMuerto = await toolset.ExecuteAsync("ver_agente", Args(new { agente = agentId }), owner);
+        Assert.True(verMuerto.IsError);
+
+        // La copia sigue existiendo (se borro solo el original).
+        var verDup = await toolset.ExecuteAsync("ver_agente", Args(new { agente = dupId }), owner);
+        Assert.False(verDup.IsError);
     }
 
     private sealed class PlainSecrets : ISecretProtector

@@ -6,6 +6,8 @@
 > `feat/mcp-terminar-tarea`, AUN NO integrada ni validada en vivo)
 > (addendum 2026-11-20: +23 herramientas de Contenedor de datos, ADR-0194, total 124; misma rama
 > `feat/mcp-terminar-tarea`, AUN NO integrada ni validada en vivo)
+> (addendum 2026-11-21: +17 herramientas de Agentes de IA, ADR-0195, total 141; misma rama
+> `feat/mcp-terminar-tarea`, AUN NO integrada ni validada en vivo)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -16,7 +18,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **124** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **141** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -202,6 +204,39 @@ Conectores SIN secreto: el MCP nunca recibe credenciales (se ponen en la pantall
 Fuera de esta ola (candidatos futuros): clientes remotos (webhooks) + secreto, destino de BD aliada, filas
 (upsert de registros ya existe en el toolset de agente), tablas derivadas (ADR-0127), disparar una importacion.
 
+### 2.7 Agentes de IA (17) - `TableroMcpToolset.Agentes.cs` (ADR-0195) - permiso `agentes`
+
+Capa delgada sobre `IAiAgentService` (modulo 000867). Abstraccion: agente -> prompts enrutados + recursos;
+proveedor/modelo/prompt/lector de medios/herramientas on-off/tableros/round-robin/concepto. **Permiso**: el
+modulo SI esta en la matriz de roles (clave `agentes`), asi que se exige el permiso del actor (View/Create/
+Edit/Delete), como en flujos y contenedores. Nace APAGADO (crear y duplicar); se enciende tras validar. Las
+ediciones son por campo (relee y fusiona, porque `UpdateAsync` es reemplazo total). El agente escribe a un
+contenedor en runtime con `agregar_filas_a_contenedor`, HABILITADA por defecto (DisabledTools es whitelist por
+exclusion). Solo se publican si `IAiAgentService` esta inyectado (lo esta por DI en prod).
+
+| Herramienta | Tipo | Permiso | Que hace |
+|---|---|---|---|
+| listar_agentes | R | View | Agentes: id, nombre, rol, proveedor, modelo, encendido, #recursos |
+| ver_agente | R | View | Agente completo: prompt, lector de medios, herramientas, tableros, recursos, prompts |
+| historial_prompts_agente | R | View | Versiones del historial de prompts (ultimas 5), por agente o por prompt |
+| crear_agente | W | Create | Agente nuevo (proveedor claude/gemini/chatgpt/deepseek). Nace apagado. Devuelve agente_id |
+| editar_agente | W | Edit | Nombre/rol/proveedor/modelo/prompt/herramientas/tableros/round-robin/concepto (por campo) |
+| agente_lector_medios | W | Edit | Fija/limpia el prompt con que lee cada PDF/imagen |
+| encender_agente | W | Edit | Pone el agente en produccion |
+| apagar_agente | W | Edit | Saca el agente de produccion |
+| duplicar_agente | W | Edit | Copia config/prompts/recursos (sin linea de atencion). La copia queda apagada |
+| restaurar_version_prompt | W | Edit | Restaura una version del historial de prompts |
+| agregar_recurso_agente | W | Edit | Recurso (imagen/video/audio/pdf/ubicacion/texto). Devuelve recurso_id |
+| editar_recurso_agente | W | Edit | Cambia nombre/tipo/detalle/archivo de un recurso (por campo) |
+| agregar_prompt_agente | W | Edit | Prompt enrutado (nombre + regla + cuerpo). Devuelve prompt_id |
+| editar_prompt_agente | W | Edit | Cambia nombre/regla/cuerpo de un prompt enrutado (por campo) |
+| eliminar_agente | D | Delete | Borra el agente completo (recursos, prompts, config) |
+| eliminar_recurso_agente | D | Delete | Borra un recurso por id |
+| eliminar_prompt_agente | D | Delete | Borra un prompt enrutado por id |
+
+Fuera de esta ola (candidatos futuros): cierre del agente, reactivacion/seguimiento y datos-cache (jsonb que la
+pantalla fija aparte; no estan en `IAiAgentService`).
+
 ---
 
 ## 2b. MCP de WHATSAPP por linea Evolution - `/api/mcp/whatsapp/{lineId}` (ADR-0164)
@@ -290,6 +325,7 @@ Estado: CUBIERTO / PARCIAL / NO / EXCLUIDO (a proposito: admin o seguridad).
 | Pipeline / CRM | NO | Solo `crear_lead` en agentes |
 | Extraccion de datos (drones, 000730) | CUBIERTO (ADR-0193) | 17 herramientas: crear/editar/ver/listar/borrar dron, pasos (24 tipos, config fina en mapeo_json), variables (secretos cifrados), programaciones (intervalo/cron/tramos) y bitacora de corridas. Runtime del Navegador diferido (solo config) |
 | Contenedor de datos (crear/estructurar/programar/publicar) | CUBIERTO (ADR-0194) | 23 herramientas: contenedor+tablas+columnas+relaciones, conectores (SIN secreto), programaciones (manual/intervalo/cron + modo) + bitacora, y publicar/despublicar como modulo del menu (privacidad por Roles). Carga de filas (upsert) sigue en el toolset de agente |
+| Agentes de IA (crear/configurar/encender) | CUBIERTO (ADR-0195) | 17 herramientas: crear agente (claude/gemini/chatgpt/deepseek, nace apagado), editar por campo (prompt/herramientas/tableros/round-robin/concepto), lector de medios, prompts enrutados + recursos, historial, duplicar, encender/apagar, borrar. Escribe al contenedor con `agregar_filas_a_contenedor` (habilitada por defecto). Fuera: cierre/reactivacion/cache |
 | Compras / DIAN / conciliacion / gestor documental | NO | Especializados |
 | Usuarios, roles, menu, tenants, servidores, IA, facturacion | EXCLUIDO | Administracion y seguridad: no deben ir por token personal |
 
@@ -312,10 +348,10 @@ Brechas priorizadas (propuesta):
 | Pieza | Estado |
 |---|---|
 | ADR-0159 (personal) | Completo, con addenda por fase; conteo corregido en esta revision |
-| ADR-0193 (extraccion) / ADR-0194 (contenedor de datos) | Nuevos; 17 + 23 herramientas en la rama `feat/mcp-terminar-tarea` |
+| ADR-0193 (extraccion) / ADR-0194 (contenedor de datos) / ADR-0195 (agentes de IA) | Nuevos; 17 + 23 + 17 herramientas en la rama `feat/mcp-terminar-tarea` |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 124/124 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor por prueba, pendientes de validar en vivo) |
+| Descripciones y esquemas | 141/141 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

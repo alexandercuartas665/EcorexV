@@ -2,6 +2,48 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - MCP personal: autoria de Agentes de IA (ADR-0195) - v0.16.363 (integrada al tronco; deploy pendiente de OK)
+
+Agente: sesion MCP (Claude Opus 4.8), rama `feat/mcp-terminar-tarea`. Pedido del usuario: que el agente del caso
+FOMAG "viva en el modulo de agentes como los que ya existen" y se cree TODO via MCP (crear uno nuevo tipo
+"Inspector de Proyectos FOMAG" con DeepSeek). El MCP no tenia herramientas para agentes (124 en vivo): se
+construye la capacidad primero.
+
+Hecho:
+- Nuevo partial `TableroMcpToolset.Agentes.cs`: 17 herramientas (3 lectura / 11 escritura / 3 destructivas), capa
+  delgada sobre `IAiAgentService` (modulo 000867). El MCP personal pasa de 124 a 141 herramientas.
+  - Agente: listar/ver/crear/editar/duplicar/encender/apagar/borrar + historial y restaurar version de prompt.
+  - Prompts enrutados: agregar/editar/eliminar. Recursos: agregar/editar/eliminar. Lector de medios aparte.
+  - Proveedor claude/gemini/chatgpt/deepseek; nace APAGADO (crear y duplicar). Ediciones por campo: relee el
+    estado y fusiona lo enviado, porque `UpdateAsync` es reemplazo total (y no toca MediaReaderPrompt).
+  - El agente escribe al contenedor en runtime con `agregar_filas_a_contenedor`, HABILITADA por defecto
+    (DisabledTools es whitelist por exclusion); no se expone nada extra, solo NO se deshabilita.
+- Cableado opcional: parametro `agents` (IAiAgentService?, `= null`) al final del constructor de
+  `TableroMcpToolset`; Build*/dispatch condicionados a `_agents`. Linea de agentes en `instructions`.
+- Docs: ADR-0195, seccion 2.7 del INVENTARIO-MCP (conteo 124->141, fila de suficiencia CUBIERTO).
+
+DECISION (permiso): el modulo Agentes SI esta en la matriz de roles (clave `agentes`). Las herramientas exigen el
+permiso efectivo del actor (NeedAgent -> perms.Can): lecturas View, crear Create, eliminar Delete, resto Edit.
+Owner/Admin y sin-rol = acceso total. DECISION (alcance): v1 "completo" sobre lo que expone `IAiAgentService`;
+cierre/reactivacion/datos-cache quedan fuera (jsonb de la pantalla, no en el servicio). DECISION (estado inicial):
+el Inspector se crea apagado y se enciende tras validar.
+
+Pruebas: en `McpTablerosTests` (dual PG+SQL) se agregaron `McpCatalog_ConAgentes_EsConsistente_YDespacha`
+(catalogo con agentes: 141 specs equivalentes en test, R/D disjuntos, schemas, despacho) y
+`Agentes_CrearConfigurarDuplicar_Borrar` (crear DeepSeek apagado -> ver_agente [deepseek/apagado/herramienta de
+contenedor habilitada] -> editar prompt+herramientas -> lector de medios -> prompt enrutado + recurso -> editar
+por campo -> encender/apagar -> duplicar [copia apagada] -> borrar). Pendiente la corrida dual (Docker) a cargo
+de dev principal.
+
+Siguiente: entregar a la sesion dev principal para integrar al tronco, correr gates (build Release, dotnet format,
+Integration dual PG+SQL) y desplegar por version con OK del usuario. Solo TRAS el deploy se crea en vivo, via MCP,
+el agente "Inspector de Proyectos FOMAG" (DeepSeek, apagado, prompt + lector de medios para el set completo de
+campos del pliego, que escribe al contenedor FOMAG). Script de creacion listo en scratchpad.
+
+Bloqueos: ninguno. La sesion MCP no despliega: solo push a `feat/mcp-terminar-tarea` + prompt de integracion. La
+idempotencia por url al escribir de vuelta depende del fix de motor de ingesta pendiente (memoria FOMAG), se
+aborda en "probamos todo".
+
 ## 2026-11-20 - MCP personal: autoria de contenedores de datos (ADR-0194) - v0.16.362 DESPLEGADA
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff 7ee01fe5 al tronco y main (conflicto solo en PROGRESO; dotnet format corrigio indentado en McpTablerosTests). Gates: build Release, format, escaneo de secretos del diff, unitarias 1633/311/35, McpTablerosTests dual 32/32. Deploy 2026-11-20 ~21:43 Bogota (OK del usuario): footer /login v0.16.362, Restarts=0, 0 errores. Validacion en vivo con token en BITCODE: a cargo de ECOREX.mcp.
 

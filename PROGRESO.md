@@ -2,9 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-21 - v0.16.367: Reportes e indicadores por el MCP personal (ADR-0198) - rama feat/reportes-mcp - PENDIENTE DE DEPLOY
+## 2026-11-21 - v0.16.367: Reportes e indicadores por el MCP personal (ADR-0198) - rama feat/reportes-mcp - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/reportes-mcp (290ab341) al tronco y main como v0.16.367. Gates: build Release, format whitespace/style, ASCII, unitarias 1676/312/35, integracion dual McpTablerosTests 40/40 (PG + SQL Server). Deploy: SOLO con OK del usuario.
+- **Deploy (2026-11-21 17:04 Bogota)**: OK del usuario; via rapida GHCR (CI publish-image 44948311484 verde sobre 020ed7e4). Footer de /login = v0.16.367, ecorex-app Restarts=0, 0 errores en logs. Rollback: imagen anterior sha256:735125f2... Pendiente: ECOREX.mcp valida en vivo en BITCODE (casos SECOP).
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). Pedido: spec de la sesion ECOREX.mcp (crear reportes e indicadores con
 fuente = contenedor de datos desde el MCP personal).

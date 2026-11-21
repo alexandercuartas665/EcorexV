@@ -618,6 +618,29 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
     private static int VoiceCallOutcomeRetries(ContactWorkflowCallParams call)
         => Voice.VoiceCallOutcomes.ClampRetries(call.Reintentos);
 
+    /// <summary>
+    /// Instruccion de la llamada = la del paso + el bloque de preguntas de sus formularios; y los campos de analisis
+    /// que Retell debe extraer (uno por pregunta). Sin formularios devuelve la instruccion tal cual y sin campos.
+    /// </summary>
+    private async Task<(string? PromptExtra, IReadOnlyList<Voice.RetellAnalysisField>? Fields)> BuildCallQuestionsAsync(
+        string? promptExtra, IReadOnlyList<Guid> formIds, CancellationToken cancellationToken)
+    {
+        if (formIds.Count == 0) { return (promptExtra, null); }
+        var ids = formIds.Distinct().ToList();
+        var rows = await _db.FormQuestions.AsNoTracking()
+            .Where(q => ids.Contains(q.DefinitionId))
+            .Select(q => new { q.DefinitionId, q.SortOrder, Q = new Voice.VoiceFormQuestion(q.FieldCode, q.Label, q.HelpText, q.ControlType, q.OptionsJson, q.SourceKind, q.IsHidden) })
+            .ToListAsync(cancellationToken);
+        // Orden: el de los formularios elegidos y, dentro de cada uno, el de sus preguntas.
+        var ordered = rows.OrderBy(r => ids.IndexOf(r.DefinitionId)).ThenBy(r => r.SortOrder).Select(r => r.Q);
+        var questions = Voice.ContactCallFormQuestions.Askable(ordered);
+        if (questions.Count == 0) { return (promptExtra, null); }
+
+        var block = Voice.ContactCallFormQuestions.BuildPromptBlock(questions);
+        var extra = string.IsNullOrWhiteSpace(promptExtra) ? block : promptExtra!.Trim() + "\n\n" + block;
+        return (extra, Voice.ContactCallFormQuestions.BuildAnalysisFields(questions));
+    }
+
     private async Task<(ContactWorkflowRunStatus, string, string?, string?)> ExecuteLlamadaAsync(
         string? paramsJson, SegmentContact contact, Guid actor, Guid runId, CancellationToken cancellationToken)
     {
@@ -641,15 +664,20 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 ["cargo"] = contact.Cargo,
                 ["ciudad"] = contact.Ciudad
             };
+            // Fase B (ADR-0190): las preguntas de los formularios del contacto se le entregan al agente (bloque en la
+            // instruccion) y a Retell como campos a extraer al colgar; el webhook las vuelca al formulario del contacto.
+            var forms = call.FormulariosPermitidos ?? Array.Empty<Guid>();
+            var (promptExtra, analysisFields) = await BuildCallQuestionsAsync(call.PromptExtra, forms, cancellationToken);
             var voiceRes = await _voice.PlaceCallAsync(new Voice.VoicePlaceCallRequest(
                 ToNumber: e164!,
                 AiAgentId: call.AgenteId,
-                PromptExtra: call.PromptExtra,
+                PromptExtra: promptExtra,
                 Objetivo: call.Objetivo,
-                FormulariosPermitidos: call.FormulariosPermitidos ?? Array.Empty<Guid>(),
+                FormulariosPermitidos: forms,
                 ContactVariables: contactVars,
                 ContactWorkflowRunId: runId,
-                RetellVoiceLineId: call.LineaVozId), cancellationToken);
+                RetellVoiceLineId: call.LineaVozId,
+                AnalysisFields: analysisFields), cancellationToken);
 
             return voiceRes.Placed
                 ? (ContactWorkflowRunStatus.Sent, voiceChannel, voiceRes.CallId, null)

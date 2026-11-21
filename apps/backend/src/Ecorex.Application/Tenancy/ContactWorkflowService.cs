@@ -193,6 +193,26 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             }
         }
 
+        // Fase B (ADR-0190): los formularios de una Llamada IA guardan las respuestas EN EL CONTACTO (TERCERO:{id}),
+        // asi que se ofrecen en la ficha del contacto del Directorio (TerceroFormLink, idempotente). Mismo SaveChanges.
+        var callForms = steps
+            .Where(s => s.StepType == ContactWorkflowStepType.Llamada && s.Call?.Modo == "ia" && s.Call.FormulariosPermitidos is { Count: > 0 })
+            .SelectMany(s => s.Call!.FormulariosPermitidos!)
+            .Distinct()
+            .ToList();
+        if (callForms.Count > 0)
+        {
+            var existingForms = await _db.FormDefinitions.AsNoTracking()
+                .Where(f => callForms.Contains(f.Id)).Select(f => f.Id).ToListAsync(cancellationToken);
+            var linked = await _db.TerceroFormLinks.AsNoTracking()
+                .Where(l => callForms.Contains(l.FormDefinitionId)).Select(l => l.FormDefinitionId).ToListAsync(cancellationToken);
+            var nextOrder = (await _db.TerceroFormLinks.Select(l => (int?)l.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+            foreach (var formId in existingForms.Except(linked))
+            {
+                _db.TerceroFormLinks.Add(new TerceroFormLink { TenantId = tenantId, FormDefinitionId = formId, SortOrder = nextOrder++ });
+            }
+        }
+
         // Auditoria dentro de la MISMA transaccion (un SaveChanges): CLAUDE.md regla 5.
         _audit.Write(
             _tenant.UserId ?? Guid.Empty,

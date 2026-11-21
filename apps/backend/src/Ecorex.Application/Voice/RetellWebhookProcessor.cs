@@ -171,9 +171,11 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
 
         ApplyEvent(voiceCall, eventType, call);
 
-        // Volcado a formulario (solo si el objetivo era LlenarFormulario y hay whitelist).
+        // Volcado a formulario (solo si el objetivo era LlenarFormulario y hay whitelist). Las llamadas del motor de
+        // acciones de contactos (ContactWorkflowRunId) vuelcan con cualquier objetivo: la whitelist decide (fase B).
         if (isAnalyzed
-            && string.Equals(voiceCall.Objetivo, nameof(ContactCallObjetivo.LlenarFormulario), StringComparison.OrdinalIgnoreCase))
+            && (string.Equals(voiceCall.Objetivo, nameof(ContactCallObjetivo.LlenarFormulario), StringComparison.OrdinalIgnoreCase)
+                || voiceCall.ContactWorkflowRunId is not null))
         {
             await DumpCapturedFormsAsync(voiceCall, call, callId, cancellationToken);
         }
@@ -280,6 +282,50 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
 
     // ---- Volcado a formulario (whitelist DURA) ----
 
+    /// <summary>
+    /// Volcado de una llamada del motor de acciones al formulario del contacto: whitelist DURA (solo los formularios
+    /// permitidos de la VoiceCall), referencia TERCERO:{id} (run y tercero leidos con el filtro del tenant; si no
+    /// existen no se escribe nada), etiquetas de opcion -&gt; ids y mezcla sobre los datos previos (lo que no vino en
+    /// la llamada se conserva). Si la respuesta ya esta enviada y el formulario no es "registro editable",
+    /// SaveAsync la rechaza y no se toca.
+    /// </summary>
+    private async Task DumpToContactFormsAsync(Guid runId, IReadOnlyList<Guid> allowed,
+        IReadOnlyDictionary<string, FormFieldValue> captured, string callId, CancellationToken ct)
+    {
+        var terceroId = await _db.ContactWorkflowRuns.AsNoTracking()
+            .Where(r => r.Id == runId).Select(r => (Guid?)r.TerceroId).FirstOrDefaultAsync(ct);
+        if (terceroId is not Guid tid || !await _db.Terceros.AsNoTracking().AnyAsync(t => t.Id == tid, ct))
+        {
+            _log.LogWarning("Voz IA: llamada {CallId} del motor sin run/contacto vigente; no se vuelcan respuestas.", callId);
+            return;
+        }
+        var reference = Directorio.ITerceroFormService.ReferenceFor(tid);
+        var raw = captured.ToDictionary(kv => kv.Key, kv => kv.Value.Value ?? string.Empty, StringComparer.Ordinal);
+
+        foreach (var defId in allowed.Distinct())
+        {
+            var questions = await _db.FormQuestions.AsNoTracking()
+                .Where(q => q.DefinitionId == defId)
+                .OrderBy(q => q.SortOrder)
+                .Select(q => new VoiceFormQuestion(q.FieldCode, q.Label, q.HelpText, q.ControlType, q.OptionsJson, q.SourceKind, q.IsHidden))
+                .ToListAsync(ct);
+            var mapped = ContactCallFormQuestions.MapCaptured(ContactCallFormQuestions.Askable(questions), raw);
+            if (mapped.Count == 0) { continue; }
+
+            var draft = await _forms.GetOrCreateDraftAsync(defId, reference, ct);
+            if (!draft.IsOk || draft.Value is null) { continue; }
+
+            var merged = new Dictionary<string, FormFieldValue>(draft.Value.Data, StringComparer.Ordinal);
+            foreach (var (code, value) in mapped) { merged[code] = new FormFieldValue(value, "text"); }
+            var saved = await _forms.SaveAsync(draft.Value.Id, merged, submit: false, cancellationToken: ct);
+            if (!saved.IsOk)
+            {
+                _log.LogWarning("Voz IA: no se guardaron las respuestas de {CallId} en el formulario {DefId}: {Error}",
+                    callId, defId, saved.Error);
+            }
+        }
+    }
+
     private async Task DumpCapturedFormsAsync(Domain.Entities.VoiceCall vc, JsonElement call, string callId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(vc.FormulariosPermitidosJson)) { return; }
@@ -309,6 +355,15 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
             }
         }
         if (captured.Count == 0) { return; }
+
+        // Llamada del MOTOR DE ACCIONES de contactos (ADR-0190 fase B): las respuestas van al formulario DEL CONTACTO
+        // en el Directorio (TERCERO:{id}), traducidas por tipo de pregunta y MEZCLADAS con lo que ya tenia. Las
+        // llamadas de flujo (sin ContactWorkflowRunId) siguen por el camino de abajo, sin cambios.
+        if (vc.ContactWorkflowRunId is Guid runId)
+        {
+            await DumpToContactFormsAsync(runId, allowed, captured, callId, ct);
+            return;
+        }
 
         // SOLO los formularios de la whitelist. SaveAsync ademas ignora claves que no existan en la definicion.
         foreach (var defId in allowed)

@@ -182,7 +182,19 @@
                                                       placeholder="Se anexa al prompt del agente para esta llamada: producto, tono, oferta..."></textarea>
                                         </div>
                                         <div class="cw-field" style="grid-column:1/-1;">
-                                            <label>Formularios que puede llenar</label>
+                                            <label>Formularios del contacto (sus campos son las preguntas)</label>
+                                            <span class="cw-hint">
+                                                El agente hace las preguntas de estos formularios y, al colgar, las respuestas quedan en el
+                                                formulario del contacto (Directorio), sin borrar lo que ya tenia. Usa formularios con
+                                                "Registro editable" para poder actualizarlos en cada llamada.
+                                            </span>
+                                            @if (SimpleModeLine(st) is { } simple)
+                                            {
+                                                <span class="cw-hint" style="color:var(--t-amber);">
+                                                    La linea "@simple" usa un agente ya armado en Retell: alli deben estar las preguntas y los
+                                                    campos de analisis con los mismos codigos del formulario.
+                                                </span>
+                                            }
                                             @if (_forms.Count == 0)
                                             {
                                                 <span class="cw-hint">No hay formularios disponibles.</span>
@@ -865,6 +877,16 @@
                 Reintentos: s.Reintentos > 0 ? s.Reintentos : null,
                 ReintentarCadaMin: s.Reintentos > 0 ? s.ReintentarCadaMin : null)
             : new ContactWorkflowCallParams(s.Comercial, s.Prioridad, s.Categoria, s.Subcategoria);
+
+    // Linea en modo simple (agent_id de Retell): ECOREX no compone el prompt ni los campos de analisis.
+    private string? SimpleModeLine(StepVM s)
+    {
+        if (s.FormulariosPermitidos.Count == 0) { return null; }
+        var line = s.LineaVozId is Guid id
+            ? _voiceLines.FirstOrDefault(l => l.Id == id)
+            : _voiceLines.OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name).FirstOrDefault();
+        return line is not null && !string.IsNullOrWhiteSpace(line.RetellAgentId) ? line.Name : null;
+    }
 
     private static string VoiceLineLabel(RetellVoiceLineDto l)
         => l.Name + (string.IsNullOrWhiteSpace(l.FromNumber) ? "" : $" ({l.FromNumber})") + (l.IsDefault ? " - por defecto" : "");

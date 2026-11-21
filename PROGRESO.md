@@ -2,7 +2,8 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-21 - MCP personal: autoria de Agentes de IA (ADR-0195) - v0.16.363 (integrada al tronco; deploy pendiente de OK)
+## 2026-11-21 - MCP personal: autoria de Agentes de IA (ADR-0195) - v0.16.363 DESPLEGADA
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff f3de48e9 al tronco y main (limpio). Gates: build Release, format, escaneo de secretos del diff, unitarias 1633/311/35, McpTablerosTests dual 36/36. Deploy 2026-11-21 ~07:06 Bogota (OK del usuario, que corre el DRON manual): footer /login v0.16.363, Restarts=0, 0 errores. Validacion en vivo con token en BITCODE: a cargo de ECOREX.mcp.
 
 Agente: sesion MCP (Claude Opus 4.8), rama `feat/mcp-terminar-tarea`. Pedido del usuario: que el agente del caso
 FOMAG "viva en el modulo de agentes como los que ya existen" y se cree TODO via MCP (crear uno nuevo tipo

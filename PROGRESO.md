@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - v0.16.366: Clasificacion por lotes de filas de un contenedor con un agente de IA (ADR-0197) - rama feat/clasificar-lote-contenedor - deploy pendiente
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). Pedido: spec de la sesion ECOREX.mcp (clasificar la tabla "Tecnologia"
+del contenedor "SECOP II - Procesos" de BITCODE con el agente "Clasificador de Procesos SECOP"), aprobada por el
+usuario ("primero 2 y luego 1").
+
+Hecho:
+- `ContenedorFilasPorClave` (Application/Tenancy): actualizar filas por columna clave en el EAV sin duplicar (crea o
+  modifica solo las celdas recibidas; reporta no encontradas; crear_si_falta opcional). Consultas IN por bloques de 500.
+- Herramienta de agente `actualizar_filas_por_clave` en `ContenedorDatosToolset` (habilitada por defecto; tope 500
+  filas; resuelve la tabla por nombre o contenedor+tabla).
+- Runner `IContenedorClasificacionService` + herramienta MCP `clasificar_lote` (`TableroMcpToolset.Clasificacion.cs`,
+  permiso Edit de contenedor-datos): lote de filas con clave y sin marca (NOT EXISTS en BD) -> agente encendido ->
+  escribe solo columnas de salida + marca UTC, solo en filas del lote; AiUsageLog "clasificar-lote"; cupo duro.
+  MCP personal 141 -> 142. Linea en las instrucciones del servidor e INVENTARIO-MCP (seccion 2.8).
+- Docs: ADR-0197.
+
+Pruebas: `ContenedorClasificacionTests` (dual PG + SQL Server, 4 por motor) y `McpTablerosTests` con el puente MCP:
+46/46 verde.
+
+Siguiente: deploy (OK del usuario dado junto con la v0.16.365); validacion en vivo con el token en BITCODE a cargo de
+ECOREX.mcp: encender el agente y correr clasificar_lote (clave id_proceso, marca clasificado_en, salida ["sector"]).
+
 ## 2026-11-21 - Call center: llamada IA del motor de acciones con resultado, reintento y preguntas al formulario del contacto (ADR-0196) - v0.16.365 (integrada al tronco; deploy pendiente de OK)
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/whatsapp-sync-estado-ycloud (0ba2f68e) al tronco y main como v0.16.365 (limpio). Migracion dual AddVoiceCallLastSynced (solo AddColumn nullable); has-pending-model-changes sin cambios en ambos motores. Gates: build Release, format, escaneo de secretos del diff, unitarias 1676/312/35, integracion dual Voice|Retell|ContactWorkflow|AgendaRecordatorios|DynamicForms|EmailDeliveryEvents|WorkflowAgentStep 64/64.
 Agente: sesion ECOREX.call_center (Claude Opus 5.5), rama `feat/whatsapp-sync-estado-ycloud`. Migracion dual

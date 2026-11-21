@@ -48,6 +48,14 @@ public sealed class ContenedorDatosToolset : IContenedorDatosToolset
             "columna se ignoran. Devuelve cuantas filas se cargaron.",
             """{"type":"object","properties":{"contenedor":{"type":"string","description":"Nombre exacto del contenedor destino"},"filas":{"type":"array","items":{"type":"object"},"description":"Lista de filas; cada fila es un objeto columna->valor"}},"required":["contenedor","filas"],"additionalProperties":false}"""),
         new AiToolSpec(
+            "actualizar_filas_por_clave",
+            "ACTUALIZA filas EXISTENTES de un contenedor ubicandolas por una columna clave (no duplica). Para cada " +
+            "objeto de 'filas' busca la fila cuyo valor en 'columna_clave' coincide y escribe SOLO las columnas " +
+            "presentes (las demas no se tocan). Si la clave no existe la reporta en 'no_encontradas', salvo que " +
+            "'crear_si_falta' sea true (entonces crea la fila). 'contenedor' es el nombre EXACTO de la tabla (ver " +
+            "listar_contenedores); si el nombre se repite en varios contenedores, envia el contenedor y la 'tabla'.",
+            """{"type":"object","properties":{"contenedor":{"type":"string","description":"Nombre exacto de la tabla destino (o del contenedor si envias 'tabla')"},"tabla":{"type":"string","description":"Opcional: nombre de la tabla dentro del contenedor"},"columna_clave":{"type":"string","description":"Columna que identifica la fila (ej. id_proceso)"},"filas":{"type":"array","items":{"type":"object"},"description":"Lista de filas; cada fila es un objeto columna->valor que DEBE incluir la columna clave"},"crear_si_falta":{"type":"boolean","description":"true = si la clave no existe, crea la fila (default false)"}},"required":["contenedor","columna_clave","filas"],"additionalProperties":false}"""),
+        new AiToolSpec(
             "cargar_productos",
             "Carga los productos extraidos en el contenedor de datos 'Productos' del tenant. 'productos' es una " +
             "lista de objetos; cada objeto es un producto con sus campos (por ejemplo categoria, marca, nombre, " +
@@ -87,6 +95,7 @@ public sealed class ContenedorDatosToolset : IContenedorDatosToolset
             {
                 "listar_contenedores" => await ListContainersAsync(cancellationToken),
                 "agregar_filas_a_contenedor" => await AddRowsAsync(Str(args, "contenedor"), GetProp(args, "filas"), cancellationToken),
+                "actualizar_filas_por_clave" => await UpdateRowsByKeyAsync(args, cancellationToken),
                 // Atajo pedido por el prompt del agente Clasificador: filas -> contenedor fijo "Productos".
                 "cargar_productos" => await AddRowsAsync("Productos", GetProp(args, "productos"), cancellationToken),
                 // Lectura/consulta (ADR-0103 nota lectura): atajo sobre "Productos" + generico por nombre.
@@ -188,6 +197,92 @@ public sealed class ContenedorDatosToolset : IContenedorDatosToolset
         }
         await _db.SaveChangesAsync(ct);
         return Ok(new { ok = true, cargados, celdas, contenedor = container.Name });
+    }
+
+    /// <summary>Tope de filas por llamada a actualizar_filas_por_clave (un lote del agente, no una carga masiva).</summary>
+    private const int MaxFilasPorActualizacion = 500;
+
+    /// <summary>
+    /// ACTUALIZAR POR CLAVE (ADR-0197): ubica cada fila por su columna clave y escribe solo las columnas recibidas.
+    /// No duplica; las claves inexistentes se reportan (o se crean con crear_si_falta). Todo en un SaveChanges.
+    /// </summary>
+    private async Task<AgentToolResult> UpdateRowsByKeyAsync(JsonElement args, CancellationToken ct)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return Err("Sin tenant activo."); }
+        var keyCol = Str(args, "columna_clave")?.Trim();
+        if (string.IsNullOrEmpty(keyCol)) { return Err("Falta la columna clave (columna_clave)."); }
+        if (GetProp(args, "filas") is not { } filasEl || filasEl.ValueKind != JsonValueKind.Array || filasEl.GetArrayLength() == 0)
+        {
+            return Err("No hay filas: envia una lista de objetos columna->valor que incluyan la columna clave.");
+        }
+        if (filasEl.GetArrayLength() > MaxFilasPorActualizacion)
+        {
+            return Err($"Maximo {MaxFilasPorActualizacion} filas por llamada; divide el lote.");
+        }
+
+        var (table, error) = await ResolveTableAsync(Str(args, "contenedor"), Str(args, "tabla"), ct);
+        if (table is null) { return Err(error!); }
+
+        var colByName = await ContenedorFilasPorClave.ColumnasAsync(_db, table.Value.Id, ct);
+        if (!colByName.ContainsKey(keyCol))
+        {
+            return Err($"La tabla '{table.Value.Name}' no tiene la columna '{keyCol}'. Columnas: {string.Join(", ", colByName.Keys)}.");
+        }
+
+        var filas = filasEl.EnumerateArray()
+            .Where(f => f.ValueKind == JsonValueKind.Object)
+            .Select(f => (IReadOnlyDictionary<string, string?>)ContenedorFilasPorClave.ToFila(f))
+            .ToList();
+        var crear = GetProp(args, "crear_si_falta") is { ValueKind: JsonValueKind.True };
+
+        var r = await ContenedorFilasPorClave.AplicarAsync(_db, tenantId, table.Value.Id, keyCol, colByName, filas, crear, ct);
+        await _db.SaveChangesAsync(ct);
+        return Ok(new
+        {
+            ok = true,
+            tabla = table.Value.Name,
+            actualizadas = r.Actualizadas,
+            creadas = r.Creadas,
+            celdas = r.Celdas,
+            sin_clave = r.SinClave,
+            no_encontradas = r.NoEncontradas.Take(50).ToList(),
+            total_no_encontradas = r.NoEncontradas.Count
+        });
+    }
+
+    /// <summary>
+    /// Resuelve la TABLA destino por nombre (tenant-scoped). Sin 'tabla': 'contenedor' es el nombre de la tabla (como
+    /// el resto de herramientas del agente); si se repite en varios contenedores pide la tabla. Con 'tabla':
+    /// 'contenedor' es el nombre del contenedor (modelo) y 'tabla' la tabla dentro de el.
+    /// </summary>
+    private async Task<((Guid Id, string Name)? Table, string? Error)> ResolveTableAsync(string? contenedor, string? tabla, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(contenedor)) { return (null, "Falta el nombre del contenedor (contenedor)."); }
+        var c = contenedor.Trim().ToLower();
+        if (!string.IsNullOrWhiteSpace(tabla))
+        {
+            var t = tabla.Trim().ToLower();
+            var hits = await _db.DataContainers.AsNoTracking()
+                .Where(x => x.Name.ToLower() == t && x.ModelId != null
+                    && _db.DataModels.Any(m => m.Id == x.ModelId && m.Name.ToLower() == c))
+                .Select(x => new { x.Id, x.Name })
+                .ToListAsync(ct);
+            return hits.Count switch
+            {
+                1 => ((hits[0].Id, hits[0].Name), null),
+                0 => (null, $"No existe la tabla '{tabla}' en el contenedor '{contenedor}'."),
+                _ => (null, $"Hay varias tablas '{tabla}' en '{contenedor}'.")
+            };
+        }
+
+        var byName = await _db.DataContainers.AsNoTracking()
+            .Where(x => x.Name.ToLower() == c)
+            .Select(x => new { x.Id, x.Name })
+            .ToListAsync(ct);
+        if (byName.Count == 1) { return ((byName[0].Id, byName[0].Name), null); }
+        if (byName.Count > 1) { return (null, $"Hay {byName.Count} tablas llamadas '{contenedor}': envia el nombre del contenedor en 'contenedor' y la tabla en 'tabla'."); }
+        var nombres = await _db.DataContainers.AsNoTracking().OrderBy(x => x.Name).Select(x => x.Name).Take(40).ToListAsync(ct);
+        return (null, $"No existe un contenedor de datos llamado '{contenedor}'. Disponibles: {string.Join(", ", nombres)}.");
     }
 
     // Zona del tenant (America/Bogota = UTC-5) para la fecha de actualizacion del dato.

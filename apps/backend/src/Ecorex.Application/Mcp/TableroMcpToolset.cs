@@ -94,6 +94,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private readonly DataContainers.IDataContainerModuleService? _dataModule;
     private readonly MenuConfig.IMenuConfigService? _menu;
     private readonly IAiAgentService? _agents;
+    private readonly IContenedorClasificacionService? _clasificador;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
         ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
@@ -102,8 +103,9 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         Organization.IWorkflowNodePolicyService? nodePolicies = null, Scraping.IScrapeFlowService? scrape = null,
         DataContainers.IDataModelService? dataModel = null, DataContainers.IDataImportConfigService? dataImport = null,
         DataContainers.IDataContainerModuleService? dataModule = null, MenuConfig.IMenuConfigService? menu = null,
-        IAiAgentService? agents = null)
+        IAiAgentService? agents = null, IContenedorClasificacionService? clasificador = null)
     {
+        _clasificador = clasificador;
         _scrape = scrape;
         _agents = agents;
         _dataModel = dataModel;
@@ -168,6 +170,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         if (_scrape is not null) { all.AddRange(ExtractionSpecs); }
         if (_dataModel is not null) { all.AddRange(ContainerSpecs); }
         if (_agents is not null) { all.AddRange(AgentSpecs); }
+        if (HasClassify) { all.AddRange(ClassifySpecs); }
         // Solo las herramientas de formularios PERMITIDAS al usuario final (ver FormBridgeAllowed).
         if (_formAuthoring is not null) { all.AddRange(_formAuthoring.GetSpecs().Where(s => FormBridgeAllowed.Contains(s.Name))); }
         return all.ToArray();
@@ -276,6 +279,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 _ when _scrape is not null && ExtractionToolNames.Contains(toolName) => await ExecuteExtractionAsync(toolName, args, actor, cancellationToken),
                 _ when _dataModel is not null && ContainerToolNames.Contains(toolName) => await ExecuteContainerAsync(toolName, args, actor, cancellationToken),
                 _ when _agents is not null && AgentToolNames.Contains(toolName) => await ExecuteAgentAsync(toolName, args, actor, cancellationToken),
+                _ when HasClassify && ClassifyToolNames.Contains(toolName) => await ExecuteClassifyAsync(args, actor, cancellationToken),
                 _ when _formAuthoring is not null && FormToolNames.Contains(toolName) => await ExecuteFormAsync(toolName, argumentsJson, actor, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };

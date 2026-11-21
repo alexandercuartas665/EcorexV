@@ -252,14 +252,13 @@ public static partial class MockupMarkdown
 
     private static string WikiHtml(Match m, LinkExists? exists, AssetUrl? assets)
     {
-        var inner = m.Groups[2].Value;
-        var pipe = inner.IndexOf('|');
-        var target = pipe >= 0 ? inner[..pipe] : inner;
-        var shown = pipe >= 0 ? inner[(pipe + 1)..].Trim() : target.Trim();
+        // SplitAlias acepta tambien el "\|" que Obsidian escribe dentro de las tablas.
+        var (target, alias, _) = MockupBrainLinks.SplitAlias(m.Groups[2].Value);
+        var shown = alias is not null ? alias.Trim() : target.Trim();
         if (m.Groups[1].Value == "!")
         {
             // ![[foto.png]] o ![[foto.png|300]]: el alias numerico es el ancho (sintaxis de Obsidian).
-            return EmbedHtml(target.Trim(), pipe >= 0 ? inner[(pipe + 1)..].Trim() : null, assets);
+            return EmbedHtml(target.Trim(), alias?.Trim(), assets);
         }
         var link = MockupBrainLinks.Classify(target);
         if (link is null) { return Enc(m.Value); }

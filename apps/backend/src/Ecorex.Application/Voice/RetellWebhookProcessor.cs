@@ -158,10 +158,20 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
     private async Task ApplyWithEffectsAsync(Domain.Entities.VoiceCall voiceCall, string eventType, JsonElement call, CancellationToken cancellationToken)
     {
         var callId = voiceCall.CallId;
+
+        // Idempotencia (ADR-0190): el respaldo por get-call y un webhook tardio o repetido pueden traer el mismo
+        // evento dos veces. Un evento ANTERIOR al estado actual no hace retroceder la llamada (call_ended tardio
+        // sobre una ya analizada), y el PRIMER call_analyzed es el unico que dispara efectos no idempotentes
+        // (volcado a formulario y reanudar el paso de flujo en espera de este PendingVoiceCallId).
+        var incomingRank = EventRank(eventType);
+        if (incomingRank >= 0 && incomingRank < StatusRank(voiceCall.Status)) { return; }
+        var firstAnalysis = string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase)
+            && voiceCall.Status != VoiceCallStatus.Analyzed;
+
         ApplyEvent(voiceCall, eventType, call);
 
         // Volcado a formulario (solo si el objetivo era LlenarFormulario y hay whitelist).
-        if (string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase)
+        if (firstAnalysis
             && string.Equals(voiceCall.Objetivo, nameof(ContactCallObjetivo.LlenarFormulario), StringComparison.OrdinalIgnoreCase))
         {
             await DumpCapturedFormsAsync(voiceCall, call, callId, cancellationToken);
@@ -182,7 +192,7 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
         // ADR-0091: si un PASO de flujo estaba EN ESPERA de esta llamada, reanudarlo. Se limpia
         // AgentAttemptedAt (conservando PendingVoiceCallId, que el agente lee para tener el resultado en su
         // contexto) para que el barrido de agentes vuelva a correr el paso con el transcript/datos capturados.
-        if (string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase))
+        if (firstAnalysis)
         {
             var waitingSteps = await _db.WorkflowStepHistories
                 .Where(s => s.PendingVoiceCallId == callId && s.IsCurrent)
@@ -213,6 +223,24 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
             run.Error = "Llamada: " + (VoiceCallOutcomes.ReasonText(voiceCall.DisconnectionReason) ?? "error del proveedor de voz");
         }
     }
+
+    /// <summary>Orden de los eventos de Retell (-1 = desconocido, no se ordena).</summary>
+    private static int EventRank(string eventType) => eventType.ToLowerInvariant() switch
+    {
+        "call_started" => 1,
+        "call_ended" => 2,
+        "call_analyzed" => 3,
+        _ => -1
+    };
+
+    /// <summary>Orden del estado actual de la llamada; Error no bloquea eventos posteriores.</summary>
+    private static int StatusRank(VoiceCallStatus status) => status switch
+    {
+        VoiceCallStatus.Ongoing => 1,
+        VoiceCallStatus.Ended => 2,
+        VoiceCallStatus.Analyzed => 3,
+        _ => 0
+    };
 
     private static void ApplyEvent(Domain.Entities.VoiceCall vc, string eventType, JsonElement call)
     {

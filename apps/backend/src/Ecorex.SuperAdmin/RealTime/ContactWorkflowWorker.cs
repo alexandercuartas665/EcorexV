@@ -135,8 +135,6 @@ public sealed class ContactWorkflowWorker : BackgroundService
                 {
                     var sync = scope.ServiceProvider.GetRequiredService<IVoiceCallSyncService>();
                     await sync.SyncPendingAsync(nowUtc, cancellationToken);
-                    // Despues del sync: reanuda pasos de flujo cuya llamada ya termino pero quedaron en espera.
-                    await sync.ResumeStalledFlowStepsAsync(nowUtc, cancellationToken);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

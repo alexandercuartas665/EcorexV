@@ -18,13 +18,6 @@ public interface IVoiceCallSyncService
 
     /// <summary>Consulta a Retell las llamadas pendientes del tenant ACTIVO (ambiente). Devuelve cuantas cambiaron.</summary>
     Task<int> SyncPendingAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Rescate de pasos de FLUJO pausados esperando una llamada que ya termino pero cuyo webhook no los reanudo
-    /// (p. ej. el sondeo de la UI dejo la llamada en Analyzed sin efectos, o una llamada sin contacto nunca
-    /// recibio call_analyzed). Solo limpia AgentAttemptedAt del tenant ACTIVO. Devuelve cuantos pasos reanudo.
-    /// </summary>
-    Task<int> ResumeStalledFlowStepsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken = default);
 }
 
 /// <inheritdoc />
@@ -39,12 +32,7 @@ public sealed class VoiceCallSyncService : IVoiceCallSyncService
     /// <summary>Una llamada terminada que no trae analisis tras este tiempo ya no se vuelve a consultar.</summary>
     public static readonly TimeSpan AnalysisWait = TimeSpan.FromMinutes(30);
 
-    /// <summary>Un paso solo se rescata si su ultimo intento del agente tiene al menos este tiempo, para no pisar
-    /// un paso que el barrido de agentes esta corriendo en ese momento (acordado con la sesion de flujos).</summary>
-    public static readonly TimeSpan StepSettle = TimeSpan.FromMinutes(5);
-
     private const int BatchCap = 20;
-    private const int StepBatchCap = 100;
 
     private readonly IApplicationDbContext _db;
     private readonly ISecretProtector _protector;
@@ -65,64 +53,13 @@ public sealed class VoiceCallSyncService : IVoiceCallSyncService
     public async Task<IReadOnlyList<Guid>> FindTenantsWithPendingCallsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken = default)
     {
         var since = nowUtc - Horizon;
-        var stepSettled = nowUtc - StepSettle;
         // IgnoreQueryFilters: barrido de plataforma (aun sin tenant). Solo ids; cada sync va acotado al tenant.
-        var withCalls = await _db.VoiceCalls.IgnoreQueryFilters()
+        return await _db.VoiceCalls.IgnoreQueryFilters()
             .Where(v => v.CreatedAt >= since && v.RetellVoiceLineId != null
                 && (v.Status == VoiceCallStatus.Registered || v.Status == VoiceCallStatus.Ongoing || v.Status == VoiceCallStatus.Ended))
             .Select(v => v.TenantId)
             .Distinct()
             .ToListAsync(cancellationToken);
-        // + tenants con pasos de flujo esperando una llamada (candidatos al rescate).
-        var withWaitingSteps = await _db.WorkflowStepHistories.IgnoreQueryFilters()
-            .Where(s => s.IsCurrent && s.PendingVoiceCallId != null && s.AgentAttemptedAt != null && s.AgentAttemptedAt < stepSettled)
-            .Select(s => s.TenantId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        return withCalls.Concat(withWaitingSteps).Distinct().ToList();
-    }
-
-    public async Task<int> ResumeStalledFlowStepsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken = default)
-    {
-        var stepSettled = nowUtc - StepSettle;
-
-        // Acotado al tenant ACTIVO por el filtro global (sin IgnoreQueryFilters). Los mas recientes primero para
-        // que un paso viejo que espera para siempre (Ended con contacto sin analisis) no tape a los nuevos.
-        var candidates = await (
-                from s in _db.WorkflowStepHistories
-                join v in _db.VoiceCalls on s.PendingVoiceCallId equals v.CallId
-                where s.IsCurrent && s.PendingVoiceCallId != null && s.AgentAttemptedAt != null
-                    && s.AgentAttemptedAt < stepSettled
-                    && (v.Status == VoiceCallStatus.Analyzed || v.Status == VoiceCallStatus.Failed
-                        || v.Status == VoiceCallStatus.Error || v.Status == VoiceCallStatus.Ended)
-                orderby s.AgentAttemptedAt descending
-                select new { Step = s, v.Status, v.DisconnectionReason })
-            .Take(StepBatchCap)
-            .ToListAsync(cancellationToken);
-
-        var resumed = 0;
-        foreach (var c in candidates)
-        {
-            // Ended solo cuenta si fue SIN contacto (con contacto aun se espera el call_analyzed).
-            if (c.Status == VoiceCallStatus.Ended && !RetellVoiceService.IsNoContactReason(c.DisconnectionReason)) { continue; }
-            // Solo se limpia AgentAttemptedAt: PendingVoiceCallId lo lee y lo limpia el runner al consumir el resultado.
-            c.Step.AgentAttemptedAt = null;
-            resumed++;
-        }
-        if (resumed == 0) { return 0; }
-
-        try
-        {
-            await _db.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException ex)
-        {
-            // Carrera con el barrido de agentes o el webhook: gana el otro; la proxima pasada reevalua.
-            _log.LogDebug(ex, "Voz IA: no se guardo el rescate de pasos de flujo en espera.");
-            return 0;
-        }
-        _log.LogInformation("Voz IA: {Resumed} paso(s) de flujo reanudado(s) por respaldo (llamada ya terminada).", resumed);
-        return resumed;
     }
 
     public async Task<int> SyncPendingAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken = default)

@@ -68,6 +68,26 @@ public class MockupBrainLinksTests
     }
 
     [Fact]
+    public void PipeEscapadoDeTablas_ResuelveLaNota_YConservaElEscape()
+    {
+        // Obsidian escribe [[Nota\|alias]] dentro de las tablas para no partir la celda.
+        var body = "| Modulo | Spec |\n|---|---|\n| Datos | [[Modelo de Datos\\|Modelo]] |\n| Sec | [[Flujo#Paso 2\\|paso]] |";
+
+        var links = MockupBrainLinks.Parse(body);
+
+        Assert.Contains(links, l => l is { Kind: "note", Key: "modelo de datos", Label: "Modelo de Datos" });
+        Assert.Contains(links, l => l is { Kind: "note", Key: "flujo" });
+        Assert.DoesNotContain(links, l => l.Key.EndsWith('\\'));
+
+        var rewritten = MockupBrainLinks.RewriteNoteLinks(body, "modelo de datos", "Modelo ER");
+        Assert.Contains("[[Modelo ER\\|Modelo]]", rewritten);
+        Assert.Equal("Datos Modelo", MockupBrainLinks.Snippet("Datos [[Modelo de Datos\\|Modelo]]"));
+        Assert.Equal(("Nota", "alias", "\\|"), MockupBrainLinks.SplitAlias("Nota\\|alias"));
+        Assert.Equal(("Nota", "alias", "|"), MockupBrainLinks.SplitAlias("Nota|alias"));
+        Assert.Equal(("Nota", (string?)null, ""), MockupBrainLinks.SplitAlias("Nota"));
+    }
+
+    [Fact]
     public void Snippet_QuitaMarcasYUsaElAlias()
     {
         var s = MockupBrainLinks.Snippet("# Titulo\n\n**Hola** [[Nota|mundo]] y [[Otra]]\n```\ncodigo\n```");

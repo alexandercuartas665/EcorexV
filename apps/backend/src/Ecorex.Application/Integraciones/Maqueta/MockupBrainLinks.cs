@@ -78,6 +78,21 @@ public static partial class MockupBrainLinks
     public static string SafeTitle(string? raw)
         => new((raw ?? string.Empty).Select(c => Array.IndexOf(ReservedTitleChars, c) >= 0 ? '-' : c).ToArray());
 
+    /// <summary>
+    /// Separa el destino y el alias de un <c>[[...]]</c>. Acepta el pipe escapado <c>\|</c> que Obsidian escribe
+    /// dentro de las tablas (<c>[[Nota\|texto]]</c>): sin esto el destino quedaba como "Nota\" y el enlace salia
+    /// pendiente. <paramref name="inner"/> es el texto entre los corchetes; Separator es "", "|" o "\|".
+    /// </summary>
+    public static (string Target, string? Alias, string Separator) SplitAlias(string inner)
+    {
+        inner ??= string.Empty;
+        var pipe = inner.IndexOf('|');
+        if (pipe < 0) { return (inner, null, string.Empty); }
+        var escaped = pipe > 0 && inner[pipe - 1] == '\\';
+        var target = escaped ? inner[..(pipe - 1)] : inner[..pipe];
+        return (target, inner[(pipe + 1)..], escaped ? "\\|" : "|");
+    }
+
     public static bool IsPageTarget(string target)
         => PageExtensions.Any(e => target.EndsWith(e, StringComparison.OrdinalIgnoreCase));
 
@@ -119,9 +134,7 @@ public static partial class MockupBrainLinks
         foreach (Match m in WikiLink().Matches(text))
         {
             if (m.Groups[1].Value == "!") { continue; }
-            var inner = m.Groups[2].Value;
-            var pipe = inner.IndexOf('|');
-            var link = Classify(pipe >= 0 ? inner[..pipe] : inner);
+            var link = Classify(SplitAlias(m.Groups[2].Value).Target);
             if (link is not null && seen.Add((link.Kind, link.Key))) { result.Add(link); }
         }
 
@@ -148,15 +161,13 @@ public static partial class MockupBrainLinks
         return WikiLink().Replace(body, m =>
         {
             if (m.Groups[1].Value == "!" || code.Any(r => m.Index >= r.Start && m.Index < r.End)) { return m.Value; }
-            var inner = m.Groups[2].Value;
-            var pipe = inner.IndexOf('|');
-            var target = pipe >= 0 ? inner[..pipe] : inner;
+            var (target, alias, separator) = SplitAlias(m.Groups[2].Value);
             var link = Classify(target);
             if (link is null || link.Kind != MockupBrainLinkKinds.Note || link.Key != oldKey) { return m.Value; }
             var hash = target.IndexOf('#');
             var section = hash >= 0 ? target[hash..] : string.Empty;
-            var alias = pipe >= 0 ? inner[pipe..] : string.Empty;
-            return "[[" + newTitle + section + alias + "]]";
+            // Conserva el separador original ("\|" dentro de tablas) para no romper la fila.
+            return "[[" + newTitle + section + separator + (alias ?? string.Empty) + "]]";
         });
     }
 
@@ -175,9 +186,8 @@ public static partial class MockupBrainLinks
         }
         var s = WikiLink().Replace(sb.ToString(), m =>
         {
-            var inner = m.Groups[2].Value;
-            var pipe = inner.IndexOf('|');
-            return pipe >= 0 ? inner[(pipe + 1)..] : inner;
+            var (target, alias, _) = SplitAlias(m.Groups[2].Value);
+            return alias ?? target;
         });
         s = s.Replace("**", string.Empty).Replace("__", string.Empty);
         return s.Length > max ? s[..max].TrimEnd() + "..." : s;

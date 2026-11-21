@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - Cerebro de maquetas: enlaces [[Nota\|alias]] de tablas de Obsidian (ADR-0183) - SIN VERSION (la asigna el dev principal)
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro`. Sin migracion.
+- **Contexto**: se cargo en PROD (tenant PROYECTOS) la maqueta VISAL v3 (manuales de Hospitalizacion y UCI) y su
+  cerebro importado del vault OBSIDIAN.visal (308 notas, 1301 enlaces, 16 adjuntos; sin notas de credenciales y con
+  secretos redactados). 61 enlaces de 13 notas salian "pendientes": Obsidian escribe `[[Nota\|alias]]` dentro de
+  las tablas y el parser cortaba en `|` dejando el destino "Nota\".
+- **Hecho**: `MockupBrainLinks.SplitAlias` (acepta `|` y `\|`) usado por Parse, RewriteNoteLinks (conserva el
+  separador original para no romper la fila), Snippet, `MockupBrainAssets` (embebidos `![[img\|300]]`) y el render
+  `MockupMarkdown.WikiHtml`. Tests: `PipeEscapadoDeTablas_...` (Application) y `EnlaceConPipeEscapado_...` (SuperAdmin).
+- **Siguiente (tras el deploy)**: re-importar el vault de VISAL con "Sobrescribir" para recalcular los enlaces ya
+  guardados (los enlaces se calculan al guardar/importar, no al leer).
+
 ## 2026-11-21 - MCP personal: autoria de Agentes de IA (ADR-0195) - v0.16.363 DESPLEGADA
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff f3de48e9 al tronco y main (limpio). Gates: build Release, format, escaneo de secretos del diff, unitarias 1633/311/35, McpTablerosTests dual 36/36. Deploy 2026-11-21 ~07:06 Bogota (OK del usuario, que corre el DRON manual): footer /login v0.16.363, Restarts=0, 0 errores. Validacion en vivo con token en BITCODE: a cargo de ECOREX.mcp.
 

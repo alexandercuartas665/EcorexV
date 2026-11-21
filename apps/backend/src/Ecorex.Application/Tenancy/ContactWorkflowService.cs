@@ -193,6 +193,26 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             }
         }
 
+        // Fase B (ADR-0190): los formularios de una Llamada IA guardan las respuestas EN EL CONTACTO (TERCERO:{id}),
+        // asi que se ofrecen en la ficha del contacto del Directorio (TerceroFormLink, idempotente). Mismo SaveChanges.
+        var callForms = steps
+            .Where(s => s.StepType == ContactWorkflowStepType.Llamada && s.Call?.Modo == "ia" && s.Call.FormulariosPermitidos is { Count: > 0 })
+            .SelectMany(s => s.Call!.FormulariosPermitidos!)
+            .Distinct()
+            .ToList();
+        if (callForms.Count > 0)
+        {
+            var existingForms = await _db.FormDefinitions.AsNoTracking()
+                .Where(f => callForms.Contains(f.Id)).Select(f => f.Id).ToListAsync(cancellationToken);
+            var linked = await _db.TerceroFormLinks.AsNoTracking()
+                .Where(l => callForms.Contains(l.FormDefinitionId)).Select(l => l.FormDefinitionId).ToListAsync(cancellationToken);
+            var nextOrder = (await _db.TerceroFormLinks.Select(l => (int?)l.SortOrder).MaxAsync(cancellationToken) ?? -1) + 1;
+            foreach (var formId in existingForms.Except(linked))
+            {
+                _db.TerceroFormLinks.Add(new TerceroFormLink { TenantId = tenantId, FormDefinitionId = formId, SortOrder = nextOrder++ });
+            }
+        }
+
         // Auditoria dentro de la MISMA transaccion (un SaveChanges): CLAUDE.md regla 5.
         _audit.Write(
             _tenant.UserId ?? Guid.Empty,
@@ -234,10 +254,20 @@ public sealed class ContactWorkflowService : IContactWorkflowService
                 r.DeliveryStatus,
                 r.DeliveryDetail,
                 r.OpenedAtUtc,
-                r.ClickedAtUtc
+                r.ClickedAtUtc,
+                r.ExternalRef
             })
             .ToListAsync(cancellationToken);
         if (runs.Count == 0) { return Array.Empty<ContactWorkflowRunDto>(); }
+
+        // Llamadas IA (ADR-0190): resultado de la ULTIMA llamada de cada run (ExternalRef = call_id de Retell).
+        var callIds = runs.Where(r => r.Channel == "voz-ia" && !string.IsNullOrEmpty(r.ExternalRef))
+            .Select(r => r.ExternalRef!).Distinct().ToList();
+        var calls = callIds.Count == 0
+            ? new Dictionary<string, VoiceCall>()
+            : await _db.VoiceCalls.AsNoTracking()
+                .Where(v => callIds.Contains(v.CallId))
+                .ToDictionaryAsync(v => v.CallId, cancellationToken);
 
         var ids = runs.Select(r => r.TerceroId).Distinct().ToList();
         var nombres = await _db.Terceros.AsNoTracking()
@@ -261,8 +291,21 @@ public sealed class ContactWorkflowService : IContactWorkflowService
             r.DeliveryStatus,
             r.DeliveryDetail,
             r.OpenedAtUtc is DateTimeOffset o ? TimeZoneInfo.ConvertTime(o, tz).DateTime : null,
-            r.ClickedAtUtc is DateTimeOffset k ? TimeZoneInfo.ConvertTime(k, tz).DateTime : null)).ToList();
+            r.ClickedAtUtc is DateTimeOffset k ? TimeZoneInfo.ConvertTime(k, tz).DateTime : null,
+            r.ExternalRef is not null && calls.TryGetValue(r.ExternalRef, out var vc) ? ToCallResult(vc, tz) : null)).ToList();
     }
+
+    private static ContactWorkflowCallResultDto ToCallResult(VoiceCall vc, TimeZoneInfo tz)
+        => new(
+            Voice.VoiceCallOutcomes.Classify(vc.Status, vc.DisconnectionReason),
+            Voice.VoiceCallOutcomes.ReasonText(vc.DisconnectionReason),
+            vc.DurationSeconds,
+            Voice.RetellVoiceService.ExtractAnalysisSummary(vc.AnalysisJson),
+            Voice.RetellVoiceService.ExtractCallSuccessful(vc.AnalysisJson),
+            vc.RecordingUrl,
+            vc.TranscriptText,
+            vc.CostUsd,
+            vc.StartedAt is DateTimeOffset st ? TimeZoneInfo.ConvertTime(st, tz).DateTime : null);
 
     private static string DefaultLabel(ContactWorkflowStepType type) => type switch
     {
@@ -288,6 +331,13 @@ public sealed class ContactWorkflowService : IContactWorkflowService
         {
             return null;
         }
+        // Reintentos por "no contesto" (ADR-0190): se guardan ya acotados (0..5 extra; 5..240 min entre intentos).
+        var retries = Voice.VoiceCallOutcomes.ClampRetries(call.Reintentos);
+        call = call with
+        {
+            Reintentos = retries > 0 ? retries : null,
+            ReintentarCadaMin = retries > 0 ? Voice.VoiceCallOutcomes.ClampRetryMinutes(call.ReintentarCadaMin) : null
+        };
         return JsonSerializer.Serialize(call, JsonOpts);
     }
 

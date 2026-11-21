@@ -26,6 +26,13 @@ public interface IRetellWebhookProcessor
 
     /// <summary>Procesa el evento (tenant ambiente ya fijado). Verifica firma y actualiza.</summary>
     Task<RetellWebhookOutcome> ProcessAsync(string rawBody, string? signatureHeader, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// RESPALDO del webhook (ADR-0190): aplica el objeto "call" leido con GET get-call (tenant ambiente ya fijado)
+    /// con los MISMOS efectos que el webhook (estado, motivo de corte, volcado a formulario, reanudar el paso en
+    /// espera, estado del run). No guarda: el llamador hace SaveChanges. Devuelve true si la llamada cambio de estado.
+    /// </summary>
+    Task<bool> ApplyPolledCallAsync(Domain.Entities.VoiceCall voiceCall, JsonElement call, CancellationToken cancellationToken = default);
 }
 
 public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
@@ -109,13 +116,68 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
         // Actualizar la VoiceCall segun el evento + datos del payload.
         using var doc = JsonDocument.Parse(rawBody);
         var call = doc.RootElement.GetProperty("call");
-        ApplyEvent(voiceCall, eventType!, call);
+        await ApplyWithEffectsAsync(voiceCall, eventType!, call, cancellationToken);
 
-        // Volcado a formulario (solo si el objetivo era LlenarFormulario y hay whitelist).
-        if (string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(voiceCall.Objetivo, nameof(ContactCallObjetivo.LlenarFormulario), StringComparison.OrdinalIgnoreCase))
+        await _db.SaveChangesAsync(cancellationToken);
+        _log.LogInformation("Voz IA: webhook {Event} aplicado call_id={CallId} status={Status}", eventType, callId, voiceCall.Status);
+        return RetellWebhookOutcome.Ok;
+    }
+
+    public async Task<bool> ApplyPolledCallAsync(Domain.Entities.VoiceCall voiceCall, JsonElement call, CancellationToken cancellationToken = default)
+    {
+        var before = (voiceCall.Status, voiceCall.DisconnectionReason);
+        var callStatus = ReadString(call, "call_status")?.ToLowerInvariant();
+        var hasAnalysis = call.TryGetProperty("call_analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Object;
+
+        // GET get-call trae el estado ACTUAL: se reproduce como los eventos que el webhook habria mandado.
+        if (callStatus is "ongoing" && voiceCall.Status == VoiceCallStatus.Registered)
         {
-            await DumpCapturedFormsAsync(voiceCall, call, callId!, cancellationToken);
+            await ApplyWithEffectsAsync(voiceCall, "call_started", call, cancellationToken);
+        }
+        else if (callStatus is "ended" or "not_connected" or "error")
+        {
+            if (voiceCall.Status is VoiceCallStatus.Registered or VoiceCallStatus.Ongoing)
+            {
+                voiceCall.StartedAt = ReadUnixMs(call, "start_timestamp") ?? voiceCall.StartedAt;
+                await ApplyWithEffectsAsync(voiceCall, "call_ended", call, cancellationToken);
+            }
+            if (hasAnalysis && voiceCall.Status != VoiceCallStatus.Analyzed)
+            {
+                await ApplyWithEffectsAsync(voiceCall, "call_analyzed", call, cancellationToken);
+            }
+            if (callStatus == "error" && voiceCall.Status != VoiceCallStatus.Analyzed)
+            {
+                voiceCall.Status = VoiceCallStatus.Error;
+                await SyncRunStatusAsync(voiceCall, cancellationToken);
+            }
+        }
+        return before != (voiceCall.Status, voiceCall.DisconnectionReason);
+    }
+
+    /// <summary>Aplica un evento a la VoiceCall y sus efectos: volcado a formulario, paso de flujo en espera y run.</summary>
+    private async Task ApplyWithEffectsAsync(Domain.Entities.VoiceCall voiceCall, string eventType, JsonElement call, CancellationToken cancellationToken)
+    {
+        var callId = voiceCall.CallId;
+
+        // Orden (ADR-0190): el respaldo por get-call y un webhook tardio pueden llegar fuera de orden. Un evento
+        // ANTERIOR al estado PREVIO (call_ended tardio sobre una ya analizada) se ignora: la llamada no retrocede.
+        // OJO: NO se condiciona call_analyzed a "primera vez". El sondeo de la UI (RetellVoiceService
+        // TryRefreshFromRetellAsync) puede dejar la llamada en Analyzed SIN efectos; el webhook real debe igual
+        // volcar y reanudar. Los efectos ya son idempotentes: el borrador "voz:{callId}" se reusa, la bitacora
+        // revisa su entrada y el runner pone PendingVoiceCallId = null al consumir el resultado.
+        var incomingRank = EventRank(eventType);
+        if (incomingRank >= 0 && incomingRank < StatusRank(voiceCall.Status)) { return; }
+        var isAnalyzed = string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase);
+
+        ApplyEvent(voiceCall, eventType, call);
+
+        // Volcado a formulario (solo si el objetivo era LlenarFormulario y hay whitelist). Las llamadas del motor de
+        // acciones de contactos (ContactWorkflowRunId) vuelcan con cualquier objetivo: la whitelist decide (fase B).
+        if (isAnalyzed
+            && (string.Equals(voiceCall.Objetivo, nameof(ContactCallObjetivo.LlenarFormulario), StringComparison.OrdinalIgnoreCase)
+                || voiceCall.ContactWorkflowRunId is not null))
+        {
+            await DumpCapturedFormsAsync(voiceCall, call, callId, cancellationToken);
         }
 
         // Ola 4 (ADR-0190): deja la entrada de RESULTADO en la bitacora del agente (y un resumen como Message para
@@ -133,7 +195,7 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
         // ADR-0091: si un PASO de flujo estaba EN ESPERA de esta llamada, reanudarlo. Se limpia
         // AgentAttemptedAt (conservando PendingVoiceCallId, que el agente lee para tener el resultado en su
         // contexto) para que el barrido de agentes vuelva a correr el paso con el transcript/datos capturados.
-        if (string.Equals(eventType, "call_analyzed", StringComparison.OrdinalIgnoreCase))
+        if (isAnalyzed)
         {
             var waitingSteps = await _db.WorkflowStepHistories
                 .Where(s => s.PendingVoiceCallId == callId && s.IsCurrent)
@@ -144,21 +206,44 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
             }
         }
 
-        // Actualizar el run del motor de acciones (best-effort) por su ExternalRef = call_id.
-        var run = await _db.ContactWorkflowRuns.FirstOrDefaultAsync(r => r.ExternalRef == callId, cancellationToken);
-        if (run is not null)
-        {
-            run.Status = voiceCall.Status switch
-            {
-                VoiceCallStatus.Error or VoiceCallStatus.Failed => ContactWorkflowRunStatus.Failed,
-                _ => run.Status
-            };
-        }
-
-        await _db.SaveChangesAsync(cancellationToken);
-        _log.LogInformation("Voz IA: webhook {Event} aplicado call_id={CallId} status={Status}", eventType, callId, voiceCall.Status);
-        return RetellWebhookOutcome.Ok;
+        await SyncRunStatusAsync(voiceCall, cancellationToken);
     }
+
+    /// <summary>
+    /// Estado del run del motor de acciones (best-effort, por ExternalRef = call_id). Solo un FALLO real marca el
+    /// run como fallido; "no contesto", "ocupado" o "buzon" lo dejan Enviado para que el reintento del paso
+    /// (ADR-0190) decida si vuelve a llamar.
+    /// </summary>
+    private async Task SyncRunStatusAsync(Domain.Entities.VoiceCall voiceCall, CancellationToken cancellationToken)
+    {
+        var run = await _db.ContactWorkflowRuns.FirstOrDefaultAsync(r => r.ExternalRef == voiceCall.CallId, cancellationToken);
+        if (run is null) { return; }
+        var outcome = VoiceCallOutcomes.Classify(voiceCall.Status, voiceCall.DisconnectionReason);
+        if (outcome == VoiceCallOutcome.Fallo
+            && (voiceCall.Status is VoiceCallStatus.Error or VoiceCallStatus.Failed || voiceCall.DisconnectionReason is not null))
+        {
+            run.Status = ContactWorkflowRunStatus.Failed;
+            run.Error = "Llamada: " + (VoiceCallOutcomes.ReasonText(voiceCall.DisconnectionReason) ?? "error del proveedor de voz");
+        }
+    }
+
+    /// <summary>Orden de los eventos de Retell (-1 = desconocido, no se ordena).</summary>
+    private static int EventRank(string eventType) => eventType.ToLowerInvariant() switch
+    {
+        "call_started" => 1,
+        "call_ended" => 2,
+        "call_analyzed" => 3,
+        _ => -1
+    };
+
+    /// <summary>Orden del estado actual de la llamada; Error no bloquea eventos posteriores.</summary>
+    private static int StatusRank(VoiceCallStatus status) => status switch
+    {
+        VoiceCallStatus.Ongoing => 1,
+        VoiceCallStatus.Ended => 2,
+        VoiceCallStatus.Analyzed => 3,
+        _ => 0
+    };
 
     private static void ApplyEvent(Domain.Entities.VoiceCall vc, string eventType, JsonElement call)
     {
@@ -174,13 +259,15 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
                 vc.DurationSeconds = ReadDurationSeconds(call) ?? vc.DurationSeconds;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
-                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
+                vc.DisconnectionReason = Truncate(ReadString(call, "disconnection_reason"), 80) ?? vc.DisconnectionReason;
                 break;
             case "call_analyzed":
                 vc.Status = VoiceCallStatus.Analyzed;
                 vc.TranscriptText = ReadString(call, "transcript") ?? vc.TranscriptText;
                 vc.RecordingUrl = ReadString(call, "recording_url") ?? vc.RecordingUrl;
-                vc.DisconnectionReason = ReadString(call, "disconnection_reason") ?? vc.DisconnectionReason;
+                vc.DisconnectionReason = Truncate(ReadString(call, "disconnection_reason"), 80) ?? vc.DisconnectionReason;
+                vc.EndedAt ??= ReadUnixMs(call, "end_timestamp");
+                vc.DurationSeconds ??= ReadDurationSeconds(call);
                 if (call.TryGetProperty("call_analysis", out var analysis) && analysis.ValueKind == JsonValueKind.Object)
                 {
                     vc.AnalysisJson = analysis.GetRawText();
@@ -190,7 +277,54 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
         }
     }
 
+    private static string? Truncate(string? value, int max)
+        => value is null ? null : value.Length <= max ? value : value[..max];
+
     // ---- Volcado a formulario (whitelist DURA) ----
+
+    /// <summary>
+    /// Volcado de una llamada del motor de acciones al formulario del contacto: whitelist DURA (solo los formularios
+    /// permitidos de la VoiceCall), referencia TERCERO:{id} (run y tercero leidos con el filtro del tenant; si no
+    /// existen no se escribe nada), etiquetas de opcion -&gt; ids y mezcla sobre los datos previos (lo que no vino en
+    /// la llamada se conserva). Si la respuesta ya esta enviada y el formulario no es "registro editable",
+    /// SaveAsync la rechaza y no se toca.
+    /// </summary>
+    private async Task DumpToContactFormsAsync(Guid runId, IReadOnlyList<Guid> allowed,
+        IReadOnlyDictionary<string, FormFieldValue> captured, string callId, CancellationToken ct)
+    {
+        var terceroId = await _db.ContactWorkflowRuns.AsNoTracking()
+            .Where(r => r.Id == runId).Select(r => (Guid?)r.TerceroId).FirstOrDefaultAsync(ct);
+        if (terceroId is not Guid tid || !await _db.Terceros.AsNoTracking().AnyAsync(t => t.Id == tid, ct))
+        {
+            _log.LogWarning("Voz IA: llamada {CallId} del motor sin run/contacto vigente; no se vuelcan respuestas.", callId);
+            return;
+        }
+        var reference = Directorio.ITerceroFormService.ReferenceFor(tid);
+        var raw = captured.ToDictionary(kv => kv.Key, kv => kv.Value.Value ?? string.Empty, StringComparer.Ordinal);
+
+        foreach (var defId in allowed.Distinct())
+        {
+            var questions = await _db.FormQuestions.AsNoTracking()
+                .Where(q => q.DefinitionId == defId)
+                .OrderBy(q => q.SortOrder)
+                .Select(q => new VoiceFormQuestion(q.FieldCode, q.Label, q.HelpText, q.ControlType, q.OptionsJson, q.SourceKind, q.IsHidden))
+                .ToListAsync(ct);
+            var mapped = ContactCallFormQuestions.MapCaptured(ContactCallFormQuestions.Askable(questions), raw);
+            if (mapped.Count == 0) { continue; }
+
+            var draft = await _forms.GetOrCreateDraftAsync(defId, reference, ct);
+            if (!draft.IsOk || draft.Value is null) { continue; }
+
+            var merged = new Dictionary<string, FormFieldValue>(draft.Value.Data, StringComparer.Ordinal);
+            foreach (var (code, value) in mapped) { merged[code] = new FormFieldValue(value, "text"); }
+            var saved = await _forms.SaveAsync(draft.Value.Id, merged, submit: false, cancellationToken: ct);
+            if (!saved.IsOk)
+            {
+                _log.LogWarning("Voz IA: no se guardaron las respuestas de {CallId} en el formulario {DefId}: {Error}",
+                    callId, defId, saved.Error);
+            }
+        }
+    }
 
     private async Task DumpCapturedFormsAsync(Domain.Entities.VoiceCall vc, JsonElement call, string callId, CancellationToken ct)
     {
@@ -221,6 +355,15 @@ public sealed class RetellWebhookProcessor : IRetellWebhookProcessor
             }
         }
         if (captured.Count == 0) { return; }
+
+        // Llamada del MOTOR DE ACCIONES de contactos (ADR-0190 fase B): las respuestas van al formulario DEL CONTACTO
+        // en el Directorio (TERCERO:{id}), traducidas por tipo de pregunta y MEZCLADAS con lo que ya tenia. Las
+        // llamadas de flujo (sin ContactWorkflowRunId) siguen por el camino de abajo, sin cambios.
+        if (vc.ContactWorkflowRunId is Guid runId)
+        {
+            await DumpToContactFormsAsync(runId, allowed, captured, callId, ct);
+            return;
+        }
 
         // SOLO los formularios de la whitelist. SaveAsync ademas ignora claves que no existan en la definicion.
         foreach (var defId in allowed)

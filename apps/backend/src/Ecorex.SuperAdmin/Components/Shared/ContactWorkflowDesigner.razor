@@ -9,8 +9,10 @@
 @using Ecorex.Application.Tenancy
 @using Ecorex.Application.Gestor
 @using Ecorex.Application.Forms
+@using Ecorex.Application.Voice
 @using Ecorex.Domain.Enums
 @inject IContactWorkflowService WorkflowSvc
+@inject IRetellVoiceLineService VoiceLineSvc
 @inject IEmailTemplateService EmailTemplateSvc
 @inject IAiAgentService AiAgentSvc
 @inject IFormDefinitionService FormDefSvc
@@ -137,13 +139,62 @@
                                                 }
                                             </select>
                                         </div>
+                                        <div class="cw-field" style="grid-column:span 2;">
+                                            <label>Linea de voz</label>
+                                            <select value="@(st.LineaVozId?.ToString() ?? "")"
+                                                    @onchange="e => st.LineaVozId = Guid.TryParse(e.Value?.ToString(), out var g) ? g : (Guid?)null">
+                                                <option value="">Linea por defecto</option>
+                                                @foreach (var l in _voiceLines)
+                                                {
+                                                    <option value="@l.Id">@VoiceLineLabel(l)</option>
+                                                }
+                                            </select>
+                                            @if (_voiceLines.Count == 0)
+                                            {
+                                                <span class="cw-hint">No hay lineas de voz: configuralas en Configuracion de voz.</span>
+                                            }
+                                        </div>
+                                        <div class="cw-field" style="grid-column:1/-1;">
+                                            <label>Si no contesta, reintentar</label>
+                                            <div style="display:flex;gap:6px;align-items:center;">
+                                                <select style="width:auto;" value="@st.Reintentos" @onchange="e => st.Reintentos = int.TryParse(e.Value?.ToString(), out var n) ? n : 0">
+                                                    @for (var n = 0; n <= 5; n++)
+                                                    {
+                                                        <option value="@n">@(n == 0 ? "No reintentar" : n + (n == 1 ? " vez" : " veces"))</option>
+                                                    }
+                                                </select>
+                                                @if (st.Reintentos > 0)
+                                                {
+                                                    <span class="cw-hint">cada</span>
+                                                    <select style="width:auto;" value="@st.ReintentarCadaMin" @onchange="e => st.ReintentarCadaMin = int.TryParse(e.Value?.ToString(), out var m) ? m : 30">
+                                                        @foreach (var m in RetryMinuteOptions)
+                                                        {
+                                                            <option value="@m">@(m < 60 ? m + " min" : (m / 60) + " h")</option>
+                                                        }
+                                                    </select>
+                                                }
+                                            </div>
+                                            <span class="cw-hint">Si no contesta, esta ocupado, cae a buzon o rechaza. Siempre dentro de la ventana de horario del paso.</span>
+                                        </div>
                                         <div class="cw-field" style="grid-column:1/-1;">
                                             <label>Instruccion adicional al prompt</label>
                                             <textarea @bind="st.PromptExtra" rows="3"
                                                       placeholder="Se anexa al prompt del agente para esta llamada: producto, tono, oferta..."></textarea>
                                         </div>
                                         <div class="cw-field" style="grid-column:1/-1;">
-                                            <label>Formularios que puede llenar</label>
+                                            <label>Formularios del contacto (sus campos son las preguntas)</label>
+                                            <span class="cw-hint">
+                                                El agente hace las preguntas de estos formularios y, al colgar, las respuestas quedan en el
+                                                formulario del contacto (Directorio), sin borrar lo que ya tenia. Usa formularios con
+                                                "Registro editable" para poder actualizarlos en cada llamada.
+                                            </span>
+                                            @if (SimpleModeLine(st) is { } simple)
+                                            {
+                                                <span class="cw-hint" style="color:var(--t-amber);">
+                                                    La linea "@simple" usa un agente ya armado en Retell: alli deben estar las preguntas y los
+                                                    campos de analisis con los mismos codigos del formulario.
+                                                </span>
+                                            }
                                             @if (_forms.Count == 0)
                                             {
                                                 <span class="cw-hint">No hay formularios disponibles.</span>
@@ -427,18 +478,27 @@
                             <div class="cw-runs-wrap">
                                 <table class="cw-runs-table">
                                     <thead>
-                                        <tr><th>Fecha</th><th>Contacto</th><th>Paso</th><th>Estado</th><th title="Lo que reporta SendGrid despues del envio (requiere el webhook de eventos)">Entrega</th><th>Detalle</th></tr>
+                                        <tr><th>Fecha</th><th>Contacto</th><th>Paso</th><th>Estado</th><th title="Correo: lo que reporta SendGrid. Llamada: resultado que reporta Retell.">Entrega / Resultado</th><th>Detalle</th></tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var r in _runs)
                                         {
-                                            <tr>
+                                            var rr = r;
+                                            <tr @onclick="() => ToggleCall(rr)" class="@(rr.Llamada is not null ? "cw-run-click" : "")">
                                                 <td class="nowrap">@r.FechaLocal.ToString("dd/MM HH:mm")</td>
                                                 <td>@r.Contacto</td>
                                                 <td>@r.Paso <span class="cw-runs-ch">@r.Canal</span></td>
                                                 <td><span class="cw-run-st @RunCss(r.Estado)">@RunLabel(r.Estado)</span>@if (r.Intentos > 1) { <span class="cw-runs-ch">x@(r.Intentos)</span> }</td>
                                                 <td>
-                                                    @if (r.Entrega != EmailDeliveryStatus.None)
+                                                    @if (r.Llamada is { } ll)
+                                                    {
+                                                        <span class="cw-run-st @CallCss(ll.Resultado)" title="@VoiceCallOutcomes.ReasonText(ll.Motivo)">@VoiceCallOutcomes.Label(ll.Resultado)</span>
+                                                        @if (ll.DuracionSeg is int dur && dur > 0)
+                                                        {
+                                                            <span class="cw-runs-ch">@FormatDur(dur)</span>
+                                                        }
+                                                    }
+                                                    else if (r.Entrega != EmailDeliveryStatus.None)
                                                     {
                                                         <span class="cw-run-st @DeliveryCss(r.Entrega)" title="@DeliveryTitle(r)">@DeliveryLabel(r.Entrega)</span>
                                                     }
@@ -447,8 +507,47 @@
                                                         <span class="cw-runs-ch" title="Sin eventos del proveedor: configura el webhook de SendGrid en Configuracion">-</span>
                                                     }
                                                 </td>
-                                                <td class="cw-runs-err">@(r.Error ?? (r.Entrega is EmailDeliveryStatus.Bounced or EmailDeliveryStatus.Dropped or EmailDeliveryStatus.Deferred ? r.EntregaDetalle : null))</td>
+                                                <td class="cw-runs-err">
+                                                    @(r.Error ?? (r.Entrega is EmailDeliveryStatus.Bounced or EmailDeliveryStatus.Dropped or EmailDeliveryStatus.Deferred ? r.EntregaDetalle : null))
+                                                    @if (r.Error is null && r.Llamada is { } lc)
+                                                    {
+                                                        <span class="cw-runs-ch">@(lc.Resumen is { Length: > 0 } ? Truncate(lc.Resumen, 90) : (lc.GrabacionUrl is not null || lc.Transcripcion is not null ? "Ver llamada" : ""))</span>
+                                                    }
+                                                </td>
                                             </tr>
+                                            @if (_openCall == rr && rr.Llamada is { } lx)
+                                            {
+                                                <tr class="cw-call-detail">
+                                                    <td colspan="6">
+                                                        <div class="cw-call-box">
+                                                            <div class="cw-call-meta">
+                                                                <b>@VoiceCallOutcomes.Label(lx.Resultado)</b>
+                                                                @if (VoiceCallOutcomes.ReasonText(lx.Motivo) is { } motivo) { <span> &#183; @motivo</span> }
+                                                                @if (lx.InicioLocal is DateTime ini) { <span> &#183; inicio @ini.ToString("dd/MM HH:mm")</span> }
+                                                                @if (lx.DuracionSeg is int d2 && d2 > 0) { <span> &#183; @FormatDur(d2)</span> }
+                                                                @if (lx.Exitosa is bool ok) { <span> &#183; @(ok ? "Objetivo cumplido" : "Objetivo no cumplido")</span> }
+                                                                @if (lx.CostoUsd is decimal cost) { <span> &#183; US$ @cost.ToString("0.00")</span> }
+                                                            </div>
+                                                            @if (!string.IsNullOrWhiteSpace(lx.Resumen))
+                                                            {
+                                                                <div class="cw-call-sum">@lx.Resumen</div>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(lx.GrabacionUrl))
+                                                            {
+                                                                <audio controls preload="none" src="@lx.GrabacionUrl" style="width:100%;"></audio>
+                                                            }
+                                                            @if (!string.IsNullOrWhiteSpace(lx.Transcripcion))
+                                                            {
+                                                                <pre class="cw-call-tx">@lx.Transcripcion</pre>
+                                                            }
+                                                            else if (lx.Resultado is VoiceCallOutcome.Llamando or VoiceCallOutcome.EnCurso)
+                                                            {
+                                                                <span class="cw-hint">La llamada aun no termina. Pulsa Actualizar en un momento.</span>
+                                                            }
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            }
                                         }
                                     </tbody>
                                 </table>
@@ -504,6 +603,10 @@
     // Panel "Ultimas ejecuciones".
     private List<ContactWorkflowRunDto> _runs = new();
     private bool _runsBusy;
+    // Llamada IA (ADR-0190): lineas de voz del tenant y fila de llamada abierta (audio + transcripcion).
+    private List<RetellVoiceLineDto> _voiceLines = new();
+    private ContactWorkflowRunDto? _openCall;
+    private static readonly int[] RetryMinuteOptions = { 5, 15, 30, 60, 120, 240 };
     private const string FixedOption = "__fijo";
 
     // Datos de ejemplo para la vista previa del correo (no se envian; solo ilustran el merge).
@@ -529,6 +632,8 @@
         _agents = (await AiAgentSvc.ListAsync()).ToList();
         _forms = (await FormDefSvc.ListAsync()).ToList();
         _lines = (await WaLineSvc.ListAsync()).ToList();
+        _voiceLines = (await VoiceLineSvc.ListAsync()).Where(l => l.IsEnabled).ToList();
+        _openCall = null;
         await LoadWaTemplatesAsync();
 
         var wf = await WorkflowSvc.GetByFiltroAsync(filtroId);
@@ -549,7 +654,10 @@
                     Modo = s.Call?.Modo,
                     AgenteId = s.Call?.AgenteId,
                     PromptExtra = s.Call?.PromptExtra,
-                    Objetivo = s.Call?.Objetivo
+                    Objetivo = s.Call?.Objetivo,
+                    LineaVozId = s.Call?.LineaVozId,
+                    Reintentos = VoiceCallOutcomes.ClampRetries(s.Call?.Reintentos),
+                    ReintentarCadaMin = VoiceCallOutcomes.ClampRetryMinutes(s.Call?.ReintentarCadaMin)
                 };
                 if (s.Call?.FormulariosPermitidos is { Count: > 0 } forms)
                 {
@@ -741,7 +849,7 @@
         new(ContactWorkflowStepType.MensajeRed, "#6366f1", "Mensaje Red", "Notificacion", IcoChat),
         new(ContactWorkflowStepType.WhatsApp,   "#10b981", "WhatsApp",    "Directo",      IcoWa),
         new(ContactWorkflowStepType.Email,      "#f43f5e", "E-mail",      "SMTP",         IcoMail),
-        new(ContactWorkflowStepType.Llamada,    "#f59e0b", "Llamada CRM", "Gestion",      IcoPhone),
+        new(ContactWorkflowStepType.Llamada,    "#f59e0b", "Llamada",     "Gestion o voz IA", IcoPhone),
     };
 
     private static PaletteItem MetaFor(ContactWorkflowStepType type)
@@ -764,8 +872,43 @@
                 AgenteId: s.AgenteId,
                 PromptExtra: string.IsNullOrWhiteSpace(s.PromptExtra) ? null : s.PromptExtra.Trim(),
                 Objetivo: string.IsNullOrWhiteSpace(s.Objetivo) ? null : s.Objetivo,
-                FormulariosPermitidos: s.FormulariosPermitidos.Count > 0 ? s.FormulariosPermitidos.ToList() : null)
+                FormulariosPermitidos: s.FormulariosPermitidos.Count > 0 ? s.FormulariosPermitidos.ToList() : null,
+                LineaVozId: s.LineaVozId,
+                Reintentos: s.Reintentos > 0 ? s.Reintentos : null,
+                ReintentarCadaMin: s.Reintentos > 0 ? s.ReintentarCadaMin : null)
             : new ContactWorkflowCallParams(s.Comercial, s.Prioridad, s.Categoria, s.Subcategoria);
+
+    // Linea en modo simple (agent_id de Retell): ECOREX no compone el prompt ni los campos de analisis.
+    private string? SimpleModeLine(StepVM s)
+    {
+        if (s.FormulariosPermitidos.Count == 0) { return null; }
+        var line = s.LineaVozId is Guid id
+            ? _voiceLines.FirstOrDefault(l => l.Id == id)
+            : _voiceLines.OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name).FirstOrDefault();
+        return line is not null && !string.IsNullOrWhiteSpace(line.RetellAgentId) ? line.Name : null;
+    }
+
+    private static string VoiceLineLabel(RetellVoiceLineDto l)
+        => l.Name + (string.IsNullOrWhiteSpace(l.FromNumber) ? "" : $" ({l.FromNumber})") + (l.IsDefault ? " - por defecto" : "");
+
+    private void ToggleCall(ContactWorkflowRunDto r)
+    {
+        if (r.Llamada is null) { return; }
+        _openCall = _openCall == r ? null : r;
+    }
+
+    private static string CallCss(VoiceCallOutcome o) => o switch
+    {
+        VoiceCallOutcome.Contesto => "ok",
+        VoiceCallOutcome.Fallo or VoiceCallOutcome.Rechazada => "err",
+        VoiceCallOutcome.Llamando or VoiceCallOutcome.EnCurso => "mute",
+        _ => "warn"
+    };
+
+    private static string FormatDur(int seconds)
+        => seconds < 60 ? $"{seconds} s" : $"{seconds / 60} min {seconds % 60:00} s";
+
+    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "...";
 
     // ---- Paso WhatsApp ----
 
@@ -955,6 +1098,10 @@
         public string? PromptExtra { get; set; }
         public string? Objetivo { get; set; }
         public List<Guid> FormulariosPermitidos { get; } = new();
+        // Llamada IA (ADR-0190): linea de voz del paso (null = por defecto) y reintento si no contesta.
+        public Guid? LineaVozId { get; set; }
+        public int Reintentos { get; set; }
+        public int ReintentarCadaMin { get; set; } = 30;
         // Paso E-mail: plantilla seleccionada (Id como texto). Se replica a todas sus ventanas al guardar.
         public string? EmailTemplateId { get; set; }
         // Paso E-mail: remitente comercial de la campana (ADR-0185).

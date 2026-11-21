@@ -20014,6 +20014,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(24)")
                         .HasColumnName("from_number");
 
+                    b.Property<DateTimeOffset?>("LastSyncedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_synced_at_utc");
+
                     b.Property<string>("Objetivo")
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")

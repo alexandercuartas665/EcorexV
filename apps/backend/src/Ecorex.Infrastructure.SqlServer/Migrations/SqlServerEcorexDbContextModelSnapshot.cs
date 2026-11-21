@@ -20019,6 +20019,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(24)")
                         .HasColumnName("from_number");
 
+                    b.Property<DateTimeOffset?>("LastSyncedAtUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("last_synced_at_utc");
+
                     b.Property<string>("Objetivo")
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")

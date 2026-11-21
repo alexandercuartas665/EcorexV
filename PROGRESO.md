@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - Call center: llamada IA del motor de acciones con resultado, reintento y preguntas al formulario del contacto (ADR-0196) - v0.16.365 (integrada al tronco; deploy pendiente de OK)
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/whatsapp-sync-estado-ycloud (0ba2f68e) al tronco y main como v0.16.365 (limpio). Migracion dual AddVoiceCallLastSynced (solo AddColumn nullable); has-pending-model-changes sin cambios en ambos motores. Gates: build Release, format, escaneo de secretos del diff, unitarias 1676/312/35, integracion dual Voice|Retell|ContactWorkflow|AgendaRecordatorios|DynamicForms|EmailDeliveryEvents|WorkflowAgentStep 64/64.
+Agente: sesion ECOREX.call_center (Claude Opus 5.5), rama `feat/whatsapp-sync-estado-ycloud`. Migracion dual
+`AddVoiceCallLastSynced` (voice_calls.last_synced_at_utc, nullable).
+- **Contexto**: el usuario quiere programar desde el cargador de contactos llamadas de voz IA (perfilamiento /
+  actualizacion de datos, recordatorio de cartera o de servicios) y que las respuestas queden en el contacto.
+  Coordinado con la sesion ECOREX.voz (voz en flujos, ADR-0190): el call center NO toca flujos; solo se coordina
+  la capa compartida de Retell (revisado y aprobado por ECOREX.voz: 483f63d6 y c331b720).
+- **Hecho**:
+  - Paso Llamada IA: linea de voz por paso; reintento si no contesta (0..5, cada 5 min..4 h) sobre la misma fila
+    del run; "Ultimas ejecuciones" con resultado (contesto/no contesto/ocupado/buzon/rechazada/fallo), duracion,
+    resumen, grabacion y transcripcion.
+  - `VoiceCallOutcomes` (reusa `IsNoContactReason`), `VoiceCallSyncService` (respaldo GET get-call cada minuto desde
+    `ContactWorkflowWorker`), orden de eventos del webhook (un evento tardio no hace retroceder la llamada).
+  - Fase B: `ContactCallFormQuestions`: las preguntas del formulario van al guion y como campos de analisis de
+    Retell; al colgar, `DumpCapturedFormsAsync` (solo llamadas con ContactWorkflowRunId) vuelca a "TERCERO:{id}"
+    traduciendo opciones y MEZCLANDO con lo previo; el formulario queda ofrecido en la ficha (TerceroFormLink).
+  - /config-voz: panel con la URL del webhook (se envia sola en cada llamada).
+  - Revertido a proposito be60d83e (rescate de pasos de FLUJO): es zona de ECOREX.voz.
+- **Pruebas**: Application.Tests 1675/1675 (VoiceCallOutcomes, ContactCallFormQuestions, RetellWebhookIdempotency,
+  RetellContactFormDump, Llamada IA en ContactWorkflowDispatcherTests). E2E local 5272 BITCODE con webhook firmado:
+  respuestas traducidas y mezcladas en una sola respuesta TERCERO:{id}.
+- **Siguiente**: deploy; crear en PROD BITCODE el formulario de perfilamiento (FormDesigner, registro editable) y
+  validar con una llamada real (costo aprox. US$0.10-0.20/min, con OK del usuario). Luego cartera y servicios.
+
 ## 2026-11-21 - Cerebro de maquetas: enlaces [[Nota\|alias]] de tablas de Obsidian (ADR-0183) - v0.16.364 DESPLEGADA
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff 596999a5 al tronco y main (limpio). Gates: build Release, format, unitarias 1634/312/35, integracion Maqueta|MockupBrain dual 55/55. Deploy 2026-11-21 ~11:40 Bogota (OK del usuario): footer /login v0.16.364, Restarts=0, 0 errores.
 

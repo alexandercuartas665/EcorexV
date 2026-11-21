@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ecorex.Application.Admin;
 using Ecorex.Application.Common;
 using Ecorex.Application.Gestor;
@@ -46,6 +47,9 @@ public class ContactWorkflowDispatcherTests
             // proyeccion (t.Empresa.Nombre); ignorarla hace que EF InMemory no pueda resolver la navegacion
             // y la query lance NullReference. Al mapearla (self-ref del mismo Tercero) no se arrastra nada.
             b.Entity<Tercero>().Ignore(t => t.Contactos).Ignore(t => t.BolsaColumna).Ignore(t => t.Categorias);
+            // Llamada IA (ADR-0190): llamadas de voz y preguntas de formulario.
+            b.Entity<Ecorex.Domain.Entities.VoiceCall>();
+            b.Entity<FormQuestion>(e => { e.Ignore(q => q.Definition); e.Ignore(q => q.Container); });
         }
     }
 
@@ -114,12 +118,20 @@ public class ContactWorkflowDispatcherTests
         public Task<bool> RemoveAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
-    // Doble de voz IA: estos tests no ejercitan el paso Llamada IA; basta para construir el dispatcher.
+    // Doble de voz IA: registra cada peticion; con Ok = true simula que Retell coloco la llamada.
     private sealed class FakeVoice : Ecorex.Application.Voice.IRetellVoiceService
     {
+        public bool Ok { get; init; }
+        public List<Ecorex.Application.Voice.VoicePlaceCallRequest> Requests { get; } = new();
+
         public Task<Ecorex.Application.Voice.VoicePlaceCallResult> PlaceCallAsync(
             Ecorex.Application.Voice.VoicePlaceCallRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no usado en test", false));
+        {
+            Requests.Add(request);
+            return Task.FromResult(Ok
+                ? new Ecorex.Application.Voice.VoicePlaceCallResult(true, "call_" + Requests.Count, null, false)
+                : new Ecorex.Application.Voice.VoicePlaceCallResult(false, null, "no usado en test", false));
+        }
 
         public Task<Ecorex.Application.Voice.VoiceCallResultDto?> GetCallResultAsync(
             string callId, CancellationToken cancellationToken = default)
@@ -210,7 +222,7 @@ public class ContactWorkflowDispatcherTests
 
         public DbSet<T> NotUsed<T>() where T : class => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RetellVoiceLine> RetellVoiceLines => NotUsed<Ecorex.Domain.Entities.RetellVoiceLine>();
-        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => NotUsed<Ecorex.Domain.Entities.VoiceCall>();
+        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => inner.Set<Ecorex.Domain.Entities.VoiceCall>();
         public DbSet<Ecorex.Domain.Entities.RetellAgentMap> RetellAgentMaps => NotUsed<Ecorex.Domain.Entities.RetellAgentMap>();
         public DbSet<ContactSearchRun> ContactSearchRuns => NotUsed<ContactSearchRun>();
         public DbSet<PlatformUser> PlatformUsers => NotUsed<PlatformUser>();
@@ -329,7 +341,7 @@ public class ContactWorkflowDispatcherTests
         public DbSet<WorkflowStepHistory> WorkflowStepHistories => NotUsed<WorkflowStepHistory>();
         public DbSet<FormDefinition> FormDefinitions => NotUsed<FormDefinition>();
         public DbSet<FormContainer> FormContainers => NotUsed<FormContainer>();
-        public DbSet<FormQuestion> FormQuestions => NotUsed<FormQuestion>();
+        public DbSet<FormQuestion> FormQuestions => inner.Set<FormQuestion>();
         public DbSet<FormResponse> FormResponses => NotUsed<FormResponse>();
         public DbSet<FormResponseAudit> FormResponseAudits => NotUsed<FormResponseAudit>();
         public DbSet<FormBuilderSnapshot> FormBuilderSnapshots => NotUsed<FormBuilderSnapshot>();
@@ -684,5 +696,143 @@ public class ContactWorkflowDispatcherTests
         Assert.Equal(0, written);
         Assert.Equal(0, whatsapp.Sends);
         Assert.Equal(0, await inner.ContactWorkflowRuns.CountAsync());
+    }
+
+    // ---- Llamada IA (ADR-0190): preguntas del formulario + reintento si no contesta ----
+
+    private static readonly Guid PerfilFormId = Guid.NewGuid();
+
+    private static (ContactWorkflowDispatcher Dispatcher, FakeVoice Voice, InnerDb Inner) BuildVoiceCall(int? reintentos, int? cadaMin)
+    {
+        var inner = new InnerDb(new DbContextOptionsBuilder<InnerDb>()
+            .UseInMemoryDatabase("cwd-voz-" + Guid.NewGuid()).Options);
+        inner.Tenants.Add(new Tenant { Id = TenantId, Name = "Tenant", TimeZoneId = "UTC" });
+        var filtro = new TerceroFiltro { TenantId = TenantId, Nombre = "Todos", CriteriosJson = "[]" };
+        inner.TerceroFiltros.Add(filtro);
+        inner.Terceros.Add(new Tercero { TenantId = TenantId, Nombre = "Ana", Tipo = TerceroTipo.Persona, Estado = TerceroEstado.Activo, Telefono = "3001112233" });
+        inner.Set<FormQuestion>().AddRange(
+            new FormQuestion
+            {
+                TenantId = TenantId,
+                DefinitionId = PerfilFormId,
+                FieldCode = "canal",
+                Label = "Canal preferido",
+                SortOrder = 1,
+                ControlType = FormControlType.Select,
+                OptionsJson = "[{\"id\":\"wa\",\"label\":\"WhatsApp\"},{\"id\":\"mail\",\"label\":\"Correo\"}]"
+            },
+            new FormQuestion
+            {
+                TenantId = TenantId,
+                DefinitionId = PerfilFormId,
+                FieldCode = "opinion",
+                Label = "Que opina del servicio",
+                SortOrder = 2,
+                ControlType = FormControlType.TextArea
+            });
+
+        var wf = new ContactWorkflow { TenantId = TenantId, TerceroFiltroId = filtro.Id, Nombre = "Acciones", Activo = true };
+        inner.ContactWorkflows.Add(wf);
+        var call = new ContactWorkflowCallParams(Modo: "ia", AgenteId: Guid.NewGuid(), PromptExtra: "Somos BITCODE.",
+            Objetivo: "Personalizado", FormulariosPermitidos: new[] { PerfilFormId }, Reintentos: reintentos, ReintentarCadaMin: cadaMin);
+        var step = new ContactWorkflowStep
+        {
+            TenantId = TenantId,
+            ContactWorkflowId = wf.Id,
+            StepType = ContactWorkflowStepType.Llamada,
+            Label = "Perfilamiento",
+            Orden = 0,
+            ParamsJson = JsonSerializer.Serialize(call, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        };
+        inner.ContactWorkflowSteps.Add(step);
+        inner.ContactWorkflowSchedules.Add(new ContactWorkflowSchedule
+        {
+            TenantId = TenantId,
+            ContactWorkflowStepId = step.Id,
+            StartTime = new TimeOnly(0, 0),
+            EndTime = new TimeOnly(23, 59),
+            ActiveDays = AllDays
+        });
+        inner.SaveChanges();
+
+        var voice = new FakeVoice { Ok = true };
+        var dispatcher = new ContactWorkflowDispatcher(
+            new FakeAppDb(inner), new FakeTenantContext(TenantId), new FakeWhatsApp(), new FakeEmail(), new FakeTasks(), voice,
+            TimeProvider.System, NullLogger<ContactWorkflowDispatcher>.Instance);
+        return (dispatcher, voice, inner);
+    }
+
+    private static void AddVoiceCall(InnerDb inner, string callId, VoiceCallStatus status, string? reason)
+    {
+        inner.Set<Ecorex.Domain.Entities.VoiceCall>().Add(new Ecorex.Domain.Entities.VoiceCall
+        {
+            TenantId = TenantId,
+            CallId = callId,
+            FromNumber = "+5710000000",
+            ToNumber = "+573001112233",
+            Status = status,
+            DisconnectionReason = reason
+        });
+        inner.SaveChanges();
+    }
+
+    [Fact]
+    public async Task Llamada_IA_entrega_las_preguntas_del_formulario_y_los_campos_a_extraer()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, voice, inner) = BuildVoiceCall(reintentos: null, cadaMin: null);
+
+        Assert.Equal(1, await dispatcher.RunDueForTenantAsync(now));
+
+        var req = Assert.Single(voice.Requests);
+        Assert.Equal("+573001112233", req.ToNumber);
+        Assert.StartsWith("Somos BITCODE.", req.PromptExtra);
+        Assert.Contains("1. Canal preferido (opciones: WhatsApp, Correo)", req.PromptExtra);
+        Assert.Contains("2. Que opina del servicio", req.PromptExtra);
+        Assert.Equal(new[] { "canal", "opinion" }, req.AnalysisFields!.Select(f => f.Name));
+        Assert.Equal(new[] { PerfilFormId }, req.FormulariosPermitidos);
+        var run = await inner.ContactWorkflowRuns.SingleAsync();
+        Assert.Equal(run.Id, req.ContactWorkflowRunId);
+        Assert.Equal("voz-ia", run.Channel);
+        Assert.Equal("call_1", run.ExternalRef);
+    }
+
+    [Fact]
+    public async Task Si_no_contesta_reintenta_despues_de_la_espera_y_respeta_el_tope()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, voice, inner) = BuildVoiceCall(reintentos: 1, cadaMin: 15);
+
+        await dispatcher.RunDueForTenantAsync(now);
+        AddVoiceCall(inner, "call_1", VoiceCallStatus.Ended, "dial_no_answer");
+
+        // Antes de la espera: no vuelve a llamar.
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(10));
+        Assert.Single(voice.Requests);
+
+        // Cumplida la espera: reintenta sobre la MISMA fila del run.
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(16));
+        Assert.Equal(2, voice.Requests.Count);
+        var run = await inner.ContactWorkflowRuns.AsNoTracking().SingleAsync();
+        Assert.Equal(2, run.Attempts);
+        Assert.Equal("call_2", run.ExternalRef);
+
+        // Tope alcanzado (1 reintento): aunque tampoco conteste, no llama mas.
+        AddVoiceCall(inner, "call_2", VoiceCallStatus.Ended, "voicemail_reached");
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(60));
+        Assert.Equal(2, voice.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Si_contesto_no_reintenta()
+    {
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var (dispatcher, voice, inner) = BuildVoiceCall(reintentos: 3, cadaMin: 5);
+
+        await dispatcher.RunDueForTenantAsync(now);
+        AddVoiceCall(inner, "call_1", VoiceCallStatus.Analyzed, "user_hangup");
+        await dispatcher.RunDueForTenantAsync(now.AddMinutes(30));
+
+        Assert.Single(voice.Requests);
     }
 }

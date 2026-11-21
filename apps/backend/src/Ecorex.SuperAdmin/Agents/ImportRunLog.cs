@@ -93,6 +93,15 @@ public sealed class ImportRunLog(IApplicationDbContext db, ILogger<ImportRunLog>
         run.Deleted = deleted;
         run.Detail = Trim(detail);
         run.FinishedAt = DateTimeOffset.UtcNow;
+
+        // ADR-0199: si la programacion tiene PASO DE CLASIFICACION, una corrida ok lo deja pedido; lo toma
+        // ImportClassifyWorker (aparte, para no bloquear la ingesta ni el hub con llamadas a la IA).
+        if (ok)
+        {
+            var process = await db.ImportProcesses
+                .FirstOrDefaultAsync(p => p.Id == run.ProcessId && p.ClassifyStepJson != null, ct);
+            if (process is not null) { process.ClassifyRequestedAt ??= run.FinishedAt; }
+        }
         await db.SaveChangesAsync(ct);
     }
 

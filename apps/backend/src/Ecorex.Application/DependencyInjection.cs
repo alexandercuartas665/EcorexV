@@ -371,6 +371,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IAgentToolset>(sp => sp.GetRequiredService<Tenancy.ContenedorDatosToolset>());
         // ADR-0197: runner de clasificacion por lotes (agente de IA -> columnas de salida + marca por clave).
         services.AddScoped<Tenancy.IContenedorClasificacionService, Tenancy.ContenedorClasificacionService>();
+        // ADR-0199: clasificacion con IA como paso de la importacion (la corre ImportClassifyWorker).
+        services.AddScoped<DataContainers.IImportClassificationService, DataContainers.ImportClassificationService>();
         // Toolset de Inventario: el agente CONSULTA (solo lectura) items, precios y existencias.
         services.AddScoped<Tenancy.InventarioToolset>();
         services.AddScoped<Tenancy.IInventarioToolset>(sp => sp.GetRequiredService<Tenancy.InventarioToolset>());

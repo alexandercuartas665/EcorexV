@@ -146,7 +146,11 @@ public sealed record ImportProcessDto(
     /// <summary>Por que se apago sola (ej. cron invalido).</summary>
     string? DisabledReason = null,
     /// <summary>Desde cuando espera a que su agente vuelva (UTC). null = no espera a nadie.</summary>
-    DateTimeOffset? PendingSince = null);
+    DateTimeOffset? PendingSince = null,
+    /// <summary>ADR-0199: paso de clasificacion con IA (JSON <see cref="ImportClassifyStep"/>). null = no clasifica.</summary>
+    string? ClassifyStepJson = null,
+    /// <summary>ADR-0199: clasificacion pedida y aun no tomada por el worker (UTC).</summary>
+    DateTimeOffset? ClassifyRequestedAt = null);
 
 /// <summary>Una corrida de la bitacora, para pintarla.</summary>
 public sealed record ImportRunDto(

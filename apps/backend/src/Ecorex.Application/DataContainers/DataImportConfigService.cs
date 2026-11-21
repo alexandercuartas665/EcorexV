@@ -413,7 +413,8 @@ public sealed class DataImportConfigService : IDataImportConfigService
             p.Id, p.ModelId ?? Guid.Empty, p.ConnectorId, connectorName, p.ClientId, clientName,
             p.Name, p.ScheduleKind, p.IntervalMinutes, p.CronExpression, p.IsActive, p.LastRunAt,
             (ApiImportMode)p.Mode, p.KeyColumn,
-            p.NextRunAt, p.DisabledReason, p.PendingSince);
+            p.NextRunAt, p.DisabledReason, p.PendingSince,
+            p.ClassifyStepJson, p.ClassifyRequestedAt);
     }
 
 }

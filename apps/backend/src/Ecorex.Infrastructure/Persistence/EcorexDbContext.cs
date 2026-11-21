@@ -4116,6 +4116,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             // ADR-0171: secuencia de tramos de una programacion de flujo (JSON corto, ~250 chars).
             b.Property(x => x.SequenceJson).HasMaxLength(2000);
             b.Property(x => x.TriggerJson).HasMaxLength(2000);
+            // ADR-0199: paso de clasificacion con IA post-importacion (JSON corto).
+            b.Property(x => x.ClassifyStepJson).HasMaxLength(4000);
             // Proceso cuelga del contenedor (modelo): borrar el modelo borra sus procesos.
             b.HasOne(x => x.Model).WithMany()
                 .HasForeignKey(x => x.ModelId).OnDelete(DeleteBehavior.Cascade);

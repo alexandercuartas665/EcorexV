@@ -21,10 +21,34 @@ public sealed record ClasificarLoteRequest(
 /// <summary>Resultado de un lote: cuantas se enviaron, cuantas se escribieron y cuantas siguen pendientes.</summary>
 public sealed record ClasificarLoteResultado(
     bool Ok, string? Error, int Procesados = 0, int Actualizados = 0, int SinRespuesta = 0, int Ignorados = 0,
-    int Restantes = 0, int InputTokens = 0, int OutputTokens = 0, string? Agente = null, string? Modelo = null)
+    int Restantes = 0, int InputTokens = 0, int OutputTokens = 0, string? Agente = null, string? Modelo = null,
+    string? Codigo = null)
 {
-    public static ClasificarLoteResultado Falla(string error) => new(false, error);
+    /// <summary>Falla de CONFIGURACION (columnas, agente, proveedor): reintentar no sirve.</summary>
+    public const string CodigoConfig = "config";
+    /// <summary>El tenant agoto su cupo de tokens: se corta y lo pendiente queda para despues.</summary>
+    public const string CodigoCupo = "cupo";
+    /// <summary>Falla TRANSITORIA del proveedor (timeout, 5xx, respuesta no JSON): se puede reintentar.</summary>
+    public const string CodigoTransitorio = "transitorio";
+
+    public static ClasificarLoteResultado Falla(string error, string codigo = CodigoConfig) => new(false, error, Codigo: codigo);
+
+    /// <summary>true si vale la pena reintentar el lote (con espera).</summary>
+    public bool EsTransitorio => !Ok && Codigo == CodigoTransitorio;
 }
+
+/// <summary>Pedido de VACIAR la marca (y opcionalmente las salidas) para reclasificar (ADR-0199).</summary>
+/// <param name="TableId">Tabla ya resuelta y tenant-scoped.</param>
+/// <param name="ColumnaMarca">Columna marca a vaciar.</param>
+/// <param name="ColumnasSalida">Columnas de salida a vaciar tambien (opcional).</param>
+/// <param name="Filtro">Solo filas cuya columna (clave) tenga EXACTAMENTE ese valor (valor); AND entre ellas.
+/// null/vacio = todas las filas raiz de la tabla.</param>
+public sealed record LimpiarMarcaRequest(
+    Guid TableId, string ColumnaMarca, IReadOnlyList<string>? ColumnasSalida,
+    IReadOnlyDictionary<string, string>? Filtro);
+
+/// <summary>Resultado de limpiar: filas alcanzadas y celdas vaciadas.</summary>
+public sealed record LimpiarMarcaResultado(bool Ok, string? Error, int Filas = 0, int Celdas = 0);
 
 /// <summary>
 /// RUNNER DE CLASIFICACION POR LOTES sobre un contenedor de datos (ADR-0197). Toma hasta N filas de una tabla cuya
@@ -39,6 +63,14 @@ public sealed record ClasificarLoteResultado(
 public interface IContenedorClasificacionService
 {
     Task<ClasificarLoteResultado> ClasificarLoteAsync(ClasificarLoteRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// ADR-0199: VACIA la columna marca (y las de salida pedidas) de las filas raiz de la tabla (todas o las que
+    /// cumplan el filtro), para que el siguiente lote las vuelva a clasificar. Pone el valor en null (no borra
+    /// filas ni columnas). Un solo UPDATE en BD, tenant-scoped por el filtro global. Ojo: es un UPDATE masivo, no
+    /// refresca celdas ya cargadas en el mismo contexto; reclasificar en un scope nuevo (MCP y worker ya lo hacen).
+    /// </summary>
+    Task<LimpiarMarcaResultado> LimpiarMarcaAsync(LimpiarMarcaRequest request, CancellationToken ct = default);
 }
 
 public sealed class ContenedorClasificacionService : IContenedorClasificacionService
@@ -118,7 +150,7 @@ public sealed class ContenedorClasificacionService : IContenedorClasificacionSer
         var quota = await _usage.GetQuotaAsync(ct);
         if (quota.Hard && quota.Exceeded)
         {
-            return ClasificarLoteResultado.Falla("El tenant agoto su cupo mensual de tokens de IA.");
+            return ClasificarLoteResultado.Falla("El tenant agoto su cupo mensual de tokens de IA.", ClasificarLoteResultado.CodigoCupo);
         }
 
         // ---- Lote: filas raiz CON clave y SIN marca, las mas antiguas primero ----
@@ -174,12 +206,12 @@ public sealed class ContenedorClasificacionService : IContenedorClasificacionSer
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await SafeRecord(agent.Id, agent.Provider, model, 0, 0, false, ct);
-            return ClasificarLoteResultado.Falla($"Error llamando al proveedor {agent.Provider}: {ex.Message}");
+            return ClasificarLoteResultado.Falla($"Error llamando al proveedor {agent.Provider}: {ex.Message}", ClasificarLoteResultado.CodigoTransitorio);
         }
         await SafeRecord(agent.Id, agent.Provider, model, response.InputTokens, response.OutputTokens, response.Ok, ct);
         if (!response.Ok || string.IsNullOrWhiteSpace(response.Text))
         {
-            return ClasificarLoteResultado.Falla(response.Error ?? "El proveedor de IA no devolvio respuesta.") with
+            return ClasificarLoteResultado.Falla(response.Error ?? "El proveedor de IA no devolvio respuesta.", ClasificarLoteResultado.CodigoTransitorio) with
             {
                 InputTokens = response.InputTokens,
                 OutputTokens = response.OutputTokens
@@ -189,7 +221,7 @@ public sealed class ContenedorClasificacionService : IContenedorClasificacionSer
         var items = ParseItems(response.Text!);
         if (items is null)
         {
-            return ClasificarLoteResultado.Falla("La respuesta del agente no es un arreglo JSON valido.") with
+            return ClasificarLoteResultado.Falla("La respuesta del agente no es un arreglo JSON valido.", ClasificarLoteResultado.CodigoTransitorio) with
             {
                 InputTokens = response.InputTokens,
                 OutputTokens = response.OutputTokens
@@ -232,6 +264,44 @@ public sealed class ContenedorClasificacionService : IContenedorClasificacionSer
             OutputTokens: response.OutputTokens,
             Agente: agent.Name,
             Modelo: model);
+    }
+
+    public async Task<LimpiarMarcaResultado> LimpiarMarcaAsync(LimpiarMarcaRequest req, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is null) { return new LimpiarMarcaResultado(false, "Sin tenant activo."); }
+        if (string.IsNullOrWhiteSpace(req.ColumnaMarca)) { return new LimpiarMarcaResultado(false, "Indica la columna_marca."); }
+
+        var cols = await ContenedorFilasPorClave.ColumnasAsync(_db, req.TableId, ct);
+        var nombres = new List<string> { req.ColumnaMarca.Trim() };
+        nombres.AddRange((req.ColumnasSalida ?? []).Select(s => s.Trim()).Where(s => s.Length > 0));
+        var filtro = (req.Filtro ?? new Dictionary<string, string>())
+            .Where(kv => !string.IsNullOrWhiteSpace(kv.Key))
+            .ToDictionary(kv => kv.Key.Trim(), kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        var faltantes = nombres.Concat(filtro.Keys).Where(n => !cols.ContainsKey(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (faltantes.Count > 0)
+        {
+            return new LimpiarMarcaResultado(false, $"La tabla no tiene las columnas: {string.Join(", ", faltantes)}. Columnas: {string.Join(", ", cols.Keys)}.");
+        }
+        var limpiarIds = nombres.Select(n => cols[n]).Distinct().ToList();
+
+        // Filas raiz de la tabla que cumplen TODAS las condiciones del filtro (igualdad exacta).
+        var filas = _db.DataContainerRows.Where(r => r.ContainerId == req.TableId && r.ParentRowId == null);
+        foreach (var (col, val) in filtro)
+        {
+            var colId = cols[col];
+            var v = val;
+            filas = filas.Where(r => _db.DataContainerCells.Any(c => c.RowId == r.Id && c.ColumnId == colId && c.Value == v));
+        }
+        var filaIds = filas.Select(r => r.Id);
+
+        var alcanzadas = await filas.CountAsync(ct);
+        DateTimeOffset? ahora = _clock.GetUtcNow();
+        var celdas = await _db.DataContainerCells
+            .Where(c => limpiarIds.Contains(c.ColumnId) && c.Value != null && filaIds.Contains(c.RowId))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.Value, (string?)null)
+                .SetProperty(c => c.UpdatedAt, ahora), ct);
+        return new LimpiarMarcaResultado(true, null, alcanzadas, celdas);
     }
 
     /// <summary>Filas raiz de la tabla con valor en la clave y la marca vacia (o sin celda de marca).</summary>

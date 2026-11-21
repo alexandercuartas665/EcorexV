@@ -100,6 +100,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private readonly Reporting.IReportDefinitionService? _reportDefs;
     private readonly Analisis.IAnalisisService? _analisis;
     private readonly Analisis.IAnalisisWidgetRunner? _widgetRunner;
+    private readonly DataContainers.IImportClassificationService? _importClassify;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
         ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
@@ -111,8 +112,10 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         IAiAgentService? agents = null, IContenedorClasificacionService? clasificador = null,
         Reporting.IReportCatalog? reportCatalog = null, Reporting.IReportDataSource? reportData = null,
         Reporting.IReportDefinitionService? reportDefs = null, Analisis.IAnalisisService? analisis = null,
-        Analisis.IAnalisisWidgetRunner? widgetRunner = null)
+        Analisis.IAnalisisWidgetRunner? widgetRunner = null,
+        DataContainers.IImportClassificationService? importClassify = null)
     {
+        _importClassify = importClassify;
         _reportCatalog = reportCatalog;
         _reportData = reportData;
         _reportDefs = reportDefs;
@@ -173,6 +176,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         if (_dataModel is not null) { set.UnionWith(ContainerDestructive); }
         if (_agents is not null) { set.UnionWith(AgentDestructive); }
         set.UnionWith(FormDestructive.Where(FormToolNames.Contains));
+        if (HasClassify) { set.UnionWith(ClassifyDestructive); }
         return set;
     }
 
@@ -185,6 +189,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         if (_dataModel is not null) { all.AddRange(ContainerSpecs); }
         if (_agents is not null) { all.AddRange(AgentSpecs); }
         if (HasClassify) { all.AddRange(ClassifySpecs); }
+        if (HasClassifyStep) { all.AddRange(ClassifyStepSpecs); }
         all.AddRange(ReportingSpecsExposed());
         // Solo las herramientas de formularios PERMITIDAS al usuario final (ver FormBridgeAllowed).
         if (_formAuthoring is not null) { all.AddRange(_formAuthoring.GetSpecs().Where(s => FormBridgeAllowed.Contains(s.Name))); }
@@ -294,7 +299,8 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 _ when _scrape is not null && ExtractionToolNames.Contains(toolName) => await ExecuteExtractionAsync(toolName, args, actor, cancellationToken),
                 _ when _dataModel is not null && ContainerToolNames.Contains(toolName) => await ExecuteContainerAsync(toolName, args, actor, cancellationToken),
                 _ when _agents is not null && AgentToolNames.Contains(toolName) => await ExecuteAgentAsync(toolName, args, actor, cancellationToken),
-                _ when HasClassify && ClassifyToolNames.Contains(toolName) => await ExecuteClassifyAsync(args, actor, cancellationToken),
+                _ when HasClassify && ClassifyToolNames.Contains(toolName) => await ExecuteClassifyAsync(toolName, args, actor, cancellationToken),
+                _ when HasClassifyStep && ClassifyStepToolNames.Contains(toolName) => await ExecuteClassifyStepAsync(toolName, args, actor, cancellationToken),
                 _ when IsReportingTool(toolName) => await ExecuteReportingAsync(toolName, args, actor, cancellationToken),
                 _ when _formAuthoring is not null && FormToolNames.Contains(toolName) => await ExecuteFormAsync(toolName, argumentsJson, actor, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")

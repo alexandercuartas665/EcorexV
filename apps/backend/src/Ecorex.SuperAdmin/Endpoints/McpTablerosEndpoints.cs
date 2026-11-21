@@ -55,7 +55,9 @@ public static class McpTablerosEndpoints
         "agregar_recurso_agente; ver_agente muestra todo. Si NO deshabilitas herramientas, el agente puede escribir en un " +
         "contenedor con agregar_filas_a_contenedor. Confirma antes de eliminar un agente. " +
         "Para clasificar filas de una tabla con un agente (encendido) usa clasificar_lote y repitela hasta restantes=0; " +
-        "consume tokens de IA, asi que confirma con el usuario antes de procesar muchas filas. " +
+        "consume tokens de IA, asi que confirma con el usuario antes de procesar muchas filas. Para que se clasifique " +
+        "SOLO lo nuevo despues de cada importacion usa configurar_paso_clasificacion en la programacion (ejecutar_" +
+        "clasificacion_ahora la encola ya); limpiar_marca vacia la marca para reclasificar (confirma antes). " +
         "Reportes e indicadores: mira las fuentes con listar_fuentes_reporte y sus campos con ver_fuente_reporte (cada " +
         "tabla de un contenedor es una fuente); crear_reporte arma un panel y agregar_indicador un widget de un libro " +
         "(crear_libro_indicadores); la consulta va con nombres de campo y se ejecuta antes de guardar. " +

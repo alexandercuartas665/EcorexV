@@ -11,6 +11,8 @@
 > (addendum 2026-11-21: +1 herramienta `clasificar_lote`, ADR-0197, total 142; rama
 > `feat/clasificar-lote-contenedor`)
 > (addendum 2026-11-21: +9 herramientas de Reportes e indicadores, ADR-0198, total 151; rama `feat/reportes-mcp`)
+> (addendum 2026-11-21: +4 herramientas del paso de clasificacion en la importacion + limpiar_marca, ADR-0199, total 155;
+> rama `feat/clasificacion-en-importacion`)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -21,7 +23,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **151** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **155** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -240,7 +242,7 @@ exclusion). Solo se publican si `IAiAgentService` esta inyectado (lo esta por DI
 Fuera de esta ola (candidatos futuros): cierre del agente, reactivacion/seguimiento y datos-cache (jsonb que la
 pantalla fija aparte; no estan en `IAiAgentService`).
 
-### 2.8 Clasificacion por lotes (1) - `TableroMcpToolset.Clasificacion.cs` (ADR-0197) - permiso `contenedor-datos` (Edit)
+### 2.8 Clasificacion por lotes y paso de importacion (5) - `TableroMcpToolset.Clasificacion.cs` (ADR-0197, ADR-0199) - permiso `contenedor-datos` (Edit)
 
 Capa delgada sobre `IContenedorClasificacionService`. Toma hasta N filas (max 50) de una tabla cuya columna marca
 esta vacia, se las envia a un agente de IA ENCENDIDO y escribe SOLO las columnas de salida + la marca (fecha UTC)
@@ -251,6 +253,10 @@ contenedores estan inyectados. Complemento del agente: `actualizar_filas_por_cla
 | Herramienta | Tipo | Permiso | Que hace |
 |---|---|---|---|
 | clasificar_lote | W | Edit | Clasifica un lote de filas pendientes con un agente y escribe salida + marca por clave |
+| limpiar_marca | W (destructiva) | Edit | ADR-0199: vacia la marca (y opcionalmente las salidas) de todas las filas o por filtro {columna: valor}, para reclasificar |
+| configurar_paso_clasificacion | W | Edit | ADR-0199: paso de clasificacion en una programacion de importacion; tras cada corrida ok clasifica solo lo nuevo (tope de lotes, cupo del plan) |
+| quitar_paso_clasificacion | W | Edit | ADR-0199: quita el paso (la importacion sigue igual) |
+| ejecutar_clasificacion_ahora | W | Edit | ADR-0199: encola la clasificacion de la programacion; el worker la corre en < 1 min y deja el resumen en la bitacora |
 
 ### 2.9 Reportes e indicadores (9) - `TableroMcpToolset.Reportes.cs` (ADR-0198) - permisos `reportes/*` y `analisis`
 
@@ -360,7 +366,7 @@ Estado: CUBIERTO / PARCIAL / NO / EXCLUIDO (a proposito: admin o seguridad).
 | Extraccion de datos (drones, 000730) | CUBIERTO (ADR-0193) | 17 herramientas: crear/editar/ver/listar/borrar dron, pasos (24 tipos, config fina en mapeo_json), variables (secretos cifrados), programaciones (intervalo/cron/tramos) y bitacora de corridas. Runtime del Navegador diferido (solo config) |
 | Contenedor de datos (crear/estructurar/programar/publicar) | CUBIERTO (ADR-0194) | 23 herramientas: contenedor+tablas+columnas+relaciones, conectores (SIN secreto), programaciones (manual/intervalo/cron + modo) + bitacora, y publicar/despublicar como modulo del menu (privacidad por Roles). Carga de filas (upsert) sigue en el toolset de agente |
 | Agentes de IA (crear/configurar/encender) | CUBIERTO (ADR-0195) | 17 herramientas: crear agente (claude/gemini/chatgpt/deepseek, nace apagado), editar por campo (prompt/herramientas/tableros/round-robin/concepto), lector de medios, prompts enrutados + recursos, historial, duplicar, encender/apagar, borrar. Escribe al contenedor con `agregar_filas_a_contenedor` (habilitada por defecto). Fuera: cierre/reactivacion/cache |
-| Clasificar filas de un contenedor con IA | CUBIERTO (ADR-0197) | `clasificar_lote`: lotes de filas sin marca -> agente -> columnas de salida + marca por clave; el agente tambien tiene `actualizar_filas_por_clave` |
+| Clasificar filas de un contenedor con IA | CUBIERTO (ADR-0197, ADR-0199) | `clasificar_lote`: lotes de filas sin marca -> agente -> columnas de salida + marca por clave; el agente tambien tiene `actualizar_filas_por_clave`. ADR-0199: paso automatico post-importacion (`configurar_paso_clasificacion` / `quitar_` / `ejecutar_clasificacion_ahora`) y `limpiar_marca` para reclasificar |
 | Compras / DIAN / conciliacion / gestor documental | NO | Especializados |
 | Usuarios, roles, menu, tenants, servidores, IA, facturacion | EXCLUIDO | Administracion y seguridad: no deben ir por token personal |
 
@@ -386,7 +392,7 @@ Brechas priorizadas (propuesta):
 | ADR-0193 (extraccion) / ADR-0194 (contenedor de datos) / ADR-0195 (agentes de IA) | Nuevos; 17 + 23 + 17 herramientas en la rama `feat/mcp-terminar-tarea` |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 151/151 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
+| Descripciones y esquemas | 155/155 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

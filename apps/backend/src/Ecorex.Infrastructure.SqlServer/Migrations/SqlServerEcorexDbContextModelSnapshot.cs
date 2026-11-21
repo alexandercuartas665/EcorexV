@@ -9980,6 +9980,15 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<DateTimeOffset?>("ClassifyRequestedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("classify_requested_at");
+
+                    b.Property<string>("ClassifyStepJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)")
+                        .HasColumnName("classify_step_json");
+
                     b.Property<Guid?>("ClientId")
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("client_id");

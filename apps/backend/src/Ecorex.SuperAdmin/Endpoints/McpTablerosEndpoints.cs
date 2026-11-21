@@ -44,7 +44,12 @@ public static class McpTablerosEndpoints
         "(tipo navegar/extraer/ia/procesar_archivos..., config fina en mapeo_json), variables con definir_variable " +
         "(marca 'secreta' las claves) y programalo con guardar_programacion (intervalo/cron/tramos). ver_dron muestra " +
         "pasos, variables y programaciones; listar_corridas, la bitacora. Confirma antes de eliminar un dron o un paso. " +
-        "La IA solo puede lo que el usuario puede (permisos de flujos/formularios).";
+        "Contenedores de datos: crear_contenedor_datos abre el contenedor; agregale tablas con agregar_tabla y columnas " +
+        "con agregar_columna (tipos texto/numero/decimal/fecha/booleano/submodelo); relaciona tablas con agregar_relacion. " +
+        "Programa su importacion con guardar_programacion_importacion (manual/intervalo/cron, modo append/replace/upsert) y " +
+        "revisa listar_corridas_importacion. guardar_conector NO recibe el secreto (ponlo en la pantalla). publicar_contenedor " +
+        "saca una tabla al menu (privacidad por Roles y permisos). Confirma antes de borrar o despublicar. " +
+        "La IA solo puede lo que el usuario puede (permisos de flujos/formularios/contenedor-datos).";
 
     public static WebApplication MapMcpTablerosEndpoints(this WebApplication app)
     {

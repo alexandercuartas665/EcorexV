@@ -1,9 +1,11 @@
 using System.Text.Json;
+using Ecorex.Application.Agents;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Application.DataLookups;
 using Ecorex.Application.Directorio;
 using Ecorex.Application.Mcp;
+using Ecorex.Application.MenuConfig;
 using Ecorex.Application.Organization;
 using Ecorex.Application.Roles;
 using Ecorex.Application.Scraping;
@@ -704,7 +706,8 @@ public abstract class McpTablerosTestsBase
     // ---- Helpers ----
 
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
-        EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null)
+        EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null,
+        bool withContainers = false)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
@@ -715,9 +718,21 @@ public abstract class McpTablerosTestsBase
         var tenant = tenantCtx;
         var terceros = new TerceroService(ctx, _fixture.CreateFactory(tenant.TenantId), tenant, new DirectoryVariantService(ctx, tenant),
             new DataLookupService(ctx, new DataContainerService(ctx, tenant)));
+        IDataModelService? dataModel = null;
+        IDataImportConfigService? dataImport = null;
+        IDataContainerModuleService? dataModule = null;
+        IMenuConfigService? menu = null;
+        if (withContainers)
+        {
+            var containers = new DataContainerService(ctx, tenant);
+            dataModel = new DataModelService(ctx, tenant, containers);
+            dataImport = new DataImportConfigService(ctx, tenant, new PlainSecrets(), new NoOpAgentClients());
+            menu = new MenuConfigService(ctx, tenant);
+            dataModule = new DataContainerModuleService(ctx, menu);
+        }
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
             new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
-            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape);
+            forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu);
         return (boards, engine, toolset);
     }
 
@@ -857,10 +872,158 @@ public abstract class McpTablerosTestsBase
         Assert.True(verMuerto.IsError);
     }
 
+    // ===================== Contenedores de datos (ADR-0194) =====================
+
+    [Fact]
+    public async Task McpCatalog_ConContenedores_EsConsistente_YDespacha()
+    {
+        var seed = await SeedTenantAsync("Mcp Contenedores Catalogo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var scrape = new ScrapeFlowService(ctx, tenantCtx, new PlainSecrets());
+        var (_, _, toolset) = Build(ctx, tenantCtx, new FakeFormAuthoring(), scrape, withContainers: true);
+        var owner = Actor(seed, owner: true);
+
+        var specs = toolset.GetSpecs();
+        var names = specs.Select(s => s.Name).ToList();
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(16 + 12 + 16 + 3 + 17 + 23, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
+
+        // Las 23 de contenedores estan expuestas; 6 de lectura y 7 destructivas, sin solape.
+        foreach (var n in new[] { "listar_contenedores_datos", "crear_contenedor_datos", "agregar_tabla",
+            "agregar_columna", "agregar_relacion", "guardar_conector", "guardar_programacion_importacion",
+            "publicar_contenedor", "eliminar_contenedor_datos" })
+        {
+            Assert.Contains(n, names);
+        }
+        Assert.Contains("listar_contenedores_datos", toolset.ReadOnlyTools);
+        Assert.DoesNotContain("crear_contenedor_datos", toolset.ReadOnlyTools); // escritura: se audita
+        Assert.Contains("eliminar_contenedor_datos", toolset.DestructiveTools);
+        Assert.Contains("despublicar_contenedor", toolset.DestructiveTools);
+        Assert.Empty(toolset.ReadOnlyTools.Intersect(toolset.DestructiveTools));
+
+        foreach (var s in specs.Where(x => x.Name.Contains("contenedor") || x.Name.Contains("tabla")
+            || x.Name.Contains("columna") || x.Name.Contains("relacion") || x.Name.Contains("conector")
+            || x.Name.Contains("importacion") || x.Name.Contains("publicacion")))
+        {
+            Assert.True(s.Description!.Length >= 25, $"{s.Name}: descripcion corta");
+            using var schema = JsonDocument.Parse(s.ParametersJsonSchema);
+            Assert.Equal("object", schema.RootElement.GetProperty("type").GetString());
+        }
+
+        // Toda herramienta de contenedores despacha con "{}" (sin "Herramienta desconocida"); las que exigen
+        // argumentos devuelven ok:false marcado como error (validacion limpia, no excepcion).
+        foreach (var name in new[] { "listar_contenedores_datos", "ver_contenedor_datos", "crear_contenedor_datos",
+            "agregar_tabla", "agregar_columna", "agregar_relacion", "guardar_conector", "guardar_programacion_importacion",
+            "listar_corridas_importacion", "publicar_contenedor", "eliminar_contenedor_datos" })
+        {
+            var r = await toolset.ExecuteAsync(name, "{}", owner);
+            Assert.DoesNotContain("Herramienta desconocida", r.Json);
+            using var doc = JsonDocument.Parse(r.Json);
+            if (doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+            {
+                Assert.True(r.IsError, $"{name}: ok=false sin marcar error");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Contenedores_CrearEstructurarProgramarPublicar_Borrar()
+    {
+        var seed = await SeedTenantAsync("Mcp Contenedores");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx, withContainers: true);
+        var owner = Actor(seed, owner: true);
+
+        // Crear contenedor.
+        var crear = Payload(await toolset.ExecuteAsync("crear_contenedor_datos",
+            Args(new { nombre = "FOMAG", descripcion = "licitaciones" }), owner));
+        var contId = crear.GetProperty("contenedor_id").GetString()!;
+        Assert.False(string.IsNullOrWhiteSpace(contId));
+
+        // Tabla con columnas + una segunda tabla (para la relacion).
+        var t1 = Payload(await toolset.ExecuteAsync("agregar_tabla",
+            Args(new { contenedor = contId, nombre = "Convocatorias", columnas = new[]
+            {
+                new { nombre = "codigo", tipo = "texto", requerido = true },
+                new { nombre = "objeto", tipo = "texto", requerido = false },
+                new { nombre = "fecha", tipo = "fecha", requerido = false }
+            } }), owner));
+        Assert.Equal(3, t1.GetProperty("columnas").GetInt32());
+        Payload(await toolset.ExecuteAsync("agregar_tabla", Args(new { contenedor = contId, nombre = "Oferentes" }), owner));
+
+        // Columnas: agregar, editar, eliminar.
+        Payload(await toolset.ExecuteAsync("agregar_columna",
+            Args(new { contenedor = "FOMAG", tabla = "Convocatorias", nombre = "estado", tipo = "texto" }), owner));
+        var ed = Payload(await toolset.ExecuteAsync("editar_columna",
+            Args(new { contenedor = "FOMAG", tabla = "Convocatorias", columna = "estado", requerido = true }), owner));
+        Assert.Equal("estado", ed.GetProperty("columna").GetString());
+        Payload(await toolset.ExecuteAsync("eliminar_columna",
+            Args(new { contenedor = "FOMAG", tabla = "Convocatorias", columna = "estado" }), owner));
+
+        // Relacion entre las dos tablas.
+        var rel = Payload(await toolset.ExecuteAsync("agregar_relacion",
+            Args(new { contenedor = "FOMAG", origen = "Convocatorias", destino = "Oferentes", cardinalidad = "n1", nombre = "oferente" }), owner));
+        Assert.Equal("n1", rel.GetProperty("cardinalidad").GetString());
+
+        // Conector SIN secreto (el MCP no recibe credenciales).
+        var conn = Payload(await toolset.ExecuteAsync("guardar_conector",
+            Args(new { contenedor = "FOMAG", nombre = "FOMAG web", tipo = "api", destino = "Convocatorias", endpoint = "https://www.fomag.gov.co/contratacion/" }), owner));
+        Assert.False(conn.GetProperty("tiene_credenciales").GetBoolean());
+
+        // Programacion cron + bitacora vacia.
+        var prog = Payload(await toolset.ExecuteAsync("guardar_programacion_importacion",
+            Args(new { contenedor = "FOMAG", nombre = "Diaria", tipo = "cron", cron = "0 6 * * *", modo = "replace" }), owner));
+        Assert.Equal("cron", prog.GetProperty("programacion").GetProperty("tipo").GetString());
+        var corridas = Payload(await toolset.ExecuteAsync("listar_corridas_importacion",
+            Args(new { contenedor = "FOMAG", proceso = "Diaria" }), owner));
+        Assert.Equal(0, corridas.GetProperty("corridas").GetArrayLength());
+
+        // ver_contenedor_datos: 2 tablas, Convocatorias con 3 columnas (estado ya borrada), 1 relacion.
+        var ver = Payload(await toolset.ExecuteAsync("ver_contenedor_datos", Args(new { contenedor = "FOMAG" }), owner));
+        Assert.Equal(2, ver.GetProperty("tablas").GetArrayLength());
+        Assert.Equal(1, ver.GetProperty("relaciones").GetArrayLength());
+        var conv = ver.GetProperty("tablas").EnumerateArray().First(t => t.GetProperty("nombre").GetString() == "Convocatorias");
+        Assert.Equal(3, conv.GetProperty("columnas").GetArrayLength());
+
+        // Publicar / despublicar (necesita una vista de menu y una SECCION padre: un elemento no cuelga de la raiz).
+        var menu = new MenuConfigService(ctx, tenantCtx);
+        var view = await menu.CreateViewAsync("Menu", isDefault: true);
+        await menu.CreateNodeAsync(view.Value!.Id, null, MenuNodeKind.Section, "Datos");
+        var pub = Payload(await toolset.ExecuteAsync("publicar_contenedor",
+            Args(new { contenedor = "FOMAG", tabla = "Convocatorias", padre = "Datos" }), owner));
+        Assert.True(pub.GetProperty("publicada").GetBoolean());
+        Assert.False(string.IsNullOrWhiteSpace(pub.GetProperty("ruta").GetString()));
+        var despub = Payload(await toolset.ExecuteAsync("despublicar_contenedor",
+            Args(new { contenedor = "FOMAG", tabla = "Convocatorias" }), owner));
+        Assert.False(despub.GetProperty("publicada").GetBoolean());
+
+        // Borrar el contenedor completo. Se limpia el rastreador para simular el DbContext fresco de cada
+        // request (en prod la relacion no esta tracked; la cascada de BD la borra al eliminar el modelo).
+        ctx.ChangeTracker.Clear();
+        Payload(await toolset.ExecuteAsync("eliminar_contenedor_datos", Args(new { contenedor = contId }), owner));
+        var verMuerto = await toolset.ExecuteAsync("ver_contenedor_datos", Args(new { contenedor = contId }), owner);
+        Assert.True(verMuerto.IsError);
+    }
+
     private sealed class PlainSecrets : ISecretProtector
     {
         public string Protect(string plaintext) => plaintext;
         public string Unprotect(string ciphertext) => ciphertext;
+    }
+
+    /// <summary>Clientes remotos no se usan en estas pruebas de contenedor (solo conectores/procesos/corridas).</summary>
+    private sealed class NoOpAgentClients : IAgentClientService
+    {
+        public Task<IReadOnlyList<AgentClientDto>> ListAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<AgentClientDto>>(Array.Empty<AgentClientDto>());
+        public Task<(AgentClientDto Client, AgentClientSecretDto? Secret)> SaveAsync(SaveAgentClientRequest req, Guid actorUserId, CancellationToken ct = default)
+            => throw new NotSupportedException();
+        public Task<AgentClientSecretDto?> RotateSecretAsync(Guid clientId, Guid actorUserId, CancellationToken ct = default)
+            => Task.FromResult<AgentClientSecretDto?>(null);
+        public Task<bool> RevokeAsync(Guid clientId, Guid actorUserId, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<bool> DeleteAsync(Guid clientId, Guid actorUserId, CancellationToken ct = default) => Task.FromResult(false);
     }
 
     private async Task<SeedData> SeedTenantAsync(string name)

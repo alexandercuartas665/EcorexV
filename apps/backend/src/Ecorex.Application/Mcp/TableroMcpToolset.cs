@@ -89,14 +89,24 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private readonly IWorkflowEngine? _engine;
     private readonly Organization.IWorkflowNodePolicyService? _nodePolicies;
     private readonly Scraping.IScrapeFlowService? _scrape;
+    private readonly DataContainers.IDataModelService? _dataModel;
+    private readonly DataContainers.IDataImportConfigService? _dataImport;
+    private readonly DataContainers.IDataContainerModuleService? _dataModule;
+    private readonly MenuConfig.IMenuConfigService? _menu;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
         ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
         ITerceroFieldService? fields = null, IRolService? roles = null,
         IFormAuthoringToolset? formAuthoring = null, IWorkflowDesignService? flowDesign = null, IWorkflowEngine? engine = null,
-        Organization.IWorkflowNodePolicyService? nodePolicies = null, Scraping.IScrapeFlowService? scrape = null)
+        Organization.IWorkflowNodePolicyService? nodePolicies = null, Scraping.IScrapeFlowService? scrape = null,
+        DataContainers.IDataModelService? dataModel = null, DataContainers.IDataImportConfigService? dataImport = null,
+        DataContainers.IDataContainerModuleService? dataModule = null, MenuConfig.IMenuConfigService? menu = null)
     {
         _scrape = scrape;
+        _dataModel = dataModel;
+        _dataImport = dataImport;
+        _dataModule = dataModule;
+        _menu = menu;
         _nodePolicies = nodePolicies;
         _vinculos = vinculos;
         _fields = fields;
@@ -130,6 +140,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         var set = new HashSet<string>(ReadOnly, StringComparer.Ordinal);
         if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); }
         if (_scrape is not null) { set.UnionWith(ExtractionReadOnly); }
+        if (_dataModel is not null) { set.UnionWith(ContainerReadOnly); }
         if (_formAuthoring is not null) { set.UnionWith(_formAuthoring.ReadOnlyTools.Where(FormToolNames.Contains)); }
         return set;
     }
@@ -139,6 +150,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         var set = new HashSet<string>(Destructive, StringComparer.Ordinal);
         if (_flowDesign is not null) { set.UnionWith(FlowDestructive); }
         if (_scrape is not null) { set.UnionWith(ExtractionDestructive); }
+        if (_dataModel is not null) { set.UnionWith(ContainerDestructive); }
         set.UnionWith(FormDestructive.Where(FormToolNames.Contains));
         return set;
     }
@@ -149,6 +161,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         all.AddRange(DirectorySpecs);
         if (_flowDesign is not null) { all.AddRange(FlowSpecs); }
         if (_scrape is not null) { all.AddRange(ExtractionSpecs); }
+        if (_dataModel is not null) { all.AddRange(ContainerSpecs); }
         // Solo las herramientas de formularios PERMITIDAS al usuario final (ver FormBridgeAllowed).
         if (_formAuthoring is not null) { all.AddRange(_formAuthoring.GetSpecs().Where(s => FormBridgeAllowed.Contains(s.Name))); }
         return all.ToArray();
@@ -255,6 +268,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 _ when DirectoryToolNames.Contains(toolName) => await ExecuteDirectoryAsync(toolName, args, argumentsJson, actor, cancellationToken),
                 _ when _flowDesign is not null && FlowToolNames.Contains(toolName) => await ExecuteFlowAsync(toolName, args, actor, cancellationToken),
                 _ when _scrape is not null && ExtractionToolNames.Contains(toolName) => await ExecuteExtractionAsync(toolName, args, actor, cancellationToken),
+                _ when _dataModel is not null && ContainerToolNames.Contains(toolName) => await ExecuteContainerAsync(toolName, args, actor, cancellationToken),
                 _ when _formAuthoring is not null && FormToolNames.Contains(toolName) => await ExecuteFormAsync(toolName, argumentsJson, actor, cancellationToken),
                 _ => Err($"Herramienta desconocida: {toolName}")
             };

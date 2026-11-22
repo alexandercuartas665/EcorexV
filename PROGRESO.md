@@ -2,9 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-22 - v0.16.372: Permiso "Ver registros" por enlace publico de libros de indicadores (ADR-0158 addendum d) - rama claude/system-indicators-data-sources-e53a43 - PENDIENTE DE DEPLOY
+## 2026-11-22 - v0.16.372: Permiso "Ver registros" por enlace publico de libros de indicadores (ADR-0158 addendum d) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (d6362808) al tronco y main como v0.16.372. LLEVA MIGRACION dual AddAnalisisEnlacePermiteRegistros (columna permite_registros NOT NULL default false). Gates: build Release 0 errores; unitarias 1687/312/35; integracion dual 136/136 (Analisis + McpTablerosTests + Report* + aislamiento, PG + SQL Server). Deploy: SOLO con OK del usuario.
+- **Deploy (2026-11-22 ~05:35 Bogota)**: OK del usuario (dentro de la ventana DRON dominical por decision expresa: el corre el proceso a mano). Via rapida GHCR (CI 45012463288 verde sobre 7973d77d). Migracion 20261122093234_AddAnalisisEnlacePermiteRegistros aplicada al arrancar. Footer /login = v0.16.372, ecorex-app Restarts=0, 0 errores. Rollback: imagen anterior sha256:437d9c4e...
 
 - **Agente**: ECOREX.indicadores, a pedido del usuario: ver el detalle de los datos tambien desde el enlace compartido, pero que quien crea el enlace decida si lo permite.
 - **Hecho**: `AnalisisLibroToken.PermiteRegistros` (bool, false por defecto) con **migracion dual** `AddAnalisisEnlacePermiteRegistros` (PG 20261122093234 / SQL Server 20261122093220; solo agrega la columna `permite_registros`). `GenerarEnlaceAsync(..., permiteRegistros)` y nuevo `CambiarPermisoRegistrosAsync` (solo Admin; aplica al enlace activo sin cambiar la URL); `ResolverAsync` y `EstadoAsync` devuelven el permiso. "Compartir" gana la casilla "Permitir ver los registros". `/a/{token}` ofrece "Ver registros" solo si el enlace lo permite y revalida el token en CADA consulta; respeta los filtros fijos de la hoja; filas sin abrir tarea/tercero (exige sesion); Excel permitido.

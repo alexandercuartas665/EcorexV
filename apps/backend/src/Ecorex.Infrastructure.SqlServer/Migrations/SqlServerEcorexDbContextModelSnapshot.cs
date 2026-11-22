@@ -3150,6 +3150,158 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("bolsa_columnas", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.Brain", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("category_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CreatedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("created_by_name");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("slug");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_brains");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_brains_category_id");
+
+                    b.HasIndex("TenantId", "CategoryId")
+                        .HasDatabaseName("ix_brains_tenant_id_category_id");
+
+                    b.HasIndex("TenantId", "Slug")
+                        .IsUnique()
+                        .HasDatabaseName("ix_brains_tenant_id_slug")
+                        .HasFilter("[is_deleted] = 0");
+
+                    b.ToTable("brains", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.BrainCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(9)
+                        .HasColumnType("nvarchar(9)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_brain_categories");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_brain_categories_tenant_id_name")
+                        .HasFilter("[is_deleted] = 0");
+
+                    b.ToTable("brain_categories", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Brand", b =>
                 {
                     b.Property<Guid>("Id")
@@ -11526,6 +11678,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("body");
 
+                    b.Property<Guid>("BrainId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("brain_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("created_at");
@@ -11550,10 +11706,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit")
                         .HasColumnName("is_deleted");
-
-                    b.Property<Guid>("MockupProjectId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("mockup_project_id");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
@@ -11592,12 +11744,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasKey("Id")
                         .HasName("pk_mockup_notes");
 
-                    b.HasIndex("MockupProjectId")
-                        .HasDatabaseName("ix_mockup_notes_mockup_project_id");
+                    b.HasIndex("BrainId")
+                        .HasDatabaseName("ix_mockup_notes_brain_id");
 
-                    b.HasIndex("TenantId", "MockupProjectId", "TitleKey")
+                    b.HasIndex("TenantId", "BrainId", "TitleKey")
                         .IsUnique()
-                        .HasDatabaseName("ix_mockup_notes_tenant_id_mockup_project_id_title_key")
+                        .HasDatabaseName("ix_mockup_notes_tenant_id_brain_id_title_key")
                         .HasFilter("[is_deleted] = 0");
 
                     b.ToTable("mockup_notes", (string)null);
@@ -11609,6 +11761,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BrainId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("brain_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset")
@@ -11626,10 +11782,6 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("label");
-
-                    b.Property<Guid>("MockupProjectId")
-                        .HasColumnType("uniqueidentifier")
-                        .HasColumnName("mockup_project_id");
 
                     b.Property<string>("TargetKey")
                         .IsRequired()
@@ -11664,8 +11816,8 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.HasIndex("TenantId", "FromNoteId")
                         .HasDatabaseName("ix_mockup_note_links_tenant_id_from_note_id");
 
-                    b.HasIndex("TenantId", "MockupProjectId", "TargetKind", "TargetKey")
-                        .HasDatabaseName("ix_mockup_note_links_tenant_id_mockup_project_id_target_kind_target_key");
+                    b.HasIndex("TenantId", "BrainId", "TargetKind", "TargetKey")
+                        .HasDatabaseName("ix_mockup_note_links_tenant_id_brain_id_target_kind_target_key");
 
                     b.ToTable("mockup_note_links", (string)null);
                 });
@@ -11739,6 +11891,64 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_mockup_projects_tenant_id_slug");
 
                     b.ToTable("mockup_projects", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupProjectBrain", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BrainId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("brain_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("MockupProjectId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("mockup_project_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mockup_project_brains");
+
+                    b.HasIndex("BrainId")
+                        .HasDatabaseName("ix_mockup_project_brains_brain_id");
+
+                    b.HasIndex("MockupProjectId")
+                        .HasDatabaseName("ix_mockup_project_brains_mockup_project_id");
+
+                    b.HasIndex("TenantId", "BrainId")
+                        .HasDatabaseName("ix_mockup_project_brains_tenant_id_brain_id");
+
+                    b.HasIndex("TenantId", "MockupProjectId", "BrainId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mockup_project_brains_tenant_id_mockup_project_id_brain_id");
+
+                    b.ToTable("mockup_project_brains", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.MockupVersion", b =>
@@ -22136,6 +22346,17 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("TenantUser");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.Brain", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.BrainCategory", "Category")
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_brains_brain_categories_category_id");
+
+                    b.Navigation("Category");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Cita", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Oportunidad", "Oportunidad")
@@ -23131,14 +23352,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
             modelBuilder.Entity("Ecorex.Domain.Entities.MockupNote", b =>
                 {
-                    b.HasOne("Ecorex.Domain.Entities.MockupProject", "MockupProject")
+                    b.HasOne("Ecorex.Domain.Entities.Brain", "Brain")
                         .WithMany()
-                        .HasForeignKey("MockupProjectId")
+                        .HasForeignKey("BrainId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_mockup_notes_mockup_projects_mockup_project_id");
+                        .HasConstraintName("fk_mockup_notes_brains_brain_id");
 
-                    b.Navigation("MockupProject");
+                    b.Navigation("Brain");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.MockupNoteLink", b =>
@@ -23151,6 +23372,27 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasConstraintName("fk_mockup_note_links_mockup_notes_from_note_id");
 
                     b.Navigation("FromNote");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.MockupProjectBrain", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Brain", "Brain")
+                        .WithMany()
+                        .HasForeignKey("BrainId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_project_brains_brains_brain_id");
+
+                    b.HasOne("Ecorex.Domain.Entities.MockupProject", "MockupProject")
+                        .WithMany()
+                        .HasForeignKey("MockupProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_mockup_project_brains_mockup_projects_mockup_project_id");
+
+                    b.Navigation("Brain");
+
+                    b.Navigation("MockupProject");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.MockupVersion", b =>

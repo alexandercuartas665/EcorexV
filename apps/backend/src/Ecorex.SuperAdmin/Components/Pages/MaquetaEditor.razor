@@ -7,6 +7,8 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @implements IAsyncDisposable
 @using System.Text.Json
+@using Ecorex.Application.Integraciones.Cerebro
+@using Ecorex.Application.Tenancy
 @using Ecorex.Application.Integraciones.Maqueta
 @using Ecorex.Application.Storage
 @using Ecorex.Domain.Enums
@@ -106,9 +108,34 @@ else
         {
             @* El cerebro se monta una sola vez y se oculta con CSS: cambiar de pestana no recarga el iframe ni pierde el borrador. *@
             <div class="me-brain @(_tab == TabCerebro ? "on" : null)">
-                <MaquetaCerebro @ref="_brain" Slug="@Slug" ProjectName="@(_name ?? Slug)" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
-                                Active="@(_tab == TabCerebro)" Pages="_pages" Solicitudes="_solicitudes" CurrentFile="@_currentFile"
-                                InitialNote="@Nota" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast" />
+                @if (_brainRef is not null)
+                {
+                    @* ADR-0200: el cerebro es un modulo propio; aqui se abre el PRINCIPAL vinculado a la maqueta. *@
+                    <MaquetaCerebro @key="_brainRef.Slug" @ref="_brain" Slug="@_brainRef.Slug" ProjectName="@_brainRef.Name" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
+                                    Active="@(_tab == TabCerebro)" Pages="_pages" Solicitudes="_solicitudes" CurrentFile="@_currentFile"
+                                    InitialNote="@Nota" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast"
+                                    ModuleUrl="@($"/cerebros/{_brainRef.Slug}")" />
+                }
+                else
+                {
+                    <div class="me-nobrain">
+                        <div class="me-nobrain-icon"><i class="fa-solid fa-brain"></i></div>
+                        <h3>Esta maqueta aun no tiene cerebro</h3>
+                        <p>Los cerebros viven en su propio modulo y se vinculan a una o varias maquetas.</p>
+                        @if (_isAdmin)
+                        {
+                            <button class="btn btn-sm btn-primary" disabled="@_creatingBrain" @onclick="CreateBrainAsync">
+                                <i class="fa-solid fa-plus"></i> @(_creatingBrain ? "Creando..." : "Crear el cerebro de esta maqueta")
+                            </button>
+                            @if (_brainError is not null) { <div class="text-danger small mt-2">@_brainError</div> }
+                        }
+                        else
+                        {
+                            <p class="small">Pide a un administrador que cree o vincule el cerebro.</p>
+                        }
+                        <a class="small mt-2" href="/cerebros">Ver todos los cerebros</a>
+                    </div>
+                }
             </div>
         }
 
@@ -263,6 +290,10 @@ else
     private const string TabCerebro = "cerebro";
     private string _tab = TabMaqueta;
     private MaquetaCerebro? _brain;
+    // ADR-0200: cerebro principal vinculado a la maqueta (null = aun no tiene).
+    private BrainRefDto? _brainRef;
+    private bool _creatingBrain;
+    private string? _brainError;
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private sealed record ThemeOption(string Id, string Name);
@@ -403,6 +434,11 @@ else
         }
 
         if (_error is null) { await LoadSolicitudesAsync(); }
+        if (_project is not null)
+        {
+            try { _brainRef = await RunAsync(sp => sp.GetRequiredService<IBrainService>().GetPrimaryForMockupAsync(_project.Slug)); }
+            catch (Exception) { _brainRef = null; }
+        }
         if (_project is not null && string.Equals(Tab, TabCerebro, StringComparison.OrdinalIgnoreCase)) { _tab = TabCerebro; }
         _loading = false;
     }
@@ -412,6 +448,40 @@ else
         if (tab == TabCerebro && _project is null) { return; }
         if (tab == TabCerebro && _picking) { _ = TogglePickAsync(); }
         _tab = tab;
+    }
+
+    /// <summary>ADR-0200: crea "Cerebro de {maqueta}" y lo vincula como principal (Owner/Admin).</summary>
+    private async Task CreateBrainAsync()
+    {
+        if (_project is null || _creatingBrain) { return; }
+        _creatingBrain = true;
+        _brainError = null;
+        try
+        {
+            var res = await RunAsync(async sp =>
+            {
+                var actor = await sp.GetRequiredService<IMaquetaSolicitudService>().ResolveSessionActorAsync(_userId);
+                if (actor is null) { return TaskCoreResult<BrainRefDto>.Forbidden("Tu usuario no puede crear cerebros en esta empresa."); }
+                return await sp.GetRequiredService<IBrainService>().CreateForMockupAsync(_project.Slug, actor);
+            });
+            if (res.IsOk && res.Value is not null)
+            {
+                _brainRef = res.Value;
+                ShowToast($"Cerebro '{res.Value.Name}' creado y vinculado.");
+            }
+            else
+            {
+                _brainError = res.Error ?? "No se pudo crear el cerebro.";
+            }
+        }
+        catch (Exception)
+        {
+            _brainError = "No se pudo crear el cerebro. Intenta de nuevo.";
+        }
+        finally
+        {
+            _creatingBrain = false;
+        }
     }
 
     /// <summary>"Nota de esta pantalla": pasa al cerebro con la nota de la pantalla abierta (o un borrador nuevo).</summary>

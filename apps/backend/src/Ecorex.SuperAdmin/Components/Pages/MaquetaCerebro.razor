@@ -1,6 +1,6 @@
-@* Cerebro digital del proyecto de maqueta (ADR-0183): notas markdown enlazadas al estilo Obsidian ([[nota]],
+@* Cerebro digital (ADR-0183; modulo propio desde ADR-0200, el Slug es el del CEREBRO): notas markdown enlazadas al estilo Obsidian ([[nota]],
    [[pantalla.html]], [[T00046]], #etiqueta), backlinks, grafo (ECharts force) e importacion de un vault (.zip de .md).
-   Vive como segunda pestana del editor de maquetas. Cualquier usuario del tenant escribe; archiva el autor o
+   Vive como pestana del editor de maquetas (cerebro principal vinculado) y como pagina /cerebros/{slug}. Cualquier usuario del tenant escribe; archiva el autor o
    Owner/Admin. Cada operacion corre en un scope propio con el tenant de la sesion (patron del editor). Solo ASCII. *@
 @implements IAsyncDisposable
 @using Ecorex.Application.Integraciones.Maqueta
@@ -15,23 +15,27 @@
     <aside class="mb-list">
         <div class="mb-list-head">
             <div class="mb-list-title">
-                <h2>Cerebro</h2>
+                <h2 title="@ProjectName">Cerebro</h2>
                 <span class="mb-count">@_allTitles.Count notas</span>
             </div>
+            @if (!string.IsNullOrEmpty(ModuleUrl))
+            {
+                <a class="mb-module-link" href="@ModuleUrl" title="Abrir este cerebro en el modulo Cerebros"><i class="fa-solid fa-up-right-from-square"></i> @ProjectName &middot; abrir en Cerebros</a>
+            }
             <div class="mb-search">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input placeholder="Buscar en titulos y contenido" @bind="_search" @bind:event="oninput" @bind:after="OnSearchChanged" />
             </div>
             <div class="mb-list-actions">
                 <button class="mb-btn primary" @onclick="NewNoteAsync"><i class="fa-solid fa-plus"></i> Nota</button>
-                <button class="mb-btn" title="Grafo completo del proyecto" @onclick="OpenGraphAsync"><i class="fa-solid fa-diagram-project"></i> Grafo</button>
+                <button class="mb-btn" title="Grafo completo del cerebro" @onclick="OpenGraphAsync"><i class="fa-solid fa-diagram-project"></i> Grafo</button>
                 <button class="mb-icon" title="Adjuntos del cerebro (imagenes y PDF)" @onclick="OpenAssetsPanelAsync"><i class="fa-solid fa-paperclip"></i></button>
                 <button class="mb-icon" title="Importar un vault de Obsidian (.zip con notas .md)" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i></button>
                 <a class="mb-icon" href="@ExportUrl" download data-enhance-nav="false" title="Exportar el cerebro como vault de Obsidian (.zip con las notas .md y los adjuntos)"><i class="fa-solid fa-file-export"></i></a>
                 <button class="mb-icon" title="Papelera: notas archivadas (restaurarlas)" @onclick="OpenTrashAsync"><i class="fa-solid fa-trash-arrow-up"></i></button>
             </div>
-            <button class="mb-claude" title="Piensa con Claude sobre esta maqueta y su cerebro (tu plan de Claude)" @onclick="() => _showClaude = true">
-                <i class="fa-regular fa-comments"></i> Chatear con Claude sobre esta maqueta
+            <button class="mb-claude" title="Piensa con Claude sobre este cerebro (tu plan de Claude)" @onclick="() => _showClaude = true">
+                <i class="fa-regular fa-comments"></i> Chatear con Claude sobre este cerebro
             </button>
         </div>
         <div class="mb-notes">
@@ -66,8 +70,8 @@
         {
             <div class="mb-welcome">
                 <div class="mb-welcome-icon"><i class="fa-solid fa-brain"></i></div>
-                <h3>El cerebro digital de @ProjectName</h3>
-                <p>Escribe lo que piensas mientras construyes la maqueta y enlaza las ideas entre si. Cada enlace se vuelve una conexion en el grafo.</p>
+                <h3>@ProjectName</h3>
+                <p>Escribe lo que piensas y enlaza las ideas entre si. Cada enlace se vuelve una conexion en el grafo.</p>
                 <ul class="mb-syntax">
                     <li><code>[[Nombre de nota]]</code> enlaza otra nota (si no existe queda pendiente y un clic la crea)</li>
                     <li><code>[[pantalla.html]]</code> enlaza una pantalla de la maqueta</li>
@@ -438,7 +442,10 @@
 
 @code {
     [Parameter, EditorRequired] public string Slug { get; set; } = string.Empty;
-    [Parameter] public string ProjectName { get; set; } = "la maqueta";
+    /// <summary>Nombre visible del cerebro (ADR-0200).</summary>
+    [Parameter] public string ProjectName { get; set; } = "Cerebro";
+    /// <summary>Enlace a la pagina del cerebro en el modulo Cerebros (solo cuando se muestra dentro de una maqueta).</summary>
+    [Parameter] public string? ModuleUrl { get; set; }
     [Parameter] public Guid TenantId { get; set; }
     [Parameter] public Guid UserId { get; set; }
     [Parameter] public bool IsAdmin { get; set; }
@@ -613,7 +620,12 @@
                 await OpenNoteByTitleAsync(key);
                 break;
             case MockupBrainLinkKinds.Page:
-                if (Pages.Any(p => string.Equals(p.File, key, StringComparison.OrdinalIgnoreCase)))
+                // Fuera de una maqueta (pagina /cerebros/{slug}, ADR-0200) no hay lista de pantallas: decide el contenedor.
+                if (Pages.Count == 0 && OnOpenPage.HasDelegate)
+                {
+                    await OnOpenPage.InvokeAsync(key);
+                }
+                else if (Pages.Any(p => string.Equals(p.File, key, StringComparison.OrdinalIgnoreCase)))
                 {
                     await OnOpenPage.InvokeAsync(Pages.First(p => string.Equals(p.File, key, StringComparison.OrdinalIgnoreCase)).File);
                 }

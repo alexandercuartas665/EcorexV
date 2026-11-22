@@ -47,6 +47,9 @@ public interface IApplicationDbContext
     // Cerebro digital de la maqueta (ADR-0183).
     DbSet<MockupNote> MockupNotes => throw new NotSupportedException();
     DbSet<MockupNoteLink> MockupNoteLinks => throw new NotSupportedException();
+    DbSet<Brain> Brains => throw new NotSupportedException();
+    DbSet<BrainCategory> BrainCategories => throw new NotSupportedException();
+    DbSet<MockupProjectBrain> MockupProjectBrains => throw new NotSupportedException();
     DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }

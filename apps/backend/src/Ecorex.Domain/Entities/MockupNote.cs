@@ -3,18 +3,18 @@ using Ecorex.Domain.Common;
 namespace Ecorex.Domain.Entities;
 
 /// <summary>
-/// Nota del CEREBRO DIGITAL de un proyecto de maqueta (ADR-0183): texto markdown al estilo Obsidian que se enlaza con
+/// Nota de un CEREBRO DIGITAL (ADR-0183; desde ADR-0200 cuelga de <see cref="Brain"/>, no de la maqueta): texto markdown al estilo Obsidian que se enlaza con
 /// otras notas (<c>[[Titulo]]</c>), con pantallas de la maqueta (<c>[[pantalla.html]]</c>) y con solicitudes
 /// (<c>[[T00046]]</c>). Los enlaces se derivan del cuerpo al guardar (<see cref="MockupNoteLink"/>).
 /// Tenant-scoped + soft-delete (archivar) + concurrencia optimista.
 /// </summary>
 public sealed class MockupNote : TenantEntity, ISoftDeletable, IVersioned
 {
-    public Guid MockupProjectId { get; set; }
+    public Guid BrainId { get; set; }
 
-    public MockupProject? MockupProject { get; set; }
+    public Brain? Brain { get; set; }
 
-    /// <summary>Titulo visible (max 200). Unico por proyecto entre las notas activas (sin distinguir mayusculas).</summary>
+    /// <summary>Titulo visible (max 200). Unico por cerebro entre las notas activas (sin distinguir mayusculas).</summary>
     public string Title { get; set; } = string.Empty;
 
     /// <summary>Titulo normalizado (minusculas, espacios colapsados): la llave con la que se resuelven los enlaces.</summary>
@@ -50,7 +50,7 @@ public sealed class MockupNote : TenantEntity, ISoftDeletable, IVersioned
 /// </summary>
 public sealed class MockupNoteLink : TenantEntity
 {
-    public Guid MockupProjectId { get; set; }
+    public Guid BrainId { get; set; }
 
     public Guid FromNoteId { get; set; }
 

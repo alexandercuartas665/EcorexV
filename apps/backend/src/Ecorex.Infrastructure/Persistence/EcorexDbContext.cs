@@ -387,6 +387,10 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     // ADR-0183: cerebro digital (notas enlazadas) de cada proyecto de maqueta.
     public DbSet<MockupNote> MockupNotes => Set<MockupNote>();
     public DbSet<MockupNoteLink> MockupNoteLinks => Set<MockupNoteLink>();
+    // ADR-0200: cerebros como modulo propio (categorias + vinculo N:M con maquetas).
+    public DbSet<Brain> Brains => Set<Brain>();
+    public DbSet<BrainCategory> BrainCategories => Set<BrainCategory>();
+    public DbSet<MockupProjectBrain> MockupProjectBrains => Set<MockupProjectBrain>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -4080,9 +4084,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.UpdatedByName).HasMaxLength(150);
             b.Property(x => x.ImportedFrom).HasMaxLength(400);
             b.Property(x => x.Version).IsConcurrencyToken();
-            b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.TitleKey }).IsUnique()
+            b.HasIndex(x => new { x.TenantId, x.BrainId, x.TitleKey }).IsUnique()
                 .HasFilter(isNpgsql ? "is_deleted = false" : "[is_deleted] = 0");
-            b.HasOne(x => x.MockupProject).WithMany().HasForeignKey(x => x.MockupProjectId)
+            b.HasOne(x => x.Brain).WithMany().HasForeignKey(x => x.BrainId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<MockupNoteLink>(b =>
@@ -4090,9 +4094,41 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.TargetKind).HasMaxLength(10).IsRequired();
             b.Property(x => x.TargetKey).HasMaxLength(200).IsRequired();
             b.Property(x => x.Label).HasMaxLength(200);
-            b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.TargetKind, x.TargetKey });
+            b.HasIndex(x => new { x.TenantId, x.BrainId, x.TargetKind, x.TargetKey });
             b.HasIndex(x => new { x.TenantId, x.FromNoteId });
             b.HasOne(x => x.FromNote).WithMany().HasForeignKey(x => x.FromNoteId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ADR-0200: cerebro como modulo propio. Slug unico por tenant entre los ACTIVOS; categorias del tenant; vinculo
+        // N:M con maquetas (el de menor SortOrder es el principal de la maqueta).
+        modelBuilder.Entity<Brain>(b =>
+        {
+            b.Property(x => x.Slug).HasMaxLength(40).IsRequired();
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.CreatedByName).HasMaxLength(150);
+            b.Property(x => x.Version).IsConcurrencyToken();
+            b.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique()
+                .HasFilter(isNpgsql ? "is_deleted = false" : "[is_deleted] = 0");
+            b.HasIndex(x => new { x.TenantId, x.CategoryId });
+            b.HasOne(x => x.Category).WithMany().HasForeignKey(x => x.CategoryId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<BrainCategory>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(80).IsRequired();
+            b.Property(x => x.Color).HasMaxLength(9);
+            b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique()
+                .HasFilter(isNpgsql ? "is_deleted = false" : "[is_deleted] = 0");
+        });
+        modelBuilder.Entity<MockupProjectBrain>(b =>
+        {
+            b.HasIndex(x => new { x.TenantId, x.MockupProjectId, x.BrainId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.BrainId });
+            b.HasOne(x => x.MockupProject).WithMany().HasForeignKey(x => x.MockupProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne(x => x.Brain).WithMany().HasForeignKey(x => x.BrainId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

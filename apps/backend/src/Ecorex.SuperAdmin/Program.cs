@@ -261,6 +261,8 @@ builder.Services.AddMaquetaHub(builder.Configuration, builder.Environment.IsDeve
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupService, Ecorex.Application.Integraciones.Maqueta.MockupService>();
 // Cerebro digital de la maqueta (ADR-0183): notas enlazadas tipo Obsidian, backlinks, grafo e importacion de vault.
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupBrainService, Ecorex.Application.Integraciones.Maqueta.MockupBrainService>();
+// ADR-0200: catalogo de cerebros (modulo Cerebros, categorias, vinculo con maquetas).
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Cerebro.IBrainService, Ecorex.Application.Integraciones.Cerebro.BrainService>();
 // MCP de maquetas (ADR-0182): aqui y no en Application porque depende de IMockupService/IMockupBrainService.
 builder.Services.AddScoped<Ecorex.Application.Mcp.IMaquetaMcpToolset, Ecorex.Application.Mcp.MaquetaMcpToolset>();
 builder.Services.AddSingleton<MockupSiteCache>();
@@ -433,6 +435,7 @@ if (!app.Environment.IsDevelopment())
         //  - "Plantillas de correo" (v0.16.340) debajo de "Plantillas WhatsApp" en cada vista que lo tenga.
         await seeder.EnsurePlantillasCorreoMenuItemAsync();
         await seeder.EnsureMaquetasMenuItemAsync();
+        await seeder.EnsureCerebrosMenuItemAsync();
         // Plantilla "Orden de compra" (grupo Compras) una vez por tenant (ADR-0189). Idempotente.
         await seeder.EnsureOrdenCompraTemplateAsync();
         // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
@@ -610,6 +613,7 @@ else
     // Backfill idempotente (v0.16.340): item "Plantillas de correo" debajo de "Plantillas WhatsApp".
     await seeder.EnsurePlantillasCorreoMenuItemAsync();
     await seeder.EnsureMaquetasMenuItemAsync();
+    await seeder.EnsureCerebrosMenuItemAsync();
     // Plantilla "Orden de compra" (grupo Compras) una vez por tenant (ADR-0189). Idempotente.
     await seeder.EnsureOrdenCompraTemplateAsync();
     // Retira el item de menu "plantillas" (galeria ahora es modal en Flujos/Formularios, ADR-0097). Idempotente.

@@ -1,0 +1,126 @@
+/* Pagina de un cerebro (ADR-0200): mismo marco que el editor de maquetas, a pantalla completa. */
+.cp-shell {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 92px);
+    min-height: 520px;
+    border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--surface, #fff);
+    box-shadow: var(--sh-sm, none);
+}
+
+.cp-empty {
+    padding: 48px 16px;
+    text-align: center;
+    color: var(--ink-2, #6b7280);
+}
+
+.cp-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line-2, #e5e7eb);
+    background: var(--surface-2, #fafafa);
+    flex-wrap: wrap;
+}
+
+.cp-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    color: var(--ink-2, #5c5c66);
+    text-decoration: none;
+}
+
+.cp-back:hover {
+    background: var(--surface-3, #f2f2f3);
+    color: var(--ink, #1b1b1e);
+}
+
+.cp-icon {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    color: var(--cp-accent, #7c3aed);
+    background: color-mix(in srgb, var(--cp-accent, #7c3aed) 12%, #fff);
+}
+
+.cp-brand {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    min-width: 0;
+}
+
+.cp-name {
+    font-weight: 650;
+    font-size: 14px;
+    color: var(--ink, #1b1b1e);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cp-brand small {
+    font-size: 11px;
+    color: var(--ink-2, #6b7280);
+}
+
+.cp-mockups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.cp-mockup {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--surface-3, #f2f2f3);
+    font-size: 12px;
+    color: var(--ink-2, #5c5c66);
+    text-decoration: none;
+}
+
+.cp-mockup:hover {
+    color: var(--t-violet, #7c3aed);
+}
+
+.cp-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.cp-toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 1050;
+    max-width: 420px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: #1b1b1e;
+    color: #fff;
+    font-size: 13px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
+}
+
+@media (max-width: 600px) {
+    .cp-mockups {
+        margin-left: 0;
+        width: 100%;
+    }
+}

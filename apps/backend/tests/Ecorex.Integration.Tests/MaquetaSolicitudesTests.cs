@@ -337,6 +337,13 @@ public abstract class MaquetaSolicitudesTestsBase
         var actor = Actor(seed);
         var mcp = BuildMcp(ctx, tenantCtx, files);
         mcp.PublicBaseUrl = "https://app.test";
+        // ADR-0200: sin cerebro vinculado, las herramientas de notas lo explican; al crearlo, "proyecto" resuelve al principal.
+        var sinCerebro = await mcp.ExecuteAsync("listar_notas", "{}", actor);
+        Assert.True(sinCerebro.IsError);
+        Assert.Contains("no tiene cerebro vinculado", sinCerebro.Json);
+        var creado = await new Ecorex.Application.Integraciones.Cerebro.BrainService(ctx, new AuditWriter(ctx)).CreateForMockupAsync("tronox-sgdea", actor);
+        Assert.True(creado.IsOk, creado.Error);
+        Assert.Equal("tronox-sgdea", creado.Value!.Slug);
         Assert.True(mcp.ReadOnlyTools.All(t => mcp.GetSpecs().Any(s => s.Name == t)));
         Assert.Contains("ver_nota", mcp.ReadOnlyTools);
         Assert.DoesNotContain("crear_nota", mcp.ReadOnlyTools);

@@ -50,6 +50,18 @@ public sealed record LimpiarMarcaRequest(
 /// <summary>Resultado de limpiar: filas alcanzadas y celdas vaciadas.</summary>
 public sealed record LimpiarMarcaResultado(bool Ok, string? Error, int Filas = 0, int Celdas = 0);
 
+/// <summary>Pedido de RELLENAR una columna calculando su valor desde otras columnas de la misma fila (ADR-0201).</summary>
+/// <param name="TableId">Tabla ya resuelta y tenant-scoped.</param>
+/// <param name="ColumnaDestino">Columna que se escribe (ej. clave_ingesta).</param>
+/// <param name="Plantilla">Texto con {columna} por cada valor a insertar (ej. "{numero_proceso}|{url}").</param>
+/// <param name="SoloVacias">true (defecto) = solo filas con la columna destino vacia; false = sobrescribe.</param>
+public sealed record RellenarColumnaRequest(Guid TableId, string ColumnaDestino, string Plantilla, bool SoloVacias = true);
+
+/// <summary>Resultado de rellenar: filas escritas, filas sin cambio (ya tenian ese valor) y las que siguen pendientes
+/// (solo con SoloVacias, si se supero el tope por llamada). Muestra = primeros valores calculados.</summary>
+public sealed record RellenarColumnaResultado(
+    bool Ok, string? Error, int Rellenadas = 0, int SinCambio = 0, int Restantes = 0, IReadOnlyList<string>? Muestra = null);
+
 /// <summary>
 /// RUNNER DE CLASIFICACION POR LOTES sobre un contenedor de datos (ADR-0197). Toma hasta N filas de una tabla cuya
 /// columna marca esta vacia, se las envia a un agente de IA (su prompt de sistema + un contrato de salida JSON),
@@ -71,6 +83,15 @@ public interface IContenedorClasificacionService
     /// refresca celdas ya cargadas en el mismo contexto; reclasificar en un scope nuevo (MCP y worker ya lo hacen).
     /// </summary>
     Task<LimpiarMarcaResultado> LimpiarMarcaAsync(LimpiarMarcaRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// ADR-0201: RELLENA la columna destino de las filas raiz de la tabla con una plantilla que combina otras columnas
+    /// de la misma fila (ej. "{numero_proceso}|{url}" para una clave de ingesta compuesta). Solo toca filas con al menos
+    /// un valor de origen; por defecto solo las que tienen el destino vacio (idempotente: repetir no cambia nada). No
+    /// borra filas ni toca otras columnas. Hasta <see cref="ContenedorClasificacionService.MaxFilasRellenar"/> filas
+    /// por llamada, en UNA transaccion (todo o nada); lo que falte queda en 'Restantes' para la siguiente llamada.
+    /// </summary>
+    Task<RellenarColumnaResultado> RellenarColumnaAsync(RellenarColumnaRequest request, CancellationToken ct = default);
 }
 
 public sealed class ContenedorClasificacionService : IContenedorClasificacionService
@@ -302,6 +323,100 @@ public sealed class ContenedorClasificacionService : IContenedorClasificacionSer
                 .SetProperty(c => c.Value, (string?)null)
                 .SetProperty(c => c.UpdatedAt, ahora), ct);
         return new LimpiarMarcaResultado(true, null, alcanzadas, celdas);
+    }
+
+    /// <summary>Tope de filas que procesa una llamada de <see cref="RellenarColumnaAsync"/>.</summary>
+    public const int MaxFilasRellenar = 20_000;
+    private const int LoteRellenar = 1_000;
+    private static readonly System.Text.RegularExpressions.Regex Marcador = new(@"\{([^{}]+)\}",
+        System.Text.RegularExpressions.RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+
+    public async Task<RellenarColumnaResultado> RellenarColumnaAsync(RellenarColumnaRequest req, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tenantId) { return new RellenarColumnaResultado(false, "Sin tenant activo."); }
+        if (string.IsNullOrWhiteSpace(req.ColumnaDestino)) { return new RellenarColumnaResultado(false, "Indica la columna destino."); }
+        if (string.IsNullOrWhiteSpace(req.Plantilla)) { return new RellenarColumnaResultado(false, "Indica la plantilla (ej. \"{numero_proceso}|{url}\")."); }
+
+        var cols = await ContenedorFilasPorClave.ColumnasAsync(_db, req.TableId, ct);
+        var destino = req.ColumnaDestino.Trim();
+        var origen = Marcador.Matches(req.Plantilla).Select(m => m.Groups[1].Value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (origen.Count == 0)
+        {
+            return new RellenarColumnaResultado(false, "La plantilla debe nombrar al menos una columna entre llaves, ej. \"{numero_proceso}|{url}\".");
+        }
+        var faltantes = origen.Append(destino).Where(n => !cols.ContainsKey(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (faltantes.Count > 0)
+        {
+            return new RellenarColumnaResultado(false, $"La tabla no tiene las columnas: {string.Join(", ", faltantes)}. Columnas: {string.Join(", ", cols.Keys)}.");
+        }
+        if (origen.Contains(destino, StringComparer.OrdinalIgnoreCase))
+        {
+            return new RellenarColumnaResultado(false, "La columna destino no puede ser parte de la plantilla.");
+        }
+        var destId = cols[destino];
+        var origenIds = origen.Select(n => cols[n]).ToList();
+        var nombrePorId = origen.ToDictionary(n => cols[n], n => n);
+
+        // Candidatas: filas raiz con algun valor de origen (y, con SoloVacias, sin valor en el destino).
+        var candidatas = _db.DataContainerRows.Where(r => r.ContainerId == req.TableId && r.ParentRowId == null
+            && _db.DataContainerCells.Any(c => c.RowId == r.Id && origenIds.Contains(c.ColumnId) && c.Value != null && c.Value != ""));
+        if (req.SoloVacias)
+        {
+            candidatas = candidatas.Where(r => !_db.DataContainerCells.Any(c => c.RowId == r.Id && c.ColumnId == destId && c.Value != null && c.Value != ""));
+        }
+        var ids = await candidatas.OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).Select(r => r.Id).Take(MaxFilasRellenar + 1).ToListAsync(ct);
+        if (!req.SoloVacias && ids.Count > MaxFilasRellenar)
+        {
+            return new RellenarColumnaResultado(false,
+                $"La tabla tiene mas de {MaxFilasRellenar} filas: para sobrescribir todas no alcanza una llamada. Usa solo_vacias=true (repetible).");
+        }
+        if (ids.Count > MaxFilasRellenar) { ids.RemoveAt(ids.Count - 1); }
+
+        var rellenadas = 0;
+        var sinCambio = 0;
+        var muestra = new List<string>();
+        var ahora = _clock.GetUtcNow();
+        await using (var tx = _db.HasActiveTransaction ? null : await _db.BeginTransactionAsync(ct))
+        {
+            foreach (var lote in ids.Chunk(LoteRellenar))
+            {
+                var valores = await _db.DataContainerCells.AsNoTracking()
+                    .Where(c => lote.Contains(c.RowId) && origenIds.Contains(c.ColumnId))
+                    .Select(c => new { c.RowId, c.ColumnId, c.Value })
+                    .ToListAsync(ct);
+                var porFila = valores.GroupBy(c => c.RowId)
+                    .ToDictionary(g => g.Key, g => g.GroupBy(c => c.ColumnId)
+                        .ToDictionary(x => nombrePorId[x.Key], x => x.First().Value, StringComparer.OrdinalIgnoreCase));
+                var destinos = await _db.DataContainerCells
+                    .Where(c => lote.Contains(c.RowId) && c.ColumnId == destId)
+                    .ToListAsync(ct);
+                var destPorFila = destinos.GroupBy(c => c.RowId).ToDictionary(g => g.Key, g => g.First());
+
+                foreach (var rowId in lote)
+                {
+                    var fila = porFila.TryGetValue(rowId, out var f) ? f : new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                    var valor = Marcador.Replace(req.Plantilla, m => fila.TryGetValue(m.Groups[1].Value.Trim(), out var v) ? v?.Trim() ?? "" : "");
+                    if (muestra.Count < 3) { muestra.Add(valor); }
+                    if (destPorFila.TryGetValue(rowId, out var cell))
+                    {
+                        if (cell.Value == valor) { sinCambio++; continue; }
+                        cell.Value = valor;
+                        cell.UpdatedAt = ahora;
+                    }
+                    else
+                    {
+                        _db.DataContainerCells.Add(new Domain.Entities.DataContainerCell { TenantId = tenantId, RowId = rowId, ColumnId = destId, Value = valor });
+                    }
+                    rellenadas++;
+                }
+                await _db.SaveChangesAsync(ct);
+            }
+            if (tx is not null) { await tx.CommitAsync(ct); }
+        }
+
+        var restantes = req.SoloVacias ? await candidatas.CountAsync(ct) : 0;
+        return new RellenarColumnaResultado(true, null, rellenadas, sinCambio, restantes, muestra);
     }
 
     /// <summary>Filas raiz de la tabla con valor en la clave y la marca vacia (o sin celda de marca).</summary>

@@ -13,6 +13,7 @@
 > (addendum 2026-11-21: +9 herramientas de Reportes e indicadores, ADR-0198, total 151; rama `feat/reportes-mcp`)
 > (addendum 2026-11-21: +4 herramientas del paso de clasificacion en la importacion + limpiar_marca, ADR-0199, total 155;
 > rama `feat/clasificacion-en-importacion`)
+> (addendum 2026-11-22: +1 herramienta `rellenar_columna`, ADR-0201, total 156; rama `feat/mcp-rellenar-columna`)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -23,7 +24,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **155** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **156** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -254,6 +255,7 @@ contenedores estan inyectados. Complemento del agente: `actualizar_filas_por_cla
 |---|---|---|---|
 | clasificar_lote | W | Edit | Clasifica un lote de filas pendientes con un agente y escribe salida + marca por clave |
 | limpiar_marca | W (destructiva) | Edit | ADR-0199: vacia la marca (y opcionalmente las salidas) de todas las filas o por filtro {columna: valor}, para reclasificar |
+| rellenar_columna | W | Edit | ADR-0201: llena una columna de las filas existentes con una plantilla de otras columnas de la misma fila ("{a}|{b}"); por defecto solo vacias, 20000 filas por llamada en una transaccion |
 | configurar_paso_clasificacion | W | Edit | ADR-0199: paso de clasificacion en una programacion de importacion; tras cada corrida ok clasifica solo lo nuevo (tope de lotes, cupo del plan) |
 | quitar_paso_clasificacion | W | Edit | ADR-0199: quita el paso (la importacion sigue igual) |
 | ejecutar_clasificacion_ahora | W | Edit | ADR-0199: encola la clasificacion de la programacion; el worker la corre en < 1 min y deja el resumen en la bitacora |
@@ -392,7 +394,7 @@ Brechas priorizadas (propuesta):
 | ADR-0193 (extraccion) / ADR-0194 (contenedor de datos) / ADR-0195 (agentes de IA) | Nuevos; 17 + 23 + 17 herramientas en la rama `feat/mcp-terminar-tarea` |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 155/155 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
+| Descripciones y esquemas | 156/156 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

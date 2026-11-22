@@ -216,6 +216,72 @@ public abstract class ImportClasificacionPasoTestsBase
     }
 
     [Fact]
+    public async Task RellenarColumna_PorPlantilla_SoloVacias_Sobrescribe_YEsTenantScoped()
+    {
+        var a = await SeedTenantAsync("Rellenar A");
+        var b = await SeedTenantAsync("Rellenar B");
+        var sa = await SeedAsync(a, "P1", "P2", "P3");
+        var sb = await SeedAsync(b, "P1");
+        await MarcarAsync(a, sa, "P2", "manual", existente: true);   // P2 ya tiene destino: no se toca con solo_vacias
+        await MarcarAsync(a, sa, "P9", "2026-01-01T00:00:00Z");      // P9 solo tiene clave y marca (sin nombre)
+        var ia = new IaFalsa();
+
+        await using (var ctx = _fixture.CreateContext(a))
+        {
+            var clasif = NewClasificador(ctx, a, ia, out _);
+            // Columna inexistente o plantilla sin marcadores: error, nada cambia.
+            var mal = await clasif.RellenarColumnaAsync(new RellenarColumnaRequest(sa.TableId, "clasificado_en", "{no_existe}|{nombre}"));
+            Assert.False(mal.Ok);
+            Assert.Contains("no_existe", mal.Error);
+            Assert.False((await clasif.RellenarColumnaAsync(new RellenarColumnaRequest(sa.TableId, "clasificado_en", "fijo"))).Ok);
+            Assert.False((await clasif.RellenarColumnaAsync(new RellenarColumnaRequest(sa.TableId, "nombre", "{nombre}-x"))).Ok);
+
+            // Solo vacias: P1 y P3; P2 y P9 ya tienen valor en el destino y se conservan.
+            var r1 = await clasif.RellenarColumnaAsync(new RellenarColumnaRequest(sa.TableId, "clasificado_en", "{id_proceso}|{nombre}"));
+            Assert.True(r1.Ok, r1.Error);
+            Assert.Equal(2, r1.Rellenadas);
+            Assert.Equal(0, r1.Restantes);
+            Assert.Contains("P1|Proceso P1", r1.Muestra!);
+        }
+
+        await using (var ctx = _fixture.CreateContext(a))
+        {
+            var filas = await LeerAsync(ctx, sa);
+            Assert.Equal("P1|Proceso P1", filas["P1"]["clasificado_en"]);
+            Assert.Equal("P3|Proceso P3", filas["P3"]["clasificado_en"]);
+            Assert.Equal("manual", filas["P2"]["clasificado_en"]);
+            Assert.Equal("2026-01-01T00:00:00Z", filas["P9"]["clasificado_en"]); // ya tenia valor
+
+            // Repetir no cambia nada (idempotente).
+            var clasif = NewClasificador(ctx, a, ia, out _);
+            var r2 = await clasif.RellenarColumnaAsync(new RellenarColumnaRequest(sa.TableId, "clasificado_en", "{id_proceso}|{nombre}"));
+            Assert.Equal(0, r2.Rellenadas);
+            Assert.Equal(0, r2.Restantes);
+
+            // Sobrescribir: todas las filas con origen; P1 y P3 ya tenian ese valor (sin cambio).
+            var r3 = await clasif.RellenarColumnaAsync(new RellenarColumnaRequest(sa.TableId, "clasificado_en", "{id_proceso}|{nombre}", SoloVacias: false));
+            Assert.True(r3.Ok, r3.Error);
+            Assert.Equal(2, r3.SinCambio);
+            Assert.Equal(2, r3.Rellenadas); // P2 y P9
+        }
+
+        await using (var ctx = _fixture.CreateContext(a))
+        {
+            var filas = await LeerAsync(ctx, sa);
+            Assert.Equal("P2|Proceso P2", filas["P2"]["clasificado_en"]);
+            Assert.Equal("P9|", filas["P9"]["clasificado_en"]); // sin nombre: el marcador queda vacio
+            Assert.Equal("Proceso P1", filas["P1"]["nombre"]);   // el origen no se toca
+        }
+
+        // El tenant B no se toco.
+        await using (var ctx = _fixture.CreateContext(b))
+        {
+            var filas = await LeerAsync(ctx, sb);
+            Assert.False(filas["P1"].ContainsKey("clasificado_en"));
+        }
+    }
+
+    [Fact]
     public async Task CierreOk_PideClasificacion_YElBarridoLaCorreYAnota()
     {
         var t = await SeedTenantAsync("Paso Barrido");

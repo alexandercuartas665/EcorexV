@@ -21,7 +21,7 @@ namespace Ecorex.Application.Mcp;
 /// </summary>
 public sealed partial class TableroMcpToolset
 {
-    private static readonly HashSet<string> ClassifyToolNames = new(StringComparer.Ordinal) { "clasificar_lote", "limpiar_marca" };
+    private static readonly HashSet<string> ClassifyToolNames = new(StringComparer.Ordinal) { "clasificar_lote", "limpiar_marca", "rellenar_columna" };
 
     private static readonly HashSet<string> ClassifyDestructive = new(StringComparer.Ordinal) { "limpiar_marca" };
 
@@ -52,6 +52,13 @@ public sealed partial class TableroMcpToolset
             "({columna: valor}, igualdad exacta, todas las condiciones) solo las que coinciden. No borra filas ni " +
             "columnas. Confirma con el usuario antes de usarla: reclasificar consume tokens de IA.",
             """{"type":"object","properties":{"contenedor":{"type":"string","description":"id o nombre del contenedor"},"tabla":{"type":"string","description":"id o nombre de la tabla"},"columna_marca":{"type":"string","description":"columna marca a vaciar (ej. clasificado_en)"},"columnas_salida":{"type":"array","items":{"type":"string"},"description":"opcional: columnas de salida a vaciar tambien (ej. [\"sector\"])"},"filtro":{"type":"object","additionalProperties":{"type":"string"},"description":"opcional: {columna: valor} para limpiar solo esas filas"}},"required":["contenedor","tabla","columna_marca"],"additionalProperties":false}"""),
+        new("rellenar_columna",
+            "RELLENA una columna de las filas existentes de una tabla calculando su valor desde otras columnas de la " +
+            "MISMA fila con una 'plantilla' (cada {columna} se reemplaza por su valor; ej. \"{numero_proceso}|{url}\" " +
+            "para una clave de ingesta compuesta). Por defecto solo toca filas con la columna destino VACIA (repetible " +
+            "sin efectos); con solo_vacias=false sobrescribe. Ignora filas sin ningun valor de origen. No borra filas " +
+            "ni toca otras columnas. Hasta 20000 filas por llamada en una transaccion; si 'restantes' > 0, repitela.",
+            """{"type":"object","properties":{"contenedor":{"type":"string","description":"id o nombre del contenedor"},"tabla":{"type":"string","description":"id o nombre de la tabla"},"columna":{"type":"string","description":"columna destino a rellenar (ej. clave_ingesta)"},"plantilla":{"type":"string","description":"texto con {columna} por cada valor, ej. \"{numero_proceso}|{url}\""},"solo_vacias":{"type":"boolean","description":"true (defecto) = solo filas con la columna vacia; false = sobrescribe"}},"required":["contenedor","tabla","columna","plantilla"],"additionalProperties":false}"""),
     };
 
     private static readonly AiToolSpec[] ClassifyStepSpecs =
@@ -84,6 +91,7 @@ public sealed partial class TableroMcpToolset
         var denied = NeedContainer(perms, PermissionAction.Edit, "clasificar filas de contenedores de datos");
         if (denied is not null) { return Err(denied); }
         if (tool == "limpiar_marca") { return await ClearMarkAsync(args, ct); }
+        if (tool == "rellenar_columna") { return await FillColumnAsync(args, ct); }
 
         var (_, table, error) = await ResolveTableAsync(Str(args, "contenedor"), Str(args, "tabla"), ct);
         if (error is not null) { return Err(error); }
@@ -143,6 +151,34 @@ public sealed partial class TableroMcpToolset
             filas = r.Filas,
             celdas_vaciadas = r.Celdas,
             aviso = r.Filas == 0 ? "Ninguna fila coincide con el filtro." : "Esas filas vuelven a estar pendientes de clasificar."
+        });
+    }
+
+    /// <summary>ADR-0201: rellenar_columna (plantilla con otras columnas de la misma fila).</summary>
+    private async Task<McpToolResult> FillColumnAsync(JsonElement args, CancellationToken ct)
+    {
+        var (_, table, error) = await ResolveTableAsync(Str(args, "contenedor"), Str(args, "tabla"), ct);
+        if (error is not null) { return Err(error); }
+        var columna = Str(args, "columna");
+        var plantilla = Str(args, "plantilla");
+        if (string.IsNullOrWhiteSpace(columna) || string.IsNullOrWhiteSpace(plantilla))
+        {
+            return Err("Indica la columna destino y la plantilla (ej. \"{numero_proceso}|{url}\").");
+        }
+        var soloVacias = !(args.TryGetProperty("solo_vacias", out var sv) && sv.ValueKind == JsonValueKind.False);
+        var r = await _clasificador!.RellenarColumnaAsync(new RellenarColumnaRequest(table!.Id, columna, plantilla, soloVacias), ct);
+        if (!r.Ok) { return Err(r.Error ?? "No se pudo rellenar la columna."); }
+        return Ok(new
+        {
+            ok = true,
+            tabla = table.Name,
+            columna,
+            rellenadas = r.Rellenadas,
+            sin_cambio = r.SinCambio,
+            restantes = r.Restantes,
+            muestra = r.Muestra,
+            aviso = r.Rellenadas == 0 && r.SinCambio == 0 ? "No habia filas para rellenar (destino ya lleno o sin valores de origen)."
+                : r.Restantes > 0 ? "Quedan filas: repite la llamada." : null
         });
     }
 

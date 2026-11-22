@@ -2,9 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-21 - v0.16.371: Enlace publico: filtros guardados de la hoja quedan fijos (ADR-0158 addendum c) - rama claude/system-indicators-data-sources-e53a43 - PENDIENTE DE DEPLOY
+## 2026-11-21 - v0.16.371: Enlace publico: filtros guardados de la hoja quedan fijos (ADR-0158 addendum c) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA
 
-- **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (8a9159dd = fix e09714d7) al tronco y main como v0.16.371. Cierra el bloqueo de v0.16.370 (se despliegan juntas). Gates: build Release 0 errores; unitarias 1687/312/35; integracion dual Analisis 46/46 (PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (8a9159dd = fix e09714d7) al tronco y main como v0.16.371. Cierra el bloqueo de v0.16.370 (se despliegan juntas). Gates: build Release 0 errores; unitarias 1687/312/35; integracion dual Analisis 46/46 (PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.
+- **Deploy (2026-11-22 04:15 Bogota)**: OK del usuario (dentro de la ventana del barrido DRON dominical, por decision expresa del usuario: el relanza el proceso a mano). Via rapida GHCR (CI 44980474581 verde sobre 00ca299b), lleva v0.16.370 + v0.16.371. Footer /login = v0.16.371, ecorex-app Restarts=0, 0 errores. Rollback: imagen anterior sha256:44fcce53...
 
 - **Agente**: ECOREX.indicadores, por hallazgo de ECOREX.desarrollo al integrar v0.16.370: con los filtros nuevos del enlace publico, quien abre el link podia borrar un filtro guardado (p.ej. Vendedor=X) y ver los datos de todos.
 - **Hecho**: `HojaFiltros.DentroDe(fijos)`: en `/a/{token}` los filtros guardados de la hoja son un piso (solo se acota; vendedor/tablero fijos mandan, el rango se recorta y uno fuera del fijo queda vacio). Se aplica en el servidor al calcular; la barra bloquea los campos fijados, limita las fechas y lo indica. Sin migracion.
@@ -12,7 +13,7 @@
 - **Verificado en vivo** (5269, Playwright headless): hoja guardada con Tablero=APROBAR y compartida; el anonimo ve solo APROBAR (48), el campo esta bloqueado y, aun forzando el campo vacio desde el navegador y aplicando, sigue viendo solo APROBAR; 0 errores de consola. Libro local restaurado (compartido en la empresa, sin enlace activo, hojas sin filtros guardados).
 - **Siguiente**: ECOREX.desarrollo integra sobre v0.16.370 (NO desplegar v0.16.370 sin esta correccion) y despliega con OK del usuario.
 
-## 2026-11-21 - v0.16.370: Filtros en el enlace publico de los libros de indicadores (ADR-0158 addendum b) - rama claude/system-indicators-data-sources-e53a43 - NO DESPLEGAR SOLA
+## 2026-11-21 - v0.16.370: Filtros en el enlace publico de los libros de indicadores (ADR-0158 addendum b) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA (junto con v0.16.371)
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (f3fd36d9) al tronco y main como v0.16.370. Gates: build Release 0 errores; unitarias 1686/312/35; integracion dual Analisis 46/46 (PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.
 - **BLOQUEO (privacidad)**: en /a/{token} el receptor anonimo puede borrar o cambiar los filtros guardados de la hoja (ej. Vendedor=X) y ver datos de todos. NO desplegar v0.16.370 sola: ECOREX.indicadores prepara la correccion (los filtros guardados pasan a ser un piso que solo se puede acotar); se integra encima y se despliega junta.

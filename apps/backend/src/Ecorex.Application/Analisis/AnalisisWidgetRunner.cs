@@ -13,7 +13,31 @@ public sealed record AnalisisWidgetResultado(WidgetShape? Forma, string? Error, 
     /// <summary>Avisos no fatales (p.ej. una serie del combinado recortada por el tope de filas).</summary>
     public IReadOnlyList<string> Avisos { get; init; } = Array.Empty<string>();
 
+    /// <summary>Selecciones por clic (Ola 7c) que este widget NO pudo aplicar: su fuente no tiene un campo
+    /// equivalente. Muestra sus datos sin ese filtro y la tarjeta lo advierte.</summary>
+    public IReadOnlyList<string> CrucesSinAplicar { get; init; } = Array.Empty<string>();
+
     public bool Ok => Error is null && Forma is not null;
+}
+
+/// <summary>
+/// Registros detras de un elemento tocado de un grafico (ADR-0158 Ola 7c): filas de la fuente del widget con
+/// sus filtros + los de la hoja + las demas selecciones + el elemento tocado. Hasta
+/// <see cref="AnalisisCruce.MaxFilasDetalle"/> filas (<see cref="Recortado"/> = habia mas).
+/// </summary>
+public sealed record AnalisisDetalle(IReadOnlyList<ReportColumn> Columnas, IReadOnlyList<IReadOnlyList<object?>> Filas, string? Error = null)
+{
+    public bool Recortado { get; init; }
+
+    /// <summary>"tarea" / "tercero": cada fila se puede abrir; el Id va en la columna <see cref="EnlaceIndice"/>.</summary>
+    public string? EnlaceTipo { get; init; }
+
+    public int EnlaceIndice { get; init; } = -1;
+
+    public bool Ok => Error is null;
+
+    public static AnalisisDetalle Fallo(string error) =>
+        new(Array.Empty<ReportColumn>(), Array.Empty<IReadOnlyList<object?>>(), error);
 }
 
 /// <summary>
@@ -24,9 +48,15 @@ public interface IAnalisisWidgetRunner
 {
     /// <param name="hoja">Filtros globales de la hoja (null = sin filtros). Cada widget los aplica sobre su fuente.</param>
     /// <param name="contexto">Parametros del modulo anfitrion cuando el widget va embebido (ADR-0158 D9).</param>
+    /// <param name="cruces">Selecciones hechas tocando graficos de la hoja (Ola 7c). Las del propio widget se ignoran.</param>
     Task<AnalisisWidgetResultado> RunAsync(
         AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null,
-        IReadOnlyDictionary<string, string>? contexto = null);
+        IReadOnlyDictionary<string, string>? contexto = null, IReadOnlyList<SeleccionCruzada>? cruces = null);
+
+    /// <summary>Registros detras de un elemento tocado del grafico del widget (Ola 7c). Nunca lanza: error legible.</summary>
+    Task<AnalisisDetalle> DetalleAsync(
+        AnalisisWidgetDto widget, IReadOnlyList<CondicionCruzada> condiciones, ReportContext ctx, CancellationToken ct = default,
+        HojaFiltros? hoja = null, IReadOnlyDictionary<string, string>? contexto = null, IReadOnlyList<SeleccionCruzada>? cruces = null);
 }
 
 public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
@@ -56,7 +86,7 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
 
     public async Task<AnalisisWidgetResultado> RunAsync(
         AnalisisWidgetDto widget, ReportContext ctx, CancellationToken ct = default, HojaFiltros? hoja = null,
-        IReadOnlyDictionary<string, string>? contexto = null)
+        IReadOnlyDictionary<string, string>? contexto = null, IReadOnlyList<SeleccionCruzada>? cruces = null)
     {
         try
         {
@@ -67,9 +97,12 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
                 ctx = ctx with { TenantZone = await _zona.ObtenerAsync(ct) };
             }
 
+            // Ola 7c: las selecciones por clic de OTROS widgets de la hoja filtran este.
+            var extras = new FiltrosExtra(hoja, contexto, widget.ContextBindingsJson, cruces, widget.Id, ctx.TenantZone);
+
             if (string.Equals(widget.IndicadorKey, CombinadoDiseno.IndicadorKey, StringComparison.Ordinal))
             {
-                return await RunCombinadoAsync(widget, ctx, hoja, contexto, ct);
+                return await RunCombinadoAsync(widget, ctx, extras, ct);
             }
 
             if (!string.IsNullOrWhiteSpace(widget.IndicadorKey))
@@ -80,9 +113,9 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
                     return new(null, "El indicador ya no existe.");
                 }
 
-                var (extra, fuera) = await FiltrosExtraAsync(curado.SourceKey, hoja, contexto, widget.ContextBindingsJson, ct);
+                var (extra, fuera, sin) = await FiltrosExtraAsync(curado.SourceKey, extras, ct);
                 var forma = await curado.QueryAsync(new IndicadorContexto(ctx, extra), ct);
-                return new(Adaptar(forma, widget), null, fuera);
+                return new(Adaptar(forma, widget), null, fuera) { CrucesSinAplicar = sin };
             }
 
             var spec = AnalisisJson.DeserializeSpec(widget.SpecJson);
@@ -95,10 +128,10 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
             var periodo = WidgetConfig.Leer(widget.ConfigJson).Periodo;
             if (WidgetDisenoMapper.UsaCampoFecha(widget.Tipo) || (WidgetDisenoMapper.EsEscalar(widget.Tipo) && KpiPeriodos.EsValido(periodo)))
             {
-                return await RunPorFechaAsync(spec, widget, periodo, ctx, hoja, contexto, ct);
+                return await RunPorFechaAsync(spec, widget, periodo, ctx, extras, ct);
             }
 
-            var (filtrosHoja, fueraDeContexto) = await FiltrosExtraAsync(spec.SourceKey, hoja, contexto, widget.ContextBindingsJson, ct);
+            var (filtrosHoja, fueraDeContexto, sinAplicar) = await FiltrosExtraAsync(spec.SourceKey, extras, ct);
             if (filtrosHoja.Count > 0)
             {
                 spec = spec with { Filters = spec.Filters.Concat(filtrosHoja).ToList() };
@@ -109,11 +142,11 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
             if (spec.GroupBy.Count == 0 && spec.Aggregates.Count == 1)
             {
                 var valor = await AgregarSinGrupoAsync(spec, ctx, ct);
-                return new(Adaptar(new EscalarShape(valor, widget.Titulo), widget), null, fueraDeContexto);
+                return new(Adaptar(new EscalarShape(valor, widget.Titulo), widget), null, fueraDeContexto) { CrucesSinAplicar = sinAplicar };
             }
 
             var ds = await _data.QueryAsync(spec, ctx, ct);
-            return new(Adaptar(AFormar(ds, widget), widget), null, fueraDeContexto);
+            return new(Adaptar(AFormar(ds, widget), widget), null, fueraDeContexto) { CrucesSinAplicar = sinAplicar };
         }
         catch (ReportValidationException ex)
         {
@@ -134,7 +167,7 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
     /// DbContext), con los filtros de hoja/contexto que apliquen a SU fuente, y cruza en memoria.
     /// </summary>
     private async Task<AnalisisWidgetResultado> RunCombinadoAsync(
-        AnalisisWidgetDto widget, ReportContext ctx, HojaFiltros? hoja, IReadOnlyDictionary<string, string>? contexto, CancellationToken ct)
+        AnalisisWidgetDto widget, ReportContext ctx, FiltrosExtra extras, CancellationToken ct)
     {
         var config = WidgetConfig.Leer(widget.ConfigJson);
         if (config.Combinado is not { Series.Count: > 0 } diseno)
@@ -144,16 +177,18 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
 
         var datos = new List<ReportDataSet>(diseno.Series.Count);
         var fuera = false;
+        var sinAplicar = new List<string>();
         foreach (var serie in diseno.Series.Take(CombinadoDiseno.MaxSeries))
         {
-            var (extra, ignorado) = await FiltrosExtraAsync(serie.SourceKey, hoja, contexto, widget.ContextBindingsJson, ct);
+            var (extra, ignorado, sin) = await FiltrosExtraAsync(serie.SourceKey, extras, ct);
             fuera |= ignorado;
+            sinAplicar.AddRange(sin.Except(sinAplicar));
             datos.Add(await _data.QueryAsync(CombinadoDiseno.SpecDe(serie, extra), ctx, ct));
         }
 
         var tabla = CombinadoMotor.Combinar(diseno, datos);
         var forma = CombinadoMotor.AForma(tabla, diseno, widget.Tipo, Top(widget.ConfigJson), widget.Titulo);
-        return new(Adaptar(forma, widget), null, fuera) { Avisos = tabla.Avisos };
+        return new(Adaptar(forma, widget), null, fuera) { Avisos = tabla.Avisos, CrucesSinAplicar = sinAplicar };
     }
 
     /// <summary>
@@ -162,9 +197,9 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
     /// fechas) y del contexto; luego agrupa por dia/ventana en la zona del tenant.
     /// </summary>
     private async Task<AnalisisWidgetResultado> RunPorFechaAsync(
-        ReportQuerySpec spec, AnalisisWidgetDto widget, string? periodo, ReportContext ctx, HojaFiltros? hoja,
-        IReadOnlyDictionary<string, string>? contexto, CancellationToken ct)
+        ReportQuerySpec spec, AnalisisWidgetDto widget, string? periodo, ReportContext ctx, FiltrosExtra extras, CancellationToken ct)
     {
+        var hoja = extras.Hoja;
         var fuente = _catalog is null ? null : await _catalog.GetSourceAsync(spec.SourceKey, ct);
         var campoFecha = fuente is null ? null : HojaFiltroBinder.Resolver(HojaFiltroBinder.Fecha, fuente, widget.ContextBindingsJson);
         if (fuente is null || campoFecha is null)
@@ -181,7 +216,7 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
         var hastaEx = plan?.HastaExclusivo ?? rango.Hasta.AddDays(1);
 
         var hojaSinRango = hoja is null ? null : hoja with { Desde = null, Hasta = null };
-        var (extra, fuera) = await FiltrosExtraAsync(spec.SourceKey, hojaSinRango, contexto, widget.ContextBindingsJson, ct);
+        var (extra, fuera, sinAplicar) = await FiltrosExtraAsync(spec.SourceKey, extras with { Hoja = hojaSinRango }, ct);
         var agg = spec.Aggregates.FirstOrDefault() ?? new ReportAggregate(string.Empty, ReportAggregateFunction.Count);
         var campoValor = agg.Function == ReportAggregateFunction.Count || string.IsNullOrWhiteSpace(agg.FieldKey) ? null : agg.FieldKey;
 
@@ -214,7 +249,88 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
         var avisos = ds.RowCount >= TopeFilasTabular
             ? new[] { $"Se leyeron {TopeFilasTabular:N0} registros (el tope): el resultado puede estar incompleto. Acota con filtros." }
             : Array.Empty<string>();
-        return new(Adaptar(forma, widget), null, fuera) { Avisos = avisos };
+        return new(Adaptar(forma, widget), null, fuera) { Avisos = avisos, CrucesSinAplicar = sinAplicar };
+    }
+
+    public async Task<AnalisisDetalle> DetalleAsync(
+        AnalisisWidgetDto widget, IReadOnlyList<CondicionCruzada> condiciones, ReportContext ctx, CancellationToken ct = default,
+        HojaFiltros? hoja = null, IReadOnlyDictionary<string, string>? contexto = null, IReadOnlyList<SeleccionCruzada>? cruces = null)
+    {
+        try
+        {
+            if (ctx.TenantZone is null && _zona is not null)
+            {
+                ctx = ctx with { TenantZone = await _zona.ObtenerAsync(ct) };
+            }
+
+            var spec = AnalisisCruce.AdmiteSeleccion(widget) ? AnalisisJson.DeserializeSpec(widget.SpecJson) : null;
+            if (spec is null || _catalog is null || condiciones.Count == 0)
+            {
+                return AnalisisDetalle.Fallo("Este widget no permite ver sus registros.");
+            }
+
+            var fuente = await _catalog.GetSourceAsync(spec.SourceKey, ct);
+            if (fuente is null)
+            {
+                return AnalisisDetalle.Fallo("La fuente del widget ya no existe.");
+            }
+
+            if (fuente.Kind == ReportSourceKind.External)
+            {
+                return AnalisisDetalle.Fallo("Las fuentes externas no permiten ver registros individuales.");
+            }
+
+            // El elemento tocado, sobre la propia fuente del widget.
+            var seleccion = new SeleccionCruzada(widget.Id, spec.SourceKey, AnalisisCruce.Resolver(condiciones, fuente, widget.ContextBindingsJson));
+            if (AnalisisCruce.Filtros(seleccion, fuente, widget.ContextBindingsJson, ctx.TenantZone) is not { } delPunto)
+            {
+                return AnalisisDetalle.Fallo("Ese elemento del grafico no se puede abrir en registros.");
+            }
+
+            // Mismos filtros con los que se calculo el grafico: los del widget + hoja + contexto + otras selecciones.
+            var (extra, _, _) = await FiltrosExtraAsync(
+                spec.SourceKey, new FiltrosExtra(hoja, contexto, widget.ContextBindingsJson, cruces, widget.Id, ctx.TenantZone), ct);
+            var campos = AnalisisCruce.CamposDetalle(fuente, spec);
+            var fecha = campos.FirstOrDefault(c => fuente.FindField(c)?.Type == ReportFieldType.Date);
+            var ds = await _data.QueryAsync(spec with
+            {
+                Fields = campos,
+                GroupBy = Array.Empty<string>(),
+                Aggregates = Array.Empty<ReportAggregate>(),
+                Sort = fecha is null ? Array.Empty<ReportSort>() : new[] { new ReportSort(fecha, Descending: true) },
+                Filters = spec.Filters.Concat(extra).Concat(delPunto).ToList(),
+                Top = AnalisisCruce.MaxFilasDetalle + 1
+            }, ctx, ct);
+
+            var enlace = AnalisisCruce.CampoEnlace(fuente);
+            var indice = -1;
+            for (var i = 0; enlace is { } e && i < ds.Columns.Count; i++)
+            {
+                if (string.Equals(ds.Columns[i].Key, e.Campo, StringComparison.OrdinalIgnoreCase))
+                {
+                    indice = i;
+                    break;
+                }
+            }
+            return new AnalisisDetalle(ds.Columns, ds.Rows.Take(AnalisisCruce.MaxFilasDetalle).ToList())
+            {
+                Recortado = ds.RowCount > AnalisisCruce.MaxFilasDetalle,
+                EnlaceTipo = indice >= 0 ? enlace!.Value.Tipo : null,
+                EnlaceIndice = indice
+            };
+        }
+        catch (ReportValidationException ex)
+        {
+            return AnalisisDetalle.Fallo(ex.Message);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return AnalisisDetalle.Fallo("No se pudieron cargar los registros.");
+        }
     }
 
     /// <summary>Dataset -> forma segun el tipo visual del widget. Puro, testeable.</summary>
@@ -300,30 +416,58 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
             ?? throw new ReportValidationException("No se pudo determinar un campo para contar filas.");
     }
 
-    /// <summary>Filtros de la hoja + filtros del contexto de embebido, sobre los campos de la fuente.</summary>
-    private async Task<(IReadOnlyList<ReportFilter> Filtros, bool FueraDeContexto)> FiltrosExtraAsync(
-        string sourceKey, HojaFiltros? hoja, IReadOnlyDictionary<string, string>? contexto, string? bindingsJson, CancellationToken ct)
+    /// <summary>Lo que se agrega a la consulta de un widget ademas de su propio spec.</summary>
+    private sealed record FiltrosExtra(
+        HojaFiltros? Hoja, IReadOnlyDictionary<string, string>? Contexto, string? BindingsJson,
+        IReadOnlyList<SeleccionCruzada>? Cruces, Guid WidgetId, TimeZoneInfo? Zona);
+
+    /// <summary>
+    /// Filtros de la hoja + del contexto de embebido + de las selecciones por clic de OTROS widgets, sobre los
+    /// campos de la fuente. Devuelve tambien las selecciones que esta fuente no pudo aplicar.
+    /// </summary>
+    private async Task<(IReadOnlyList<ReportFilter> Filtros, bool FueraDeContexto, IReadOnlyList<string> SinAplicar)> FiltrosExtraAsync(
+        string sourceKey, FiltrosExtra x, CancellationToken ct)
     {
+        var hoja = x.Hoja;
         var hayHoja = hoja is { Vacio: false };
-        var hayContexto = contexto is { Count: > 0 };
-        if ((!hayHoja && !hayContexto) || _catalog is null)
+        var hayContexto = x.Contexto is { Count: > 0 };
+        var otras = x.Cruces?.Where(c => c.OrigenWidgetId != x.WidgetId).ToList() ?? new List<SeleccionCruzada>();
+        if ((!hayHoja && !hayContexto && otras.Count == 0) || _catalog is null)
         {
-            return (Array.Empty<ReportFilter>(), hayContexto);
+            return (Array.Empty<ReportFilter>(), hayContexto, otras.Select(c => c.Etiqueta).ToList());
         }
 
         var fuente = await _catalog.GetSourceAsync(sourceKey, ct);
         if (fuente is null)
         {
-            return (Array.Empty<ReportFilter>(), hayContexto);
+            return (Array.Empty<ReportFilter>(), hayContexto, otras.Select(c => c.Etiqueta).ToList());
         }
 
         var zona = hayHoja && _zona is not null && (hoja!.Desde is not null || hoja.Hasta is not null)
             ? await _zona.ObtenerAsync(ct)
             : null;
-        var filtros = hayHoja ? HojaFiltroBinder.Filtros(hoja, fuente, bindingsJson, zona).ToList() : new List<ReportFilter>();
-        var (delContexto, ignorado) = AnalisisContexto.Filtros(contexto, fuente, bindingsJson);
+        var filtros = hayHoja ? HojaFiltroBinder.Filtros(hoja, fuente, x.BindingsJson, zona).ToList() : new List<ReportFilter>();
+        var (delContexto, ignorado) = AnalisisContexto.Filtros(x.Contexto, fuente, x.BindingsJson);
         filtros.AddRange(delContexto);
-        return (filtros, ignorado);
+
+        var sinAplicar = new List<string>();
+        if (otras.Count > 0)
+        {
+            var zonaCruce = x.Zona ?? (_zona is null ? null : await _zona.ObtenerAsync(ct));
+            foreach (var sel in otras)
+            {
+                if (AnalisisCruce.Filtros(sel, fuente, x.BindingsJson, zonaCruce) is { } delCruce)
+                {
+                    filtros.AddRange(delCruce);
+                }
+                else
+                {
+                    sinAplicar.Add(sel.Etiqueta);
+                }
+            }
+        }
+
+        return (filtros, ignorado, sinAplicar);
     }
 }
 

@@ -385,3 +385,39 @@ int y los tipos nuevos van al final del enum.
   que el tipo no usa.
 - **Importador:** omite (con aviso) widgets de un tipo que no existe en el sistema o del reservado.
 - **Verificado:** ver PROGRESO 2026-11-12.
+
+## Addendum 2026-11-21 - Ola 7c: filtro por clic en los graficos y "Ver registros" (SIN deploy)
+
+Peticion del usuario: al tocar un grafico, que los demas datos de la hoja se filtren por lo tocado, y poder
+ver el detalle de los registros detras de ese dato. La opcion de ver registros debe estar SOBRE el elemento
+del grafico (la barra o el sector que se quiere abrir).
+
+**Decision:** interaccion de vista, sin migracion ni datos nuevos. La seleccion no se guarda en el libro, no
+cambia el PDF ni el enlace publico; vive en la pagina `/analisis` mientras se ve la hoja.
+
+- **Menu sobre el elemento.** Tocar una barra, un sector, una celda del mapa de calor, un dia del calendario
+  o un bloque del mapa de arbol abre un menu anclado al punto con dos acciones: "Filtrar la hoja por esto" y
+  "Ver registros". `analisis-graficos.js` traduce el clic de ECharts a (eje, serie, valor, posicion) y lo
+  envia al componente `AnalisisGrafico` (JSInvokable). Sin acciones del anfitrion el grafico no es clicable
+  (embebido en la ficha del tercero, enlace publico, PDF).
+- **Elemento -> condiciones (puro, `AnalisisCruce`).** Eje = primera agrupacion del spec; serie / columna /
+  sub-bloque = segunda agrupacion, solo si el widget tiene dos; dia del calendario = parametro de hoja
+  `fecha`. No se filtran: el grupo sintetico "Otros" del top, "(sin dato)", KPI y velocimetro, tabla,
+  semaforo, indicadores curados ni combinados (no tienen un spec unico que revertir).
+- **Filtro cruzado.** Una seleccion por widget de origen (tocar otro elemento la reemplaza; el mismo la
+  quita). Filtra a los DEMAS widgets; el de origen solo resalta el elemento y atenua el resto. Misma fuente:
+  el mismo campo. Otra fuente: viaja por el parametro de hoja equivalente (vendedor, tablero, fecha) que
+  resuelve `HojaFiltroBinder`; si a la fuente le falta algun campo, el widget se muestra SIN esa seleccion y
+  lo advierte ("No se filtra por ...") en vez de filtrar a medias. Los valores se traducen al tipo del
+  campo: texto igual, Si/No -> booleano, dia -> rango [00:00, 00:00 siguiente) en la zona del tenant. Chips
+  "Filtrado al tocar" sobre la grilla para quitar cada seleccion o todas.
+- **Ver registros (`IAnalisisWidgetRunner.DetalleAsync`).** Consulta tabular de la fuente del widget con los
+  mismos filtros del grafico (spec + hoja + contexto + las demas selecciones) mas el elemento tocado, hasta
+  500 filas (avisa si hay mas), ordenada por la primera fecha. Columnas utiles por fuente nativa
+  (`AnalisisCruce.CamposDetalle`); en contenedores, lo agrupado y medido + los primeros campos sin los de
+  tipo ID. Panel lateral `AnalisisDetallePanel` con descarga a Excel (celdas tipadas, fechas en la zona del
+  tenant). Las filas de Actividades abren la tarea (`TaskDetailModal`) y las de Directorio / notas del
+  tercero abren el tercero (`TerceroModal`); la pagina los sube por encima del modal del libro con `::deep`
+  sin tocar esos componentes. Las fuentes externas no ofrecen registros individuales.
+- **Catalogo:** la fuente Actividades expone `Id` (no agrupable, ruta en memoria) para abrir la tarea.
+- **Verificado:** ver PROGRESO 2026-11-21.

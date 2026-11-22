@@ -181,7 +181,43 @@
                 break;
 
             case WidgetShape forma when Opcion(forma) is { } opcion:
-                <AnalisisGrafico Opcion="opcion" Alto="@AnalisisGraficos.Alto(forma, Widget.Tipo)" />
+                <div class="aw-chart-wrap">
+                    <AnalisisGrafico Opcion="opcion" Alto="@AnalisisGraficos.Alto(forma, Widget.Tipo)"
+                                     OnClic="ClicCallback" Marca="Marca" />
+                    @if (_clic is { } clic)
+                    {
+                        @* Menu sobre el elemento tocado (Ola 7c): filtrar la hoja o ver los registros detras del dato. *@
+                        <div class="aw-pop-back" @onclick="CerrarPop"></div>
+                        <div class="aw-pop @(clic.Y > 120 ? "up" : "down")" role="dialog" aria-label="Acciones del elemento"
+                             style="left:clamp(118px, @(Inv(clic.X))px, calc(100% - 118px));top:@(Inv(clic.Y))px">
+                            <div class="aw-pop-head">
+                                <span class="aw-pop-lbl" title="@TituloPunto(clic)">@TituloPunto(clic)</span>
+                                <button type="button" class="aw-pop-x" aria-label="Cerrar" @onclick="CerrarPop">&#215;</button>
+                            </div>
+                            @if (clic.Valor is not null)
+                            {
+                                <div class="aw-pop-val">@Fmt(clic.Valor)</div>
+                            }
+                            @if (_condiciones is null)
+                            {
+                                <div class="aw-pop-note">Este elemento agrupa varios valores o no tiene dato: no se puede filtrar ni abrir.</div>
+                            }
+                            else
+                            {
+                                @if (OnFiltrar.HasDelegate)
+                                {
+                                    <button type="button" class="aw-pop-btn" @onclick="FiltrarAsync">
+                                        @(EsSeleccionActual ? "Quitar este filtro" : "Filtrar la hoja por esto")
+                                    </button>
+                                }
+                                @if (OnVerRegistros.HasDelegate)
+                                {
+                                    <button type="button" class="aw-pop-btn primary" @onclick="VerRegistrosAsync">Ver registros</button>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
                 @if (forma is CalendarioShape calendario)
                 {
                     <div class="aw-foot-note">
@@ -199,6 +235,21 @@
         @if (Resultado.FueraDeContexto)
         {
             <div class="aw-foot-note warn" title="La fuente de este widget no tiene un campo para filtrar por el registro donde esta embebido.">Datos generales: no se filtra por este registro.</div>
+        }
+
+        @if (Resultado.CrucesSinAplicar.Count > 0)
+        {
+            <div class="aw-foot-note warn" title="La fuente de este widget no tiene un dato equivalente: se muestra sin ese filtro.">
+                No se filtra por @string.Join("; ", Resultado.CrucesSinAplicar) (su fuente no tiene ese dato).
+            </div>
+        }
+
+        @if (Seleccion is { } sel && OnFiltrar.HasDelegate)
+        {
+            <div class="aw-foot-note sel">
+                <span>Filtra la hoja: <strong>@sel.Etiqueta</strong></span>
+                <button type="button" class="aw-link" @onclick="QuitarSeleccionAsync">Quitar</button>
+            </div>
         }
     }
 
@@ -252,10 +303,78 @@
     /// <summary>Se solto otro widget sobre este.</summary>
     [Parameter] public EventCallback OnSoltar { get; set; }
 
+    /// <summary>Ola 7c: "Filtrar la hoja por esto" sobre el elemento tocado (sin callback no se ofrece).</summary>
+    [Parameter] public EventCallback<AnalisisPuntoAccion> OnFiltrar { get; set; }
+
+    /// <summary>Ola 7c: "Ver registros" del elemento tocado (sin callback no se ofrece).</summary>
+    [Parameter] public EventCallback<AnalisisPuntoAccion> OnVerRegistros { get; set; }
+
+    /// <summary>Seleccion vigente que salio de ESTE widget (resalta su elemento).</summary>
+    [Parameter] public SeleccionCruzada? Seleccion { get; set; }
+
     private const int MaxFilasTabla = 50;
     private bool _sobre;
     private string? _configJson;
     private WidgetConfig _config = new();
+    private GraficoClic? _clic;
+    private IReadOnlyList<CondicionCruzada>? _condiciones;
+
+    /// <summary>El grafico es clicable si el anfitrion ofrece alguna accion y el widget admite seleccion.</summary>
+    private EventCallback<GraficoClic> ClicCallback =>
+        (OnFiltrar.HasDelegate || OnVerRegistros.HasDelegate) && AnalisisCruce.AdmiteSeleccion(Widget)
+            ? EventCallback.Factory.Create<GraficoClic>(this, Tocado)
+            : default;
+
+    private GraficoMarca? Marca => Seleccion is { } s ? new GraficoMarca(s.Elemento.Eje, s.Elemento.Serie) : null;
+
+    private bool EsSeleccionActual => Seleccion is { } s && _condiciones is { } c && s.MismosValores(c);
+
+    private void Tocado(GraficoClic clic)
+    {
+        _clic = clic;
+        _condiciones = AnalisisCruce.Condiciones(Widget, Resultado?.Forma, clic.Eje, clic.Serie);
+    }
+
+    private void CerrarPop()
+    {
+        _clic = null;
+        _condiciones = null;
+    }
+
+    /// <summary>Titulo del menu: el elemento tocado (dia con formato; serie solo si cuenta como filtro).</summary>
+    private string TituloPunto(GraficoClic c)
+    {
+        var eje = Resultado?.Forma is CalendarioShape && DateOnly.TryParseExact(c.Eje, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dia)
+            ? dia.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)
+            : c.Eje;
+        return _condiciones is { Count: > 1 } && !string.IsNullOrEmpty(c.Serie) ? $"{eje} / {c.Serie}" : eje;
+    }
+
+    private async Task FiltrarAsync()
+    {
+        if (_clic is { } c && _condiciones is { } conds)
+        {
+            var accion = new AnalisisPuntoAccion(Widget, conds, TituloPunto(c), c.Valor);
+            CerrarPop();
+            await OnFiltrar.InvokeAsync(accion);
+        }
+    }
+
+    private async Task VerRegistrosAsync()
+    {
+        if (_clic is { } c && _condiciones is { } conds)
+        {
+            var accion = new AnalisisPuntoAccion(Widget, conds, TituloPunto(c), c.Valor);
+            CerrarPop();
+            await OnVerRegistros.InvokeAsync(accion);
+        }
+    }
+
+    /// <summary>Quitar la seleccion de este widget: el anfitrion la alterna al recibir los mismos valores.</summary>
+    private Task QuitarSeleccionAsync() =>
+        Seleccion is { } s
+            ? OnFiltrar.InvokeAsync(new AnalisisPuntoAccion(Widget, s.Condiciones, s.Etiqueta, null))
+            : Task.CompletedTask;
 
     private async Task Soltar()
     {

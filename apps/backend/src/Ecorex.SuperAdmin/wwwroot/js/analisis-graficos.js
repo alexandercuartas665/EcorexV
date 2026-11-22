@@ -6,6 +6,8 @@
 //  - __fmt (raiz): formato de numeros (numero|decimal|moneda|porcentaje) para tooltip, ejes y etiquetas.
 //  - __kind (raiz): formateadores especiales (pie, funnel, treemap, pareto, calendar, spark).
 //  - ResizeObserver: el grafico se reacomoda al cambiar el ancho del widget o abrir el modal.
+//  - Ola 7c: clic en un elemento -> Blazor (eje/serie/valor/posicion) para filtrar la hoja o ver registros;
+//    el elemento elegido queda resaltado y los demas atenuados.
 //  - Paginas ESTATICAS (PDF por Puppeteer): elementos [data-aw-grafico] se pintan solos en SVG sin animacion.
 window.ecorexAnalisisGrafico = (function () {
   'use strict';
@@ -195,39 +197,182 @@ window.ecorexAnalisisGrafico = (function () {
     return opt;
   }
 
-  function build(el, raw, isStatic) {
+  // ---------------------------------------------------------------- seleccion por clic (Ola 7c)
+
+  var ATENUADO = 0.28;
+
+  function nombreCat(data, i) {
+    var d = asArray(data)[i];
+    return d !== null && typeof d === 'object' ? d.value : d;
+  }
+
+  function ejeCategoria(b) {
+    var xs = asArray(b.xAxis)[0], ys = asArray(b.yAxis)[0];
+    if (xs && xs.type === 'category') { return xs; }
+    if (ys && ys.type === 'category') { return ys; }
+    return null;
+  }
+
+  function apagar(d, a) {
+    var o = (d !== null && typeof d === 'object' && !Array.isArray(d)) ? Object.assign({}, d) : { value: d };
+    o.itemStyle = Object.assign({}, o.itemStyle, { opacity: a });
+    if (o.children) { o.children = o.children.map(function (c) { return apagar(c, a); }); }
+    return o;
+  }
+
+  function valorDe(d) { return d !== null && typeof d === 'object' && !Array.isArray(d) ? d.value : d; }
+
+  // Resalta el elemento elegido (sel = {eje, serie}) atenuando los demas; en lineas marca la categoria.
+  function marcar(opt, sel) {
+    if (!sel || !sel.eje) { return opt; }
+    var b = opt.baseOption || opt;
+    var xs = asArray(b.xAxis)[0], ys = asArray(b.yAxis)[0];
+    var cat = ejeCategoria(b);
+    var lineaMarcada = false;
+    asArray(b.series).forEach(function (s) {
+      var datos = asArray(s.data);
+      if (!datos.length) { return; }
+      if (s.type === 'heatmap' && s.coordinateSystem === 'calendar') {
+        s.data = datos.map(function (d) { return String(valorDe(d)[0]) === sel.eje ? d : apagar(d, ATENUADO); });
+      } else if (s.type === 'heatmap') {
+        s.data = datos.map(function (d) {
+          var v = valorDe(d);
+          var ok = nombreCat(ys && ys.data, v[1]) === sel.eje && (!sel.serie || nombreCat(xs && xs.data, v[0]) === sel.serie);
+          return ok ? d : apagar(d, ATENUADO);
+        });
+      } else if (s.type === 'pie' || s.type === 'funnel') {
+        s.data = datos.map(function (d) { return d && d.name === sel.eje ? d : apagar(d, ATENUADO); });
+      } else if (s.type === 'treemap') {
+        s.data = datos.map(function (d) {
+          if (!d || d.name !== sel.eje) { return apagar(d, ATENUADO); }
+          if (!sel.serie || !d.children) { return d; }
+          var o = Object.assign({}, d);
+          o.children = d.children.map(function (c) { return c.name === sel.serie ? c : apagar(c, ATENUADO); });
+          return o;
+        });
+      } else if ((s.type === 'bar' || s.type === 'line') && cat) {
+        var otraSerie = !!sel.serie && s.name !== sel.serie;
+        if (s.type === 'line') {
+          if (otraSerie) {
+            s.lineStyle = Object.assign({}, s.lineStyle, { opacity: ATENUADO });
+            s.itemStyle = Object.assign({}, s.itemStyle, { opacity: ATENUADO });
+            if (s.areaStyle) { s.areaStyle = Object.assign({}, s.areaStyle, { opacity: 0.06 }); }
+          }
+          if (!lineaMarcada && cat === xs) {
+            lineaMarcada = true;
+            s.markLine = {
+              silent: true, symbol: 'none', label: { show: false },
+              lineStyle: { type: 'dashed', width: 1.5, color: s.itemStyle && s.itemStyle.color || '#888' },
+              data: [{ xAxis: sel.eje }]
+            };
+          }
+          return;
+        }
+        s.data = datos.map(function (d, i) {
+          return nombreCat(cat.data, i) === sel.eje && !otraSerie ? d : apagar(d, ATENUADO);
+        });
+      }
+    });
+    return opt;
+  }
+
+  // Click de ECharts -> {eje, serie, valor} segun el tipo de serie (null = no es un elemento de datos).
+  function punto(chart, p) {
+    if (!p || p.componentType !== 'series') { return null; }
+    var opt = chart.getOption();
+    var s = asArray(opt.series)[p.seriesIndex] || {};
+    var v = p.value;
+    if (s.type === 'gauge') { return null; }
+    if (s.type === 'heatmap' && s.coordinateSystem === 'calendar') {
+      return { eje: String(asArray(v)[0]), serie: null, valor: num(asArray(v)[1]) };
+    }
+    if (s.type === 'heatmap') {
+      return {
+        eje: String(nombreCat(asArray(opt.yAxis)[0] && asArray(opt.yAxis)[0].data, v[1])),
+        serie: String(nombreCat(asArray(opt.xAxis)[0] && asArray(opt.xAxis)[0].data, v[0])),
+        valor: num(v[2])
+      };
+    }
+    if (s.type === 'treemap') {
+      var ruta = (p.treePathInfo || []).slice(1).map(function (x) { return x.name; });
+      if (!ruta.length) { return null; }
+      return { eje: String(ruta[0]), serie: ruta.length > 1 ? String(ruta[1]) : null, valor: num(v) };
+    }
+    if (p.name === undefined || p.name === null || p.name === '') { return null; }
+    return { eje: String(p.name), serie: p.seriesName ? String(p.seriesName) : null, valor: num(v) };
+  }
+
+  function build(el, raw, isStatic, sel, clicable) {
     var parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    var opt = applyFormat(resolve(parsed, el), el);
+    var opt = marcar(applyFormat(resolve(parsed, el), el), sel);
+    var b = opt.baseOption || opt;
     if (isStatic) {
-      var b = opt.baseOption || opt;
       b.animation = false;
+    }
+    if (!clicable) {
+      asArray(b.series).forEach(function (s) { s.cursor = 'default'; });
     }
     return opt;
   }
 
+  function leerSel(selJson) {
+    if (!selJson) { return null; }
+    try { return typeof selJson === 'string' ? JSON.parse(selJson) : selJson; } catch (x) { return null; }
+  }
+
   // ---------------------------------------------------------------- ciclo de vida (Blazor interactivo)
 
-  function init(id, json) {
+  // dotnet (opcional): DotNetObjectReference con [JSInvokable] Tocado(eje, serie, valor, x, y).
+  function init(id, json, dotnet, selJson) {
     if (typeof window.echarts === 'undefined') { return false; }
     var el = document.getElementById(id);
     if (!el) { return false; }
     dispose(id);
+    var sel = leerSel(selJson);
     var chart = window.echarts.init(el, null, { renderer: 'canvas' });
-    try { chart.setOption(build(el, json, false), true); } catch (e) { console.error('ecorexAnalisisGrafico', e); }
+    try { chart.setOption(build(el, json, false, sel, !!dotnet), true); } catch (e) { console.error('ecorexAnalisisGrafico', e); }
     var ro = null;
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(function () { try { chart.resize(); } catch (e) { /* noop */ } });
       ro.observe(el);
     }
-    charts.set(id, { chart: chart, el: el, raw: json, ro: ro });
+    var entry = { chart: chart, el: el, raw: json, ro: ro, ref: dotnet || null, sel: sel };
+    if (dotnet) {
+      chart.on('click', function (p) {
+        var pt = punto(chart, p);
+        if (!pt || !entry.ref) { return; }
+        // El menu del elemento reemplaza al tooltip (si no, quedan encimados). ECharts lo vuelve a mostrar
+        // al terminar de procesar el mismo clic: se oculta tambien en el siguiente ciclo y cuando ya esta
+        // el fondo del menu (que tapa el grafico, asi que no reaparece mientras el menu esta abierto).
+        var ocultarTip = function () { try { chart.dispatchAction({ type: 'hideTip' }); } catch (x) { /* noop */ } };
+        ocultarTip();
+        setTimeout(ocultarTip, 0);
+        setTimeout(ocultarTip, 150);
+        var ev = p.event || {};
+        var x = typeof ev.offsetX === 'number' ? ev.offsetX : 0;
+        var y = typeof ev.offsetY === 'number' ? ev.offsetY : 0;
+        entry.ref.invokeMethodAsync('Tocado', pt.eje, pt.serie, pt.valor, x, y).catch(function () { /* circuito cerrado */ });
+      });
+    }
+    charts.set(id, entry);
     return true;
   }
 
-  function update(id, json) {
+  function update(id, json, selJson) {
     var e = charts.get(id);
-    if (!e) { return init(id, json); }
+    if (!e) { return init(id, json, null, selJson); }
     e.raw = json;
-    try { e.chart.setOption(build(e.el, json, false), true); } catch (x) { console.error('ecorexAnalisisGrafico', x); }
+    e.sel = leerSel(selJson);
+    try { e.chart.setOption(build(e.el, json, false, e.sel, !!e.ref), true); } catch (x) { console.error('ecorexAnalisisGrafico', x); }
+    return true;
+  }
+
+  // Cambia solo el elemento resaltado (sin nuevos datos).
+  function seleccionar(id, selJson) {
+    var e = charts.get(id);
+    if (!e) { return false; }
+    e.sel = leerSel(selJson);
+    try { e.chart.setOption(build(e.el, e.raw, false, e.sel, !!e.ref), true); } catch (x) { console.error('ecorexAnalisisGrafico', x); }
     return true;
   }
 
@@ -247,7 +392,7 @@ window.ecorexAnalisisGrafico = (function () {
       if (ahora === oscuro) { return; }
       oscuro = ahora;
       charts.forEach(function (e) {
-        try { e.chart.setOption(build(e.el, e.raw, false), true); } catch (x) { /* noop */ }
+        try { e.chart.setOption(build(e.el, e.raw, false, e.sel, !!e.ref), true); } catch (x) { /* noop */ }
       });
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
   }
@@ -263,7 +408,7 @@ window.ecorexAnalisisGrafico = (function () {
       el.setAttribute('data-aw-pintado', '1');
       try {
         var chart = window.echarts.init(el, null, { renderer: 'svg' });
-        chart.setOption(build(el, el.getAttribute('data-aw-grafico'), true), true);
+        chart.setOption(build(el, el.getAttribute('data-aw-grafico'), true, null, false), true);
         // SVG escalable: si el ancho de impresion difiere del de pantalla, el grafico se ajusta sin cortarse.
         // OJO: ECharts posiciona el <svg> en absoluto dentro de su envoltorio, asi que el contenedor CONSERVA
         // su alto (con height:auto colapsaria a 0 y el grafico quedaria oculto); el svg llena la caja.
@@ -291,5 +436,5 @@ window.ecorexAnalisisGrafico = (function () {
     pintarEstaticos();
   }
 
-  return { init: init, update: update, dispose: dispose, pintarEstaticos: pintarEstaticos };
+  return { init: init, update: update, seleccionar: seleccionar, dispose: dispose, pintarEstaticos: pintarEstaticos };
 })();

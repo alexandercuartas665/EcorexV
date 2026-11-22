@@ -100,3 +100,33 @@
 
 /* Avisos no fatales (combinado recortado, tope de filas). */
 .aw-aviso { font-size: 11.5px; color: var(--t-amber); background: var(--t-amber-bg); border-radius: 8px; padding: 6px 9px; margin: 0 0 8px; }
+
+/* Ola 7c: menu sobre el elemento tocado del grafico (filtrar la hoja / ver registros). Se ancla al punto
+   tocado: arriba del punto si hay espacio, si no debajo; el clamp del left lo mantiene dentro de la tarjeta. */
+.aw-chart-wrap { position: relative; }
+.aw-pop-back { position: fixed; inset: 0; z-index: 40; background: transparent; }
+.aw-pop {
+    position: absolute; z-index: 41; width: 224px; max-width: calc(100% - 8px);
+    background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--sh-lg);
+    padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; animation: aw-pop-in .12s ease;
+}
+.aw-pop.up { transform: translate(-50%, calc(-100% - 12px)); }
+.aw-pop.down { transform: translate(-50%, 12px); }
+@keyframes aw-pop-in { from { opacity: 0; } to { opacity: 1; } }
+.aw-pop-head { display: flex; align-items: flex-start; gap: 8px; }
+.aw-pop-lbl { flex: 1; min-width: 0; font-weight: 700; font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.aw-pop-x { border: 0; background: transparent; color: var(--ink-3); font-size: 17px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.aw-pop-x:hover { color: var(--ink); }
+.aw-pop-val { font-family: var(--mono, monospace); font-weight: 700; font-size: 18px; color: var(--ink); }
+.aw-pop-note { font-size: 12px; color: var(--ink-3); }
+.aw-pop-btn {
+    font: inherit; font-size: 12.5px; font-weight: 600; text-align: center; cursor: pointer; touch-action: manipulation;
+    border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink); border-radius: 9px; padding: 8px 10px;
+}
+.aw-pop-btn:hover { background: var(--surface-3); }
+.aw-pop-btn.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.aw-pop-btn.primary:hover { background: var(--brand-2); }
+
+/* La tarjeta de origen de un filtro por clic lo muestra y permite quitarlo. */
+.aw-foot-note.sel { display: flex; align-items: center; gap: 8px; color: var(--brand); flex-wrap: wrap; }
+.aw-link { border: 0; background: transparent; padding: 0; font: inherit; font-weight: 700; color: var(--brand); cursor: pointer; text-decoration: underline; }

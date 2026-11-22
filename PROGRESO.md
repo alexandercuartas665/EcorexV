@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - v0.16.369: Ola 7c de Libros de indicadores: filtro por clic en los graficos y "Ver registros" (ADR-0158 addendum) - rama claude/system-indicators-data-sources-e53a43 - PENDIENTE DE DEPLOY
+
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (af43170c) al tronco y main como v0.16.369. Gates: build Release 0 errores; unitarias 1685/312/35; integracion dual 136/136 (Analisis + McpTablerosTests + Report* + ImportClasificacionPasoTests, PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.
+
+- **Agente**: ECOREX.indicadores (worktree system-indicators-data-sources-e53a43), a pedido del usuario: al tocar un grafico, que la hoja se filtre por lo tocado y poder ver los registros detras de ese dato, con la opcion sobre la barra o el sector.
+- **Hecho**: tocar una barra, sector, celda del mapa de calor, dia del calendario o bloque del mapa de arbol abre un menu anclado al elemento: "Filtrar la hoja por esto" y "Ver registros". Logica pura en `AnalisisCruce` (elemento -> condiciones sobre la fuente; seleccion -> filtros de otro widget, misma fuente o por el parametro de hoja vendedor/tablero/fecha; si a la fuente le falta el dato, el widget se muestra sin esa seleccion y lo avisa). `IAnalisisWidgetRunner.RunAsync` recibe las selecciones (parametro opcional; el widget de origen solo resalta) y nuevo `DetalleAsync` (filas con los mismos filtros del grafico + el elemento, tope 500, columnas por fuente). Panel lateral `AnalisisDetallePanel` (Excel tipado, filas de Actividades abren la tarea y las de Directorio el tercero, por encima del modal del libro). JS: clic -> Blazor, resaltado del elemento (atenua el resto) y oculta el tooltip mientras el menu esta abierto. La fuente Actividades expone `Id` (no agrupable). Sin migracion.
+- **Gates**: build 0 errores; dotnet format whitespace/style verify 0 en los .cs tocados; ASCII OK (16 archivos); unitarias Application 1685 / SuperAdmin 312 / Domain 35; integracion 162/162 (Report + Mcp + TaskItem + Analisis, PostgreSQL y SQL Server), incluida la nueva `Ola7c_FiltroPorClic_CruzaFuentes_Y_DetalleTraeLosRegistros`.
+- **Verificado en vivo** (5269, SOLDARCO, libro "Galeria de graficos", Playwright headless porque el panel del navegador no respondia): barra "Active" (49) -> menu -> filtrar: chip "Estado: Active", los demas widgets recalculan y el de origen atenua las otras barras; "Ver registros" trae exactamente 49 filas; tocar una fila abre la tarea encima (z 1310); sector de la dona igual; 0 errores de consola.
+- **Siguiente**: ECOREX.desarrollo integra a main, asigna version y despliega con OK del usuario. Pendiente propuesto: 7d (crear indicadores con IA / MCP) y cache corta de resultados.
+- **Decisiones**: ADR-0158 addendum 2026-11-21 (seleccion de vista, no se guarda; no se filtra a medias entre fuentes; KPI, tabla, semaforo, curados y combinados no originan seleccion).
+
 ## 2026-11-21 - v0.16.368: Clasificacion con IA como paso de la importacion + limpiar_marca (ADR-0199) - rama feat/clasificacion-en-importacion - DESPLEGADA
 
 - **Agente**: ECOREX.desarrollo (dev principal), a pedido de ECOREX.mcp (spec del usuario: que la clasificacion deje de ser manual y corra como paso de la extraccion/importacion, y poder resetear la marca).

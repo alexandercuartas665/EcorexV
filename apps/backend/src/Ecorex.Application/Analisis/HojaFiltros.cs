@@ -39,6 +39,27 @@ public sealed record HojaFiltros
         }
     }
 
+    /// <summary>
+    /// Estos filtros acotados por <paramref name="fijos"/> (los guardados en la hoja, cuando se ve por el enlace
+    /// publico): el resultado NUNCA es mas amplio que los fijos. Vendedor/tablero fijos mandan; el rango queda
+    /// dentro del rango fijo (desde = el mas tardio, hasta = el mas temprano). Si el rango pedido queda fuera,
+    /// se devuelve vacio (desde > hasta) en vez de ampliar. Puro.
+    /// </summary>
+    public HojaFiltros DentroDe(HojaFiltros fijos)
+    {
+        static DateOnly? Mayor(DateOnly? a, DateOnly? b) => a is null ? b : b is null ? a : (a > b ? a : b);
+        static DateOnly? Menor(DateOnly? a, DateOnly? b) => a is null ? b : b is null ? a : (a < b ? a : b);
+        static string? Texto(string? fijo, string? propio) => !string.IsNullOrWhiteSpace(fijo) ? fijo : propio;
+
+        return new HojaFiltros
+        {
+            Desde = Mayor(Desde, fijos.Desde),
+            Hasta = Menor(Hasta, fijos.Hasta),
+            Vendedor = Texto(fijos.Vendedor, Vendedor),
+            Tablero = Texto(fijos.Tablero, Tablero)
+        };
+    }
+
     public string? ToJson()
     {
         var limpio = this with

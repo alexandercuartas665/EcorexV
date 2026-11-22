@@ -214,6 +214,33 @@ public class AnalisisOla7cUnitTests
         Assert.Single(cruces);
     }
 
+    // ---------------------------------------------------------------- enlace publico: filtros fijos de la hoja
+
+    [Fact]
+    public void DentroDe_NuncaAmpliaLosFiltrosFijos_SoloAcota()
+    {
+        var fijos = new HojaFiltros { Desde = new DateOnly(2026, 1, 1), Hasta = new DateOnly(2026, 6, 30), Vendedor = "Laura" };
+
+        // Quien abre el enlace borra todo: queda exactamente lo fijo.
+        Assert.Equal(fijos, new HojaFiltros().DentroDe(fijos));
+
+        // Intenta otro vendedor y un rango mas amplio: manda el vendedor fijo y el rango se recorta.
+        var amplio = new HojaFiltros { Desde = new DateOnly(2025, 1, 1), Hasta = new DateOnly(2027, 1, 1), Vendedor = "Pedro", Tablero = "Ventas" };
+        var r = amplio.DentroDe(fijos);
+        Assert.Equal((new DateOnly(2026, 1, 1), new DateOnly(2026, 6, 30), "Laura", "Ventas"), (r.Desde!.Value, r.Hasta!.Value, r.Vendedor, r.Tablero));
+
+        // Acotar dentro del rango si se respeta.
+        var marzo = new HojaFiltros { Desde = new DateOnly(2026, 3, 1), Hasta = new DateOnly(2026, 3, 31) }.DentroDe(fijos);
+        Assert.Equal((new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 31)), (marzo.Desde!.Value, marzo.Hasta!.Value));
+
+        // Un rango fuera del fijo queda vacio (desde > hasta), nunca se amplia.
+        var fuera = new HojaFiltros { Desde = new DateOnly(2026, 8, 1) }.DentroDe(fijos);
+        Assert.True(fuera.Desde > fuera.Hasta);
+
+        // Sin filtros fijos, se aplica lo que pida quien mira.
+        Assert.Equal(amplio, amplio.DentroDe(new HojaFiltros()));
+    }
+
     // ---------------------------------------------------------------- columnas del panel de registros
 
     [Fact]

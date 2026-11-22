@@ -15,7 +15,6 @@ Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (
 - **Siguiente**: ola 3 (cerebros plantilla del Super Admin: siembra a todos/plan/tenants, bloqueo de solo lectura,
   "Duplicar como propio" y sincronizacion), ola 4 (MCP por cerebro).
 
-## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - EN TRONCO (sin desplegar)
 ## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - DESPLEGADA
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/mcp-rellenar-columna`. Pedido de ECOREX.mcp para el dron FOMAG;

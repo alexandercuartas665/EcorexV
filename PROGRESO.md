@@ -2,9 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-21 - v0.16.369: Ola 7c de Libros de indicadores: filtro por clic en los graficos y "Ver registros" (ADR-0158 addendum) - rama claude/system-indicators-data-sources-e53a43 - PENDIENTE DE DEPLOY
+## 2026-11-21 - v0.16.369: Ola 7c de Libros de indicadores: filtro por clic en los graficos y "Ver registros" (ADR-0158 addendum) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (af43170c) al tronco y main como v0.16.369. Gates: build Release 0 errores; unitarias 1685/312/35; integracion dual 136/136 (Analisis + McpTablerosTests + Report* + ImportClasificacionPasoTests, PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.
+- **Deploy (2026-11-21 ~20:05 Bogota)**: OK del usuario; via rapida GHCR (CI 44976320647 verde sobre 2ab80e24). Footer /login = v0.16.369, ecorex-app Restarts=0, 0 errores; /js/analisis-graficos.js?v=3 sirve 200. Rollback: imagen anterior sha256:7a1b5561...
 
 - **Agente**: ECOREX.indicadores (worktree system-indicators-data-sources-e53a43), a pedido del usuario: al tocar un grafico, que la hoja se filtre por lo tocado y poder ver los registros detras de ese dato, con la opcion sobre la barra o el sector.
 - **Hecho**: tocar una barra, sector, celda del mapa de calor, dia del calendario o bloque del mapa de arbol abre un menu anclado al elemento: "Filtrar la hoja por esto" y "Ver registros". Logica pura en `AnalisisCruce` (elemento -> condiciones sobre la fuente; seleccion -> filtros de otro widget, misma fuente o por el parametro de hoja vendedor/tablero/fecha; si a la fuente le falta el dato, el widget se muestra sin esa seleccion y lo avisa). `IAnalisisWidgetRunner.RunAsync` recibe las selecciones (parametro opcional; el widget de origen solo resalta) y nuevo `DetalleAsync` (filas con los mismos filtros del grafico + el elemento, tope 500, columnas por fuente). Panel lateral `AnalisisDetallePanel` (Excel tipado, filas de Actividades abren la tarea y las de Directorio el tercero, por encima del modal del libro). JS: clic -> Blazor, resaltado del elemento (atenua el resto) y oculta el tooltip mientras el menu esta abierto. La fuente Actividades expone `Id` (no agrupable). Sin migracion.

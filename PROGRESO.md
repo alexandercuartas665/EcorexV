@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-22 - Permiso "Ver registros" por enlace publico de libros de indicadores (ADR-0158 addendum d) - rama claude/system-indicators-data-sources-e53a43 - SIN deploy
+
+- **Agente**: ECOREX.indicadores, a pedido del usuario: ver el detalle de los datos tambien desde el enlace compartido, pero que quien crea el enlace decida si lo permite.
+- **Hecho**: `AnalisisLibroToken.PermiteRegistros` (bool, false por defecto) con **migracion dual** `AddAnalisisEnlacePermiteRegistros` (PG 20261122093234 / SQL Server 20261122093220; solo agrega la columna `permite_registros`). `GenerarEnlaceAsync(..., permiteRegistros)` y nuevo `CambiarPermisoRegistrosAsync` (solo Admin; aplica al enlace activo sin cambiar la URL); `ResolverAsync` y `EstadoAsync` devuelven el permiso. "Compartir" gana la casilla "Permitir ver los registros". `/a/{token}` ofrece "Ver registros" solo si el enlace lo permite y revalida el token en CADA consulta; respeta los filtros fijos de la hoja; filas sin abrir tarea/tercero (exige sesion); Excel permitido.
+- **Gates**: build 0 errores; format whitespace/style verify 0; ASCII OK (solo el BOM que EF pone en las migraciones); unitarias Application 1687 / SuperAdmin 312 / Domain 35; integracion Analisis 48/48 (PG + SQL Server; nueva `EnlacePublico_PermisoVerRegistros_ApagadoPorDefecto_SoloAdmin_YSinCambiarUrl`) y Report + Mcp + TaskItem en verde (6 de ReportDataSourceTests_SqlServer fallaron por arranque del contenedor en la corrida larga y pasaron 12/12 al repetirlas).
+- **Verificado en vivo** (5269, Playwright headless; migracion aplicada en la BD local al arrancar): casilla apagada por defecto; sin permiso el menu solo ofrece filtrar; al marcarla ("Listo: el enlace ahora permite ver los registros") el mismo enlace ofrece "Ver registros" y trae 44 filas, solo del tablero fijo APROBAR, sin filas clicables; al desmarcarla, la pagina publica ya abierta recibe "Este enlace ya no permite ver los registros"; 0 errores de consola. Libro local restaurado.
+- **Siguiente**: ECOREX.desarrollo integra (lleva migracion), asigna version y despliega con OK del usuario.
+
 ## 2026-11-21 - v0.16.371: Enlace publico: filtros guardados de la hoja quedan fijos (ADR-0158 addendum c) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (8a9159dd = fix e09714d7) al tronco y main como v0.16.371. Cierra el bloqueo de v0.16.370 (se despliegan juntas). Gates: build Release 0 errores; unitarias 1687/312/35; integracion dual Analisis 46/46 (PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.

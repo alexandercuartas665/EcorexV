@@ -9,6 +9,7 @@
 @inject IAnalisisCompartirService Compartir
 @inject IAnalisisWidgetRunner Runner
 @inject IReportCatalog Catalogo
+@inject IAnalisisZonaHoraria ZonaHoraria
 @implements IDisposable
 
 @* Visor publico de SOLO LECTURA de un libro de indicadores (ADR-0158 D7, Ola 6). Sin policy: el acceso lo
@@ -18,8 +19,10 @@
    DEFINICION: los datos son en vivo.
    Filtros (Ola 7c): quien abre el enlace puede filtrar la hoja (barra de fechas / vendedor / tablero) y tocar
    un grafico para filtrar los demas. Son TEMPORALES: viven en su vista, no cambian el libro. Los filtros
-   GUARDADOS en la hoja son fijos: solo se pueden acotar, nunca ampliar ni quitar (HojaFiltros.DentroDe). "Ver registros"
-   NO se ofrece aqui: el enlace es anonimo y mostraria filas individuales (tareas, clientes) a cualquiera. *@
+   GUARDADOS en la hoja son fijos: solo se pueden acotar, nunca ampliar ni quitar (HojaFiltros.DentroDe).
+   "Ver registros" solo si el enlace lo permite (AnalisisLibroToken.PermiteRegistros, lo activa un Admin al
+   compartir): el token se vuelve a validar en CADA consulta de registros, respeta los filtros fijos y las
+   filas no abren la tarea ni el tercero (eso exige sesion). *@
 
 <PageTitle>@(_libro?.Nombre ?? "Libro de indicadores")</PageTitle>
 
@@ -135,10 +138,17 @@
                     {
                         <AnalisisWidgetCard @key="w.Id" Widget="w" Resultado="@(_resultados.TryGetValue(w.Id, out var r) ? r : null)"
                                             OnFiltrar="FiltrarPorClicAsync"
+                                            OnVerRegistros="VerRegistrosCallback"
                                             Seleccion="@_cruces.FirstOrDefault(c => c.OrigenWidgetId == w.Id)" />
                     }
                 </div>
             }
+        }
+
+        @if (_detalle is { } det)
+        {
+            <AnalisisDetallePanel Titulo="@det.Titulo" Subtitulo="@det.Widget" Detalle="det.Resultado" Zona="_zona"
+                                  OnCerrar="CerrarRegistros" />
         }
 
         <footer class="ap-foot">ECOREX - Libros de indicadores</footer>
@@ -166,6 +176,17 @@
     private HojaFiltros? _filtrosTemporales;
     private readonly List<SeleccionCruzada> _cruces = new();
 
+    // "Ver registros" (solo si el enlace lo permite).
+    private bool _permiteRegistros;
+    private DetalleAbierto? _detalle;
+    private int _detalleVersion;
+    private TimeZoneInfo? _zona;
+
+    private sealed record DetalleAbierto(string Titulo, string Widget, AnalisisDetalle? Resultado);
+
+    private EventCallback<AnalisisPuntoAccion> VerRegistrosCallback =>
+        _permiteRegistros ? EventCallback.Factory.Create<AnalisisPuntoAccion>(this, VerRegistrosAsync) : default;
+
     private AnalisisHojaDto? Hoja => _libro?.Hojas.FirstOrDefault(h => h.Id == _hojaId);
 
     /// <summary>
@@ -183,6 +204,7 @@
         if (enlace is not null)
         {
             _tenantId = enlace.TenantId;
+            _permiteRegistros = enlace.PermiteRegistros;
             using (AmbientTenantContext.Begin(_tenantId))
             {
                 _libro = await Compartir.LibroPublicoAsync(enlace.LibroId);
@@ -337,6 +359,57 @@
         {
             await CargarAsync(conservar: a.Widget.Id);
         }
+    }
+
+    /// <summary>
+    /// "Ver registros" desde el enlace: se vuelve a validar el token (revocado, vencido o sin el permiso = no),
+    /// y se consulta con los filtros activos (acotados por los fijos) y las selecciones por clic.
+    /// </summary>
+    private async Task VerRegistrosAsync(AnalisisPuntoAccion a)
+    {
+        var version = ++_detalleVersion;
+        _detalle = new DetalleAbierto(a.Etiqueta, a.Widget.Titulo, null);
+        StateHasChanged();
+
+        var enlace = await Compartir.ResolverAsync(Token);
+        if (enlace is not { PermiteRegistros: true } || enlace.TenantId != _tenantId)
+        {
+            _permiteRegistros = false;
+            if (version == _detalleVersion)
+            {
+                _detalle = _detalle with { Resultado = AnalisisDetalle.Fallo("Este enlace ya no permite ver los registros.") };
+            }
+
+            return;
+        }
+
+        var filtros = FiltrosActivos;
+        var cruces = _cruces.ToList();
+        AnalisisDetalle r;
+        await _gate.WaitAsync();
+        try
+        {
+            using (AmbientTenantContext.Begin(_tenantId))
+            {
+                _zona ??= await ZonaHoraria.ObtenerAsync();
+                r = await Runner.DetalleAsync(a.Widget, a.Condiciones, new ReportContext(Guid.Empty, null, _zona), default, filtros, null, cruces);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (version == _detalleVersion && _detalle is not null)
+        {
+            _detalle = _detalle with { Resultado = r };
+        }
+    }
+
+    private void CerrarRegistros()
+    {
+        _detalleVersion++;
+        _detalle = null;
     }
 
     private Task QuitarCruceAsync(Guid origen)

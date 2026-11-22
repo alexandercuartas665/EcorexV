@@ -403,6 +403,22 @@ else
                             {
                                 <p class="an-muted">@EnlaceEstadoTexto</p>
                             }
+                            <label class="an-check">
+                                <input type="checkbox" checked="@_enlaceRegistros" @onchange="e => CambiarRegistrosAsync(e.Value is true)" />
+                                <span>Permitir ver los registros (detalle de los datos)</span>
+                            </label>
+                            <p class="an-muted">
+                                Quien tenga el enlace podra tocar un grafico y ver las filas detras del dato (por ejemplo tareas,
+                                clientes, correos o telefonos), siempre dentro de los filtros fijos de cada hoja. Apagado por defecto.
+                                @if (_compartir.EnlaceActivo)
+                                {
+                                    <span>Se aplica al enlace activo sin cambiar su direccion.</span>
+                                }
+                            </p>
+                            @if (_registrosAviso is not null)
+                            {
+                                <p class="an-muted an-ok">@_registrosAviso</p>
+                            }
                             <div class="an-copy">
                                 <label class="an-muted" for="an-expira">Vence (opcional)</label>
                                 <input id="an-expira" type="date" class="an-input sm" value="@(_enlaceExpira?.ToString("yyyy-MM-dd"))"
@@ -459,6 +475,8 @@ else
     private AnalisisVisibilidad _visElegida;
     private HashSet<Guid> _usuariosElegidos = new();
     private string? _enlaceUrl;
+    private bool _enlaceRegistros;
+    private string? _registrosAviso;
     private DateOnly? _enlaceExpira;
 
     private string EnlaceEstadoTexto =>
@@ -695,6 +713,7 @@ else
         _compartir = null;
         _enlaceUrl = null;
         _enlaceExpira = null;
+        _registrosAviso = null;
         _modal = Modal.Compartir;
         var libroId = _libro.Id;
         (_compartir, _usuarios) = await Sesion.EnCompuertaAsync(async () =>
@@ -711,6 +730,33 @@ else
             : AnalisisVisibilidad.Privado;
         _usuariosElegidos = _compartir.Usuarios.ToHashSet();
         _enlaceExpira = _compartir.EnlaceExpira is DateTimeOffset x ? DateOnly.FromDateTime(x.ToLocalTime().DateTime) : null;
+        _enlaceRegistros = _compartir.EnlacePermiteRegistros;
+    }
+
+    /// <summary>
+    /// Casilla "Permitir ver los registros": con un enlace activo se aplica ya (misma URL); si no, se usa al
+    /// generar el enlace.
+    /// </summary>
+    private async Task CambiarRegistrosAsync(bool permite)
+    {
+        _enlaceRegistros = permite;
+        _registrosAviso = null;
+        if (_libro is null || _compartir is not { EnlaceActivo: true })
+        {
+            return;
+        }
+
+        var libroId = _libro.Id;
+        var r = await Sesion.EnCompuertaAsync(() => Compartir.CambiarPermisoRegistrosAsync(libroId, permite, _actor));
+        if (!r.Ok)
+        {
+            _registrosAviso = r.Error;
+            _enlaceRegistros = !permite;
+            return;
+        }
+
+        _compartir = await Sesion.EnCompuertaAsync(() => Compartir.EstadoAsync(libroId, _actor));
+        _registrosAviso = permite ? "Listo: el enlace ahora permite ver los registros." : "Listo: el enlace ya no permite ver los registros.";
     }
 
     private void AlternarUsuario(Guid userId, bool elegido)
@@ -757,7 +803,8 @@ else
         }
 
         var libroId = _libro.Id;
-        var r = await Sesion.EnCompuertaAsync(() => Compartir.GenerarEnlaceAsync(libroId, expira, _actor));
+        var registros = _enlaceRegistros;
+        var r = await Sesion.EnCompuertaAsync(() => Compartir.GenerarEnlaceAsync(libroId, expira, _actor, registros));
         if (!r.Ok || r.Token is null)
         {
             _mensaje = r.Error ?? "No se pudo generar el enlace.";

@@ -446,3 +446,20 @@ mandan; el rango queda dentro del rango fijo (desde = el mas tardio, hasta = el 
 del fijo queda vacio en vez de ampliarse. Se aplica SIEMPRE en el servidor al calcular (no depende de que el
 campo este deshabilitado en el navegador); la barra bloquea los campos fijados, limita las fechas y muestra
 "Fijado por quien compartio". Los filtros por clic se suman con AND, asi que tambien solo acotan.
+
+### Addendum 2026-11-22 (d) - Permiso "Ver registros" por enlace publico (SIN deploy)
+
+Peticion del usuario: poder ver el detalle de los datos tambien desde el enlace compartido, pero que quien
+crea el enlace decida si ese enlace lo permite.
+
+**Decision:** el permiso es de CADA enlace: `AnalisisLibroToken.PermiteRegistros` (bool, `false` por
+defecto; migracion dual `AddAnalisisEnlacePermiteRegistros`, solo agrega la columna). En "Compartir" hay una
+casilla "Permitir ver los registros": al generar el enlace se guarda con el enlace nuevo; con un enlace ya
+activo se aplica al instante sin cambiar la URL (`CambiarPermisoRegistrosAsync`). Igual que publicar, SOLO un
+Admin lo cambia (expone filas individuales fuera del sistema). `ResolverAsync` devuelve el permiso.
+
+En `/a/{token}` el menu del grafico ofrece "Ver registros" solo si el enlace lo permite, y el servidor VUELVE
+a resolver el token en cada consulta de registros: si se revoco, vencio o se apago el permiso, responde "Este
+enlace ya no permite ver los registros" aunque la pagina siga abierta. El detalle usa los mismos filtros que
+el grafico (incluidos los filtros fijos de la hoja, addendum c) y las filas no abren la tarea ni el tercero
+(eso exige sesion); si se permite la descarga a Excel de esas filas.

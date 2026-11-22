@@ -13,10 +13,11 @@ namespace Ecorex.SuperAdmin.Agents;
 /// </summary>
 public sealed class ScrapeCompileException(string message) : Exception(message);
 
-/// <summary>Un paso Extract compilado: en que accion del plan quedo su Eval, a que tabla va, y con que
-/// mapeo campo-del-resultado -> columna. El runtime, cuando llegue el resultado, toma el Value de esa
-/// accion (un arreglo JSON de filas) y lo ingiere en la tabla.</summary>
-public sealed record ExtractBinding(int ActionIndex, Guid TargetContainerId, string? MappingJson);
+/// <summary>Un paso Extract compilado: en que accion del plan quedo su Eval, a que tabla va, con que
+/// mapeo campo-del-resultado -> columna y con que columna clave de ingesta (upsert). El runtime, cuando
+/// llegue el resultado, toma el Value de esa accion (un arreglo JSON de filas) y lo ingiere en la tabla;
+/// si hay <see cref="IngestKeyColumn"/> mapeada, reconcilia por esa columna (upsert) en vez de Append.</summary>
+public sealed record ExtractBinding(int ActionIndex, Guid TargetContainerId, string? MappingJson, string? IngestKeyColumn = null);
 
 /// <summary>El flujo listo para empujar: la secuencia de acciones tipadas y los enganches de ingesta.</summary>
 public sealed record CompiledFlow(IReadOnlyList<BrowserAction> Actions, IReadOnlyList<ExtractBinding> Extracts);
@@ -97,7 +98,7 @@ public static class ScrapeFlowCompiler
                                 $"El paso '{step.Name}' (Extraer) no tiene tabla destino (ni el flujo tampoco).");
                         actions.Add(EvalSigned(js, correlationId, signingSecret, step));
                         // El Eval que acabamos de agregar es el que devuelve las filas: su indice es el ancla.
-                        extracts.Add(new ExtractBinding(actions.Count - 1, container, step.MappingJson));
+                        extracts.Add(new ExtractBinding(actions.Count - 1, container, step.MappingJson, step.IngestKeyColumn));
                         break;
                     }
 

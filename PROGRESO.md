@@ -2,6 +2,30 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-22 - Fix motor: upsert por columna clave en drones de extraccion - v0.16.373 EN TRONCO (sin desplegar)
+
+Agente: sesion MCP (Claude Opus 4.8), rama `feat/mcp-terminar-tarea`. Pedido del usuario: arreglar que la ingesta
+del dron (extract -> contenedor) sea solo Append aunque el paso tenga configurada columna clave de ingesta, lo
+que hace que re-correr un dron DUPLIQUE filas (caso FOMAG programado diario, [[fomag-dron-contenedor-prod]]).
+
+Causa raiz: el record `ExtractBinding` (ScrapeFlowCompiler) no transportaba `IngestKeyColumn`, y los dos sitios
+que ingieren desde el bind (`BrowserRunService` paso-a-paso y corrida completa) llamaban a
+`ScrapeRowIngest.IngestAsync` SIN la llave. El motor ya sabe hacer Upsert (ApiImportMode.Upsert si la llave esta
+mapeada); solo faltaba propagar el dato que el paso ya guarda (`ScrapeStep.IngestKeyColumn`, MCP `ingesta_llave`).
+
+Hecho (fix de 4 lineas, sin cambio de API publica):
+- `ScrapeFlowCompiler.cs`: `ExtractBinding` suma `string? IngestKeyColumn = null`; al compilar el paso Extraer
+  se pasa `step.IngestKeyColumn`.
+- `BrowserRunService.cs`: los dos `IngestAsync` desde `bind` ahora pasan `bind.IngestKeyColumn` (el ramo
+  IngestPath ya lo pasaba via `step.IngestKeyColumn`).
+- Build Debug de `Ecorex.SuperAdmin` verde (0 errores). Comportamiento por defecto intacto: sin llave configurada
+  sigue siendo Append.
+
+Siguiente: entregar a dev principal (unir al tronco, gates build Release + dotnet format + Integration dual
+PG+SQL, deploy por version con OK del usuario). TRAS el deploy, configurar `ingesta_llave` en el paso Extraer del
+dron FOMAG. OJO (decidir con usuario): en FOMAG `url` NO es unico (un mismo PDF aparece bajo varios procesos), asi
+que la llave no puede ser solo `url`; evaluar columna derivada o clave compuesta antes de activar el upsert.
+
 ## 2026-11-22 - v0.16.372: Permiso "Ver registros" por enlace publico de libros de indicadores (ADR-0158 addendum d) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (d6362808) al tronco y main como v0.16.372. LLEVA MIGRACION dual AddAnalisisEnlacePermiteRegistros (columna permite_registros NOT NULL default false). Gates: build Release 0 errores; unitarias 1687/312/35; integracion dual 136/136 (Analisis + McpTablerosTests + Report* + aislamiento, PG + SQL Server). Deploy: SOLO con OK del usuario.

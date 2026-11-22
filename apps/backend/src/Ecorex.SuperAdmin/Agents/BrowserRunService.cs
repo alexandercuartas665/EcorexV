@@ -811,7 +811,7 @@ public sealed class BrowserRunService(
                         return new StepRunResult(false, false, msg, screenshot, null, 0, 0, 0, msg);
                     }
                     var rows = ScrapeRowIngest.ParseRows(res.Value);
-                    var (i, u, d) = await ScrapeRowIngest.IngestAsync(ingest, db, bind.TargetContainerId, tenantId, bind.MappingJson, rows, ct);
+                    var (i, u, d) = await ScrapeRowIngest.IngestAsync(ingest, db, bind.TargetContainerId, tenantId, bind.MappingJson, rows, ct, bind.IngestKeyColumn);
                     ins += i; upd += u; del += d;
                 }
 
@@ -2495,7 +2495,7 @@ public sealed class BrowserRunService(
                                         $"El paso de extraccion #{bind.ActionIndex + 1} no devolvio datos: {res?.Error ?? "sin resultado"}.");
                                 }
                                 var rows = ScrapeRowIngest.ParseRows(res.Value);
-                                var (i, u, d) = await ScrapeRowIngest.IngestAsync(ingest, db, bind.TargetContainerId, tenantId, bind.MappingJson, rows, CancellationToken.None);
+                                var (i, u, d) = await ScrapeRowIngest.IngestAsync(ingest, db, bind.TargetContainerId, tenantId, bind.MappingJson, rows, CancellationToken.None, bind.IngestKeyColumn);
                                 ins += i; upd += u; del += d;
                             }
                         }

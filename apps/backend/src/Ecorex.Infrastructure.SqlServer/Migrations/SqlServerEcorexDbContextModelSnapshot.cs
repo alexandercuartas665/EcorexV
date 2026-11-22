@@ -2784,6 +2784,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("libro_id");
 
+                    b.Property<bool>("PermiteRegistros")
+                        .HasColumnType("bit")
+                        .HasColumnName("permite_registros");
+
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("revoked_at");

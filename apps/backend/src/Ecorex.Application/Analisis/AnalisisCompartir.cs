@@ -9,18 +9,21 @@ using Microsoft.EntityFrameworkCore;
 namespace Ecorex.Application.Analisis;
 
 /// <summary>Como esta compartido un libro (para el dialogo "Compartir").</summary>
+/// <param name="EnlacePermiteRegistros">El enlace activo deja ver los registros detras de un grafico.</param>
 public sealed record AnalisisCompartirEstado(
     AnalisisVisibilidad Visibilidad,
     IReadOnlyList<Guid> Usuarios,
     bool EnlaceActivo,
     DateTimeOffset? EnlaceCreado,
-    DateTimeOffset? EnlaceExpira);
+    DateTimeOffset? EnlaceExpira,
+    bool EnlacePermiteRegistros = false);
 
 /// <summary>Usuario del tenant elegible para ver un libro privado.</summary>
 public sealed record AnalisisUsuarioRef(Guid UserId, string Nombre, string Email);
 
 /// <summary>Token de un enlace publico resuelto: el UNICO dato cross-tenant que sale de aqui.</summary>
-public sealed record AnalisisEnlaceResuelto(Guid TenantId, Guid LibroId);
+/// <param name="PermiteRegistros">Quien abre el enlace puede usar "Ver registros".</param>
+public sealed record AnalisisEnlaceResuelto(Guid TenantId, Guid LibroId, bool PermiteRegistros = false);
 
 /// <summary>Resultado de generar/rotar un enlace: el token en claro SOLO se devuelve aqui (se guarda el hash).</summary>
 public sealed record AnalisisEnlaceNuevo(bool Ok, string? Token, string? Error);
@@ -41,7 +44,12 @@ public interface IAnalisisCompartirService
     Task<AnalisisOpResult> CambiarVisibilidadAsync(Guid libroId, AnalisisVisibilidad visibilidad, IReadOnlyList<Guid> usuarios, AnalisisActor actor, CancellationToken ct = default);
 
     /// <summary>Crea (o rota) el enlace publico; deja el libro en visibilidad EnlacePublico.</summary>
-    Task<AnalisisEnlaceNuevo> GenerarEnlaceAsync(Guid libroId, DateTimeOffset? expira, AnalisisActor actor, CancellationToken ct = default);
+    /// <param name="permiteRegistros">El enlace deja ver los registros detras de un grafico (apagado por defecto).</param>
+    Task<AnalisisEnlaceNuevo> GenerarEnlaceAsync(
+        Guid libroId, DateTimeOffset? expira, AnalisisActor actor, bool permiteRegistros = false, CancellationToken ct = default);
+
+    /// <summary>Enciende o apaga "Ver registros" en el enlace activo (sin cambiar la URL). Solo Admin.</summary>
+    Task<AnalisisOpResult> CambiarPermisoRegistrosAsync(Guid libroId, bool permite, AnalisisActor actor, CancellationToken ct = default);
 
     /// <summary>Revoca el enlace; el libro vuelve a "Compartido en el tenant".</summary>
     Task<AnalisisOpResult> RevocarEnlaceAsync(Guid libroId, AnalisisActor actor, CancellationToken ct = default);
@@ -92,7 +100,8 @@ public sealed class AnalisisCompartirService : IAnalisisCompartirService
             AnalisisService.AllowedUsers(libro.AllowedUserIdsJson).ToList(),
             token is not null && libro.Visibilidad == AnalisisVisibilidad.EnlacePublico,
             token?.CreatedAt,
-            token?.ExpiresAt);
+            token?.ExpiresAt,
+            token?.PermiteRegistros == true);
     }
 
     public async Task<IReadOnlyList<AnalisisUsuarioRef>> UsuariosAsync(CancellationToken ct = default)
@@ -144,7 +153,8 @@ public sealed class AnalisisCompartirService : IAnalisisCompartirService
         return AnalisisOpResult.Hecho(libro.Id);
     }
 
-    public async Task<AnalisisEnlaceNuevo> GenerarEnlaceAsync(Guid libroId, DateTimeOffset? expira, AnalisisActor actor, CancellationToken ct = default)
+    public async Task<AnalisisEnlaceNuevo> GenerarEnlaceAsync(
+        Guid libroId, DateTimeOffset? expira, AnalisisActor actor, bool permiteRegistros = false, CancellationToken ct = default)
     {
         if (!actor.EsAdmin)
         {
@@ -167,11 +177,44 @@ public sealed class AnalisisCompartirService : IAnalisisCompartirService
 
         await RevocarTokensAsync(db, libroId, ct); // rotar: el enlace anterior deja de funcionar
         var token = GenerarToken();
-        db.AnalisisLibroTokens.Add(new AnalisisLibroToken { LibroId = libroId, TokenHash = Hash(token), ExpiresAt = expira });
+        db.AnalisisLibroTokens.Add(new AnalisisLibroToken
+        {
+            LibroId = libroId,
+            TokenHash = Hash(token),
+            ExpiresAt = expira,
+            PermiteRegistros = permiteRegistros
+        });
         libro.Visibilidad = AnalisisVisibilidad.EnlacePublico;
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return new AnalisisEnlaceNuevo(true, token, null);
+    }
+
+    public async Task<AnalisisOpResult> CambiarPermisoRegistrosAsync(Guid libroId, bool permite, AnalisisActor actor, CancellationToken ct = default)
+    {
+        // Mismo nivel que publicar: el detalle expone filas individuales fuera del sistema.
+        if (!actor.EsAdmin)
+        {
+            return AnalisisOpResult.Falla("Solo un administrador puede cambiar lo que muestra el enlace publico.");
+        }
+
+        await using var db = _factory.Create();
+        var ahora = _time.GetUtcNow();
+        var activos = await db.AnalisisLibroTokens
+            .Where(t => t.LibroId == libroId && t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > ahora))
+            .ToListAsync(ct);
+        if (activos.Count == 0)
+        {
+            return AnalisisOpResult.Falla("El libro no tiene un enlace publico activo.");
+        }
+
+        foreach (var t in activos)
+        {
+            t.PermiteRegistros = permite;
+        }
+
+        await db.SaveChangesAsync(ct);
+        return AnalisisOpResult.Hecho(libroId);
     }
 
     public async Task<AnalisisOpResult> RevocarEnlaceAsync(Guid libroId, AnalisisActor actor, CancellationToken ct = default)
@@ -213,10 +256,10 @@ public sealed class AnalisisCompartirService : IAnalisisCompartirService
             join l in db.AnalisisLibros.IgnoreQueryFilters().AsNoTracking() on t.LibroId equals l.Id
             where t.TokenHash == hash && t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > ahora)
                 && t.TenantId == l.TenantId && !l.IsDeleted && l.Visibilidad == AnalisisVisibilidad.EnlacePublico
-            select new { l.TenantId, LibroId = l.Id })
+            select new { l.TenantId, LibroId = l.Id, t.PermiteRegistros })
             .FirstOrDefaultAsync(ct);
 
-        return r is null ? null : new AnalisisEnlaceResuelto(r.TenantId, r.LibroId);
+        return r is null ? null : new AnalisisEnlaceResuelto(r.TenantId, r.LibroId, r.PermiteRegistros);
     }
 
     public async Task<AnalisisLibroDetalle?> LibroPublicoAsync(Guid libroId, CancellationToken ct = default)

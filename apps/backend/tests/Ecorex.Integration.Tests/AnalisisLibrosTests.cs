@@ -545,6 +545,44 @@ public abstract class AnalisisLibrosTestsBase
         Assert.Null(await anon.ResolverAsync(e4.Token));
     }
 
+    [Fact]
+    public async Task EnlacePublico_PermisoVerRegistros_ApagadoPorDefecto_SoloAdmin_YSinCambiarUrl()
+    {
+        var a = await SeedTenantAsync("Libros enlace registros A");
+        var b = await SeedTenantAsync("Libros enlace registros B");
+        var libro = (await Service(a).CrearLibroAsync("Publico", null, ActorDuena)).Id!.Value;
+        IAnalisisCompartirService Comp(Guid? t) => new AnalisisCompartirService(new ApplicationDbContextFactory(() => _fixture.CreateContext(t)));
+        var compA = Comp(a);
+        var anon = Comp(null);
+
+        // Sin el permiso (por defecto): el enlace NO deja ver registros.
+        var e1 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin);
+        Assert.True(e1.Ok, e1.Error);
+        Assert.False((await anon.ResolverAsync(e1.Token))!.PermiteRegistros);
+        Assert.False((await compA.EstadoAsync(libro, ActorDuena))!.EnlacePermiteRegistros);
+
+        // Solo un Admin lo enciende; se aplica al MISMO enlace (la URL no cambia).
+        Assert.False((await compA.CambiarPermisoRegistrosAsync(libro, true, ActorDuena)).Ok);
+        Assert.True((await compA.CambiarPermisoRegistrosAsync(libro, true, ActorAdmin)).Ok);
+        Assert.Equal(new AnalisisEnlaceResuelto(a, libro, PermiteRegistros: true), await anon.ResolverAsync(e1.Token));
+        Assert.True((await compA.EstadoAsync(libro, ActorDuena))!.EnlacePermiteRegistros);
+
+        // Desde otro tenant no se toca el enlace de A.
+        Assert.False((await Comp(b).CambiarPermisoRegistrosAsync(libro, false, ActorAdmin)).Ok);
+        Assert.True((await anon.ResolverAsync(e1.Token))!.PermiteRegistros);
+
+        // Apagarlo vuelve a cerrar el detalle; generar con el permiso lo deja encendido en el enlace nuevo.
+        Assert.True((await compA.CambiarPermisoRegistrosAsync(libro, false, ActorAdmin)).Ok);
+        Assert.False((await anon.ResolverAsync(e1.Token))!.PermiteRegistros);
+        var e2 = await compA.GenerarEnlaceAsync(libro, null, ActorAdmin, permiteRegistros: true);
+        Assert.True((await anon.ResolverAsync(e2.Token))!.PermiteRegistros);
+
+        // Sin enlace activo no hay nada que cambiar.
+        Assert.True((await compA.RevocarEnlaceAsync(libro, ActorDuena)).Ok);
+        Assert.False((await compA.CambiarPermisoRegistrosAsync(libro, true, ActorAdmin)).Ok);
+        Assert.Null(await anon.ResolverAsync(e2.Token));
+    }
+
     private sealed class RelojFijo(DateTimeOffset inicio) : TimeProvider
     {
         public DateTimeOffset Ahora { get; set; } = inicio;

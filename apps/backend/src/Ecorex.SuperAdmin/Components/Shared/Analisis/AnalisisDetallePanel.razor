@@ -46,7 +46,7 @@
                 {
                     <span>@Detalle.Filas.Count.ToString("N0", CultureInfo.CurrentCulture) @(Detalle.Filas.Count == 1 ? "registro" : "registros")</span>
                 }
-                @if (Detalle.EnlaceTipo is not null)
+                @if (Detalle.EnlaceTipo is not null && OnAbrir.HasDelegate)
                 {
                     <span class="ad-hint"> &middot; toca una fila para abrir @(Detalle.EnlaceTipo == "tarea" ? "la tarea" : "el tercero")</span>
                 }
@@ -70,7 +70,7 @@
                 <tbody>
                     @foreach (var fila in Detalle.Filas)
                     {
-                        var id = IdDe(fila);
+                        var id = OnAbrir.HasDelegate ? IdDe(fila) : null;
                         <tr class="@(id is null ? "" : "link")" @onclick="() => AbrirAsync(id)">
                             @foreach (var i in Visibles)
                             {

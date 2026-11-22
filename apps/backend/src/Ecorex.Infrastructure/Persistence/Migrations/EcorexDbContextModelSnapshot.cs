@@ -2784,6 +2784,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("libro_id");
 
+                    b.Property<bool>("PermiteRegistros")
+                        .HasColumnType("boolean")
+                        .HasColumnName("permite_registros");
+
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");

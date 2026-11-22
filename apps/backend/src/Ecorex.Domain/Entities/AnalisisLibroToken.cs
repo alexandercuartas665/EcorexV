@@ -15,4 +15,10 @@ public sealed class AnalisisLibroToken : TenantEntity
     public DateTimeOffset? ExpiresAt { get; set; }
 
     public DateTimeOffset? RevokedAt { get; set; }
+
+    /// <summary>
+    /// Quien abre el enlace puede ver los REGISTROS detras de un grafico ("Ver registros", ADR-0158 Ola 7c).
+    /// Apagado por defecto: el enlace es anonimo y el detalle muestra filas individuales. Lo activa un Admin.
+    /// </summary>
+    public bool PermiteRegistros { get; set; }
 }

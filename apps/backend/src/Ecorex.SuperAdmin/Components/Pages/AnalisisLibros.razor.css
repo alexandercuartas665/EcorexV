@@ -194,3 +194,8 @@
 .an-registro-host ::deep .modal-overlay { z-index: 1310; }
 .an-registro-host ::deep .dg-overlay { z-index: 1310; }
 .an-registro-host ::deep .dg-overlay.sm { z-index: 1320; }
+
+/* Compartir: permiso "Ver registros" del enlace publico (Ola 7c). */
+.an-check { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.an-check input { width: 16px; height: 16px; accent-color: var(--brand); }
+.an-muted.an-ok { color: var(--t-green); font-weight: 600; }

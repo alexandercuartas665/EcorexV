@@ -433,3 +433,16 @@ clientes) a cualquiera con el link; los filtros solo acotan los agregados que el
 consultas del visor pasan por una compuerta propia (una a la vez) y siguen con el tenant del token como
 ambient. La regla de "tocar para filtrar" (agregar / reemplazar / quitar la seleccion de un widget) quedo en
 `AnalisisCruce.Alternar`, compartida por `/analisis` y el visor publico.
+
+### Addendum 2026-11-21 (c) - Filtros guardados = fijos en el enlace publico (SIN deploy)
+
+Hallazgo de ECOREX.desarrollo al integrar el addendum (b): si una hoja se comparte con un filtro guardado
+(p.ej. Vendedor=X), quien abre el enlace anonimo podia borrarlo y ver los datos de todos. Antes de (b) el
+visor solo mostraba la hoja con sus filtros guardados, asi que en la practica restringian el enlace.
+
+**Decision:** en `/a/{token}` los filtros GUARDADOS de la hoja son un piso: quien abre el enlace solo puede
+ACOTAR, nunca ampliar ni quitar. `HojaFiltros.DentroDe(fijos)` (puro, con prueba): vendedor/tablero fijos
+mandan; el rango queda dentro del rango fijo (desde = el mas tardio, hasta = el mas temprano) y un rango fuera
+del fijo queda vacio en vez de ampliarse. Se aplica SIEMPRE en el servidor al calcular (no depende de que el
+campo este deshabilitado en el navegador); la barra bloquea los campos fijados, limita las fechas y muestra
+"Fijado por quien compartio". Los filtros por clic se suman con AND, asi que tambien solo acotan.

@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - v0.16.371: Enlace publico: filtros guardados de la hoja quedan fijos (ADR-0158 addendum c) - rama claude/system-indicators-data-sources-e53a43 - PENDIENTE DE DEPLOY
+
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (8a9159dd = fix e09714d7) al tronco y main como v0.16.371. Cierra el bloqueo de v0.16.370 (se despliegan juntas). Gates: build Release 0 errores; unitarias 1687/312/35; integracion dual Analisis 46/46 (PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.
+
+- **Agente**: ECOREX.indicadores, por hallazgo de ECOREX.desarrollo al integrar v0.16.370: con los filtros nuevos del enlace publico, quien abre el link podia borrar un filtro guardado (p.ej. Vendedor=X) y ver los datos de todos.
+- **Hecho**: `HojaFiltros.DentroDe(fijos)`: en `/a/{token}` los filtros guardados de la hoja son un piso (solo se acota; vendedor/tablero fijos mandan, el rango se recorta y uno fuera del fijo queda vacio). Se aplica en el servidor al calcular; la barra bloquea los campos fijados, limita las fechas y lo indica. Sin migracion.
+- **Gates**: build 0 errores; format verify 0; ASCII OK; unitarias Application 1687 / SuperAdmin 312; integracion Analisis 46/46 (PG + SQL Server).
+- **Verificado en vivo** (5269, Playwright headless): hoja guardada con Tablero=APROBAR y compartida; el anonimo ve solo APROBAR (48), el campo esta bloqueado y, aun forzando el campo vacio desde el navegador y aplicando, sigue viendo solo APROBAR; 0 errores de consola. Libro local restaurado (compartido en la empresa, sin enlace activo, hojas sin filtros guardados).
+- **Siguiente**: ECOREX.desarrollo integra sobre v0.16.370 (NO desplegar v0.16.370 sin esta correccion) y despliega con OK del usuario.
+
 ## 2026-11-21 - v0.16.370: Filtros en el enlace publico de los libros de indicadores (ADR-0158 addendum b) - rama claude/system-indicators-data-sources-e53a43 - NO DESPLEGAR SOLA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (f3fd36d9) al tronco y main como v0.16.370. Gates: build Release 0 errores; unitarias 1686/312/35; integracion dual Analisis 46/46 (PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.

@@ -17,7 +17,8 @@
    lectura corre con el tenant del token fijado como ambient (AmbientTenantContext.Begin). Se comparte la
    DEFINICION: los datos son en vivo.
    Filtros (Ola 7c): quien abre el enlace puede filtrar la hoja (barra de fechas / vendedor / tablero) y tocar
-   un grafico para filtrar los demas. Son TEMPORALES: viven en su vista, no cambian el libro. "Ver registros"
+   un grafico para filtrar los demas. Son TEMPORALES: viven en su vista, no cambian el libro. Los filtros
+   GUARDADOS en la hoja son fijos: solo se pueden acotar, nunca ampliar ni quitar (HojaFiltros.DentroDe). "Ver registros"
    NO se ofrece aqui: el enlace es anonimo y mostraria filas individuales (tareas, clientes) a cualquiera. *@
 
 <PageTitle>@(_libro?.Nombre ?? "Libro de indicadores")</PageTitle>
@@ -62,26 +63,31 @@
 
         @if (Hoja is { } hoja)
         {
+            var fijos = Fijos;
             <div class="ap-filters" aria-label="Filtros de la hoja">
                 <div class="ap-f">
                     <label>Desde</label>
-                    <input type="date" class="ap-input" value="@Fecha(_fDesde)" @onchange="e => _fDesde = ParseFecha(e.Value)" />
+                    <input type="date" class="ap-input" value="@Fecha(_fDesde)" min="@Fecha(fijos.Desde)" max="@Fecha(fijos.Hasta)"
+                           @onchange="e => _fDesde = ParseFecha(e.Value)" />
                 </div>
                 <div class="ap-f">
                     <label>Hasta</label>
-                    <input type="date" class="ap-input" value="@Fecha(_fHasta)" @onchange="e => _fHasta = ParseFecha(e.Value)" />
+                    <input type="date" class="ap-input" value="@Fecha(_fHasta)" min="@Fecha(fijos.Desde)" max="@Fecha(fijos.Hasta)"
+                           @onchange="e => _fHasta = ParseFecha(e.Value)" />
                 </div>
                 <div class="ap-f">
                     <label>Vendedor</label>
-                    <input class="ap-input" value="@_fVendedor" @onchange="e => _fVendedor = e.Value?.ToString()" placeholder="Todos" />
+                    <input class="ap-input" value="@_fVendedor" @onchange="e => _fVendedor = e.Value?.ToString()" placeholder="Todos"
+                           disabled="@(!string.IsNullOrWhiteSpace(fijos.Vendedor))" title="@(string.IsNullOrWhiteSpace(fijos.Vendedor) ? null : "Fijado por quien compartio")" />
                 </div>
                 <div class="ap-f">
                     <label>Tablero</label>
-                    <input class="ap-input" value="@_fTablero" @onchange="e => _fTablero = e.Value?.ToString()" placeholder="Todos" />
+                    <input class="ap-input" value="@_fTablero" @onchange="e => _fTablero = e.Value?.ToString()" placeholder="Todos"
+                           disabled="@(!string.IsNullOrWhiteSpace(fijos.Tablero))" title="@(string.IsNullOrWhiteSpace(fijos.Tablero) ? null : "Fijado por quien compartio")" />
                 </div>
                 <div class="ap-f-actions">
                     <button class="ap-btn primary" @onclick="AplicarFiltrosAsync">Aplicar</button>
-                    @if (_filtrosTemporales is not null || HayFiltrosEscritos)
+                    @if (_filtrosTemporales is not null)
                     {
                         <button class="ap-btn" @onclick="RestablecerFiltrosAsync">Restablecer</button>
                     }
@@ -89,6 +95,10 @@
                 @if (_filtrosTemporales is not null)
                 {
                     <span class="ap-f-note">Filtro temporal: solo para tu vista, no cambia el libro.</span>
+                }
+                @if (!fijos.Vacio)
+                {
+                    <span class="ap-f-note fijo">Fijado por quien compartio (solo se puede acotar): @Resumen(fijos)</span>
                 }
             </div>
 
@@ -158,9 +168,14 @@
 
     private AnalisisHojaDto? Hoja => _libro?.Hojas.FirstOrDefault(h => h.Id == _hojaId);
 
-    private HojaFiltros FiltrosActivos => _filtrosTemporales ?? Hoja?.Filtros ?? new HojaFiltros();
+    /// <summary>
+    /// Filtros guardados en la hoja: en el enlace publico son un PISO que quien abre el enlace no puede ampliar
+    /// (solo acotar), para que compartir una hoja filtrada no exponga los datos que el filtro deja fuera.
+    /// </summary>
+    private HojaFiltros Fijos => Hoja?.Filtros ?? new HojaFiltros();
 
-    private bool HayFiltrosEscritos => _fDesde is not null || _fHasta is not null || !string.IsNullOrWhiteSpace(_fVendedor) || !string.IsNullOrWhiteSpace(_fTablero);
+    private HojaFiltros FiltrosActivos => (_filtrosTemporales ?? Fijos).DentroDe(Fijos);
+
 
     protected override async Task OnInitializedAsync()
     {
@@ -254,14 +269,38 @@
 
     private Task AplicarFiltrosAsync()
     {
-        _filtrosTemporales = new HojaFiltros
+        // Lo escrito se acota a los filtros fijos y la barra muestra lo que realmente se aplica.
+        var f = new HojaFiltros
         {
             Desde = _fDesde,
             Hasta = _fHasta,
             Vendedor = string.IsNullOrWhiteSpace(_fVendedor) ? null : _fVendedor.Trim(),
             Tablero = string.IsNullOrWhiteSpace(_fTablero) ? null : _fTablero.Trim()
-        };
+        }.DentroDe(Fijos);
+        _filtrosTemporales = f;
+        (_fDesde, _fHasta, _fVendedor, _fTablero) = (f.Desde, f.Hasta, f.Vendedor, f.Tablero);
         return CargarAsync();
+    }
+
+    private static string Resumen(HojaFiltros f)
+    {
+        var partes = new List<string>();
+        if (f.Desde is not null || f.Hasta is not null)
+        {
+            partes.Add($"fechas {f.Desde?.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "..."} - {f.Hasta?.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "..."}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(f.Vendedor))
+        {
+            partes.Add($"vendedor {f.Vendedor}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(f.Tablero))
+        {
+            partes.Add($"tablero {f.Tablero}");
+        }
+
+        return string.Join(", ", partes);
     }
 
     /// <summary>Vuelve a los filtros con que se compartio la hoja.</summary>

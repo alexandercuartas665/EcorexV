@@ -58,6 +58,8 @@ public static class McpTablerosEndpoints
         "consume tokens de IA, asi que confirma con el usuario antes de procesar muchas filas. Para que se clasifique " +
         "SOLO lo nuevo despues de cada importacion usa configurar_paso_clasificacion en la programacion (ejecutar_" +
         "clasificacion_ahora la encola ya); limpiar_marca vacia la marca para reclasificar (confirma antes). " +
+        "Para llenar una columna de filas ya cargadas desde otras columnas (ej. una clave de ingesta compuesta) usa " +
+        "rellenar_columna con una plantilla \"{col1}|{col2}\" (por defecto solo filas vacias, repetible). " +
         "Reportes e indicadores: mira las fuentes con listar_fuentes_reporte y sus campos con ver_fuente_reporte (cada " +
         "tabla de un contenedor es una fuente); crear_reporte arma un panel y agregar_indicador un widget de un libro " +
         "(crear_libro_indicadores); la consulta va con nombres de campo y se ejecuta antes de guardar. " +

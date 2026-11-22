@@ -899,6 +899,31 @@ public abstract class McpTablerosTestsBase
         Assert.Equal("otro", fake.LastLimpiar.Filtro!["sector"]);
         Assert.Equal(new[] { "sector" }, fake.LastLimpiar.ColumnasSalida);
 
+        // rellenar_columna (ADR-0201): expuesta (no destructiva), despacha tabla/columna/plantilla y solo_vacias.
+        Assert.Contains("rellenar_columna", names);
+        Assert.DoesNotContain("rellenar_columna", toolset.DestructiveTools);
+        Assert.True((await toolset.ExecuteAsync("rellenar_columna", Args(new { contenedor = "SECOP Paso", tabla = "Procesos", columna = "sector" }), owner)).IsError);
+        var relleno = Payload(await toolset.ExecuteAsync("rellenar_columna", Args(new
+        {
+            contenedor = "SECOP Paso",
+            tabla = "Procesos",
+            columna = "sector",
+            plantilla = "{id_proceso}|{nombre_proceso}"
+        }), owner));
+        Assert.Equal(5, relleno.GetProperty("rellenadas").GetInt32());
+        Assert.Equal(tableId, fake.LastRellenar!.TableId);
+        Assert.Equal("{id_proceso}|{nombre_proceso}", fake.LastRellenar.Plantilla);
+        Assert.True(fake.LastRellenar.SoloVacias);
+        Payload(await toolset.ExecuteAsync("rellenar_columna", Args(new
+        {
+            contenedor = "SECOP Paso",
+            tabla = "Procesos",
+            columna = "sector",
+            plantilla = "{id_proceso}",
+            solo_vacias = false
+        }), owner));
+        Assert.False(fake.LastRellenar.SoloVacias);
+
         // Quitar: limpia paso y solicitud.
         Payload(await toolset.ExecuteAsync("quitar_paso_clasificacion", Args(new { contenedor = "SECOP Paso", programacion = "Recientes diaria" }), owner));
         proc = await ctx.ImportProcesses.AsNoTracking().SingleAsync(p => p.Name == "Recientes diaria");
@@ -1148,6 +1173,14 @@ public abstract class McpTablerosTestsBase
         {
             LastLimpiar = request;
             return Task.FromResult(new LimpiarMarcaResultado(true, null, Filas: 4, Celdas: 8));
+        }
+
+        public RellenarColumnaRequest? LastRellenar { get; private set; }
+
+        public Task<RellenarColumnaResultado> RellenarColumnaAsync(RellenarColumnaRequest request, CancellationToken ct = default)
+        {
+            LastRellenar = request;
+            return Task.FromResult(new RellenarColumnaResultado(true, null, Rellenadas: 5, SinCambio: 1, Restantes: 0, Muestra: new[] { "a|b" }));
         }
 
         public ClasificarLoteRequest? Last { get; private set; }

@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - EN TRONCO (sin desplegar)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/mcp-rellenar-columna`. Pedido de ECOREX.mcp para el dron FOMAG;
+el usuario eligio el backfill por plantilla (NO `vaciar_tabla`).
+- **Hecho**: `IContenedorClasificacionService.RellenarColumnaAsync` + herramienta MCP `rellenar_columna(contenedor, tabla,
+  columna, plantilla, solo_vacias=true)`: llena la columna destino de las filas raiz con una plantilla de otras columnas
+  de la misma fila (ej. `{numero_proceso}|{url}`). Solo filas con algun valor de origen; por defecto solo destino vacio
+  (idempotente); `solo_vacias=false` sobrescribe. Hasta 20000 filas por llamada en lotes de 1000 dentro de UNA
+  transaccion; `restantes` para repetir. Permiso Edit de contenedor-datos. MCP personal 155 -> 156. Sin migracion.
+- **Pruebas**: integracion dual `RellenarColumna_PorPlantilla_SoloVacias_Sobrescribe_YEsTenantScoped` y el puente MCP en
+  `PasoClasificacion_ToolsExpuestas_...`. Build Release 0 errores; unitarias 1687/312/35; integracion dual
+  McpTableros|ImportClasificacionPaso|ClasificarLote 58/58.
+- **Siguiente**: deploy SOLO con OK del usuario. Luego ECOREX.mcp: crear `clave_ingesta` en la tabla FOMAG ->
+  `rellenar_columna` -> configurar `ingesta_llave` en el paso Extraer -> re-correr el dron.
+
 ## 2026-11-22 - Cerebros como modulo propio, ola 1 (ADR-0200) - v0.16.374 DESPLEGADA
 
 - **Integracion + deploy (ECOREX.desarrollo, 2026-11-22 12:05 Bogota)**: merge --no-ff de feat/maquetas-cerebro (471cb59e) como v0.16.374 (de549bca); lleva tambien v0.16.373 (fix upsert drones). Gates: build Release 0 errores, format ok, unitarias 1687/312/35, integracion dual completa 796/800 + 4 ReportActivationTests_SqlServer intermitentes (8/8 al repetir). OK del usuario para v0.16.374 (dentro de la ventana del barrido DRON dominical; el usuario corre el DRON a mano hoy). Via rapida GHCR (CI 45045890246 verde). Footer /login = v0.16.374, migracion 20261122124859_AddBrainsModule aplicada, ecorex-app Restarts=0, 0 errores. PROYECTOS: "Cerebro de VISAL" creado (308 notas, 1301 vinculos). "TRONOX SGDEA" NO recibio cerebro: en prod tiene 0 notas (la migracion solo crea cerebro a maquetas con notas). Rollback: imagen anterior sha256:92e9934f...

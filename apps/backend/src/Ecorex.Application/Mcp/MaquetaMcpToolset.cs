@@ -385,7 +385,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
 
     private async Task<McpToolResult> ListNotesAsync(JsonElement args, string? texto, CancellationToken ct)
     {
-        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var notes = await _brain.ListNotesAsync(slug!, texto, ct);
         return Ok(new
@@ -414,7 +414,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     {
         var titulo = Str(args, "titulo");
         if (titulo is null) { return Err("'titulo' es obligatorio."); }
-        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var note = await _brain.GetNoteAsync(slug!, null, titulo, ct);
         if (note is null) { return Err($"No existe la nota '{titulo}' en el cerebro de '{slug}'. Usa listar_notas o buscar_notas."); }
@@ -429,7 +429,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
 
     private async Task<McpToolResult> ListAssetsAsync(JsonElement args, CancellationToken ct)
     {
-        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var assets = await _brain.ListAssetsAsync(slug!, true, ct);
         return Ok(new
@@ -452,7 +452,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     {
         var nombre = Str(args, "nombre");
         if (nombre is null) { return Err("'nombre' es obligatorio."); }
-        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var key = MockupBrainAssets.Key(nombre);
         var asset = (await _brain.ListAssetsAsync(slug!, true, ct)).FirstOrDefault(a => MockupBrainAssets.Key(a.Name) == key);
@@ -487,7 +487,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         var titulo = Str(args, "titulo");
         if (titulo is null) { return Err("'titulo' es obligatorio."); }
         var contenido = RawStr(args, "contenido") ?? string.Empty;
-        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var res = await _brain.SaveNoteAsync(slug!, null, titulo, contenido, null, ViaIa(actor), ct);
         return res.IsOk ? Ok(NotePayload(slug!, res.Value!)) : Err(res.Error ?? "No se pudo crear la nota.");
@@ -497,7 +497,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     {
         var titulo = Str(args, "titulo");
         if (titulo is null) { return Err("'titulo' es obligatorio."); }
-        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var note = await _brain.GetNoteAsync(slug!, null, titulo, ct);
         if (note is null) { return Err($"No existe la nota '{titulo}'. Usa crear_nota."); }
@@ -518,7 +518,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
 
     private async Task<McpToolResult> GraphAsync(JsonElement args, CancellationToken ct)
     {
-        var (slug, error) = await ResolveProjectAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
         if (error is not null) { return Err(error); }
         var graph = await _brain.GetGraphAsync(slug!, ct);
         if (graph is null) { return Err($"No existe el proyecto de maqueta '{slug}'."); }
@@ -591,6 +591,26 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
                       where l.Source.StartsWith(MockupService.SourcePrefix)
                       select new LinkInfo(t.Id, t.Number, l.Source, l.MetadataJson))
             .FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// Cerebro de una maqueta (ADR-0200): el PRINCIPAL vinculado al proyecto. Por compatibilidad "proyecto" tambien
+    /// acepta directamente el slug de un cerebro (los migrados comparten slug con su maqueta).
+    /// </summary>
+    private async Task<(string? Slug, string? Error)> ResolveBrainAsync(string? proyecto, CancellationToken ct)
+    {
+        var (slug, error) = await ResolveProjectAsync(proyecto, ct);
+        if (error is not null) { return (null, error); }
+        var primary = await (from l in _db.MockupProjectBrains.AsNoTracking()
+                             join p in _db.MockupProjects.AsNoTracking() on l.MockupProjectId equals p.Id
+                             join b in _db.Brains.AsNoTracking() on l.BrainId equals b.Id
+                             where p.Slug == slug && p.DeletedAt == null
+                             orderby l.SortOrder, l.CreatedAt
+                             select b.Slug)
+            .FirstOrDefaultAsync(ct);
+        if (primary is not null) { return (primary, null); }
+        if (await _db.Brains.AsNoTracking().AnyAsync(x => x.Slug == slug, ct)) { return (slug, null); }
+        return (null, $"La maqueta '{slug}' no tiene cerebro vinculado. Crealo desde la pestana Cerebro de la maqueta o en el modulo Cerebros.");
     }
 
     /// <summary>Proyecto por slug; si no viene y la empresa tiene UNO solo, ese. Un slug sin proyecto (origen del kit

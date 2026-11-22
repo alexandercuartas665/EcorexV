@@ -1,0 +1,490 @@
+@page "/cerebros"
+@attribute [Authorize(Policy = Ecorex.SuperAdmin.Maqueta.MaquetaHub.Policy)]
+@* Modulo CEREBROS (ADR-0200, ola 1): galeria de tarjetas con TODOS los cerebros del tenant (vinculados o no a
+   maquetas), filtro por categoria y busqueda. Todos ven; Owner/Admin crea, edita, archiva y administra categorias.
+   Cada tarjeta abre /cerebros/{slug} (el mismo editor de notas, grafo y adjuntos de las maquetas). Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Integraciones.Cerebro
+@using Ecorex.Application.Integraciones.Maqueta
+@using Ecorex.Application.Mcp
+@using Ecorex.Application.Tenancy
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Nav
+
+<PageTitle>Cerebros - ECOREX.tareas</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <span class="cur">Cerebros</span>
+</nav>
+
+<div class="cb-bar">
+    <div class="cb-title">
+        <h1 class="page-title" style="margin:0;">Cerebros</h1>
+        <span class="page-sub" style="margin:0;">Notas enlazadas tipo Obsidian, con grafo, adjuntos y chat con Claude. Vinculalos a tus maquetas o usalos solos.</span>
+    </div>
+    @if (_isAdmin)
+    {
+        <div class="cb-bar-actions">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="OpenCategories"><i class="fa-solid fa-tags"></i> Categorias</button>
+            <button class="btn btn-sm btn-primary" @onclick="OpenNew">+ Nuevo cerebro</button>
+        </div>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert @(_messageIsError ? "alert-danger" : "alert-success") py-2 cb-alert">@_message</div>
+}
+
+<div class="cb-filters">
+    <div class="cb-search">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input placeholder="Buscar por nombre o descripcion" @bind="_search" @bind:event="oninput" />
+    </div>
+    <div class="cb-chips" role="tablist">
+        <button class="cb-chip @(_categoryFilter is null && !_withoutCategory ? "on" : null)" @onclick="() => SetFilter(null, false)">Todas <span>@_brains.Count</span></button>
+        @foreach (var c in _categories)
+        {
+            <button class="cb-chip @(_categoryFilter == c.Id ? "on" : null)" @onclick="() => SetFilter(c.Id, false)">
+                <i class="cb-dot" style="background:@(c.Color ?? DefaultColor)"></i> @c.Name <span>@_brains.Count(b => b.CategoryId == c.Id)</span>
+            </button>
+        }
+        @if (_brains.Any(b => b.CategoryId is null))
+        {
+            <button class="cb-chip @(_withoutCategory ? "on" : null)" @onclick="() => SetFilter(null, true)">Sin categoria <span>@_brains.Count(b => b.CategoryId is null)</span></button>
+        }
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="cb-muted">Cargando...</div>
+}
+else if (Visible.Count == 0)
+{
+    <div class="cb-empty">
+        @if (_brains.Count == 0)
+        {
+            <span>@(_isAdmin ? "No hay cerebros todavia. Crea el primero o abre la pestana Cerebro de una maqueta." : "No hay cerebros en tu empresa todavia.")</span>
+        }
+        else
+        {
+            <span>Ningun cerebro coincide con el filtro.</span>
+        }
+    </div>
+}
+else
+{
+    <div class="cb-gallery">
+        @foreach (var b in Visible)
+        {
+            var color = b.CategoryColor ?? DefaultColor;
+            <div class="cb-card" style="--cb-accent:@color">
+                <a class="cb-card-main" href="@($"/cerebros/{b.Slug}")" title="Abrir el cerebro">
+                    <div class="cb-card-head">
+                        <span class="cb-card-icon"><i class="fa-solid fa-brain"></i></span>
+                        <div class="cb-card-titles">
+                            <span class="cb-card-title">@b.Name</span>
+                            <span class="cb-card-cat">@(b.CategoryName ?? "Sin categoria")</span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(b.Description))
+                    {
+                        <div class="cb-card-desc">@b.Description</div>
+                    }
+                    <div class="cb-card-meta">
+                        <span><i class="fa-regular fa-note-sticky"></i> @b.Notes notas</span>
+                        <span>actualizado @Ago(b.UpdatedAt)</span>
+                    </div>
+                </a>
+                <div class="cb-card-foot">
+                    <div class="cb-mockups">
+                        @if (b.Mockups.Count == 0)
+                        {
+                            <span class="cb-muted-sm">Sin maquetas vinculadas</span>
+                        }
+                        @foreach (var m in b.Mockups)
+                        {
+                            <a class="cb-mockup" href="@($"/maqueta/{m.Slug}?tab=cerebro")" title="@(m.IsPrimary ? "Cerebro principal de la maqueta" : "Vinculado a la maqueta")">
+                                <i class="fa-regular fa-window-maximize"></i> @m.Name
+                            </a>
+                        }
+                    </div>
+                    @if (_isAdmin)
+                    {
+                        <button class="cb-icon" title="Editar nombre, descripcion y categoria" @onclick="() => OpenEdit(b)"><i class="fa-regular fa-pen-to-square"></i></button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_editing)
+{
+    <div class="cb-modal-back" @onclick="CloseEdit"></div>
+    <div class="cb-modal" role="dialog" aria-label="@(_editId is null ? "Nuevo cerebro" : "Editar cerebro")">
+        <div class="cb-modal-head">
+            <h3>@(_editId is null ? "Nuevo cerebro" : "Editar cerebro")</h3>
+            <button class="cb-icon" title="Cerrar" @onclick="CloseEdit"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="cb-form">
+            <label>Nombre<input class="form-control form-control-sm" @bind="_editName" placeholder="Base de conocimiento clinica" maxlength="150" /></label>
+            <label>Descripcion<textarea class="form-control form-control-sm" rows="3" @bind="_editDesc" placeholder="Opcional" maxlength="600"></textarea></label>
+            <label>
+                Categoria
+                <select class="form-select form-select-sm" @bind="_editCategory">
+                    <option value="">Sin categoria</option>
+                    @foreach (var c in _categories)
+                    {
+                        <option value="@c.Id">@c.Name</option>
+                    }
+                </select>
+            </label>
+            @if (_editError is not null) { <div class="text-danger small">@_editError</div> }
+        </div>
+        <div class="cb-modal-actions">
+            @if (_editId is not null)
+            {
+                <button class="btn btn-sm btn-outline-danger me-auto" disabled="@_busy" @onclick="ArchiveAsync">@(_confirmArchive ? "Confirmar: archivar" : "Archivar")</button>
+            }
+            <button class="btn btn-sm btn-link" @onclick="CloseEdit">Cancelar</button>
+            <button class="btn btn-sm btn-primary" disabled="@(_busy || (_editId is not null && _editVersion < 0))" @onclick="SaveAsync">@(_editId is null ? "Crear" : "Guardar")</button>
+        </div>
+    </div>
+}
+
+@if (_showCategories)
+{
+    <div class="cb-modal-back" @onclick="() => _showCategories = false"></div>
+    <div class="cb-modal" role="dialog" aria-label="Categorias de cerebros">
+        <div class="cb-modal-head">
+            <h3>Categorias</h3>
+            <button class="cb-icon" title="Cerrar" @onclick="() => _showCategories = false"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="cb-cats">
+            @if (_categories.Count == 0)
+            {
+                <div class="cb-muted-sm">Aun no hay categorias.</div>
+            }
+            @foreach (var c in _categories)
+            {
+                <div class="cb-cat-row">
+                    @if (_catEditId == c.Id)
+                    {
+                        <input type="color" class="cb-color" @bind="_catColor" />
+                        <input class="form-control form-control-sm" @bind="_catName" maxlength="80" />
+                        <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SaveCategoryAsync">Guardar</button>
+                        <button class="btn btn-sm btn-link" @onclick="() => _catEditId = null">Cancelar</button>
+                    }
+                    else
+                    {
+                        <i class="cb-dot" style="background:@(c.Color ?? DefaultColor)"></i>
+                        <span class="cb-cat-name">@c.Name</span>
+                        <span class="cb-muted-sm">@c.Brains cerebros</span>
+                        <button class="cb-icon" title="Editar" @onclick="() => EditCategory(c)"><i class="fa-regular fa-pen-to-square"></i></button>
+                        <button class="cb-icon" title="Archivar (sus cerebros quedan sin categoria)" disabled="@_busy" @onclick="() => ArchiveCategoryAsync(c)">
+                            <i class="fa-regular fa-trash-can"></i>
+                        </button>
+                    }
+                </div>
+            }
+            <div class="cb-cat-row cb-cat-new">
+                <input type="color" class="cb-color" @bind="_newCatColor" />
+                <input class="form-control form-control-sm" placeholder="Nueva categoria" @bind="_newCatName" maxlength="80" />
+                <button class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="AddCategoryAsync">Agregar</button>
+            </div>
+            @if (_catError is not null) { <div class="text-danger small">@_catError</div> }
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private const string DefaultColor = "#7c3aed";
+
+    private List<BrainCardDto> _brains = new();
+    private List<BrainCategoryDto> _categories = new();
+    private bool _loading = true;
+    private bool _isAdmin;
+    private bool _busy;
+    private string? _message;
+    private bool _messageIsError;
+    private Guid _tenantId;
+    private Guid _userId;
+
+    private string _search = string.Empty;
+    private Guid? _categoryFilter;
+    private bool _withoutCategory;
+
+    private bool _editing;
+    private Guid? _editId;
+    private long _editVersion;
+    private string _editName = string.Empty;
+    private string? _editDesc;
+    private string _editCategory = string.Empty;
+    private string? _editError;
+    private bool _confirmArchive;
+
+    private bool _showCategories;
+    private Guid? _catEditId;
+    private string _catName = string.Empty;
+    private string _catColor = DefaultColor;
+    private string _newCatName = string.Empty;
+    private string _newCatColor = DefaultColor;
+    private string? _catError;
+
+    private List<BrainCardDto> Visible
+    {
+        get
+        {
+            IEnumerable<BrainCardDto> q = _brains;
+            if (_categoryFilter is { } cat) { q = q.Where(b => b.CategoryId == cat); }
+            if (_withoutCategory) { q = q.Where(b => b.CategoryId is null); }
+            var term = _search.Trim();
+            if (term.Length > 0)
+            {
+                q = q.Where(b => b.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || (b.Description?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || b.Mockups.Any(m => m.Name.Contains(term, StringComparison.OrdinalIgnoreCase)));
+            }
+            return q.ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _tenantId);
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+            _isAdmin = user.FindFirst("tenant_role")?.Value is "Owner" or "Admin";
+        }
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _brains = (await RunAsync(sp => sp.GetRequiredService<IBrainService>().ListAsync())).ToList();
+            _categories = (await RunAsync(sp => sp.GetRequiredService<IBrainService>().ListCategoriesAsync())).ToList();
+        }
+        catch (Exception)
+        {
+            Show("No se pudieron cargar los cerebros. Intenta de nuevo.", true);
+        }
+    }
+
+    private void SetFilter(Guid? categoryId, bool withoutCategory)
+    {
+        _categoryFilter = categoryId;
+        _withoutCategory = withoutCategory;
+    }
+
+    private void OpenNew()
+    {
+        _editId = null;
+        _editName = string.Empty;
+        _editDesc = null;
+        _editCategory = _categoryFilter?.ToString() ?? string.Empty;
+        _editError = null;
+        _confirmArchive = false;
+        _editing = true;
+    }
+
+    private void OpenEdit(BrainCardDto b)
+    {
+        _editId = b.Id;
+        _editName = b.Name;
+        _editDesc = b.Description;
+        _editCategory = b.CategoryId?.ToString() ?? string.Empty;
+        _editError = null;
+        _confirmArchive = false;
+        _editVersion = -1;
+        _editing = true;
+        _ = LoadVersionAsync(b.Slug);
+    }
+
+    private async Task LoadVersionAsync(string slug)
+    {
+        var detail = await RunAsync(sp => sp.GetRequiredService<IBrainService>().GetAsync(slug));
+        _editVersion = detail?.Version ?? -1;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseEdit()
+    {
+        _editing = false;
+        _confirmArchive = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _editError = null;
+        try
+        {
+            Guid? category = Guid.TryParse(_editCategory, out var c) ? c : null;
+            var id = _editId;
+            var version = _editVersion;
+            var res = await WithActorAsync<BrainDetailDto>((svc, actor) => id is null
+                ? svc.CreateAsync(_editName, _editDesc, category, actor)
+                : svc.UpdateAsync(id.Value, _editName, _editDesc, category, version, actor));
+            if (!res.IsOk || res.Value is null)
+            {
+                _editError = res.Error ?? "No se pudo guardar.";
+                return;
+            }
+            _editing = false;
+            if (id is null)
+            {
+                Nav.NavigateTo($"/cerebros/{res.Value.Slug}");
+                return;
+            }
+            Show($"Cerebro '{res.Value.Name}' actualizado.", false);
+            await ReloadAsync();
+        }
+        catch (Exception)
+        {
+            _editError = "No se pudo guardar. Intenta de nuevo.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ArchiveAsync()
+    {
+        if (_editId is null || _busy) { return; }
+        if (!_confirmArchive)
+        {
+            _confirmArchive = true;
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var id = _editId.Value;
+            var res = await WithActorAsync<bool>((svc, actor) => svc.ArchiveAsync(id, actor));
+            if (!res.IsOk)
+            {
+                _editError = res.Error ?? "No se pudo archivar.";
+                return;
+            }
+            _editing = false;
+            Show($"Cerebro '{_editName}' archivado.", false);
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+            _confirmArchive = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ categorias
+
+    private void OpenCategories()
+    {
+        _catError = null;
+        _catEditId = null;
+        _showCategories = true;
+    }
+
+    private void EditCategory(BrainCategoryDto c)
+    {
+        _catEditId = c.Id;
+        _catName = c.Name;
+        _catColor = c.Color ?? DefaultColor;
+        _catError = null;
+    }
+
+    private Task SaveCategoryAsync() => SaveCategoryCoreAsync(_catEditId, _catName, _catColor, () => _catEditId = null);
+
+    private Task AddCategoryAsync() => SaveCategoryCoreAsync(null, _newCatName, _newCatColor, () => _newCatName = string.Empty);
+
+    private async Task SaveCategoryCoreAsync(Guid? id, string name, string color, Action onOk)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _catError = null;
+        try
+        {
+            var res = await WithActorAsync<BrainCategoryDto>((svc, actor) => svc.SaveCategoryAsync(id, name, color, actor));
+            if (!res.IsOk)
+            {
+                _catError = res.Error ?? "No se pudo guardar la categoria.";
+                return;
+            }
+            onOk();
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ArchiveCategoryAsync(BrainCategoryDto c)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _catError = null;
+        try
+        {
+            var res = await WithActorAsync<bool>((svc, actor) => svc.ArchiveCategoryAsync(c.Id, actor));
+            if (!res.IsOk)
+            {
+                _catError = res.Error ?? "No se pudo archivar la categoria.";
+                return;
+            }
+            if (_categoryFilter == c.Id) { _categoryFilter = null; }
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private void Show(string message, bool isError)
+    {
+        _message = message;
+        _messageIsError = isError;
+    }
+
+    private async Task<TaskCoreResult<T>> WithActorAsync<T>(Func<IBrainService, McpActor, Task<TaskCoreResult<T>>> action)
+        => await RunAsync(async sp =>
+        {
+            var actor = await sp.GetRequiredService<IMaquetaSolicitudService>().ResolveSessionActorAsync(_userId);
+            if (actor is null) { return TaskCoreResult<T>.Forbidden("Tu usuario no puede administrar cerebros en esta empresa."); }
+            return await action(sp.GetRequiredService<IBrainService>(), actor);
+        });
+
+    private async Task<T> RunAsync<T>(Func<IServiceProvider, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider);
+    }
+
+    private static string Ago(DateTimeOffset at)
+    {
+        var d = DateTimeOffset.UtcNow - at;
+        if (d.TotalMinutes < 1) { return "ahora"; }
+        if (d.TotalHours < 1) { return $"hace {(int)d.TotalMinutes} min"; }
+        if (d.TotalDays < 1) { return $"hace {(int)d.TotalHours} h"; }
+        return $"hace {(int)d.TotalDays} d";
+    }
+}

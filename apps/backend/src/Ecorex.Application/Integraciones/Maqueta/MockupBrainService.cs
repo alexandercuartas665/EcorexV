@@ -135,10 +135,10 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<IReadOnlyList<MockupNoteSummaryDto>> ListNotesAsync(string slug, string? search = null, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return Array.Empty<MockupNoteSummaryDto>(); }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return Array.Empty<MockupNoteSummaryDto>(); }
 
-        var query = _db.MockupNotes.AsNoTracking().Where(n => n.MockupProjectId == project.Id);
+        var query = _db.MockupNotes.AsNoTracking().Where(n => n.BrainId == brain.Id);
         var s = (search ?? string.Empty).Trim().ToLowerInvariant();
         if (s.Length > 0)
         {
@@ -150,7 +150,7 @@ public sealed class MockupBrainService : IMockupBrainService
             .Select(n => new { n.Id, n.Title, n.TitleKey, n.Body, n.CreatedAt, n.UpdatedAt, n.UpdatedByName, n.AuthorName })
             .ToListAsync(ct);
 
-        var counts = await LinkCountsAsync(project.Id, ct);
+        var counts = await LinkCountsAsync(brain.Id, ct);
         return notes.Select(n => new MockupNoteSummaryDto(
                 n.Id, n.Title, MockupBrainLinks.Snippet(n.Body), n.UpdatedAt ?? n.CreatedAt, n.UpdatedByName ?? n.AuthorName,
                 counts.Out.GetValueOrDefault(n.Id), counts.Back.GetValueOrDefault(n.TitleKey)))
@@ -159,31 +159,31 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<MockupNoteDto?> GetNoteAsync(string slug, Guid? id, string? title = null, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return null; }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return null; }
         MockupNote? note;
         if (id is Guid noteId)
         {
-            note = await _db.MockupNotes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == noteId && n.MockupProjectId == project.Id, ct);
+            note = await _db.MockupNotes.AsNoTracking().FirstOrDefaultAsync(n => n.Id == noteId && n.BrainId == brain.Id, ct);
         }
         else
         {
             var key = MockupBrainLinks.NormalizeTitle(title);
             if (key.Length == 0) { return null; }
-            note = await _db.MockupNotes.AsNoTracking().FirstOrDefaultAsync(n => n.TitleKey == key && n.MockupProjectId == project.Id, ct);
+            note = await _db.MockupNotes.AsNoTracking().FirstOrDefaultAsync(n => n.TitleKey == key && n.BrainId == brain.Id, ct);
         }
         return note is null ? null : await ToDtoAsync(note, ct);
     }
 
     public async Task<MockupBrainGraphDto?> GetGraphAsync(string slug, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return null; }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return null; }
         var notes = await _db.MockupNotes.AsNoTracking()
-            .Where(n => n.MockupProjectId == project.Id)
+            .Where(n => n.BrainId == brain.Id)
             .Select(n => new { n.Id, n.Title, n.TitleKey })
             .ToListAsync(ct);
-        var links = await ActiveLinksQuery(project.Id)
+        var links = await ActiveLinksQuery(brain.Id)
             .Select(l => new { l.FromNoteId, l.TargetKind, l.TargetKey, l.Label })
             .ToListAsync(ct);
 
@@ -248,8 +248,8 @@ public sealed class MockupBrainService : IMockupBrainService
     public async Task<TaskCoreResult<MockupNoteDto>> SaveNoteAsync(string slug, Guid? id, string title, string body, long? expectedVersion,
         McpActor actor, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return TaskCoreResult<MockupNoteDto>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return TaskCoreResult<MockupNoteDto>.NotFound($"No existe el cerebro '{slug}'."); }
         var (cleanTitle, titleError) = MockupBrainLinks.CleanTitle(title);
         if (titleError is not null) { return TaskCoreResult<MockupNoteDto>.Invalid(titleError); }
         var cleanBody = (body ?? string.Empty).Replace("\r\n", "\n");
@@ -257,14 +257,14 @@ public sealed class MockupBrainService : IMockupBrainService
         var key = MockupBrainLinks.NormalizeTitle(cleanTitle);
         var userName = Trim150(actor.DisplayName);
 
-        var duplicate = await _db.MockupNotes.AnyAsync(n => n.MockupProjectId == project.Id && n.TitleKey == key && n.Id != (id ?? Guid.Empty), ct);
+        var duplicate = await _db.MockupNotes.AnyAsync(n => n.BrainId == brain.Id && n.TitleKey == key && n.Id != (id ?? Guid.Empty), ct);
         if (duplicate) { return TaskCoreResult<MockupNoteDto>.Conflict($"Ya existe una nota llamada '{cleanTitle}'."); }
 
         MockupNote note;
         string? oldKey = null;
         if (id is Guid noteId)
         {
-            var found = await _db.MockupNotes.FirstOrDefaultAsync(n => n.Id == noteId && n.MockupProjectId == project.Id, ct);
+            var found = await _db.MockupNotes.FirstOrDefaultAsync(n => n.Id == noteId && n.BrainId == brain.Id, ct);
             if (found is null) { return TaskCoreResult<MockupNoteDto>.NotFound("La nota no existe o fue archivada."); }
             note = found;
             if (expectedVersion is long v && v != note.Version)
@@ -281,12 +281,12 @@ public sealed class MockupBrainService : IMockupBrainService
         }
         else
         {
-            var total = await _db.MockupNotes.CountAsync(n => n.MockupProjectId == project.Id, ct);
+            var total = await _db.MockupNotes.CountAsync(n => n.BrainId == brain.Id, ct);
             if (total >= MaxNotesPerProject) { return TaskCoreResult<MockupNoteDto>.Invalid($"El cerebro ya tiene {MaxNotesPerProject:N0} notas (tope)."); }
             note = new MockupNote
             {
                 TenantId = actor.TenantId,
-                MockupProjectId = project.Id,
+                BrainId = brain.Id,
                 Title = cleanTitle!,
                 TitleKey = key,
                 Body = cleanBody,
@@ -297,13 +297,13 @@ public sealed class MockupBrainService : IMockupBrainService
             _db.MockupNotes.Add(note);
         }
 
-        await ReplaceLinksAsync(note, project.Id, ct);
+        await ReplaceLinksAsync(note, brain.Id, ct);
 
         // Renombrar: los [[Viejo]] de las demas notas pasan a [[Nuevo]] (y sus enlaces derivados se recalculan).
         var renamed = 0;
         if (oldKey is not null)
         {
-            var referencing = await ActiveLinksQuery(project.Id)
+            var referencing = await ActiveLinksQuery(brain.Id)
                 .Where(l => l.TargetKind == MockupBrainLinkKinds.Note && l.TargetKey == oldKey && l.FromNoteId != note.Id)
                 .Select(l => l.FromNoteId).Distinct().ToListAsync(ct);
             if (referencing.Count > 0)
@@ -315,7 +315,7 @@ public sealed class MockupBrainService : IMockupBrainService
                     if (rewritten == other.Body) { continue; }
                     other.Body = rewritten;
                     other.UpdatedByName = userName;
-                    await ReplaceLinksAsync(other, project.Id, ct);
+                    await ReplaceLinksAsync(other, brain.Id, ct);
                     renamed++;
                 }
             }
@@ -323,7 +323,7 @@ public sealed class MockupBrainService : IMockupBrainService
 
         _audit.Write(actor.PlatformUserId, id is null ? "maqueta.nota.create" : "maqueta.nota.update", nameof(MockupNote), note.Id,
             previousValue: oldKey is null ? null : new { titulo = oldKey },
-            newValue: new { proyecto = project.Slug, note.Title, caracteres = note.Body.Length, notasRenombradas = renamed },
+            newValue: new { cerebro = brain.Slug, note.Title, caracteres = note.Body.Length, notasRenombradas = renamed },
             tenantId: actor.TenantId, reason: AuditReason);
         try
         {
@@ -344,9 +344,9 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<TaskCoreResult<bool>> ArchiveNoteAsync(string slug, Guid id, McpActor actor, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return TaskCoreResult<bool>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
-        var note = await _db.MockupNotes.FirstOrDefaultAsync(n => n.Id == id && n.MockupProjectId == project.Id, ct);
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return TaskCoreResult<bool>.NotFound($"No existe el cerebro '{slug}'."); }
+        var note = await _db.MockupNotes.FirstOrDefaultAsync(n => n.Id == id && n.BrainId == brain.Id, ct);
         if (note is null) { return TaskCoreResult<bool>.NotFound("La nota no existe o ya fue archivada."); }
         if (!actor.IsOwnerOrAdmin && note.AuthorTenantUserId != actor.TenantUserId)
         {
@@ -362,7 +362,7 @@ public sealed class MockupBrainService : IMockupBrainService
         var outgoing = await _db.MockupNoteLinks.Where(l => l.FromNoteId == note.Id).ToListAsync(ct);
         _db.MockupNoteLinks.RemoveRange(outgoing);
         _audit.Write(actor.PlatformUserId, "maqueta.nota.archive", nameof(MockupNote), note.Id,
-            previousValue: null, newValue: new { proyecto = project.Slug, note.Title }, tenantId: actor.TenantId, reason: AuditReason);
+            previousValue: null, newValue: new { cerebro = brain.Slug, note.Title }, tenantId: actor.TenantId, reason: AuditReason);
         try
         {
             await _db.SaveChangesAsync(ct);
@@ -377,14 +377,14 @@ public sealed class MockupBrainService : IMockupBrainService
     public async Task<TaskCoreResult<MockupBrainImportResult>> ImportVaultAsync(string slug, byte[] zip, bool overwrite, McpActor actor,
         CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return TaskCoreResult<MockupBrainImportResult>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return TaskCoreResult<MockupBrainImportResult>.NotFound($"No existe el cerebro '{slug}'."); }
         var read = ReadVault(zip);
         if (read.Error is not null) { return TaskCoreResult<MockupBrainImportResult>.Invalid(read.Error); }
 
         var warnings = new List<string>(read.Warnings);
         var userName = Trim150(actor.DisplayName);
-        var existing = await _db.MockupNotes.Where(n => n.MockupProjectId == project.Id).ToListAsync(ct);
+        var existing = await _db.MockupNotes.Where(n => n.BrainId == brain.Id).ToListAsync(ct);
         var byKey = existing.ToDictionary(n => n.TitleKey);
         if (existing.Count + read.Notes.Count(n => !byKey.ContainsKey(MockupBrainLinks.NormalizeTitle(n.Title))) > MaxNotesPerProject)
         {
@@ -410,7 +410,7 @@ public sealed class MockupBrainService : IMockupBrainService
                 note = new MockupNote
                 {
                     TenantId = actor.TenantId,
-                    MockupProjectId = project.Id,
+                    BrainId = brain.Id,
                     Title = v.Title,
                     TitleKey = key,
                     Body = v.Body,
@@ -423,11 +423,11 @@ public sealed class MockupBrainService : IMockupBrainService
                 byKey[key] = note;
                 created++;
             }
-            links += await ReplaceLinksAsync(note, project.Id, ct);
+            links += await ReplaceLinksAsync(note, brain.Id, ct);
         }
 
-        _audit.Write(actor.PlatformUserId, "maqueta.nota.import", nameof(MockupProject), project.Id,
-            previousValue: null, newValue: new { proyecto = project.Slug, created, updated, skipped, ignorados = read.IgnoredFiles, overwrite },
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.import", nameof(Brain), brain.Id,
+            previousValue: null, newValue: new { cerebro = brain.Slug, created, updated, skipped, ignorados = read.IgnoredFiles, overwrite },
             tenantId: actor.TenantId, reason: AuditReason);
         try
         {
@@ -444,7 +444,7 @@ public sealed class MockupBrainService : IMockupBrainService
         int assetsCreated = 0, assetsSkipped = 0;
         if (read.Assets.Count > 0)
         {
-            var current = (await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct))
+            var current = (await _files.ListAsync(MockupBrainAssets.Module, brain.Id.ToString(), null, ct))
                 .GroupBy(f => f.FileName, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
             foreach (var asset in read.Assets)
@@ -456,7 +456,7 @@ public sealed class MockupBrainService : IMockupBrainService
                 }
                 try
                 {
-                    await _files.SaveAsync(new FileStorageSaveRequest(MockupBrainAssets.Module, project.Id.ToString(), null, asset.Name,
+                    await _files.SaveAsync(new FileStorageSaveRequest(MockupBrainAssets.Module, brain.Id.ToString(), null, asset.Name,
                         asset.ContentType, asset.Content), ct);
                     assetsCreated++;
                 }
@@ -465,8 +465,8 @@ public sealed class MockupBrainService : IMockupBrainService
                     warnings.Add($"No se pudo guardar el adjunto '{asset.Path}': {ex.Message}");
                 }
             }
-            _audit.Write(actor.PlatformUserId, "maqueta.nota.import-adjuntos", nameof(MockupProject), project.Id,
-                previousValue: null, newValue: new { proyecto = project.Slug, assetsCreated, assetsSkipped, overwrite },
+            _audit.Write(actor.PlatformUserId, "maqueta.nota.import-adjuntos", nameof(Brain), brain.Id,
+                previousValue: null, newValue: new { cerebro = brain.Slug, assetsCreated, assetsSkipped, overwrite },
                 tenantId: actor.TenantId, reason: AuditReason);
             await _db.SaveChangesAsync(ct);
         }
@@ -477,16 +477,16 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<IReadOnlyList<MockupBrainAssetDto>> ListAssetsAsync(string slug, bool withUsage = false, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return Array.Empty<MockupBrainAssetDto>(); }
-        var files = await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct);
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return Array.Empty<MockupBrainAssetDto>(); }
+        var files = await _files.ListAsync(MockupBrainAssets.Module, brain.Id.ToString(), null, ct);
 
         // Uso: que notas (activas) embeben cada adjunto, por la llave del nombre.
         var usage = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         if (withUsage && files.Count > 0)
         {
             var notes = await _db.MockupNotes.AsNoTracking()
-                .Where(n => n.MockupProjectId == project.Id)
+                .Where(n => n.BrainId == brain.Id)
                 .Select(n => new { n.Title, n.Body })
                 .ToListAsync(ct);
             foreach (var n in notes)
@@ -511,16 +511,16 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<TaskCoreResult<bool>> DeleteAssetAsync(string slug, Guid assetId, McpActor actor, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return TaskCoreResult<bool>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return TaskCoreResult<bool>.NotFound($"No existe el cerebro '{slug}'."); }
         if (!actor.IsOwnerOrAdmin) { return TaskCoreResult<bool>.Forbidden("Solo Owner/Admin borra adjuntos del cerebro (el borrado es definitivo)."); }
         // El adjunto debe ser de ESTE proyecto (modulo + Ref1): no se borra cualquier archivo del gestor por su id.
-        var asset = (await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct)).FirstOrDefault(f => f.Id == assetId);
+        var asset = (await _files.ListAsync(MockupBrainAssets.Module, brain.Id.ToString(), null, ct)).FirstOrDefault(f => f.Id == assetId);
         if (asset is null) { return TaskCoreResult<bool>.NotFound("El adjunto no existe en este proyecto."); }
         var usedIn = (await ListAssetsAsync(slug, withUsage: true, ct)).FirstOrDefault(a => a.Id == assetId)?.UsedIn ?? Array.Empty<string>();
 
         if (!await _files.DeleteAsync(asset.Id, ct)) { return TaskCoreResult<bool>.NotFound("El adjunto ya no existe."); }
-        _audit.Write(actor.PlatformUserId, "maqueta.nota.adjunto-borrar", nameof(MockupProject), project.Id,
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.adjunto-borrar", nameof(Brain), brain.Id,
             previousValue: new { nombre = asset.FileName, bytes = asset.SizeBytes, notas = usedIn }, newValue: null,
             tenantId: actor.TenantId, reason: AuditReason);
         await _db.SaveChangesAsync(ct);
@@ -530,8 +530,8 @@ public sealed class MockupBrainService : IMockupBrainService
     public async Task<TaskCoreResult<MockupBrainAssetDto>> UploadAssetAsync(string slug, string fileName, byte[] content, McpActor actor,
         CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return TaskCoreResult<MockupBrainAssetDto>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return TaskCoreResult<MockupBrainAssetDto>.NotFound($"No existe el cerebro '{slug}'."); }
         var name = MockupBrainAssets.SafeName(fileName);
         var type = MockupBrainAssets.ContentTypeFor(name);
         if (name is null || type is null)
@@ -548,12 +548,12 @@ public sealed class MockupBrainService : IMockupBrainService
             return TaskCoreResult<MockupBrainAssetDto>.Invalid("El contenido del archivo no corresponde a su extension.");
         }
 
-        var taken = (await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct))
+        var taken = (await _files.ListAsync(MockupBrainAssets.Module, brain.Id.ToString(), null, ct))
             .Select(f => f.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         name = MockupBrainAssets.UniqueName(name, taken);
-        var stored = await _files.SaveAsync(new FileStorageSaveRequest(MockupBrainAssets.Module, project.Id.ToString(), null, name, type, content), ct);
-        _audit.Write(actor.PlatformUserId, "maqueta.nota.adjunto", nameof(MockupProject), project.Id,
-            previousValue: null, newValue: new { proyecto = project.Slug, nombre = name, bytes = content.Length },
+        var stored = await _files.SaveAsync(new FileStorageSaveRequest(MockupBrainAssets.Module, brain.Id.ToString(), null, name, type, content), ct);
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.adjunto", nameof(Brain), brain.Id,
+            previousValue: null, newValue: new { cerebro = brain.Slug, nombre = name, bytes = content.Length },
             tenantId: actor.TenantId, reason: AuditReason);
         await _db.SaveChangesAsync(ct);
         return TaskCoreResult<MockupBrainAssetDto>.Ok(new MockupBrainAssetDto(stored.Id, stored.FileName, type, stored.SizeBytes, stored.Url));
@@ -563,11 +563,11 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<TaskCoreResult<MockupBrainExportZip>> ExportVaultAsync(string slug, McpActor actor, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return TaskCoreResult<MockupBrainExportZip>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return TaskCoreResult<MockupBrainExportZip>.NotFound($"No existe el cerebro '{slug}'."); }
 
         var notes = (await _db.MockupNotes.AsNoTracking()
-                .Where(n => n.MockupProjectId == project.Id)
+                .Where(n => n.BrainId == brain.Id)
                 .Select(n => new { n.Title, n.Body, n.CreatedAt, n.UpdatedAt })
                 .ToListAsync(ct))
             .Select(n => new MockupBrainExportNote(n.Title, n.Body, n.UpdatedAt ?? n.CreatedAt))
@@ -576,7 +576,7 @@ public sealed class MockupBrainService : IMockupBrainService
         // Los binarios salen del gestor de archivos; si uno no se puede leer se avisa dentro del ZIP.
         var warnings = new List<string>();
         var assets = new List<MockupBrainExportAsset>();
-        foreach (var f in await _files.ListAsync(MockupBrainAssets.Module, project.Id.ToString(), null, ct))
+        foreach (var f in await _files.ListAsync(MockupBrainAssets.Module, brain.Id.ToString(), null, ct))
         {
             if (MockupBrainAssets.ContentTypeFor(f.FileName) is null) { continue; }
             try
@@ -591,9 +591,9 @@ public sealed class MockupBrainService : IMockupBrainService
             }
         }
 
-        var zip = MockupBrainExport.Build(project.Slug, notes, assets, warnings);
-        _audit.Write(actor.PlatformUserId, "maqueta.nota.export", nameof(MockupProject), project.Id,
-            previousValue: null, newValue: new { proyecto = project.Slug, notas = zip.Notes, adjuntos = zip.Assets, bytes = zip.Zip.Length },
+        var zip = MockupBrainExport.Build(brain.Slug, notes, assets, warnings);
+        _audit.Write(actor.PlatformUserId, "maqueta.nota.export", nameof(Brain), brain.Id,
+            previousValue: null, newValue: new { cerebro = brain.Slug, notas = zip.Notes, adjuntos = zip.Assets, bytes = zip.Zip.Length },
             tenantId: actor.TenantId, reason: AuditReason);
         await _db.SaveChangesAsync(ct);
         return TaskCoreResult<MockupBrainExportZip>.Ok(zip);
@@ -601,9 +601,9 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<IReadOnlyList<MockupArchivedNoteDto>> ListArchivedNotesAsync(string slug, McpActor actor, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return Array.Empty<MockupArchivedNoteDto>(); }
-        var rows = await ArchivedQuery(project.Id, actor.TenantId)
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return Array.Empty<MockupArchivedNoteDto>(); }
+        var rows = await ArchivedQuery(brain.Id, actor.TenantId)
             .OrderByDescending(n => n.DeletedAt)
             .Take(MaxNotesPerProject)
             .Select(n => new { n.Id, n.Title, n.TitleKey, n.Body, n.DeletedAt, n.UpdatedByName, n.AuthorName, n.AuthorTenantUserId })
@@ -612,7 +612,7 @@ public sealed class MockupBrainService : IMockupBrainService
 
         var keys = rows.Select(r => r.TitleKey).Distinct().ToList();
         var taken = (await _db.MockupNotes.AsNoTracking()
-                .Where(n => n.MockupProjectId == project.Id && keys.Contains(n.TitleKey))
+                .Where(n => n.BrainId == brain.Id && keys.Contains(n.TitleKey))
                 .Select(n => n.TitleKey)
                 .ToListAsync(ct))
             .ToHashSet(StringComparer.Ordinal);
@@ -623,21 +623,21 @@ public sealed class MockupBrainService : IMockupBrainService
 
     public async Task<TaskCoreResult<MockupNoteDto>> RestoreNoteAsync(string slug, Guid id, McpActor actor, CancellationToken ct = default)
     {
-        var project = await FindProjectAsync(slug, ct);
-        if (project is null) { return TaskCoreResult<MockupNoteDto>.NotFound($"No existe el proyecto de maqueta '{slug}'."); }
-        var note = await ArchivedQuery(project.Id, actor.TenantId).FirstOrDefaultAsync(n => n.Id == id, ct);
+        var brain = await FindBrainAsync(slug, ct);
+        if (brain is null) { return TaskCoreResult<MockupNoteDto>.NotFound($"No existe el cerebro '{slug}'."); }
+        var note = await ArchivedQuery(brain.Id, actor.TenantId).FirstOrDefaultAsync(n => n.Id == id, ct);
         if (note is null) { return TaskCoreResult<MockupNoteDto>.NotFound("La nota no esta en la papelera (quizas ya la restauraron)."); }
         if (!actor.IsOwnerOrAdmin && note.AuthorTenantUserId != actor.TenantUserId)
         {
             return TaskCoreResult<MockupNoteDto>.Forbidden("Solo quien creo la nota o un Owner/Admin puede restaurarla.");
         }
-        var total = await _db.MockupNotes.CountAsync(n => n.MockupProjectId == project.Id, ct);
+        var total = await _db.MockupNotes.CountAsync(n => n.BrainId == brain.Id, ct);
         if (total >= MaxNotesPerProject) { return TaskCoreResult<MockupNoteDto>.Invalid($"El cerebro ya tiene {MaxNotesPerProject:N0} notas (tope)."); }
 
         // Si el titulo ya lo usa otra nota activa, vuelve como "Titulo (restaurada)" (o "(restaurada 2)", ...).
         var originalTitle = note.Title;
         var activeKeys = (await _db.MockupNotes.AsNoTracking()
-                .Where(n => n.MockupProjectId == project.Id && n.TitleKey.StartsWith(note.TitleKey))
+                .Where(n => n.BrainId == brain.Id && n.TitleKey.StartsWith(note.TitleKey))
                 .Select(n => n.TitleKey)
                 .ToListAsync(ct))
             .ToHashSet(StringComparer.Ordinal);
@@ -651,10 +651,10 @@ public sealed class MockupBrainService : IMockupBrainService
         note.UpdatedByName = Trim150(actor.DisplayName);
         // Los enlaces salientes se borraron al archivar: se derivan de nuevo del cuerpo. Los entrantes vuelven solos
         // (se resuelven por titulo); con titulo nuevo, los [[Titulo]] de las demas notas siguen apuntando a la activa.
-        var links = await ReplaceLinksAsync(note, project.Id, ct);
+        var links = await ReplaceLinksAsync(note, brain.Id, ct);
         _audit.Write(actor.PlatformUserId, "maqueta.nota.restore", nameof(MockupNote), note.Id,
             previousValue: null,
-            newValue: new { proyecto = project.Slug, note.Title, tituloOriginal = title == originalTitle ? null : originalTitle, enlaces = links },
+            newValue: new { cerebro = brain.Slug, note.Title, tituloOriginal = title == originalTitle ? null : originalTitle, enlaces = links },
             tenantId: actor.TenantId, reason: AuditReason);
         try
         {
@@ -795,15 +795,16 @@ public sealed class MockupBrainService : IMockupBrainService
 
     // ------------------------------------------------------------------ helpers
 
-    private sealed record ProjectRef(Guid Id, string Slug);
+    private sealed record BrainRef(Guid Id, string Slug);
 
-    private async Task<ProjectRef?> FindProjectAsync(string slug, CancellationToken ct)
+    /// <summary>Cerebro ACTIVO por slug (ADR-0200). El filtro global ya lo acota al tenant y oculta los archivados.</summary>
+    private async Task<BrainRef?> FindBrainAsync(string slug, CancellationToken ct)
     {
         var clean = (slug ?? string.Empty).Trim().ToLowerInvariant();
         if (!MockupService.IsValidSlug(clean)) { return null; }
-        return await _db.MockupProjects.AsNoTracking()
-            .Where(p => p.Slug == clean && p.DeletedAt == null)
-            .Select(p => new ProjectRef(p.Id, p.Slug))
+        return await _db.Brains.AsNoTracking()
+            .Where(b => b.Slug == clean)
+            .Select(b => new BrainRef(b.Id, b.Slug))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -811,19 +812,19 @@ public sealed class MockupBrainService : IMockupBrainService
     /// Notas ARCHIVADAS del proyecto. El filtro global las oculta, asi que se ignora y se repone a mano el tenant
     /// (patron documentado en EcorexDbContext para ver/restaurar soft-borrados); el proyecto ya salio filtrado por tenant.
     /// </summary>
-    private IQueryable<MockupNote> ArchivedQuery(Guid projectId, Guid tenantId)
+    private IQueryable<MockupNote> ArchivedQuery(Guid brainId, Guid tenantId)
         => _db.MockupNotes.IgnoreQueryFilters()
-            .Where(n => n.TenantId == tenantId && n.MockupProjectId == projectId && n.IsDeleted);
+            .Where(n => n.TenantId == tenantId && n.BrainId == brainId && n.IsDeleted);
 
     /// <summary>Enlaces cuyo origen es una nota activa (el join aplica el filtro de tenant y de soft-delete de la nota).</summary>
-    private IQueryable<MockupNoteLink> ActiveLinksQuery(Guid projectId)
+    private IQueryable<MockupNoteLink> ActiveLinksQuery(Guid brainId)
         => from l in _db.MockupNoteLinks.AsNoTracking()
-           where l.MockupProjectId == projectId
+           where l.BrainId == brainId
            join n in _db.MockupNotes.AsNoTracking() on l.FromNoteId equals n.Id
            select l;
 
     /// <summary>Reescribe los enlaces derivados de la nota (en el change tracker; se guardan con la nota). Devuelve cuantos.</summary>
-    private async Task<int> ReplaceLinksAsync(MockupNote note, Guid projectId, CancellationToken ct)
+    private async Task<int> ReplaceLinksAsync(MockupNote note, Guid brainId, CancellationToken ct)
     {
         if (_db.MockupNotes.Entry(note).State != EntityState.Added)
         {
@@ -839,7 +840,7 @@ public sealed class MockupBrainService : IMockupBrainService
             _db.MockupNoteLinks.Add(new MockupNoteLink
             {
                 TenantId = note.TenantId,
-                MockupProjectId = projectId,
+                BrainId = brainId,
                 FromNoteId = note.Id,
                 TargetKind = l.Kind,
                 TargetKey = l.Key.Length > 200 ? l.Key[..200] : l.Key,
@@ -849,9 +850,9 @@ public sealed class MockupBrainService : IMockupBrainService
         return parsed.Count;
     }
 
-    private async Task<(Dictionary<Guid, int> Out, Dictionary<string, int> Back)> LinkCountsAsync(Guid projectId, CancellationToken ct)
+    private async Task<(Dictionary<Guid, int> Out, Dictionary<string, int> Back)> LinkCountsAsync(Guid brainId, CancellationToken ct)
     {
-        var rows = await ActiveLinksQuery(projectId)
+        var rows = await ActiveLinksQuery(brainId)
             .Select(l => new { l.FromNoteId, l.TargetKind, l.TargetKey })
             .ToListAsync(ct);
         var outCounts = rows.Where(r => r.TargetKind != MockupBrainLinkKinds.Tag).GroupBy(r => r.FromNoteId).ToDictionary(g => g.Key, g => g.Count());
@@ -881,7 +882,7 @@ public sealed class MockupBrainService : IMockupBrainService
         var targets = noteKeys.Count == 0
             ? new Dictionary<string, Guid>()
             : await _db.MockupNotes.AsNoTracking()
-                .Where(n => n.MockupProjectId == note.MockupProjectId && noteKeys.Contains(n.TitleKey))
+                .Where(n => n.BrainId == note.BrainId && noteKeys.Contains(n.TitleKey))
                 .ToDictionaryAsync(n => n.TitleKey, n => n.Id, ct);
         var tasks = await TaskTitlesAsync(outgoing.Where(l => l.Kind == MockupBrainLinkKinds.Task).Select(l => l.Key).ToList(), ct);
 
@@ -892,7 +893,7 @@ public sealed class MockupBrainService : IMockupBrainService
             _ => new MockupNoteLinkDto(l.Kind, l.Key, l.Label, true, null)
         }).ToList();
 
-        var backIds = await ActiveLinksQuery(note.MockupProjectId)
+        var backIds = await ActiveLinksQuery(note.BrainId)
             .Where(l => l.TargetKind == MockupBrainLinkKinds.Note && l.TargetKey == note.TitleKey && l.FromNoteId != note.Id)
             .Select(l => l.FromNoteId).Distinct().ToListAsync(ct);
         var backlinks = backIds.Count == 0

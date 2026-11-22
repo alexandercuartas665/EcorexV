@@ -2,6 +2,28 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-22 - Cerebros como modulo propio, ola 1 (ADR-0200) - SIN VERSION (la asigna el dev principal)
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro`. CON MIGRACION dual `AddBrainsModule`.
+- **Pedido**: separar los cerebros del modulo de maquetas (modulo propio con categorias), vincularlos a una o varias
+  maquetas y, despues, que el Super Admin siembre cerebros bloqueados. Plan en 4 olas (ADR-0200); esta es la ola 1.
+- **Hecho**: entidades `Brain`, `BrainCategory`, `MockupProjectBrain` (N:M); `MockupNote/Link.MockupProjectId` ->
+  `BrainId`. Migracion de datos: cada maqueta con notas recibe "Cerebro de {nombre}" con el MISMO Id (los adjuntos no
+  se mueven), categoria "Maquetas" y vinculo principal. `IBrainService` (galeria, CRUD, categorias, vinculos) y
+  `IMockupBrainService` por slug del cerebro. Paginas `/cerebros` (tarjetas, chips por categoria, categorias) y
+  `/cerebros/{slug}`; la pestana Cerebro de la maqueta abre su principal (o lo crea). MCP: `proyecto` resuelve al
+  cerebro principal (compatibilidad). Menu "Cerebros" bajo "Maquetas" (backfill idempotente).
+- **Pruebas**: build OK; unitarias 1687/312/35; integracion dual Maqueta|MockupBrain|BrainsModule 61/61 (incluye
+  bajar y subir la migracion con datos en PG y SQL Server). Validado en local 5285 sobre una COPIA de la BD
+  (`ecorex_cerebros`): TRONOX migro con sus 4 notas; galeria, alta de cerebro sin maqueta, nota y pestana de la maqueta.
+- **Incidente local (resuelto)**: la primera preview tomo el launch.json de la carpeta de la sesion (Database=ecorex)
+  y aplico la migracion a la BD COMPARTIDA `ecorex`. Se revirtio de inmediato con `dotnet ef database update
+  20261122093234_AddAnalisisEnlacePermiteRegistros` (Down probado: 4 notas intactas, columna y FK originales) y se
+  quitaron los 14 items de menu "Cerebros" que sembro, restaurando el orden. La entrada 5285 ahora usa `ecorex_cerebros`.
+- **Siguiente**: ola 2 (tarjetas de cerebros vinculados en la maqueta + modal grande + "Vincular cerebro"), ola 3
+  (siembra del Super Admin con bloqueo), ola 4 (MCP por cerebro). Pendiente aparte: re-importar el vault de VISAL con
+  "Sobrescribir" en PROYECTOS (enlaces `[[Nota\|alias]]`, fix v0.16.364).
+
 ## 2026-11-22 - v0.16.372: Permiso "Ver registros" por enlace publico de libros de indicadores (ADR-0158 addendum d) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (d6362808) al tronco y main como v0.16.372. LLEVA MIGRACION dual AddAnalisisEnlacePermiteRegistros (columna permite_registros NOT NULL default false). Gates: build Release 0 errores; unitarias 1687/312/35; integracion dual 136/136 (Analisis + McpTablerosTests + Report* + aislamiento, PG + SQL Server). Deploy: SOLO con OK del usuario.

@@ -1136,3 +1136,21 @@ a.mb-icon {
         flex-basis: 220px;
     }
 }
+
+/* ADR-0200: enlace al cerebro en el modulo Cerebros (cuando se abre dentro de una maqueta). */
+.mb-module-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    color: #7c3aed;
+    text-decoration: none;
+}
+
+.mb-module-link:hover {
+    text-decoration: underline;
+}

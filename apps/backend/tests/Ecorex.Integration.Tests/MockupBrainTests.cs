@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using Ecorex.Application.Common;
+using Ecorex.Application.Integraciones.Cerebro;
 using Ecorex.Application.Integraciones.Maqueta;
 using Ecorex.Application.Mcp;
 using Ecorex.Application.Storage;
@@ -345,7 +346,10 @@ public abstract class MockupBrainTestsBase
         var mockups = new MockupService(ctx, new TestTenantContext(tenantId, Guid.NewGuid()), new MockupProjectsTestsBase.MemoryFileStorage(), new AuditWriter(ctx));
         var created = await mockups.CreateProjectAsync("TRONOX SGDEA", "tronox-sgdea", null, isOwnerOrAdmin: true);
         Assert.True(created.IsOk, created.Error);
-        return created.Value!.Slug;
+        // ADR-0200: las notas cuelgan del CEREBRO; se crea el principal de la maqueta y se usa su slug.
+        var brain = await new BrainService(ctx, new AuditWriter(ctx)).CreateForMockupAsync(created.Value!.Slug, Actor(tenantId, "Owner", admin: true));
+        Assert.True(brain.IsOk, brain.Error);
+        return brain.Value!.Slug;
     }
 
     private async Task<Guid> SeedTenantAsync(string name)

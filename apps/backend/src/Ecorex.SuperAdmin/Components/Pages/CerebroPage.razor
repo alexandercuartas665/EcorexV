@@ -1,0 +1,128 @@
+@page "/cerebros/{Slug}"
+@attribute [Authorize(Policy = Ecorex.SuperAdmin.Maqueta.MaquetaHub.Policy)]
+@* Pagina de un CEREBRO (ADR-0200, ola 1): el mismo editor de notas, grafo, adjuntos, importar/exportar Obsidian,
+   papelera y chat con Claude que se usa dentro de las maquetas, a pantalla completa. Un [[pantalla.html]] abre esa
+   pantalla en la maqueta principal vinculada; un [[T00046]] abre la tarjeta. Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Integraciones.Cerebro
+@using Ecorex.SuperAdmin.Components.Shared.Tasks
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Nav
+
+<PageTitle>@(_brain?.Name ?? "Cerebro") - Cerebros</PageTitle>
+
+@if (_loading)
+{
+    <div class="cp-empty">Cargando cerebro...</div>
+}
+else if (_brain is null)
+{
+    <div class="cp-empty">
+        <div>No existe el cerebro '@Slug' en tu empresa (o fue archivado).</div>
+        <a class="btn btn-sm btn-outline-secondary mt-2" href="/cerebros">Volver a Cerebros</a>
+    </div>
+}
+else
+{
+    <div class="cp-shell">
+        <header class="cp-top">
+            <a class="cp-back" href="/cerebros" title="Volver a Cerebros"><i class="fa-solid fa-arrow-left"></i></a>
+            <span class="cp-icon" style="--cp-accent:@(_brain.CategoryColor ?? "#7c3aed")"><i class="fa-solid fa-brain"></i></span>
+            <div class="cp-brand">
+                <span class="cp-name">@_brain.Name</span>
+                <small>@(_brain.CategoryName ?? "Sin categoria")</small>
+            </div>
+            <div class="cp-mockups">
+                @foreach (var m in _brain.Mockups)
+                {
+                    <a class="cp-mockup" href="@($"/maqueta/{m.Slug}?tab=cerebro")" title="@(m.IsPrimary ? "Cerebro principal de esta maqueta" : "Vinculado a esta maqueta")">
+                        <i class="fa-regular fa-window-maximize"></i> @m.Name
+                    </a>
+                }
+            </div>
+        </header>
+        <div class="cp-body">
+            <MaquetaCerebro @key="_brain.Slug" Slug="@_brain.Slug" ProjectName="@_brain.Name" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
+                            Active="true" InitialNote="@Nota" OnOpenPage="OpenPageAsync" OnOpenTask="OpenTaskAsync" OnToast="ShowToast" />
+        </div>
+    </div>
+}
+
+@if (_toast is not null)
+{
+    <div class="cp-toast">@_toast</div>
+}
+
+<TaskDetailModal @ref="_taskModal" />
+
+@code {
+    [Parameter] public string Slug { get; set; } = string.Empty;
+    /// <summary>Nota a abrir (por titulo) al entrar.</summary>
+    [SupplyParameterFromQuery(Name = "nota")] public string? Nota { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private BrainDetailDto? _brain;
+    private bool _loading = true;
+    private bool _isAdmin;
+    private Guid _tenantId;
+    private Guid _userId;
+    private string? _toast;
+    private CancellationTokenSource? _toastCts;
+    private TaskDetailModal? _taskModal;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _tenantId);
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+            _isAdmin = user.FindFirst("tenant_role")?.Value is "Owner" or "Admin";
+        }
+        _loading = true;
+        try
+        {
+            using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            _brain = await scope.ServiceProvider.GetRequiredService<IBrainService>().GetAsync(Slug);
+        }
+        catch (Exception)
+        {
+            _brain = null;
+        }
+        _loading = false;
+    }
+
+    /// <summary>[[pantalla.html]]: la abre en la maqueta principal vinculada (si hay).</summary>
+    private Task OpenPageAsync(string file)
+    {
+        var mockup = _brain?.Mockups.FirstOrDefault(m => m.IsPrimary) ?? _brain?.Mockups.FirstOrDefault();
+        if (mockup is null)
+        {
+            ShowToast("Este cerebro no esta vinculado a ninguna maqueta: la pantalla no se puede abrir.");
+            return Task.CompletedTask;
+        }
+        Nav.NavigateTo($"/maqueta/{mockup.Slug}?page={Uri.EscapeDataString(file)}");
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenTaskAsync(Guid taskId)
+    {
+        if (_taskModal is not null) { await _taskModal.OpenAsync(taskId); }
+    }
+
+    private void ShowToast(string message)
+    {
+        _toast = message;
+        _toastCts?.Cancel();
+        var cts = _toastCts = new CancellationTokenSource();
+        _ = Task.Delay(3500, cts.Token).ContinueWith(_ =>
+        {
+            if (cts.IsCancellationRequested) { return; }
+            _toast = null;
+            _ = InvokeAsync(StateHasChanged);
+        }, TaskScheduler.Default);
+        StateHasChanged();
+    }
+}

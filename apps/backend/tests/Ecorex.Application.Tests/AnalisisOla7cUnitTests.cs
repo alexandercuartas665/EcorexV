@@ -183,6 +183,37 @@ public class AnalisisOla7cUnitTests
         Assert.Null(AnalisisCruce.Filtros(Sel(Tareas, new CondicionCruzada("Vendedor", "Laura")), Directorio, "{\"vendedor\":\"\"}", null));
     }
 
+    // ---------------------------------------------------------------- tocar para filtrar (una seleccion por widget)
+
+    [Fact]
+    public void Alternar_Agrega_Reemplaza_Quita_Y_SinFuenteNoHaceNada()
+    {
+        var cruces = new List<SeleccionCruzada>();
+        var porEstado = W(AnalisisTipoWidget.Barras, "Status");
+        var porVendedor = W(AnalisisTipoWidget.Dona, "Vendedor");
+        CondicionCruzada[] C(string campo, string valor) => new[] { new CondicionCruzada(campo, valor) };
+
+        Assert.True(AnalisisCruce.Alternar(cruces, porEstado, C("Status", "Active"), Tareas));
+        Assert.Equal("Estado: Active", Assert.Single(cruces).Etiqueta);
+        Assert.Equal("W", cruces[0].OrigenTitulo);
+
+        // Otro elemento del MISMO widget reemplaza; otro widget suma.
+        Assert.True(AnalisisCruce.Alternar(cruces, porEstado, C("Status", "Done"), Tareas));
+        Assert.Equal("Estado: Done", Assert.Single(cruces).Etiqueta);
+        Assert.True(AnalisisCruce.Alternar(cruces, porVendedor, C("Vendedor", "Laura"), Tareas));
+        Assert.Equal(2, cruces.Count);
+        Assert.Equal(HojaFiltroBinder.Vendedor, cruces[1].Condiciones[0].Parametro);
+
+        // El mismo elemento ya elegido lo quita (aunque llegue sin fuente).
+        Assert.True(AnalisisCruce.Alternar(cruces, porEstado, C("Status", "Done"), null));
+        Assert.Equal(porVendedor.Id, Assert.Single(cruces).OrigenWidgetId);
+
+        // Agregar sin fuente (o con la de otra fuente) no se puede.
+        Assert.False(AnalisisCruce.Alternar(cruces, porEstado, C("Status", "Active"), null));
+        Assert.False(AnalisisCruce.Alternar(cruces, porEstado, C("Status", "Active"), Directorio));
+        Assert.Single(cruces);
+    }
+
     // ---------------------------------------------------------------- columnas del panel de registros
 
     [Fact]

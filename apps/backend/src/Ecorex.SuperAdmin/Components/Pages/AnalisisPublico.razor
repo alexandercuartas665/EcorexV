@@ -8,13 +8,17 @@
 @using Ecorex.SuperAdmin.Components.Shared.Analisis
 @inject IAnalisisCompartirService Compartir
 @inject IAnalisisWidgetRunner Runner
+@inject IReportCatalog Catalogo
 @implements IDisposable
 
 @* Visor publico de SOLO LECTURA de un libro de indicadores (ADR-0158 D7, Ola 6). Sin policy: el acceso lo
    gobierna el token opaco (solo se guarda su hash; rotable, revocable, con expiracion opcional; tope de
    aperturas por IP en Program.cs). La resolucion del token es el UNICO punto cross-tenant; resuelto, cada
    lectura corre con el tenant del token fijado como ambient (AmbientTenantContext.Begin). Se comparte la
-   DEFINICION: los datos son en vivo. Token invalido, vencido o revocado muestran el mismo mensaje neutro. *@
+   DEFINICION: los datos son en vivo.
+   Filtros (Ola 7c): quien abre el enlace puede filtrar la hoja (barra de fechas / vendedor / tablero) y tocar
+   un grafico para filtrar los demas. Son TEMPORALES: viven en su vista, no cambian el libro. "Ver registros"
+   NO se ofrece aqui: el enlace es anonimo y mostraria filas individuales (tareas, clientes) a cualquiera. *@
 
 <PageTitle>@(_libro?.Nombre ?? "Libro de indicadores")</PageTitle>
 
@@ -58,6 +62,58 @@
 
         @if (Hoja is { } hoja)
         {
+            <div class="ap-filters" aria-label="Filtros de la hoja">
+                <div class="ap-f">
+                    <label>Desde</label>
+                    <input type="date" class="ap-input" value="@Fecha(_fDesde)" @onchange="e => _fDesde = ParseFecha(e.Value)" />
+                </div>
+                <div class="ap-f">
+                    <label>Hasta</label>
+                    <input type="date" class="ap-input" value="@Fecha(_fHasta)" @onchange="e => _fHasta = ParseFecha(e.Value)" />
+                </div>
+                <div class="ap-f">
+                    <label>Vendedor</label>
+                    <input class="ap-input" value="@_fVendedor" @onchange="e => _fVendedor = e.Value?.ToString()" placeholder="Todos" />
+                </div>
+                <div class="ap-f">
+                    <label>Tablero</label>
+                    <input class="ap-input" value="@_fTablero" @onchange="e => _fTablero = e.Value?.ToString()" placeholder="Todos" />
+                </div>
+                <div class="ap-f-actions">
+                    <button class="ap-btn primary" @onclick="AplicarFiltrosAsync">Aplicar</button>
+                    @if (_filtrosTemporales is not null || HayFiltrosEscritos)
+                    {
+                        <button class="ap-btn" @onclick="RestablecerFiltrosAsync">Restablecer</button>
+                    }
+                </div>
+                @if (_filtrosTemporales is not null)
+                {
+                    <span class="ap-f-note">Filtro temporal: solo para tu vista, no cambia el libro.</span>
+                }
+            </div>
+
+            @if (_cruces.Count > 0)
+            {
+                <div class="ap-cruces" aria-label="Filtros por clic">
+                    <span class="ap-cruces-lbl">Filtrado al tocar:</span>
+                    @foreach (var s in _cruces)
+                    {
+                        <span class="ap-cruce" title="Desde el indicador: @s.OrigenTitulo">
+                            @s.Etiqueta
+                            <button type="button" aria-label="Quitar filtro" @onclick="() => QuitarCruceAsync(s.OrigenWidgetId)">&#215;</button>
+                        </span>
+                    }
+                    @if (_cruces.Count > 1)
+                    {
+                        <button type="button" class="ap-link" @onclick="LimpiarCrucesAsync">Quitar todos</button>
+                    }
+                </div>
+            }
+            else if (hoja.Widgets.Any(AnalisisCruce.AdmiteSeleccion))
+            {
+                <p class="ap-hint">Toca una barra, un sector, una celda o un dia de un grafico para filtrar la hoja.</p>
+            }
+
             @if (hoja.Widgets.Count == 0)
             {
                 <p class="ap-muted">Esta hoja no tiene indicadores.</p>
@@ -67,7 +123,9 @@
                 <div class="ap-grid">
                     @foreach (var w in hoja.Widgets)
                     {
-                        <AnalisisWidgetCard @key="w.Id" Widget="w" Resultado="@(_resultados.TryGetValue(w.Id, out var r) ? r : null)" />
+                        <AnalisisWidgetCard @key="w.Id" Widget="w" Resultado="@(_resultados.TryGetValue(w.Id, out var r) ? r : null)"
+                                            OnFiltrar="FiltrarPorClicAsync"
+                                            Seleccion="@_cruces.FirstOrDefault(c => c.OrigenWidgetId == w.Id)" />
                     }
                 </div>
             }
@@ -87,7 +145,22 @@
     private int _version;
     private readonly Dictionary<Guid, AnalisisWidgetResultado> _resultados = new();
 
+    // Una consulta a la vez: cambiar de hoja o filtrar mientras otra carga no comparte el contexto EF.
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    // Filtros temporales de quien mira (no se guardan) y selecciones por clic (Ola 7c).
+    private DateOnly? _fDesde;
+    private DateOnly? _fHasta;
+    private string? _fVendedor;
+    private string? _fTablero;
+    private HojaFiltros? _filtrosTemporales;
+    private readonly List<SeleccionCruzada> _cruces = new();
+
     private AnalisisHojaDto? Hoja => _libro?.Hojas.FirstOrDefault(h => h.Id == _hojaId);
+
+    private HojaFiltros FiltrosActivos => _filtrosTemporales ?? Hoja?.Filtros ?? new HojaFiltros();
+
+    private bool HayFiltrosEscritos => _fDesde is not null || _fHasta is not null || !string.IsNullOrWhiteSpace(_fVendedor) || !string.IsNullOrWhiteSpace(_fTablero);
 
     protected override async Task OnInitializedAsync()
     {
@@ -110,12 +183,30 @@
 
     public void Dispose() => _version++;
 
-    /// <summary>Corre los widgets de la hoja EN SERIE, con el tenant del token como ambient.</summary>
-    private async Task MostrarHojaAsync(Guid hojaId)
+    /// <summary>Cambia de hoja: vuelve a los filtros guardados de esa hoja y sin selecciones por clic.</summary>
+    private Task MostrarHojaAsync(Guid hojaId)
+    {
+        _hojaId = hojaId;
+        _filtrosTemporales = null;
+        _cruces.Clear();
+        var f = Hoja?.Filtros ?? new HojaFiltros();
+        (_fDesde, _fHasta, _fVendedor, _fTablero) = (f.Desde, f.Hasta, f.Vendedor, f.Tablero);
+        return CargarAsync();
+    }
+
+    /// <summary>
+    /// Corre los widgets de la hoja EN SERIE con el tenant del token como ambient, con los filtros activos y
+    /// las selecciones por clic. <paramref name="conservar"/>: widget cuyo resultado no cambia (el de origen
+    /// de una seleccion: su propio clic no lo filtra).
+    /// </summary>
+    private async Task CargarAsync(Guid? conservar = null)
     {
         var version = ++_version;
-        _hojaId = hojaId;
-        _resultados.Clear();
+        foreach (var id in _resultados.Keys.Where(k => k != conservar).ToList())
+        {
+            _resultados.Remove(id);
+        }
+
         if (Hoja is not { } hoja)
         {
             return;
@@ -123,21 +214,106 @@
 
         StateHasChanged();
         var ctx = new ReportContext(Guid.Empty);
+        var filtros = FiltrosActivos;
+        var cruces = _cruces.ToList();
         foreach (var w in hoja.Widgets)
         {
-            AnalisisWidgetResultado r;
-            using (AmbientTenantContext.Begin(_tenantId))
+            if (_resultados.ContainsKey(w.Id))
             {
-                r = await Runner.RunAsync(w, ctx, default, hoja.Filtros);
+                continue;
+            }
+
+            AnalisisWidgetResultado r;
+            await _gate.WaitAsync();
+            try
+            {
+                if (version != _version)
+                {
+                    return; // cambio de hoja / filtros o pagina cerrada
+                }
+
+                using (AmbientTenantContext.Begin(_tenantId))
+                {
+                    r = await Runner.RunAsync(w, ctx, default, filtros, null, cruces);
+                }
+            }
+            finally
+            {
+                _gate.Release();
             }
 
             if (version != _version)
             {
-                return; // cambio de hoja o pagina cerrada
+                return;
             }
 
             _resultados[w.Id] = r;
             StateHasChanged();
         }
     }
+
+    private Task AplicarFiltrosAsync()
+    {
+        _filtrosTemporales = new HojaFiltros
+        {
+            Desde = _fDesde,
+            Hasta = _fHasta,
+            Vendedor = string.IsNullOrWhiteSpace(_fVendedor) ? null : _fVendedor.Trim(),
+            Tablero = string.IsNullOrWhiteSpace(_fTablero) ? null : _fTablero.Trim()
+        };
+        return CargarAsync();
+    }
+
+    /// <summary>Vuelve a los filtros con que se compartio la hoja.</summary>
+    private Task RestablecerFiltrosAsync()
+    {
+        _filtrosTemporales = null;
+        var f = Hoja?.Filtros ?? new HojaFiltros();
+        (_fDesde, _fHasta, _fVendedor, _fTablero) = (f.Desde, f.Hasta, f.Vendedor, f.Tablero);
+        return CargarAsync();
+    }
+
+    /// <summary>"Filtrar la hoja por esto" sobre un grafico: agrega, reemplaza o quita la seleccion de ese widget.</summary>
+    private async Task FiltrarPorClicAsync(AnalisisPuntoAccion a)
+    {
+        var spec = AnalisisJson.DeserializeSpec(a.Widget.SpecJson);
+        ReportSourceDescriptor? fuente = null;
+        if (spec is not null)
+        {
+            await _gate.WaitAsync();
+            try
+            {
+                using (AmbientTenantContext.Begin(_tenantId))
+                {
+                    fuente = await Catalogo.GetSourceAsync(spec.SourceKey);
+                }
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        if (AnalisisCruce.Alternar(_cruces, a.Widget, a.Condiciones, fuente))
+        {
+            await CargarAsync(conservar: a.Widget.Id);
+        }
+    }
+
+    private Task QuitarCruceAsync(Guid origen)
+    {
+        _cruces.RemoveAll(c => c.OrigenWidgetId == origen);
+        return CargarAsync(conservar: origen);
+    }
+
+    private Task LimpiarCrucesAsync()
+    {
+        _cruces.Clear();
+        return CargarAsync();
+    }
+
+    private static string? Fecha(DateOnly? d) => d?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static DateOnly? ParseFecha(object? v) =>
+        DateOnly.TryParseExact(v?.ToString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d) ? d : null;
 }

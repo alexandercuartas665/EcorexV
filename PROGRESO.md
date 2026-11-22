@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-21 - Filtros en el enlace publico de los libros de indicadores (ADR-0158 addendum b) - rama claude/system-indicators-data-sources-e53a43 - SIN deploy
+
+- **Agente**: ECOREX.indicadores, a pedido del usuario: al compartir un libro por URL se perdia la opcion de filtrar.
+- **Hecho**: `/a/{token}` gana la barra de filtros de la hoja (desde/hasta/vendedor/tablero) y el filtro al tocar un grafico, ambos temporales (no cambian el libro; "Restablecer" vuelve a los filtros compartidos). Sin "Ver registros" en el enlace publico (anonimo: no se exponen filas individuales). Compuerta propia para no solapar consultas; tenant del token como ambient. Regla compartida `AnalisisCruce.Alternar` (tambien la usa `/analisis`). Sin migracion.
+- **Gates**: build 0 errores; format whitespace/style verify 0; ASCII OK; unitarias Application 1686 / SuperAdmin 312; integracion `AnalisisLibrosTests` 34/34 (PG + SQL Server).
+- **Verificado en vivo** (5269, Playwright headless): enlace generado desde "Compartir" y abierto SIN sesion; Tablero=APROBAR deja solo ese tablero (48) y "Restablecer" vuelve a los 5; tocar la barra "Active" ofrece solo "Filtrar la hoja por esto", pone el chip y las barras por tablero pasan de 48 a 44; 0 errores de consola; al revocar, el enlace muestra "no disponible". El libro local quedo como estaba (compartido en la empresa, sin enlace activo).
+- **Siguiente**: ECOREX.desarrollo integra a main, asigna version y despliega con OK del usuario.
+
 ## 2026-11-21 - v0.16.369: Ola 7c de Libros de indicadores: filtro por clic en los graficos y "Ver registros" (ADR-0158 addendum) - rama claude/system-indicators-data-sources-e53a43 - DESPLEGADA
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de claude/system-indicators-data-sources-e53a43 (af43170c) al tronco y main como v0.16.369. Gates: build Release 0 errores; unitarias 1685/312/35; integracion dual 136/136 (Analisis + McpTablerosTests + Report* + ImportClasificacionPasoTests, PG + SQL Server). Sin migracion. Deploy: SOLO con OK del usuario.

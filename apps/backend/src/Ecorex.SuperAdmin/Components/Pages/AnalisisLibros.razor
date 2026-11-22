@@ -1111,33 +1111,12 @@ else
     /// </summary>
     private async Task FiltrarPorClicAsync(AnalisisPuntoAccion a)
     {
-        var i = _cruces.FindIndex(c => c.OrigenWidgetId == a.Widget.Id);
-        if (i >= 0 && _cruces[i].MismosValores(a.Condiciones))
+        var spec = AnalisisJson.DeserializeSpec(a.Widget.SpecJson);
+        var fuente = spec is null ? null : await Sesion.EnCompuertaAsync(() => Catalogo.GetSourceAsync(spec.SourceKey));
+        if (!AnalisisCruce.Alternar(_cruces, a.Widget, a.Condiciones, fuente))
         {
-            _cruces.RemoveAt(i);
-        }
-        else
-        {
-            var spec = AnalisisJson.DeserializeSpec(a.Widget.SpecJson);
-            var fuente = spec is null ? null : await Sesion.EnCompuertaAsync(() => Catalogo.GetSourceAsync(spec.SourceKey));
-            if (spec is null || fuente is null)
-            {
-                _mensaje = "No se pudo aplicar el filtro: la fuente del widget no esta disponible.";
-                return;
-            }
-
-            var sel = new SeleccionCruzada(a.Widget.Id, spec.SourceKey, AnalisisCruce.Resolver(a.Condiciones, fuente, a.Widget.ContextBindingsJson))
-            {
-                OrigenTitulo = a.Widget.Titulo
-            };
-            if (i >= 0)
-            {
-                _cruces[i] = sel;
-            }
-            else
-            {
-                _cruces.Add(sel);
-            }
+            _mensaje = "No se pudo aplicar el filtro: la fuente del widget no esta disponible.";
+            return;
         }
 
         await RecalcularPorCrucesAsync(a.Widget.Id);

@@ -60,14 +60,16 @@ public sealed class TaskItemReportSource : IReportableSource
         new ReportField("CreatedMonth", "Mes de creacion", ReportFieldType.Text),
         new ReportField("ClosedMonth", "Mes de cierre", ReportFieldType.Text),
         new ReportField("DiasEnEtapa", "Dias en la etapa", ReportFieldType.Decimal, CanAggregate: true),
-        new ReportField("DiasAbierta", "Dias abierta", ReportFieldType.Decimal, CanAggregate: true)
+        new ReportField("DiasAbierta", "Dias abierta", ReportFieldType.Decimal, CanAggregate: true),
+        // Id de la tarea (ADR-0158 Ola 7c): para abrirla desde el panel de registros de un grafico.
+        new ReportField("Id", "Id de la tarea", ReportFieldType.Text, CanGroup: false)
     };
 
     // Claves que la ruta EF clasica no conoce: si el spec las toca, se usa el motor en memoria.
     private static readonly HashSet<string> ExtendedKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "TerceroId", "Cliente", "ClienteNit", "Vendedor", "Proyecto", "CloseReason", "ColumnEnteredAt",
-        "Vencida", "CreatedMonth", "ClosedMonth", "DiasEnEtapa", "DiasAbierta"
+        "Vencida", "CreatedMonth", "ClosedMonth", "DiasEnEtapa", "DiasAbierta", "Id"
     };
 
     // Columnas por defecto del modo tabular cuando el spec no pide campos (se conserva el contrato previo).
@@ -617,6 +619,7 @@ public sealed class TaskItemReportSource : IReportableSource
         "closedmonth" => t => InMemoryReportEngine.MonthKey(t.ClosedAt, lk.Zona),
         "diasenetapa" => t => t.ColumnEnteredAt is DateTimeOffset e && !IsFinished(t) ? Days(e, lk.Now) : null,
         "diasabierta" => t => Days(t.CreatedAt, t.ClosedAt ?? lk.Now),
+        "id" => t => t.Id.ToString(),
         _ => _ => null
     };
 

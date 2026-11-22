@@ -1,0 +1,192 @@
+@using System.Globalization
+@using Ecorex.Application.Analisis
+@using Ecorex.Application.Reporting
+@inject IJSRuntime JS
+
+@* Panel lateral de REGISTROS (ADR-0158 Ola 7c): las filas detras del elemento tocado de un grafico, con los
+   mismos filtros con que se calculo (widget + hoja + otras selecciones + el elemento). Hasta
+   AnalisisCruce.MaxFilasDetalle filas; si la fuente es Actividades o Directorio, cada fila abre su registro.
+   Descarga a Excel con las celdas tipadas (fechas y numeros reales). *@
+
+<div class="ad-back" @onclick="() => OnCerrar.InvokeAsync()"></div>
+<aside class="ad-panel" role="dialog" aria-modal="true" aria-label="Registros del elemento">
+    <header class="ad-head">
+        <div class="ad-head-txt">
+            <div class="ad-kicker">Registros</div>
+            <h3 class="ad-title">@Titulo</h3>
+            @if (!string.IsNullOrWhiteSpace(Subtitulo))
+            {
+                <div class="ad-sub">@Subtitulo</div>
+            }
+        </div>
+        <button type="button" class="ad-x" aria-label="Cerrar" @onclick="() => OnCerrar.InvokeAsync()">&#215;</button>
+    </header>
+
+    @if (Detalle is null)
+    {
+        <div class="ad-state"><span class="ad-spin"></span> Cargando registros...</div>
+    }
+    else if (!Detalle.Ok)
+    {
+        <div class="ad-state err">@Detalle.Error</div>
+    }
+    else if (Detalle.Filas.Count == 0)
+    {
+        <div class="ad-state">No hay registros con estos filtros.</div>
+    }
+    else
+    {
+        <div class="ad-bar">
+            <span class="ad-count">
+                @if (Detalle.Recortado)
+                {
+                    <span>Mostrando los primeros @Detalle.Filas.Count.ToString("N0", CultureInfo.CurrentCulture) registros: hay mas. Acota con filtros o descarga el Excel.</span>
+                }
+                else
+                {
+                    <span>@Detalle.Filas.Count.ToString("N0", CultureInfo.CurrentCulture) @(Detalle.Filas.Count == 1 ? "registro" : "registros")</span>
+                }
+                @if (Detalle.EnlaceTipo is not null)
+                {
+                    <span class="ad-hint"> &middot; toca una fila para abrir @(Detalle.EnlaceTipo == "tarea" ? "la tarea" : "el tercero")</span>
+                }
+            </span>
+            <button type="button" class="ad-btn" disabled="@_excel" @onclick="DescargarExcelAsync">@(_excel ? "Generando..." : "Descargar Excel")</button>
+        </div>
+        @if (_error is not null)
+        {
+            <div class="ad-state err sm">@_error</div>
+        }
+        <div class="ad-body">
+            <table class="ad-table">
+                <thead>
+                    <tr>
+                        @foreach (var i in Visibles)
+                        {
+                            <th class="@Clase(Detalle.Columnas[i])">@Detalle.Columnas[i].DisplayName</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var fila in Detalle.Filas)
+                    {
+                        var id = IdDe(fila);
+                        <tr class="@(id is null ? "" : "link")" @onclick="() => AbrirAsync(id)">
+                            @foreach (var i in Visibles)
+                            {
+                                var col = Detalle.Columnas[i];
+                                <td class="@Clase(col)">@Celda(col, i < fila.Count ? fila[i] : null)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</aside>
+
+@code {
+    /// <summary>El elemento tocado (ej. "Estado: Active").</summary>
+    [Parameter, EditorRequired] public string Titulo { get; set; } = string.Empty;
+
+    /// <summary>Titulo del widget de origen.</summary>
+    [Parameter] public string? Subtitulo { get; set; }
+
+    /// <summary>Null = cargando.</summary>
+    [Parameter] public AnalisisDetalle? Detalle { get; set; }
+
+    /// <summary>Zona del tenant para mostrar fechas (regla 9; null = UTC).</summary>
+    [Parameter] public TimeZoneInfo? Zona { get; set; }
+
+    [Parameter] public EventCallback OnCerrar { get; set; }
+
+    /// <summary>Abrir el registro de una fila: ("tarea" | "tercero", id).</summary>
+    [Parameter] public EventCallback<(string Tipo, Guid Id)> OnAbrir { get; set; }
+
+    private bool _excel;
+    private string? _error;
+
+    /// <summary>Columnas a mostrar: todas menos la del Id de enlace.</summary>
+    private IEnumerable<int> Visibles => Enumerable.Range(0, Detalle?.Columnas.Count ?? 0).Where(i => i != Detalle!.EnlaceIndice);
+
+    private Guid? IdDe(IReadOnlyList<object?> fila) =>
+        Detalle is { EnlaceTipo: not null, EnlaceIndice: >= 0 } d && d.EnlaceIndice < fila.Count && Guid.TryParse(fila[d.EnlaceIndice]?.ToString(), out var g)
+            ? g
+            : null;
+
+    private async Task AbrirAsync(Guid? id)
+    {
+        if (id is Guid g && Detalle?.EnlaceTipo is string tipo && OnAbrir.HasDelegate)
+        {
+            await OnAbrir.InvokeAsync((tipo, g));
+        }
+    }
+
+    private async Task DescargarExcelAsync()
+    {
+        if (Detalle is not { Ok: true } d || d.Filas.Count == 0)
+        {
+            return;
+        }
+
+        _excel = true;
+        _error = null;
+        try
+        {
+            var cols = Visibles.ToList();
+            var filas = d.Filas
+                .Select(f => (IReadOnlyList<object?>)cols.Select(i => ValorExcel(i < f.Count ? f[i] : null)).ToList())
+                .ToList();
+            var hoja = new ReportExcelSheet("Registros", cols.Select(i => d.Columnas[i].DisplayName).ToList(), filas);
+            var bytes = ReportExcelExport.Build(Array.Empty<(string, string)>(), new[] { hoja });
+            var nombre = new string(Titulo.Where(ch => !Path.GetInvalidFileNameChars().Contains(ch)).ToArray()).Trim();
+            nombre = $"{(string.IsNullOrWhiteSpace(nombre) ? "registros" : nombre)} {DateTime.Now:yyyy-MM-dd}.xlsx";
+            await JS.InvokeVoidAsync("ecorexDcCanvas.downloadBase64", nombre, Convert.ToBase64String(bytes),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (JSDisconnectedException)
+        {
+            // circuito cerrado
+        }
+        catch (Exception)
+        {
+            _error = "No se pudo generar el Excel.";
+        }
+        finally
+        {
+            _excel = false;
+        }
+    }
+
+    /// <summary>Fechas en la zona del tenant (Excel recibe la fecha local sin offset).</summary>
+    private object? ValorExcel(object? v) => v switch
+    {
+        DateTimeOffset dto => new DateTimeOffset(Local(dto).DateTime, TimeSpan.Zero),
+        bool b => b ? "Si" : "No",
+        _ => v
+    };
+
+    private DateTimeOffset Local(DateTimeOffset d) => Zona is null ? d.ToUniversalTime() : TimeZoneInfo.ConvertTime(d, Zona);
+
+    private static bool EsNumero(ReportColumn c) => c.Type is ReportFieldType.Number or ReportFieldType.Decimal;
+
+    /// <summary>Numeros a la derecha, fechas y booleanos sin corte, textos con ancho minimo legible.</summary>
+    private static string Clase(ReportColumn c) => c.Type switch
+    {
+        ReportFieldType.Number or ReportFieldType.Decimal => "num",
+        ReportFieldType.Date or ReportFieldType.Boolean => "corto",
+        _ => "txt"
+    };
+
+    private string Celda(ReportColumn col, object? v) => v switch
+    {
+        null => string.Empty,
+        DateTimeOffset dto => Local(dto).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+        DateTime dt => dt.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+        bool b => b ? "Si" : "No",
+        _ when EsNumero(col) => Ecorex.Application.Reporting.Sources.InMemoryReportEngine.ToDecimal(v) is decimal d
+            ? (Math.Round(d, 2) == Math.Round(d) ? Math.Round(d).ToString("N0", CultureInfo.CurrentCulture) : d.ToString("N2", CultureInfo.CurrentCulture))
+            : string.Empty,
+        _ => v.ToString() ?? string.Empty
+    };
+}

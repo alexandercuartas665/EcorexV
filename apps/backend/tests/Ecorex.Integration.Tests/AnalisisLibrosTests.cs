@@ -658,6 +658,96 @@ public abstract class AnalisisLibrosTestsBase
         Assert.NotNull(AnalisisGraficos.Opcion(cal, AnalisisTipoWidget.Calendario, new WidgetConfig(), v => v?.ToString() ?? "-"));
     }
 
+    [Fact]
+    public async Task Ola7c_FiltroPorClic_CruzaFuentes_Y_DetalleTraeLosRegistros()
+    {
+        var tenantId = await SeedTenantAsync("Libros ola 7c", conDatos: true);
+        Guid vencidaId;
+        Guid acmeId;
+        await using (var db = _fixture.CreateContext(tenantId))
+        {
+            vencidaId = await db.TaskItems.Where(t => t.Number == "LB-1").Select(t => t.Id).SingleAsync();
+            acmeId = await db.Terceros.Where(t => t.Nombre == "ACME").Select(t => t.Id).SingleAsync();
+        }
+
+        var conteo = new ReportAggregate(string.Empty, ReportAggregateFunction.Count);
+        AnalisisWidgetDto W(AnalisisTipoWidget tipo, string source, params string[] grupos) =>
+            new(Guid.NewGuid(), Guid.NewGuid(), tipo, "W " + string.Join("-", grupos),
+                AnalisisJson.Serialize(new ReportQuerySpec { SourceKey = source, GroupBy = grupos, Aggregates = new[] { conteo } }),
+                null, null, 0, 1, 1);
+        decimal? Kpi(AnalisisWidgetResultado r)
+        {
+            Assert.True(r.Ok, r.Error);
+            return ((EscalarShape)r.Forma!).Valor;
+        }
+
+        var porEstado = W(AnalisisTipoWidget.Barras, TaskItemReportSource.SourceKey, "Status");
+        var porVendedor = W(AnalisisTipoWidget.Dona, TaskItemReportSource.SourceKey, "Vendedor");
+        var tareas = W(AnalisisTipoWidget.Kpi, TaskItemReportSource.SourceKey);
+        var terceros = W(AnalisisTipoWidget.Kpi, TerceroReportSource.SourceKey);
+        var tiposTercero = W(AnalisisTipoWidget.Barras, TerceroReportSource.SourceKey, "Tipo");
+        var calendario = W(AnalisisTipoWidget.Calendario, TaskItemReportSource.SourceKey);
+
+        await RunWithRunnerAsync(tenantId, async runner =>
+        {
+            var ctx = new ReportContext(tenantId);
+            var catalogo = (await runner.RunAsync(porEstado, ctx)).Forma;
+            Assert.IsType<CategoriasShape>(catalogo);
+
+            // El usuario toca la barra "Active" del widget por estado (la pagina resuelve con la fuente de origen).
+            var condEstado = AnalisisCruce.Condiciones(porEstado, catalogo, "Active", "Valor")!;
+            var selEstado = new SeleccionCruzada(porEstado.Id, TaskItemReportSource.SourceKey, condEstado);
+            var cruces = new[] { selEstado };
+
+            // Mismo origen: el KPI de tareas queda en la unica activa; el propio widget de origen NO se filtra.
+            Assert.Equal(1m, Kpi(await runner.RunAsync(tareas, ctx, default, null, null, cruces)));
+            Assert.Equal(3m, ((CategoriasShape)(await runner.RunAsync(porEstado, ctx, default, null, null, cruces)).Forma!).Total);
+
+            // Otra fuente sin "estado de tarea": datos generales y la seleccion se reporta como no aplicada.
+            var dir = await runner.RunAsync(terceros, ctx, default, null, null, cruces);
+            Assert.Equal(2m, Kpi(dir));
+            Assert.Single(dir.CrucesSinAplicar);
+
+            // Vendedor (parametro de hoja) SI cruza de Actividades a Directorio.
+            var condVendedor = new[] { new CondicionCruzada("Vendedor", "Laura", HojaFiltroBinder.Vendedor) };
+            var selVendedor = new[] { new SeleccionCruzada(porVendedor.Id, TaskItemReportSource.SourceKey, condVendedor) };
+            var dirLaura = await runner.RunAsync(terceros, ctx, default, null, null, selVendedor);
+            Assert.Equal(1m, Kpi(dirLaura));
+            Assert.Empty(dirLaura.CrucesSinAplicar);
+            Assert.Equal(1m, Kpi(await runner.RunAsync(tareas, ctx, default, null, null, selVendedor)));
+
+            // Ver registros de la barra "Pending": una fila, que se puede abrir como tarea.
+            var pend = await runner.DetalleAsync(porEstado, new[] { new CondicionCruzada("Status", "Pending") }, ctx);
+            Assert.True(pend.Ok, pend.Error);
+            var fila = Assert.Single(pend.Filas);
+            Assert.Equal("tarea", pend.EnlaceTipo);
+            Assert.Contains(pend.Columnas, c => c.Key == "Title");
+            Assert.Equal("LB-2", fila[pend.Columnas.ToList().FindIndex(c => c.Key == "Number")]);
+
+            // Registros de "Active" con la seleccion por vendedor de OTRO widget: la tarea vencida del cliente.
+            var act = await runner.DetalleAsync(porEstado, new[] { new CondicionCruzada("Status", "Active") }, ctx, default, null, null, selVendedor);
+            Assert.True(act.Ok, act.Error);
+            Assert.Equal(vencidaId.ToString(), Assert.Single(act.Filas)[act.EnlaceIndice]?.ToString());
+
+            // Directorio por tipo: la barra "Empresa" abre el tercero.
+            var empresas = await runner.DetalleAsync(tiposTercero, new[] { new CondicionCruzada("Tipo", TerceroTipo.Empresa.ToString()) }, ctx);
+            Assert.True(empresas.Ok, empresas.Error);
+            Assert.Equal("tercero", empresas.EnlaceTipo);
+            Assert.Equal(acmeId.ToString(), Assert.Single(empresas.Filas)[empresas.EnlaceIndice]?.ToString());
+
+            // Calendario: el dia tocado trae las tareas creadas ese dia.
+            var cal = (CalendarioShape)(await runner.RunAsync(calendario, ctx)).Forma!;
+            var dia = cal.Dias[0].Dia.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            var condDia = AnalisisCruce.Condiciones(calendario, cal, dia, null)!;
+            var delDia = await runner.DetalleAsync(calendario, condDia, ctx);
+            Assert.True(delDia.Ok, delDia.Error);
+            Assert.Equal(3, delDia.Filas.Count);
+
+            // Un KPI no tiene elementos que abrir.
+            Assert.False((await runner.DetalleAsync(tareas, condEstado, ctx)).Ok);
+        });
+    }
+
     // ---- Helpers ----
 
     private AnalisisService Service(Guid tenantId) =>

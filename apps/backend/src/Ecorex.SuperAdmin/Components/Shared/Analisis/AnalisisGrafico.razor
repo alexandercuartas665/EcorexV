@@ -6,7 +6,9 @@
 @* Grafico ECharts de un widget de Analisis (ADR-0158 Ola 7a). Recibe la "option" ya armada por
    AnalisisGraficos (Application). En un circuito interactivo la pinta por interop (canvas, tooltips,
    leyenda clicable, animacion, se reacomoda al ancho). En render ESTATICO (pagina del PDF) no hay interop:
-   deja la option en data-aw-grafico y analisis-graficos.js la pinta en SVG al cargar la pagina. *@
+   deja la option en data-aw-grafico y analisis-graficos.js la pinta en SVG al cargar la pagina.
+   Ola 7c: con OnClic, tocar un elemento (barra, sector, celda, dia, bloque) lo reporta con su posicion, y
+   Marca resalta el elemento elegido. *@
 
 @if (RendererInfo.IsInteractive)
 {
@@ -24,13 +26,23 @@ else
     /// <summary>Alto en pixeles.</summary>
     [Parameter] public int Alto { get; set; } = 230;
 
+    /// <summary>Clic en un elemento de datos (sin callback el grafico no es clicable).</summary>
+    [Parameter] public EventCallback<GraficoClic> OnClic { get; set; }
+
+    /// <summary>Elemento resaltado (null = ninguno).</summary>
+    [Parameter] public GraficoMarca? Marca { get; set; }
+
     private static readonly JsonSerializerOptions JsonOpts = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
     private readonly string _id = "awg-" + Guid.NewGuid().ToString("N");
     private string? _ultimo;
+    private string? _ultimaMarca;
     private bool _iniciado;
+    private DotNetObjectReference<AnalisisGrafico>? _ref;
 
     private string? Serializar() => Opcion is null ? null : JsonSerializer.Serialize(Opcion, JsonOpts);
+
+    private string? MarcaJson() => Marca is null ? null : JsonSerializer.Serialize(new { eje = Marca.Eje, serie = Marca.Serie });
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -39,39 +51,65 @@ else
             return;
         }
 
+        var marca = MarcaJson();
         if (!_iniciado)
         {
             _iniciado = true;
             _ultimo = json;
-            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.init", _id, json);
+            _ultimaMarca = marca;
+            if (OnClic.HasDelegate)
+            {
+                _ref = DotNetObjectReference.Create(this);
+            }
+
+            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.init", _id, json, _ref, marca);
             return;
         }
 
         if (!string.Equals(json, _ultimo, StringComparison.Ordinal))
         {
             _ultimo = json;
-            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.update", _id, json);
+            _ultimaMarca = marca;
+            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.update", _id, json, marca);
         }
+        else if (!string.Equals(marca, _ultimaMarca, StringComparison.Ordinal))
+        {
+            _ultimaMarca = marca;
+            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.seleccionar", _id, marca);
+        }
+    }
+
+    /// <summary>Lo invoca analisis-graficos.js al tocar un elemento del grafico.</summary>
+    [JSInvokable]
+    public Task Tocado(string eje, string? serie, double? valor, double x, double y)
+    {
+        if (!OnClic.HasDelegate || string.IsNullOrEmpty(eje))
+        {
+            return Task.CompletedTask;
+        }
+
+        decimal? v = valor is double d && double.IsFinite(d) ? (decimal)d : null;
+        return OnClic.InvokeAsync(new GraficoClic(eje, serie, v, x, y));
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (!_iniciado)
+        if (_iniciado)
         {
-            return;
+            try
+            {
+                await JS.InvokeVoidAsync("ecorexAnalisisGrafico.dispose", _id);
+            }
+            catch (JSDisconnectedException)
+            {
+                // El circuito ya se cerro (recarga/navegacion): nada que limpiar en el cliente.
+            }
+            catch (TaskCanceledException)
+            {
+                // Interop cancelado al desmontar.
+            }
         }
 
-        try
-        {
-            await JS.InvokeVoidAsync("ecorexAnalisisGrafico.dispose", _id);
-        }
-        catch (JSDisconnectedException)
-        {
-            // El circuito ya se cerro (recarga/navegacion): nada que limpiar en el cliente.
-        }
-        catch (TaskCanceledException)
-        {
-            // Interop cancelado al desmontar.
-        }
+        _ref?.Dispose();
     }
 }

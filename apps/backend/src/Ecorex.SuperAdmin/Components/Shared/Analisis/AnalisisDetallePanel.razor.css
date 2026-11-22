@@ -1,0 +1,55 @@
+/* Panel lateral de registros (ADR-0158 Ola 7c). Va por encima del modal grande del libro (z 1101) y por
+   debajo de los modales de tarea/tercero que abre (la pagina los sube a 1310). En celular ocupa todo el ancho. */
+.ad-back { position: fixed; inset: 0; z-index: 1250; background: rgba(10, 10, 12, .30); }
+.ad-panel {
+    position: fixed; z-index: 1251; top: 0; right: 0; bottom: 0; width: min(1100px, 100vw);
+    display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line);
+    box-shadow: var(--sh-lg); animation: ad-in .16s ease;
+}
+@keyframes ad-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.ad-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 22px 12px; border-bottom: 1px solid var(--line); }
+.ad-head-txt { flex: 1; min-width: 0; }
+.ad-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.ad-title { margin: 2px 0 0; font-size: 18px; font-weight: 800; letter-spacing: -.01em; color: var(--ink); overflow-wrap: anywhere; }
+.ad-sub { margin-top: 2px; font-size: 12.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+.ad-x { border: 0; background: transparent; color: var(--ink-3); font-size: 24px; line-height: 1; cursor: pointer; padding: 0 2px; }
+.ad-x:hover { color: var(--ink); }
+
+.ad-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 22px; }
+.ad-count { font-size: 12.5px; color: var(--ink-2); }
+.ad-hint { color: var(--ink-3); }
+.ad-btn {
+    font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--line-2);
+    background: var(--surface); color: var(--ink); border-radius: 9px; padding: 6px 12px;
+}
+.ad-btn:hover { background: var(--surface-3); }
+.ad-btn[disabled] { opacity: .55; pointer-events: none; }
+
+.ad-body { flex: 1; overflow: auto; padding: 0 22px 22px; }
+.ad-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ad-table th {
+    position: sticky; top: 0; z-index: 1; background: var(--surface); color: var(--ink-3); font-weight: 700;
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.ad-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--ink); vertical-align: top; }
+.ad-table td.txt { min-width: 110px; max-width: 320px; overflow-wrap: break-word; }
+.ad-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ad-table .corto { white-space: nowrap; }
+.ad-table tr.link { cursor: pointer; }
+.ad-table tr.link:hover td { background: var(--brand-soft, var(--surface-2)); }
+
+.ad-state { padding: 28px 22px; color: var(--ink-3); font-size: 13px; display: flex; align-items: center; gap: 10px; }
+.ad-state.err { color: var(--t-rose); }
+.ad-state.sm { padding: 0 22px 8px; }
+.ad-spin {
+    width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--brand);
+    animation: ad-spin .8s linear infinite;
+}
+@keyframes ad-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 640px) {
+    .ad-head { padding: 14px 16px 10px; }
+    .ad-bar { padding: 8px 16px; }
+    .ad-body { padding: 0 8px 16px; }
+}

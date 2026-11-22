@@ -127,6 +127,20 @@ public abstract class BrainsModuleTestsBase
         Assert.Equal("tronox", (await svc.GetPrimaryForMockupAsync("tronox"))!.Slug);
         Assert.Equal(TaskCoreStatus.Forbidden, (await svc.LinkMockupAsync(b.Value.Slug, "tronox", user)).Status);
 
+        // Ola 2: tarjetas vinculadas (principal primero) y cambiar el principal sin perder el orden del resto.
+        Assert.True((await svc.LinkMockupAsync(b.Value.Slug, "tronox", owner)).IsOk);
+        var linked = await svc.ListForMockupAsync("tronox");
+        Assert.Equal(new[] { "tronox", a.Value.Slug, b.Value.Slug }, linked.Select(l => l.Slug));
+        Assert.Equal(new[] { true, false, false }, linked.Select(l => l.IsPrimary));
+        Assert.Equal(TaskCoreStatus.Forbidden, (await svc.SetPrimaryAsync(b.Value.Slug, "tronox", user)).Status);
+        Assert.True((await svc.SetPrimaryAsync(b.Value.Slug, "tronox", owner)).IsOk);
+        Assert.Equal(new[] { b.Value.Slug, "tronox", a.Value.Slug }, (await svc.ListForMockupAsync("tronox")).Select(l => l.Slug));
+        Assert.Equal(b.Value.Slug, (await svc.GetPrimaryForMockupAsync("tronox"))!.Slug);
+        Assert.Equal(TaskCoreStatus.NotFound, (await svc.SetPrimaryAsync("no-existe", "tronox", owner)).Status);
+        Assert.True((await svc.SetPrimaryAsync("tronox", "tronox", owner)).IsOk);
+        Assert.True((await svc.UnlinkMockupAsync(b.Value.Slug, "tronox", owner)).IsOk);
+        Assert.Equal(TaskCoreStatus.Invalid, (await svc.SetPrimaryAsync(b.Value.Slug, "tronox", owner)).Status);
+
         // Archivar el principal: pasa a serlo el siguiente vinculado.
         Assert.True((await svc.ArchiveAsync(own.Value.Id, owner)).IsOk);
         Assert.Equal(a.Value.Slug, (await svc.GetPrimaryForMockupAsync("tronox"))!.Slug);

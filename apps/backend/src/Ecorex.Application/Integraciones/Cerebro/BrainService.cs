@@ -26,6 +26,10 @@ public sealed record BrainCategoryDto(Guid Id, string Name, string? Color, int S
 /// <summary>Cerebro principal de una maqueta (el que abre la pestana Cerebro del editor).</summary>
 public sealed record BrainRefDto(Guid Id, string Slug, string Name);
 
+/// <summary>Cerebro vinculado a una maqueta (tarjeta de la pestana Cerebros del editor, ADR-0200 ola 2).</summary>
+public sealed record BrainLinkedDto(
+    Guid Id, string Slug, string Name, string? Description, string? CategoryName, string? CategoryColor, int Notes, bool IsPrimary);
+
 /// <summary>
 /// Catalogo de CEREBROS del tenant (ADR-0200, ola 1): galeria con categorias, alta/edicion/archivo y vinculo N:M con
 /// maquetas. Las NOTAS del cerebro las maneja <see cref="IMockupBrainService"/> (por slug del cerebro).
@@ -64,6 +68,12 @@ public interface IBrainService
     Task<TaskCoreResult<bool>> LinkMockupAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default);
 
     Task<TaskCoreResult<bool>> UnlinkMockupAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default);
+
+    /// <summary>Cerebros ACTIVOS vinculados a la maqueta, el principal primero (orden del vinculo).</summary>
+    Task<IReadOnlyList<BrainLinkedDto>> ListForMockupAsync(string projectSlug, CancellationToken ct = default);
+
+    /// <summary>Hace PRINCIPAL de la maqueta a un cerebro ya vinculado (queda primero; el resto conserva su orden).</summary>
+    Task<TaskCoreResult<bool>> SetPrimaryAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default);
 }
 
 public sealed partial class BrainService : IBrainService
@@ -357,6 +367,59 @@ public sealed partial class BrainService : IBrainService
         _db.MockupProjectBrains.Remove(link);
         _audit.Write(actor.PlatformUserId, "cerebro.desvincular", nameof(Brain), brain!.Id, previousValue: null,
             newValue: new { cerebro = brain.Slug, maqueta = project!.Value.Slug }, tenantId: actor.TenantId, reason: AuditReason);
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    public async Task<IReadOnlyList<BrainLinkedDto>> ListForMockupAsync(string projectSlug, CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(projectSlug, ct);
+        if (project is null) { return Array.Empty<BrainLinkedDto>(); }
+        // El join con Brains aplica el filtro global: los cerebros archivados no aparecen.
+        var rows = await (from l in _db.MockupProjectBrains.AsNoTracking()
+                          where l.MockupProjectId == project.Value.Id
+                          join b in _db.Brains.AsNoTracking() on l.BrainId equals b.Id
+                          orderby l.SortOrder, l.CreatedAt
+                          select new
+                          {
+                              b.Id,
+                              b.Slug,
+                              b.Name,
+                              b.Description,
+                              CategoryName = b.Category != null ? b.Category.Name : null,
+                              CategoryColor = b.Category != null ? b.Category.Color : null
+                          })
+            .ToListAsync(ct);
+        if (rows.Count == 0) { return Array.Empty<BrainLinkedDto>(); }
+        var ids = rows.Select(r => r.Id).ToList();
+        var notes = await _db.MockupNotes.AsNoTracking()
+            .Where(n => ids.Contains(n.BrainId))
+            .GroupBy(n => n.BrainId)
+            .Select(g => new { BrainId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.BrainId, x => x.Count, ct);
+        return rows
+            .Select((r, i) => new BrainLinkedDto(r.Id, r.Slug, r.Name, r.Description, r.CategoryName, r.CategoryColor,
+                notes.GetValueOrDefault(r.Id), i == 0))
+            .ToList();
+    }
+
+    public async Task<TaskCoreResult<bool>> SetPrimaryAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default)
+    {
+        if (!actor.IsOwnerOrAdmin) { return TaskCoreResult<bool>.Forbidden("Solo Owner/Admin elige el cerebro principal."); }
+        var (brain, project, error) = await FindPairAsync(brainSlug, projectSlug, ct);
+        if (error is not null) { return TaskCoreResult<bool>.NotFound(error); }
+        var links = await _db.MockupProjectBrains
+            .Where(l => l.MockupProjectId == project!.Value.Id)
+            .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
+            .ToListAsync(ct);
+        var chosen = links.FirstOrDefault(l => l.BrainId == brain!.Id);
+        if (chosen is null) { return TaskCoreResult<bool>.Invalid("El cerebro no esta vinculado a esta maqueta."); }
+        var order = 1;
+        chosen.SortOrder = 0;
+        foreach (var l in links.Where(l => l != chosen)) { l.SortOrder = order++; }
+        _audit.Write(actor.PlatformUserId, "cerebro.principal", nameof(Brain), brain!.Id, previousValue: null,
+            newValue: new { cerebro = brain.Slug, maqueta = project!.Value.Slug }, tenantId: actor.TenantId, reason: AuditReason);
+        // Un solo SaveChanges = una transaccion (todos los ordenes cambian juntos).
         await _db.SaveChangesAsync(ct);
         return TaskCoreResult<bool>.Ok(true);
     }

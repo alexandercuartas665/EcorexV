@@ -45,8 +45,8 @@ else
             <div class="me-tabs" role="tablist">
                 <button role="tab" class="@(_tab == TabMaqueta ? "on" : null)" @onclick="() => SetTab(TabMaqueta)"><i class="fa-regular fa-window-maximize"></i> Maqueta</button>
                 <button role="tab" class="@(_tab == TabCerebro ? "on" : null)" disabled="@(_project is null)"
-                        title="@(_project is null ? "El cerebro digital esta disponible en las maquetas de la nube" : "Cerebro digital del proyecto: notas enlazadas y grafo")"
-                        @onclick="() => SetTab(TabCerebro)"><i class="fa-solid fa-brain"></i> Cerebro</button>
+                        title="@(_project is null ? "Los cerebros estan disponibles en las maquetas de la nube" : "Cerebros vinculados a esta maqueta: notas enlazadas y grafo")"
+                        @onclick="() => SetTab(TabCerebro)"><i class="fa-solid fa-brain"></i> Cerebros@(_linked.Count > 0 ? $" ({_linked.Count})" : "")</button>
             </div>
             @if (_tab == TabMaqueta)
             {
@@ -106,37 +106,141 @@ else
 
         @if (_project is not null)
         {
-            @* El cerebro se monta una sola vez y se oculta con CSS: cambiar de pestana no recarga el iframe ni pierde el borrador. *@
+            @* ADR-0200 ola 2: tarjetas de los cerebros vinculados; cada una abre el cerebro completo en un modal grande. *@
             <div class="me-brain @(_tab == TabCerebro ? "on" : null)">
-                @if (_brainRef is not null)
-                {
-                    @* ADR-0200: el cerebro es un modulo propio; aqui se abre el PRINCIPAL vinculado a la maqueta. *@
-                    <MaquetaCerebro @key="_brainRef.Slug" @ref="_brain" Slug="@_brainRef.Slug" ProjectName="@_brainRef.Name" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
-                                    Active="@(_tab == TabCerebro)" Pages="_pages" Solicitudes="_solicitudes" CurrentFile="@_currentFile"
-                                    InitialNote="@Nota" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast"
-                                    ModuleUrl="@($"/cerebros/{_brainRef.Slug}")" />
-                }
-                else
-                {
-                    <div class="me-nobrain">
-                        <div class="me-nobrain-icon"><i class="fa-solid fa-brain"></i></div>
-                        <h3>Esta maqueta aun no tiene cerebro</h3>
-                        <p>Los cerebros viven en su propio modulo y se vinculan a una o varias maquetas.</p>
-                        @if (_isAdmin)
-                        {
-                            <button class="btn btn-sm btn-primary" disabled="@_creatingBrain" @onclick="CreateBrainAsync">
-                                <i class="fa-solid fa-plus"></i> @(_creatingBrain ? "Creando..." : "Crear el cerebro de esta maqueta")
-                            </button>
-                            @if (_brainError is not null) { <div class="text-danger small mt-2">@_brainError</div> }
-                        }
-                        else
-                        {
-                            <p class="small">Pide a un administrador que cree o vincule el cerebro.</p>
-                        }
-                        <a class="small mt-2" href="/cerebros">Ver todos los cerebros</a>
+                <div class="me-brains">
+                    <div class="me-brains-head">
+                        <div>
+                            <h3>Cerebros de @_name</h3>
+                            <span>Notas enlazadas, grafo y chat con Claude. El principal es el que usa el MCP con "proyecto".</span>
+                        </div>
+                        <div class="me-brains-actions">
+                            <a class="btn btn-sm btn-outline-secondary" href="/cerebros"><i class="fa-solid fa-brain"></i> Todos los cerebros</a>
+                            @if (_isAdmin)
+                            {
+                                <button class="btn btn-sm btn-primary" @onclick="OpenLinkPickerAsync"><i class="fa-solid fa-link"></i> Vincular cerebro</button>
+                            }
+                        </div>
                     </div>
-                }
+                    @if (_brainError is not null) { <div class="alert alert-danger py-2 small">@_brainError</div> }
+                    @if (_linked.Count == 0)
+                    {
+                        <div class="me-nobrain">
+                            <div class="me-nobrain-icon"><i class="fa-solid fa-brain"></i></div>
+                            <h3>Esta maqueta aun no tiene cerebro</h3>
+                            <p>Los cerebros viven en su propio modulo y se vinculan a una o varias maquetas.</p>
+                            @if (_isAdmin)
+                            {
+                                <div class="me-nobrain-actions">
+                                    <button class="btn btn-sm btn-primary" disabled="@_brainBusy" @onclick="CreateBrainAsync">
+                                        <i class="fa-solid fa-plus"></i> @(_brainBusy ? "Creando..." : "Crear el cerebro de esta maqueta")
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="OpenLinkPickerAsync"><i class="fa-solid fa-link"></i> Vincular uno existente</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="small">Pide a un administrador que cree o vincule el cerebro.</p>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="me-brain-grid">
+                            @foreach (var b in _linked)
+                            {
+                                <div class="me-brain-card" style="--mb-accent:@(b.CategoryColor ?? "#7c3aed")">
+                                    <button class="me-brain-card-main" title="Abrir el cerebro" @onclick="() => OpenBrain(b)">
+                                        <span class="me-brain-card-icon"><i class="fa-solid fa-brain"></i></span>
+                                        <span class="me-brain-card-text">
+                                            <span class="me-brain-card-title">@b.Name</span>
+                                            <span class="me-brain-card-sub">@(b.CategoryName ?? "Sin categoria") &middot; @b.Notes notas</span>
+                                            @if (!string.IsNullOrWhiteSpace(b.Description))
+                                            {
+                                                <span class="me-brain-card-desc">@b.Description</span>
+                                            }
+                                        </span>
+                                        @if (b.IsPrimary)
+                                        {
+                                            <span class="me-brain-primary" title="Cerebro principal de la maqueta">Principal</span>
+                                        }
+                                    </button>
+                                    @if (_isAdmin)
+                                    {
+                                        <div class="me-brain-card-foot">
+                                            @if (!b.IsPrimary)
+                                            {
+                                                <button class="btn btn-sm btn-link" disabled="@_brainBusy" @onclick="() => SetPrimaryAsync(b)">Hacer principal</button>
+                                            }
+                                            <button class="btn btn-sm btn-link text-danger ms-auto" disabled="@_brainBusy" @onclick="() => UnlinkAsync(b)">
+                                                @(_confirmUnlink == b.Id ? "Confirmar: desvincular" : "Desvincular")
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
+
+            @if (_openBrain is not null)
+            {
+                <div class="me-bmodal-back"></div>
+                <div class="me-bmodal" role="dialog" aria-label="@_openBrain.Name">
+                    <div class="me-bmodal-head">
+                        <span class="me-brain-card-icon" style="--mb-accent:@(_openBrain.CategoryColor ?? "#7c3aed")"><i class="fa-solid fa-brain"></i></span>
+                        <div class="me-bmodal-title">
+                            <strong>@_openBrain.Name</strong>
+                            <small>@(_openBrain.CategoryName ?? "Sin categoria")@(_openBrain.IsPrimary ? " - principal de la maqueta" : "")</small>
+                        </div>
+                        <a class="btn btn-sm btn-outline-secondary ms-auto" href="@($"/cerebros/{_openBrain.Slug}")" title="Abrir en el modulo Cerebros"><i class="fa-solid fa-up-right-from-square"></i> Abrir en Cerebros</a>
+                        <button class="me-icon" title="Cerrar" @onclick="CloseBrainAsync"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="me-bmodal-body">
+                        <MaquetaCerebro @key="_openBrain.Slug" @ref="_brain" Slug="@_openBrain.Slug" ProjectName="@_openBrain.Name" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
+                                        Active="true" Pages="_pages" Solicitudes="_solicitudes" CurrentFile="@_currentFile"
+                                        InitialNote="@_openNote" InitialPageFile="@_openPageFile" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast" />
+                    </div>
+                </div>
+            }
+
+            @if (_showLinkPicker)
+            {
+                <div class="me-bmodal-back" @onclick="() => _showLinkPicker = false"></div>
+                <div class="me-picker" role="dialog" aria-label="Vincular cerebro">
+                    <div class="me-bmodal-head">
+                        <strong>Vincular cerebro a @_name</strong>
+                        <button class="me-icon ms-auto" title="Cerrar" @onclick="() => _showLinkPicker = false"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="me-picker-body">
+                        <input class="form-control form-control-sm" placeholder="Buscar cerebro" @bind="_pickerSearch" @bind:event="oninput" />
+                        <div class="me-picker-list">
+                            @{ var candidates = PickerCandidates(); }
+                            @if (candidates.Count == 0)
+                            {
+                                <div class="me-picker-empty">@(_allBrains.Count == 0 ? "No hay otros cerebros en la empresa." : "Ningun cerebro coincide.")</div>
+                            }
+                            @foreach (var c in candidates)
+                            {
+                                <div class="me-picker-row">
+                                    <span class="me-dot" style="background:@(c.CategoryColor ?? "#7c3aed")"></span>
+                                    <span class="me-picker-name">@c.Name <small>@(c.CategoryName ?? "Sin categoria") &middot; @c.Notes notas</small></span>
+                                    <button class="btn btn-sm btn-outline-primary" disabled="@_brainBusy" @onclick="() => LinkAsync(c.Slug)">Vincular</button>
+                                </div>
+                            }
+                        </div>
+                        <div class="me-picker-new">
+                            <input class="form-control form-control-sm" placeholder="O crea uno nuevo: nombre del cerebro" maxlength="150" @bind="_newBrainName" @bind:event="oninput" />
+                            <button class="btn btn-sm btn-primary" disabled="@(_brainBusy || string.IsNullOrWhiteSpace(_newBrainName))" @onclick="CreateAndLinkAsync">Crear y vincular</button>
+                        </div>
+                        @if (_pickerError is not null)
+                        {
+                            <div class="text-danger small">@_pickerError</div>
+                        }
+                    </div>
+                </div>
+            }
         }
 
         <div class="me-main @(_tab == TabCerebro ? "off" : null)">
@@ -290,10 +394,19 @@ else
     private const string TabCerebro = "cerebro";
     private string _tab = TabMaqueta;
     private MaquetaCerebro? _brain;
-    // ADR-0200: cerebro principal vinculado a la maqueta (null = aun no tiene).
-    private BrainRefDto? _brainRef;
-    private bool _creatingBrain;
+    // ADR-0200 ola 2: cerebros vinculados (el primero es el principal), modal abierto y selector para vincular.
+    private List<BrainLinkedDto> _linked = new();
+    private BrainLinkedDto? _openBrain;
+    private string? _openNote;
+    private string? _openPageFile;
+    private bool _brainBusy;
     private string? _brainError;
+    private Guid? _confirmUnlink;
+    private bool _showLinkPicker;
+    private List<BrainCardDto> _allBrains = new();
+    private string _pickerSearch = string.Empty;
+    private string _newBrainName = string.Empty;
+    private string? _pickerError;
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private sealed record ThemeOption(string Id, string Name);
@@ -434,12 +547,13 @@ else
         }
 
         if (_error is null) { await LoadSolicitudesAsync(); }
-        if (_project is not null)
+        if (_project is not null) { await LoadLinkedAsync(); }
+        if (_project is not null && string.Equals(Tab, TabCerebro, StringComparison.OrdinalIgnoreCase))
         {
-            try { _brainRef = await RunAsync(sp => sp.GetRequiredService<IBrainService>().GetPrimaryForMockupAsync(_project.Slug)); }
-            catch (Exception) { _brainRef = null; }
+            _tab = TabCerebro;
+            // ?tab=cerebro&nota=Titulo: abre esa nota en el cerebro principal.
+            if (!string.IsNullOrWhiteSpace(Nota) && _linked.Count > 0) { OpenBrain(_linked[0], note: Nota); }
         }
-        if (_project is not null && string.Equals(Tab, TabCerebro, StringComparison.OrdinalIgnoreCase)) { _tab = TabCerebro; }
         _loading = false;
     }
 
@@ -450,52 +564,160 @@ else
         _tab = tab;
     }
 
-    /// <summary>ADR-0200: crea "Cerebro de {maqueta}" y lo vincula como principal (Owner/Admin).</summary>
+    // ------------------------------------------------------------------ cerebros vinculados (ADR-0200 ola 2)
+
+    private async Task LoadLinkedAsync()
+    {
+        if (_project is null) { return; }
+        try { _linked = (await RunAsync(sp => sp.GetRequiredService<IBrainService>().ListForMockupAsync(_project.Slug))).ToList(); }
+        catch (Exception) { _linked = new(); }
+    }
+
+    private void OpenBrain(BrainLinkedDto brain, string? pageFile = null, string? note = null)
+    {
+        _openPageFile = pageFile;
+        _openNote = note;
+        _openBrain = brain;
+    }
+
+    /// <summary>Cierra el modal (pregunta si hay una nota sin guardar) y refresca las tarjetas.</summary>
+    private async Task<bool> CloseBrainAsync()
+    {
+        if (_openBrain is null) { return true; }
+        if (_brain is not null && !await _brain.CanCloseAsync()) { return false; }
+        _openBrain = null;
+        _openNote = null;
+        _openPageFile = null;
+        _brain = null;
+        await LoadLinkedAsync();
+        return true;
+    }
+
+    /// <summary>Crea "Cerebro de {maqueta}", lo vincula como principal y lo abre (Owner/Admin).</summary>
     private async Task CreateBrainAsync()
     {
-        if (_project is null || _creatingBrain) { return; }
-        _creatingBrain = true;
+        if (_project is null || _brainBusy) { return; }
+        var res = await WithBrainActorAsync<BrainRefDto>((svc, actor) => svc.CreateForMockupAsync(_project.Slug, actor));
+        if (res is null) { return; }
+        await LoadLinkedAsync();
+        ShowToast($"Cerebro '{res.Name}' creado y vinculado.");
+        if (_linked.FirstOrDefault(b => b.Id == res.Id) is { } created) { OpenBrain(created); }
+    }
+
+    private async Task OpenLinkPickerAsync()
+    {
+        _pickerError = null;
+        _pickerSearch = string.Empty;
+        _newBrainName = string.Empty;
+        try { _allBrains = (await RunAsync(sp => sp.GetRequiredService<IBrainService>().ListAsync())).ToList(); }
+        catch (Exception) { _allBrains = new(); }
+        _showLinkPicker = true;
+    }
+
+    private List<BrainCardDto> PickerCandidates()
+    {
+        var term = _pickerSearch.Trim();
+        return _allBrains
+            .Where(b => _linked.All(l => l.Id != b.Id))
+            .Where(b => term.Length == 0 || b.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || (b.CategoryName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToList();
+    }
+
+    private async Task LinkAsync(string brainSlug)
+    {
+        if (_project is null || _brainBusy) { return; }
+        var ok = await WithBrainActorAsync<bool>((svc, actor) => svc.LinkMockupAsync(brainSlug, _project.Slug, actor), picker: true);
+        if (!ok) { return; }
+        _showLinkPicker = false;
+        await LoadLinkedAsync();
+        ShowToast("Cerebro vinculado a la maqueta.");
+    }
+
+    private async Task CreateAndLinkAsync()
+    {
+        if (_project is null || _brainBusy || string.IsNullOrWhiteSpace(_newBrainName)) { return; }
+        var created = await WithBrainActorAsync<BrainDetailDto>((svc, actor) => svc.CreateAsync(_newBrainName, null, null, actor), picker: true);
+        if (created is null) { return; }
+        await LinkAsync(created.Slug);
+    }
+
+    private async Task SetPrimaryAsync(BrainLinkedDto brain)
+    {
+        if (_project is null || _brainBusy) { return; }
+        if (await WithBrainActorAsync<bool>((svc, actor) => svc.SetPrimaryAsync(brain.Slug, _project.Slug, actor)))
+        {
+            await LoadLinkedAsync();
+            ShowToast($"'{brain.Name}' es ahora el cerebro principal.");
+        }
+    }
+
+    private async Task UnlinkAsync(BrainLinkedDto brain)
+    {
+        if (_project is null || _brainBusy) { return; }
+        if (_confirmUnlink != brain.Id)
+        {
+            _confirmUnlink = brain.Id;
+            return;
+        }
+        _confirmUnlink = null;
+        if (await WithBrainActorAsync<bool>((svc, actor) => svc.UnlinkMockupAsync(brain.Slug, _project.Slug, actor)))
+        {
+            await LoadLinkedAsync();
+            ShowToast($"'{brain.Name}' se desvinculo (el cerebro sigue en el modulo Cerebros).");
+        }
+    }
+
+    /// <summary>Accion de cerebros con el actor de la sesion: devuelve el valor (o default) y deja el error a la vista.</summary>
+    private async Task<T?> WithBrainActorAsync<T>(Func<IBrainService, Ecorex.Application.Mcp.McpActor, Task<TaskCoreResult<T>>> action, bool picker = false)
+    {
+        _brainBusy = true;
         _brainError = null;
+        _pickerError = null;
         try
         {
             var res = await RunAsync(async sp =>
             {
                 var actor = await sp.GetRequiredService<IMaquetaSolicitudService>().ResolveSessionActorAsync(_userId);
-                if (actor is null) { return TaskCoreResult<BrainRefDto>.Forbidden("Tu usuario no puede crear cerebros en esta empresa."); }
-                return await sp.GetRequiredService<IBrainService>().CreateForMockupAsync(_project.Slug, actor);
+                if (actor is null) { return TaskCoreResult<T>.Forbidden("Tu usuario no puede administrar cerebros en esta empresa."); }
+                return await action(sp.GetRequiredService<IBrainService>(), actor);
             });
-            if (res.IsOk && res.Value is not null)
-            {
-                _brainRef = res.Value;
-                ShowToast($"Cerebro '{res.Value.Name}' creado y vinculado.");
-            }
-            else
-            {
-                _brainError = res.Error ?? "No se pudo crear el cerebro.";
-            }
+            if (res.IsOk) { return res.Value; }
+            if (picker) { _pickerError = res.Error; } else { _brainError = res.Error; }
+            return default;
         }
         catch (Exception)
         {
-            _brainError = "No se pudo crear el cerebro. Intenta de nuevo.";
+            const string msg = "No se pudo completar la accion. Intenta de nuevo.";
+            if (picker) { _pickerError = msg; } else { _brainError = msg; }
+            return default;
         }
         finally
         {
-            _creatingBrain = false;
+            _brainBusy = false;
         }
     }
 
-    /// <summary>"Nota de esta pantalla": pasa al cerebro con la nota de la pantalla abierta (o un borrador nuevo).</summary>
+    /// <summary>"Nota de esta pantalla": abre el cerebro PRINCIPAL en el modal con la nota de la pantalla (o un borrador).</summary>
     private async Task PageNoteAsync()
     {
         if (_project is null || string.IsNullOrEmpty(_currentFile)) { return; }
+        if (_picking) { await TogglePickAsync(); }
         _tab = TabCerebro;
-        StateHasChanged();
-        if (_brain is not null) { await _brain.OpenPageNoteAsync(_currentFile); }
+        if (_linked.Count == 0) { return; }
+        if (_openBrain is not null && _openBrain.Id == _linked[0].Id && _brain is not null)
+        {
+            await _brain.OpenPageNoteAsync(_currentFile);
+            return;
+        }
+        if (!await CloseBrainAsync()) { return; }
+        OpenBrain(_linked[0], pageFile: _currentFile);
     }
 
-    /// <summary>Clic en un [[pantalla.html]] del cerebro: vuelve a la pestana Maqueta en esa pantalla.</summary>
+    /// <summary>Clic en un [[pantalla.html]] del cerebro: cierra el modal y vuelve a la pestana Maqueta en esa pantalla.</summary>
     private async Task OpenPageFromBrainAsync(string file)
     {
+        if (!await CloseBrainAsync()) { return; }
         _tab = TabMaqueta;
         _currentFile = file;
         if (_jsReady) { await JS.InvokeVoidAsync("ecxMaquetaEditor.load", file); }

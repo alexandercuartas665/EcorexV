@@ -1,8 +1,8 @@
 # ADR-0200: Cerebros como modulo propio (categorias, vinculo N:M con maquetas, siembra del Super Admin)
 
 Fecha: 2026-11-22
-Estado: Aceptada (ola 1 construida; olas 2-4 pendientes)
-Version: la asigna el dev principal al integrar (rama feat/maquetas-cerebro)
+Estado: Aceptada (ola 1 en v0.16.374; ola 2 construida; olas 3-4 pendientes)
+Version: ola 1 = v0.16.374; ola 2 la asigna el dev principal al integrar (rama feat/maquetas-cerebro)
 Relacionado: ADR-0183 (cerebro digital de la maqueta), ADR-0182 (MCP de maquetas), ADR-0062 (plantillas globales
 + activacion por tenant), ADR-0013 (concurrencia optimista portable)
 
@@ -65,6 +65,20 @@ Se construye en 4 olas, cada una con su version:
 5. **MCP (compatibilidad)**: las herramientas de notas siguen recibiendo `proyecto`; se resuelve al cerebro principal
    de esa maqueta (o, si no hay maqueta con ese slug, a un cerebro con ese slug). Sin cerebro vinculado, el error lo
    explica.
+
+### Ola 2 (vinculo desde la maqueta)
+
+1. La pestana del editor pasa a llamarse **"Cerebros (N)"** y muestra TARJETAS de los cerebros vinculados (activos),
+   el principal primero con su marca. Cada tarjeta abre el cerebro completo (mismo componente `MaquetaCerebro`) en un
+   **modal grande** (96% de la pantalla), con enlace "Abrir en Cerebros". Cerrar el modal pregunta si hay una nota sin
+   guardar (`CanCloseAsync`).
+2. Owner/Admin: **"Vincular cerebro"** abre un selector con los cerebros del tenant no vinculados (busqueda) y permite
+   "Crear y vincular" uno nuevo; en cada tarjeta, **"Hacer principal"** y **"Desvincular"** (con confirmacion; el
+   cerebro sigue en el modulo). Sin cerebros: "Crear el cerebro de esta maqueta" o "Vincular uno existente".
+3. "Nota de esta pantalla" abre el cerebro PRINCIPAL en el modal con la nota de la pantalla (`InitialPageFile`);
+   `?tab=cerebro&nota=X` abre esa nota en el principal; un `[[pantalla.html]]` cierra el modal y lleva a la pantalla.
+4. Servicio: `ListForMockupAsync` (vinculados con notas, principal primero) y `SetPrimaryAsync` (el elegido queda con
+   orden 0 y el resto conserva su orden relativo, en una sola transaccion; auditado `cerebro.principal`).
 
 ## Consecuencias
 

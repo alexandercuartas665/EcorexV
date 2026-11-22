@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-22 - Cerebros ola 2: tarjetas de cerebros vinculados en la maqueta + modal grande (ADR-0200) - SIN VERSION (la asigna el dev principal)
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.375). SIN migracion.
+- **Hecho**: pestana "Cerebros (N)" del editor de maquetas con TARJETAS de los cerebros vinculados (principal primero);
+  cada una abre el cerebro completo en un modal grande (pregunta si hay nota sin guardar al cerrar). Owner/Admin:
+  "Vincular cerebro" (selector con busqueda + "Crear y vincular"), "Hacer principal" y "Desvincular". "Nota de esta
+  pantalla" abre el principal en el modal con la nota de la pantalla. Servicio: `ListForMockupAsync`, `SetPrimaryAsync`.
+- **Pruebas**: build OK; integracion dual Maqueta|MockupBrain|BrainsModule (ver commit); validado en local 5285 sobre
+  la copia `ecorex_cerebros`: vincular la "Base de conocimiento clinica" a TRONOX, abrirla en el modal, hacer principal
+  y volver, y "Nota de esta pantalla" con el borrador de la pantalla.
+- **Siguiente**: ola 3 (cerebros plantilla del Super Admin: siembra a todos/plan/tenants, bloqueo de solo lectura,
+  "Duplicar como propio" y sincronizacion), ola 4 (MCP por cerebro).
+
 ## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - EN TRONCO (sin desplegar)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/mcp-rellenar-columna`. Pedido de ECOREX.mcp para el dron FOMAG;

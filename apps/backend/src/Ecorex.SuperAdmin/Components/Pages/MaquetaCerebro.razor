@@ -454,6 +454,8 @@
     [Parameter] public IReadOnlyList<MockupSolicitudDto> Solicitudes { get; set; } = Array.Empty<MockupSolicitudDto>();
     [Parameter] public string? CurrentFile { get; set; }
     [Parameter] public string? InitialNote { get; set; }
+    /// <summary>Pantalla cuya nota se abre al cargar (boton "Nota de esta pantalla" del editor, ADR-0200 ola 2).</summary>
+    [Parameter] public string? InitialPageFile { get; set; }
     [Parameter] public EventCallback<string> OnOpenPage { get; set; }
     [Parameter] public EventCallback<Guid> OnOpenTask { get; set; }
     [Parameter] public EventCallback<string> OnToast { get; set; }
@@ -539,7 +541,8 @@
             await RunAsync(ResolveActorAsync);
             await ReloadListAsync();
             await LoadGraphAsync();
-            if (!string.IsNullOrWhiteSpace(InitialNote)) { await OpenNoteByTitleAsync(InitialNote); }
+            if (!string.IsNullOrWhiteSpace(InitialPageFile)) { await OpenPageNoteAsync(InitialPageFile); }
+            else if (!string.IsNullOrWhiteSpace(InitialNote)) { await OpenNoteByTitleAsync(InitialNote); }
         }
     }
 
@@ -1032,6 +1035,9 @@
             _restoringId = null;
         }
     }
+
+    /// <summary>Para el modal del editor (ADR-0200 ola 2): true si se puede cerrar (sin borrador o el usuario descarta).</summary>
+    public Task<bool> CanCloseAsync() => ConfirmDiscardAsync();
 
     private async Task<bool> ConfirmDiscardAsync()
     {

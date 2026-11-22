@@ -105,6 +105,42 @@ public static class AnalisisCruce
     }
 
     /// <summary>
+    /// "Filtrar la hoja por esto" sobre la lista vigente (una seleccion por widget de origen): si es el MISMO
+    /// elemento ya elegido en ese widget, la quita; si no, la agrega o reemplaza la de ese widget (resuelta con
+    /// la fuente de origen). Devuelve false si no se pudo (spec invalido o fuente no disponible al agregar).
+    /// </summary>
+    public static bool Alternar(List<SeleccionCruzada> cruces, AnalisisWidgetDto widget, IReadOnlyList<CondicionCruzada> condiciones, ReportSourceDescriptor? fuente)
+    {
+        var i = cruces.FindIndex(c => c.OrigenWidgetId == widget.Id);
+        if (i >= 0 && cruces[i].MismosValores(condiciones))
+        {
+            cruces.RemoveAt(i);
+            return true;
+        }
+
+        var spec = AnalisisJson.DeserializeSpec(widget.SpecJson);
+        if (spec is null || fuente is null || !string.Equals(fuente.Key, spec.SourceKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var sel = new SeleccionCruzada(widget.Id, spec.SourceKey, Resolver(condiciones, fuente, widget.ContextBindingsJson))
+        {
+            OrigenTitulo = widget.Titulo
+        };
+        if (i >= 0)
+        {
+            cruces[i] = sel;
+        }
+        else
+        {
+            cruces.Add(sel);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Completa las condiciones con la fuente de ORIGEN: el campo de las condiciones por parametro (dia del
     /// calendario), el parametro de hoja de los campos que lo son, y el nombre para mostrar.
     /// </summary>

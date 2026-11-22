@@ -421,3 +421,15 @@ cambia el PDF ni el enlace publico; vive en la pagina `/analisis` mientras se ve
   sin tocar esos componentes. Las fuentes externas no ofrecen registros individuales.
 - **Catalogo:** la fuente Actividades expone `Id` (no agrupable, ruta en memoria) para abrir la tarea.
 - **Verificado:** ver PROGRESO 2026-11-21.
+
+### Addendum 2026-11-21 (b) - Filtros en el enlace publico /a/{token} (SIN deploy)
+
+El usuario reporto que al compartir un libro por URL se perdia la opcion de filtrar. El visor publico solo
+aplicaba los filtros GUARDADOS de la hoja. Ahora quien abre el enlace tiene la misma barra de filtros
+(desde/hasta/vendedor/tablero) y el filtro al tocar un grafico (chips "Filtrado al tocar"), ambos
+TEMPORALES: viven en su vista, no cambian el libro; "Restablecer" vuelve a los filtros con que se compartio.
+"Ver registros" NO se ofrece en el enlace publico: es anonimo y mostraria filas individuales (tareas,
+clientes) a cualquiera con el link; los filtros solo acotan los agregados que el enlace ya muestra. Las
+consultas del visor pasan por una compuerta propia (una a la vez) y siguen con el tenant del token como
+ambient. La regla de "tocar para filtrar" (agregar / reemplazar / quitar la seleccion de un widget) quedo en
+`AnalisisCruce.Alternar`, compartida por `/analisis` y el visor publico.

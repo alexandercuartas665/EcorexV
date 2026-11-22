@@ -16,6 +16,7 @@ Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (
   "Duplicar como propio" y sincronizacion), ola 4 (MCP por cerebro).
 
 ## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - EN TRONCO (sin desplegar)
+## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - DESPLEGADA
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/mcp-rellenar-columna`. Pedido de ECOREX.mcp para el dron FOMAG;
 el usuario eligio el backfill por plantilla (NO `vaciar_tabla`).
@@ -27,7 +28,8 @@ el usuario eligio el backfill por plantilla (NO `vaciar_tabla`).
 - **Pruebas**: integracion dual `RellenarColumna_PorPlantilla_SoloVacias_Sobrescribe_YEsTenantScoped` y el puente MCP en
   `PasoClasificacion_ToolsExpuestas_...`. Build Release 0 errores; unitarias 1687/312/35; integracion dual
   McpTableros|ImportClasificacionPaso|ClasificarLote 58/58.
-- **Siguiente**: deploy SOLO con OK del usuario. Luego ECOREX.mcp: crear `clave_ingesta` en la tabla FOMAG ->
+- **Deploy (2026-11-22 16:58 Bogota)**: OK del usuario. Via rapida GHCR (CI 45073857936 verde sobre 7ec10cfd). Footer /login = v0.16.375, ecorex-app Restarts=0, 0 errores. Rollback: imagen anterior sha256:40ba4010...
+- **Siguiente**: ECOREX.mcp: crear `clave_ingesta` en la tabla FOMAG ->
   `rellenar_columna` -> configurar `ingesta_llave` en el paso Extraer -> re-correr el dron.
 
 ## 2026-11-22 - Cerebros como modulo propio, ola 1 (ADR-0200) - v0.16.374 DESPLEGADA

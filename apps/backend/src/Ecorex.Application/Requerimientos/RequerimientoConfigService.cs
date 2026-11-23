@@ -536,6 +536,46 @@ public sealed class RequerimientoConfigService : IRequerimientoConfigService
         await _db.SaveChangesAsync(ct);
     }
 
+    // ---- Dependencia de compras: su responsable emite la orden de compra (sin migracion: TenantConfiguration) ----
+    private const string DependenciaComprasKey = "requerimientos.dependencia_compras";
+
+    public async Task<Guid?> GetDependenciaComprasAsync(CancellationToken ct = default)
+    {
+        var val = await _db.TenantConfigurations.AsNoTracking().Where(c => c.ConfigKey == DependenciaComprasKey)
+            .Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+        return Guid.TryParse(val, out var g) ? g : null;
+    }
+
+    public async Task SetDependenciaComprasAsync(Guid? orgUnitId, CancellationToken ct = default)
+    {
+        if (_tenant.TenantId is not Guid tid) { return; }
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == DependenciaComprasKey, ct);
+        var val = orgUnitId is Guid g && g != Guid.Empty ? g.ToString() : "";
+        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = DependenciaComprasKey, ConfigValue = val }); }
+        else { row.ConfigValue = val; }
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<RequerimientoOpcionDto>> ListDependenciasAsync(CancellationToken ct = default)
+        => await _db.OrgUnits.AsNoTracking().Where(o => !o.IsArchived)
+            .OrderBy(o => o.Name)
+            .Select(o => new RequerimientoOpcionDto(o.Id, o.Name)).ToListAsync(ct);
+
+    public async Task<bool> EsResponsableComprasAsync(Guid platformUserId, CancellationToken ct = default)
+    {
+        if (platformUserId == Guid.Empty) { return false; }
+        var depId = await GetDependenciaComprasAsync(ct);
+        if (depId is not Guid dep) { return false; }
+        var tuId = await _db.TenantUsers.AsNoTracking().Where(u => u.PlatformUserId == platformUserId)
+            .Select(u => (Guid?)u.Id).FirstOrDefaultAsync(ct);
+        if (tuId is not Guid tu) { return false; }
+        var esResponsableUnidad = await _db.OrgUnits.AsNoTracking()
+            .AnyAsync(o => o.Id == dep && !o.IsArchived && o.ResponsibleTenantUserId == tu, ct);
+        if (esResponsableUnidad) { return true; }
+        return await _db.OrgUnitMembers.AsNoTracking()
+            .AnyAsync(m => m.OrgUnitId == dep && m.TenantUserId == tu && m.IsResponsible, ct);
+    }
+
     public async Task<IReadOnlyDictionary<Guid, Guid>> GetProveedorProcesoMapAsync(CancellationToken ct = default)
     {
         var ext = await LoadExtAsync(ct);

@@ -199,6 +199,17 @@ public interface IRequerimientoConfigService
     /// <summary>Fija (o limpia, con null) el proceso de compra por defecto del modulo.</summary>
     Task SetCompraDefaultAsync(Guid? subcategoriaId, CancellationToken ct = default);
 
+    /// <summary>Dependencia (cargo/area del organigrama) de COMPRAS: su RESPONSABLE puede emitir la orden de compra
+    /// ("Gestionar compra") y liberar lineas aunque no sea Owner/Admin. Null si no se fijo.</summary>
+    Task<Guid?> GetDependenciaComprasAsync(CancellationToken ct = default);
+    /// <summary>Fija (o limpia, con null) la dependencia de compras.</summary>
+    Task SetDependenciaComprasAsync(Guid? orgUnitId, CancellationToken ct = default);
+    /// <summary>Dependencias activas del organigrama del tenant, para el selector de configuracion.</summary>
+    Task<IReadOnlyList<RequerimientoOpcionDto>> ListDependenciasAsync(CancellationToken ct = default);
+    /// <summary>True si el usuario (PlatformUserId del claim) es RESPONSABLE de la dependencia de compras
+    /// configurada (miembro con IsResponsible o responsable de la unidad). False si no hay dependencia fijada.</summary>
+    Task<bool> EsResponsableComprasAsync(Guid platformUserId, CancellationToken ct = default);
+
     /// <summary>Proceso de cotizacion fijado por PROVEEDOR (capa "matriz"). Mapa proveedorId -> subcategoria.
     /// Solo incluye proveedores con valor definido.</summary>
     Task<IReadOnlyDictionary<Guid, Guid>> GetProveedorProcesoMapAsync(CancellationToken ct = default);

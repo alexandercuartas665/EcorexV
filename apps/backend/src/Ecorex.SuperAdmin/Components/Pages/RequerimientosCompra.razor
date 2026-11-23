@@ -964,12 +964,12 @@ else
                                             else if (hi.Estado == RequerimientoEstado.EnOrdenCompra)
                                             {
                                                 <span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fde68a;padding:3px 8px;border-radius:999px;" title="Enviada a la pestana Orden de compra; bloqueada hasta gestionarla">En orden de compra</span>
-                                                @if (_canConfig && hi.Id is not null)
+                                                @if (_canGestionarOc && hi.Id is not null)
                                                 {
                                                     <button class="btn btn-link btn-sm" title="Quitarla de la orden de compra y volver a editarla (solo si aun no se ha gestionado)" @onclick="() => LiberarHijoAsync(hi.Id!.Value)" disabled="@_busy">Liberar</button>
                                                 }
                                             }
-                                            else if (hi.Id is not null && _canConfig)
+                                            else if (hi.Id is not null && _canGestionarOc)
                                             {
                                                 <button class="btn btn-outline-primary btn-sm" title="Bloquea la linea y la envia a la pestana Orden de compra para gestionarla" @onclick="() => EnviarOcAsync(hi)" disabled="@_busy">Enviar a orden de compra</button>
                                             }
@@ -1124,7 +1124,7 @@ else
                                         <div style="font-size:11px;color:var(--ink-3,#6b7280);">@_lin.Count linea@(_lin.Count == 1 ? "" : "s")</div>
                                         <div style="font-size:16px;font-weight:800;color:var(--brand,#4f46e5);font-variant-numeric:tabular-nums;">@Fmt(_sub)</div>
                                         @{ var _gPend = _lin.Count(x => x.HijoId is not null && x.TaskItemId is null && x.Estado == RequerimientoEstado.EnOrdenCompra); }
-                                        @if (_canConfig && _gPend > 0)
+                                        @if (_canGestionarOc && _gPend > 0)
                                         {
                                             <button class="btn btn-primary btn-sm" style="margin-top:6px;" title="Crea UNA sola orden de compra (actividad) para este proveedor con todos sus articulos en orden de compra" @onclick="() => GestionarGrupoAsync(_lin)" disabled="@_busy">Gestionar compra (@_gPend)</button>
                                         }
@@ -1171,7 +1171,7 @@ else
                                                     {
                                                         <div style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                                             <span style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fde68a;padding:2px 8px;border-radius:999px;">En orden de compra</span>
-                                                            @if (_canConfig && l.HijoId is not null)
+                                                            @if (_canGestionarOc && l.HijoId is not null)
                                                             {
                                                                 <button class="btn btn-link btn-sm" title="Liberar (volver a editar en Planificacion)" @onclick="() => LiberarHijoAsync(l.HijoId!.Value)" disabled="@_busy">Liberar</button>
                                                             }
@@ -1383,6 +1383,17 @@ else
                         }
                     </select>
                     <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">Flujo/subcategoria que corre al <strong>Ejecutar</strong> la compra cuando ni la <strong>matriz</strong> del proveedor ni el <strong>origen</strong> de la linea fijan uno. Es el ultimo recurso de la cadena de compra.</div>
+                </div>
+                <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
+                    <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Dependencia de compras</div>
+                    <select class="form-select form-select-sm" @bind="_cfgDependenciaCompras">
+                        <option value="">(sin dependencia: solo administradores emiten la orden de compra)</option>
+                        @foreach (var d in _cfgDependencias)
+                        {
+                            <option value="@d.Id">@d.Nombre</option>
+                        }
+                    </select>
+                    <div style="font-size:11.5px;color:var(--ink-3,#6b7280);margin-top:6px;">El <strong>responsable</strong> de esta dependencia (organigrama) puede <strong>Gestionar compra</strong> (emitir la orden de compra) y liberar lineas, ademas de los administradores.</div>
                 </div>
                 <div style="border-top:1px solid var(--line,#f1f5f9);padding-top:12px;">
                     <div style="font-size:12px;font-weight:700;color:var(--ink-2,#4b5563);margin-bottom:6px;">Unidades de medida</div>
@@ -1831,6 +1842,7 @@ else
     private List<RequerimientoOpcionDto> _origenes = new();
     private List<ItemOpcionDto> _items = new();
     private bool _canConfig;
+    private bool _canGestionarOc;   // emitir/liberar OC: Owner/Admin o responsable de la dependencia de compras
     private string? _userName;
 
     // Alta manual
@@ -1910,6 +1922,8 @@ else
     private List<RequerimientoOpcionDto> _subcats = new();
     private string _cfgCotDefault = "";
     private string _cfgCompraDefault = "";
+    private string _cfgDependenciaCompras = "";
+    private List<RequerimientoOpcionDto> _cfgDependencias = new();
     private Dictionary<Guid, Guid> _cfgProvProc = new();
     private Dictionary<Guid, string> _cfgProvProcEdit = new();
     // Ola D: proceso de cotizacion por PRODUCTO (lo fija el comprador en Planificar). Mapa clave -> subcat.
@@ -2562,6 +2576,8 @@ else
             _cfgUnidades = string.Join('\n', await ConfigSvc.GetUnidadesAsync());
             _cfgCotDefault = (await ConfigSvc.GetCotizacionDefaultAsync())?.ToString() ?? "";
             _cfgCompraDefault = (await ConfigSvc.GetCompraDefaultAsync())?.ToString() ?? "";
+            _cfgDependencias = (await ConfigSvc.ListDependenciasAsync()).ToList();
+            _cfgDependenciaCompras = (await ConfigSvc.GetDependenciaComprasAsync())?.ToString() ?? "";
             await LoadCfgAvanzadaAsync();
         }
         catch (Exception ex) { _cfgError = ex.Message; }
@@ -2597,6 +2613,7 @@ else
             await ConfigSvc.SetUnidadesAsync(_cfgUnidades.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             await ConfigSvc.SetCotizacionDefaultAsync(Guid.TryParse(_cfgCotDefault, out var cdef) ? cdef : null);
             await ConfigSvc.SetCompraDefaultAsync(Guid.TryParse(_cfgCompraDefault, out var cpdef) ? cpdef : null);
+            await ConfigSvc.SetDependenciaComprasAsync(Guid.TryParse(_cfgDependenciaCompras, out var dcomp) ? dcomp : null);
             _unidades = (await ConfigSvc.GetUnidadesAsync()).ToList();
             _modo = _cfgModo;
             // El modo del modulo manda sobre la vista: al guardar, la grilla pasa al modo elegido.
@@ -3045,6 +3062,9 @@ else
     protected override async Task OnInitializedAsync()
     {
         _canConfig = await IsOwnerOrAdminAsync();
+        // Emitir/liberar la orden de compra: Owner/Admin o el RESPONSABLE de la dependencia de compras configurada.
+        try { _canGestionarOc = _canConfig || await ConfigSvc.EsResponsableComprasAsync(await ActorAsync()); }
+        catch { _canGestionarOc = _canConfig; }
         if (AuthState is not null)
         {
             try { var st = await AuthState; _userName = st.User.Identity?.Name; } catch { }
@@ -4087,6 +4107,7 @@ else
     // Liberar: vuelve a editable. El servicio solo lo permite si NO se ha emitido la tarea de gestion.
     private async Task LiberarHijoAsync(Guid hid)
     {
+        if (!_canGestionarOc) { _planError = "Solo un administrador o el responsable de compras puede liberar la linea."; return; }
         _planError = null; _busy = true;
         try
         {
@@ -4105,6 +4126,7 @@ else
         var ids = lineas.Where(l => l.HijoId is Guid && l.TaskItemId is null && l.Estado == RequerimientoEstado.EnOrdenCompra)
                         .Select(l => l.HijoId!.Value).ToList();
         if (ids.Count == 0) { _planError = "No hay lineas en orden de compra para gestionar."; return; }
+        if (!_canGestionarOc) { _planError = "Solo un administrador o el responsable de compras puede emitir la orden de compra."; return; }
         _planError = null; _busy = true;
         try
         {

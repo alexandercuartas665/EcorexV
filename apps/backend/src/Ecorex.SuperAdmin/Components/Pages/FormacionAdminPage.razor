@@ -1,0 +1,167 @@
+@page "/formacion/admin"
+@attribute [Authorize(Policy = Ecorex.SuperAdmin.Endpoints.FormacionEndpoints.EditPolicy)]
+@* Administracion de FORMACION (ADR-0202, ola 1): todos los cursos del tenant (publicados y borradores) con su
+   estructura y asignaciones. "Nuevo curso" crea el borrador y abre el editor. Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Formacion
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Nav
+
+<PageTitle>Administrar cursos - Formacion</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <a href="/formacion">Formacion</a>
+    <span class="sep">/</span>
+    <span class="cur">Administrar cursos</span>
+</nav>
+
+<div class="fm-bar">
+    <div class="fm-title">
+        <h1 class="page-title" style="margin:0;">Administrar cursos</h1>
+        <span class="page-sub" style="margin:0;">Crea cursos con modulos y lecciones: videos, YouTube/Vimeo, manuales PDF, imagenes, texto y wizards HTML.</span>
+    </div>
+    <div class="fm-actions">
+        <a class="btn btn-sm btn-outline-secondary" href="/formacion"><i class="fa-solid fa-book-open"></i> Ver catalogo</a>
+        <button class="btn btn-sm btn-primary" @onclick="() => { _nuevo = true; _titulo = string.Empty; _err = null; }">+ Nuevo curso</button>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger py-2 fm-alert">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="fm-muted">Cargando...</div>
+}
+else if (_cursos.Count == 0)
+{
+    <div class="fm-empty">Aun no hay cursos. Crea el primero con "+ Nuevo curso".</div>
+}
+else
+{
+    <div class="fm-gallery">
+        @foreach (var c in _cursos)
+        {
+            <a class="fm-card" href="@($"/formacion/admin/{c.Id}")">
+                <div class="fm-cover">
+                    @if (c.PortadaUrl is not null)
+                    {
+                        <img src="@c.PortadaUrl" alt="" loading="lazy" />
+                    }
+                    else
+                    {
+                        <i class="fa-solid fa-graduation-cap"></i>
+                    }
+                    <div class="fm-badges">
+                        @if (c.Publicado)
+                        {
+                            <span class="fm-badge done">Publicado</span>
+                        }
+                        else
+                        {
+                            <span class="fm-badge draft">Borrador</span>
+                        }
+                        @if (c.Asignaciones > 0)
+                        {
+                            <span class="fm-badge req">@c.Asignaciones asignacion(es)</span>
+                        }
+                    </div>
+                </div>
+                <div class="fm-card-body">
+                    <span class="fm-card-cat">@(c.Categoria ?? "Sin categoria")</span>
+                    <span class="fm-card-title">@c.Titulo</span>
+                    @if (!string.IsNullOrWhiteSpace(c.Descripcion))
+                    {
+                        <span class="fm-card-desc">@c.Descripcion</span>
+                    }
+                    <div class="fm-card-meta">
+                        <span><i class="fa-solid fa-layer-group"></i> @c.Modulos modulos</span>
+                        <span><i class="fa-regular fa-file-lines"></i> @c.Lecciones lecciones</span>
+                    </div>
+                </div>
+            </a>
+        }
+    </div>
+}
+
+@if (_nuevo)
+{
+    <div class="fm-modal-back" @onclick="() => _nuevo = false"></div>
+    <div class="fm-modal" role="dialog" aria-label="Nuevo curso">
+        <div class="fm-modal-head">
+            <h3>Nuevo curso</h3>
+            <button class="fm-icon" title="Cerrar" @onclick="() => _nuevo = false"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="fm-form">
+            <label>Titulo<input class="form-control form-control-sm" @bind="_titulo" maxlength="200" placeholder="Induccion de seguridad industrial" /></label>
+            <label>Categoria<input class="form-control form-control-sm" @bind="_categoria" maxlength="80" placeholder="Opcional (ej. Seguridad)" /></label>
+            @if (_err is not null) { <div class="text-danger small">@_err</div> }
+        </div>
+        <div class="fm-modal-actions">
+            <button class="btn btn-sm btn-link" @onclick="() => _nuevo = false">Cancelar</button>
+            <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="CrearAsync">Crear y editar</button>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<CursoResumenDto> _cursos = new();
+    private bool _loading = true;
+    private bool _busy;
+    private string? _error;
+    private bool _nuevo;
+    private string _titulo = string.Empty;
+    private string? _categoria;
+    private string? _err;
+    private Guid _tenantId;
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _tenantId);
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+        }
+        try
+        {
+            _cursos = (await RunAsync(s => s.ListarCursosAdminAsync())).ToList();
+        }
+        catch (Exception)
+        {
+            _error = "No se pudieron cargar los cursos.";
+        }
+        _loading = false;
+    }
+
+    private async Task CrearAsync()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var r = await RunAsync(s => s.GuardarCursoAsync(new GuardarCursoRequest(null, _titulo, null, _categoria, false, null)));
+            if (!r.Ok) { _err = r.Error; return; }
+            Nav.NavigateTo($"/formacion/admin/{r.Id}");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<T> RunAsync<T>(Func<IFormacionService, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider.GetRequiredService<IFormacionService>());
+    }
+}

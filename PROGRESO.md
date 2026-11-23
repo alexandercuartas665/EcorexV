@@ -2,10 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-23 - Asistente "Nueva actividad": el formulario ENVIADO dentro del asistente se liga a la tarea - v0.16.380 (rama fix/wizard-form-ligar-tarea)
+## 2026-11-23 - Asistente "Nueva actividad": el formulario ENVIADO dentro del asistente se liga a la tarea - v0.16.380 DESPLEGADA
 
 Agente: sesion Compras UX (Claude Opus 5.5). Solo UI (TaskWizard.razor), sin migracion.
-- **Integracion (ECOREX.desarrollo, 2026-11-23)**: merge --no-ff de fix/wizard-form-ligar-tarea (1627ea21) como v0.16.380. Gates: build Release 0 errores, unitarias 1687/312/35, integracion dual DynamicForm|TaskItem|Rule 52/52 (sin .cs tocados: format no aplica). OK expreso del usuario para desplegar.
+- **Integracion (ECOREX.desarrollo, 2026-11-23)**: merge --no-ff de fix/wizard-form-ligar-tarea (1627ea21) como v0.16.380. Gates: build Release 0 errores, unitarias 1687/312/35, integracion dual DynamicForm|TaskItem|Rule 52/52 (sin .cs tocados: format no aplica). OK expreso del usuario para desplegar. Deploy 2026-11-23 ~13:05 Bogota via rapida GHCR (CI 45230809521 verde): footer /login = v0.16.380, Restarts=0, 0 errores. Rollback: sha256:cb17b583...
 - BUG (visto en prod EMPRESA_DEMOSTRACION al probar v0.16.379): en el paso 3 del asistente, al llenar el formulario
   y pulsar "Enviar", la tarjeta desaparecia ("Aun no agregaste ningun formulario") y al "Guardar actividad" la
   respuesta quedaba huerfana (Submitted con Reference=null; en DEMO queda 01a208db-ef6c-...). Causa: tras el submit

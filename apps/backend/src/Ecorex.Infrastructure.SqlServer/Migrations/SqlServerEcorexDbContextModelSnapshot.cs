@@ -5428,6 +5428,16 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("int")
                         .HasColumnName("duracion_minutos");
 
+                    b.Property<bool>("EvaluacionActiva")
+                        .HasColumnType("bit")
+                        .HasColumnName("evaluacion_activa");
+
+                    b.Property<int>("IntentosMax")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(3)
+                        .HasColumnName("intentos_max");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit")
                         .HasColumnName("is_deleted");
@@ -5439,6 +5449,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Property<bool>("Publicado")
                         .HasColumnType("bit")
                         .HasColumnName("publicado");
+
+                    b.Property<int>("PuntajeMinimo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(70)
+                        .HasColumnName("puntaje_minimo");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
@@ -5529,6 +5545,79 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDatabaseName("ix_curso_asignaciones_tenant_id_tenant_user_id");
 
                     b.ToTable("curso_asignaciones", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoIntento", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Aprobado")
+                        .HasColumnType("bit")
+                        .HasColumnName("aprobado");
+
+                    b.Property<int>("Correctas")
+                        .HasColumnType("int")
+                        .HasColumnName("correctas");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CursoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("curso_id");
+
+                    b.Property<DateTimeOffset>("Fecha")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha");
+
+                    b.Property<int>("Puntaje")
+                        .HasColumnType("int")
+                        .HasColumnName("puntaje");
+
+                    b.Property<string>("RespuestasJson")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("respuestas_json");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<int>("Total")
+                        .HasColumnType("int")
+                        .HasColumnName("total");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_curso_intentos");
+
+                    b.HasIndex("CursoId")
+                        .HasDatabaseName("ix_curso_intentos_curso_id");
+
+                    b.HasIndex("TenantId", "CursoId", "TenantUserId")
+                        .HasDatabaseName("ix_curso_intentos_tenant_id_curso_id_tenant_user_id");
+
+                    b.ToTable("curso_intentos", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.CursoLeccion", b =>
@@ -5754,7 +5843,7 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.ToTable("curso_modulos", (string)null);
                 });
 
-            modelBuilder.Entity("Ecorex.Domain.Entities.CursoProgreso", b =>
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoPregunta", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -5773,17 +5862,119 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("curso_id");
 
+                    b.Property<string>("Enunciado")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("enunciado");
+
+                    b.Property<int>("IndiceCorrecto")
+                        .HasColumnType("int")
+                        .HasColumnName("indice_correcto");
+
+                    b.Property<string>("OpcionesJson")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("opciones_json");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("int")
+                        .HasColumnName("orden");
+
+                    b.Property<string>("Retroalimentacion")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("retroalimentacion");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_curso_preguntas");
+
+                    b.HasIndex("CursoId", "Orden")
+                        .HasDatabaseName("ix_curso_preguntas_curso_id_orden");
+
+                    b.ToTable("curso_preguntas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoProgreso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Aprobado")
+                        .HasColumnType("bit")
+                        .HasColumnName("aprobado");
+
+                    b.Property<bool>("Bloqueado")
+                        .HasColumnType("bit")
+                        .HasColumnName("bloqueado");
+
+                    b.Property<string>("CertificadoCodigo")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("certificado_codigo");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CursoId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("curso_id");
+
+                    b.Property<Guid?>("DesbloqueadoPorTenantUserId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("desbloqueado_por_tenant_user_id");
+
+                    b.Property<DateTimeOffset?>("FechaAprobacion")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_aprobacion");
+
                     b.Property<DateTimeOffset?>("FechaCompletado")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("fecha_completado");
+
+                    b.Property<DateTimeOffset?>("FechaDesbloqueo")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("fecha_desbloqueo");
 
                     b.Property<DateTimeOffset>("FechaInicio")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("fecha_inicio");
 
+                    b.Property<int>("Intentos")
+                        .HasColumnType("int")
+                        .HasColumnName("intentos");
+
+                    b.Property<int>("IntentosPerdonados")
+                        .HasColumnType("int")
+                        .HasColumnName("intentos_perdonados");
+
                     b.Property<int>("LeccionesVistas")
                         .HasColumnType("int")
                         .HasColumnName("lecciones_vistas");
+
+                    b.Property<int?>("MejorNota")
+                        .HasColumnType("int")
+                        .HasColumnName("mejor_nota");
 
                     b.Property<int>("Porcentaje")
                         .HasColumnType("int")
@@ -5811,6 +6002,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_curso_progresos");
+
+                    b.HasIndex("CertificadoCodigo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_curso_progresos_certificado_codigo")
+                        .HasFilter("[certificado_codigo] IS NOT NULL");
 
                     b.HasIndex("CursoId")
                         .HasDatabaseName("ix_curso_progresos_curso_id");
@@ -22951,6 +23147,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Curso");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoIntento", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Curso", "Curso")
+                        .WithMany()
+                        .HasForeignKey("CursoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_curso_intentos_cursos_curso_id");
+
+                    b.Navigation("Curso");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.CursoLeccion", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.CursoModulo", "Modulo")
@@ -22983,6 +23191,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_curso_modulos_cursos_curso_id");
+
+                    b.Navigation("Curso");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoPregunta", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Curso", "Curso")
+                        .WithMany()
+                        .HasForeignKey("CursoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_curso_preguntas_cursos_curso_id");
 
                     b.Navigation("Curso");
                 });

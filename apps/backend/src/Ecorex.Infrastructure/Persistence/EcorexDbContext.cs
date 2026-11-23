@@ -398,6 +398,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<CursoAsignacion> CursoAsignaciones => Set<CursoAsignacion>();
     public DbSet<CursoProgreso> CursoProgresos => Set<CursoProgreso>();
     public DbSet<CursoLeccionVista> CursoLeccionVistas => Set<CursoLeccionVista>();
+    public DbSet<CursoPregunta> CursoPreguntas => Set<CursoPregunta>();
+    public DbSet<CursoIntento> CursoIntentos => Set<CursoIntento>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -4147,6 +4149,8 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.Descripcion).HasMaxLength(2000);
             b.Property(x => x.Categoria).HasMaxLength(80);
             b.Property(x => x.CreatedByName).HasMaxLength(150);
+            b.Property(x => x.PuntajeMinimo).HasDefaultValue(70);
+            b.Property(x => x.IntentosMax).HasDefaultValue(3);
             b.HasIndex(x => new { x.TenantId, x.Publicado });
         });
         modelBuilder.Entity<CursoModulo>(b =>
@@ -4179,8 +4183,25 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         });
         modelBuilder.Entity<CursoProgreso>(b =>
         {
+            b.Property(x => x.CertificadoCodigo).HasMaxLength(20);
+            b.HasIndex(x => x.CertificadoCodigo).IsUnique()
+                .HasFilter(isNpgsql ? "certificado_codigo IS NOT NULL" : "[certificado_codigo] IS NOT NULL");
             b.HasIndex(x => new { x.TenantId, x.CursoId, x.TenantUserId }).IsUnique();
             b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+            b.HasOne(x => x.Curso).WithMany().HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoPregunta>(b =>
+        {
+            b.Property(x => x.Enunciado).HasMaxLength(2000).IsRequired();
+            b.Property(x => x.OpcionesJson).HasMaxLength(8000).IsRequired();
+            b.Property(x => x.Retroalimentacion).HasMaxLength(2000);
+            b.HasIndex(x => new { x.CursoId, x.Orden });
+            b.HasOne(x => x.Curso).WithMany().HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoIntento>(b =>
+        {
+            b.Property(x => x.RespuestasJson).HasMaxLength(8000).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.CursoId, x.TenantUserId });
             b.HasOne(x => x.Curso).WithMany().HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
         });
         modelBuilder.Entity<CursoLeccionVista>(b =>

@@ -40,6 +40,7 @@ else
             <span class="fm-badge @(_curso.Publicado ? "done" : "draft")">@(_curso.Publicado ? "Publicado" : "Borrador")</span>
         </div>
         <div class="fm-actions">
+            <a class="btn btn-sm btn-outline-secondary" href="@($"/formacion/admin/{_curso.Id}/avance")"><i class="fa-solid fa-chart-column"></i> Avance</a>
             <a class="btn btn-sm btn-outline-secondary" href="@($"/formacion/curso/{_curso.Id}")" target="_blank" rel="noopener"><i class="fa-regular fa-eye"></i> Ver como alumno</a>
         </div>
     </div>
@@ -259,6 +260,62 @@ else
                     </div>
                 </div>
             }
+
+            <div class="fm-panel">
+                <h3><i class="fa-solid fa-clipboard-question"></i> Evaluacion final <span class="fm-muted-sm">(@_preguntas.Count preguntas)</span></h3>
+                <div class="fm-form">
+                    <label class="fm-switch"><input type="checkbox" class="form-check-input" @bind="_evActiva" /> Exigir aprobar la evaluacion para terminar el curso</label>
+                    <div class="fm-row">
+                        <label>Puntaje minimo (0-100)<input type="number" min="0" max="100" class="form-control form-control-sm" @bind="_evMin" /></label>
+                        <label>Intentos permitidos<input type="number" min="1" max="50" class="form-control form-control-sm" @bind="_evIntentos" /></label>
+                    </div>
+                    <div><button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="GuardarEvaluacionAsync">Guardar evaluacion</button></div>
+                    @if (_evActiva && _preguntas.Count == 0)
+                    {
+                        <span class="fm-warn"><i class="fa-solid fa-triangle-exclamation"></i> Sin preguntas la evaluacion no se aplica.</span>
+                    }
+                </div>
+                @if (_preguntas.Count > 0)
+                {
+                    <div style="margin-top:12px;">
+                        @for (var qi = 0; qi < _preguntas.Count; qi++)
+                        {
+                            var q = _preguntas[qi];
+                            var qidx = qi;
+                            <div class="fm-lesson @(_qId == q.Id ? "on" : null)" @onclick="() => EditarPregunta(q)">
+                                <span class="fm-type">@(qidx + 1).</span>
+                                <span class="fm-name">@q.Enunciado <span class="fm-muted-sm">(@q.Opciones.Count opciones)</span></span>
+                                <button class="fm-icon" title="Subir" disabled="@(qidx == 0 || _busy)" @onclick="() => MoverPreguntaAsync(q, -1)" @onclick:stopPropagation><i class="fa-solid fa-arrow-up"></i></button>
+                                <button class="fm-icon" title="Bajar" disabled="@(qidx == _preguntas.Count - 1 || _busy)" @onclick="() => MoverPreguntaAsync(q, 1)" @onclick:stopPropagation><i class="fa-solid fa-arrow-down"></i></button>
+                                <button class="fm-icon" title="Eliminar" disabled="@_busy" @onclick="() => EliminarPreguntaAsync(q)" @onclick:stopPropagation><i class="fa-regular fa-trash-can"></i></button>
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="fm-form" style="margin-top:12px;border-top:1px dashed var(--line-2,#e5e7eb);padding-top:12px;">
+                    <strong style="font-size:13px;">@(_qId is null ? "Nueva pregunta" : "Editar pregunta")</strong>
+                    <label>Enunciado<textarea class="form-control form-control-sm" rows="2" @bind="_qEnunciado" maxlength="2000"></textarea></label>
+                    <label>Opciones (una por linea, minimo 2)<textarea class="form-control form-control-sm" rows="4" @bind="_qOpciones"></textarea></label>
+                    <label>
+                        Respuesta correcta
+                        <select class="form-select form-select-sm" @bind="_qCorrecta">
+                            @{ var ops = OpcionesEditadas(); }
+                            @for (var oi = 0; oi < ops.Count; oi++)
+                            {
+                                <option value="@oi">@(oi + 1). @ops[oi]</option>
+                            }
+                        </select>
+                    </label>
+                    <label>Explicacion si la falla (opcional)<textarea class="form-control form-control-sm" rows="2" @bind="_qRetro" maxlength="2000"></textarea></label>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="GuardarPreguntaAsync">@(_qId is null ? "Agregar pregunta" : "Guardar pregunta")</button>
+                        @if (_qId is not null)
+                        {
+                            <button class="btn btn-sm btn-link" @onclick="NuevaPregunta">Cancelar</button>
+                        }
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 }
@@ -300,6 +357,16 @@ else
     private string? _lContenido;
     private bool _confirmarLeccion;
 
+    private List<PreguntaAdminDto> _preguntas = new();
+    private bool _evActiva;
+    private int _evMin = 70;
+    private int _evIntentos = 3;
+    private Guid? _qId;
+    private string _qEnunciado = string.Empty;
+    private string _qOpciones = string.Empty;
+    private int _qCorrecta;
+    private string? _qRetro;
+
     private CursoAsignacionDestino _asigDestino = CursoAsignacionDestino.Todos;
     private string _asigUsuario = string.Empty;
     private string _asigUnidad = string.Empty;
@@ -324,8 +391,16 @@ else
         _curso = await RunAsync(s => s.DetalleAsync(Id));
         if (_curso is null) { return; }
         _asignaciones = (await RunAsync(s => s.ListarAsignacionesAsync(Id))).ToList();
+        _preguntas = (await RunEvalAsync(s => s.ListarPreguntasAsync(Id))).ToList();
         if (datos)
         {
+            var ev = await RunEvalAsync(s => s.ConfigEvaluacionAsync(Id));
+            if (ev is not null)
+            {
+                _evActiva = ev.Activa;
+                _evMin = ev.PuntajeMinimo;
+                _evIntentos = ev.IntentosMax;
+            }
             _titulo = _curso.Titulo;
             _categoria = _curso.Categoria;
             _descripcion = _curso.Descripcion;
@@ -541,6 +616,87 @@ else
     }
 
     private Task QuitarAsignacionAsync(AsignacionDto a) => Op(s => s.EliminarAsignacionAsync(a.Id), "Asignacion quitada.");
+
+    // ---------------- evaluacion ----------------
+
+    private async Task GuardarEvaluacionAsync()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var r = await RunEvalAsync(s => s.ConfigurarEvaluacionAsync(Id, _evActiva, _evMin, _evIntentos));
+            Mostrar(r.Ok ? "Evaluacion guardada." : r.Error, !r.Ok);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private List<string> OpcionesEditadas()
+        => _qOpciones.Split('\n').Select(o => o.Trim()).Where(o => o.Length > 0).ToList();
+
+    private void EditarPregunta(PreguntaAdminDto q)
+    {
+        _qId = q.Id;
+        _qEnunciado = q.Enunciado;
+        _qOpciones = string.Join("\n", q.Opciones);
+        _qCorrecta = q.IndiceCorrecto;
+        _qRetro = q.Retroalimentacion;
+    }
+
+    private void NuevaPregunta()
+    {
+        _qId = null;
+        _qEnunciado = string.Empty;
+        _qOpciones = string.Empty;
+        _qCorrecta = 0;
+        _qRetro = null;
+    }
+
+    private async Task GuardarPreguntaAsync()
+    {
+        var req = new GuardarPreguntaRequest(Id, _qId, _qEnunciado, OpcionesEditadas(), _qCorrecta, _qRetro);
+        if (await OpEval(s => s.GuardarPreguntaAsync(req), _qId is null ? "Pregunta agregada." : "Pregunta guardada.")) { NuevaPregunta(); }
+    }
+
+    private Task MoverPreguntaAsync(PreguntaAdminDto q, int delta) => OpEval(s => s.MoverPreguntaAsync(q.Id, delta), null);
+
+    private async Task EliminarPreguntaAsync(PreguntaAdminDto q)
+    {
+        if (await OpEval(s => s.EliminarPreguntaAsync(q.Id), "Pregunta eliminada.") && _qId == q.Id) { NuevaPregunta(); }
+    }
+
+    private async Task<bool> OpEval(Func<IFormacionEvaluacionService, Task<FormacionResult>> action, string? exito)
+    {
+        if (_busy) { return false; }
+        _busy = true;
+        try
+        {
+            var r = await RunEvalAsync(action);
+            if (!r.Ok) { Mostrar(r.Error, true); return false; }
+            if (exito is not null) { Mostrar(exito, false); } else { _msg = null; }
+            _preguntas = (await RunEvalAsync(s => s.ListarPreguntasAsync(Id))).ToList();
+            return true;
+        }
+        catch (Exception)
+        {
+            Mostrar("No se pudo completar la operacion. Intenta de nuevo.", true);
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<T> RunEvalAsync<T>(Func<IFormacionEvaluacionService, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider.GetRequiredService<IFormacionEvaluacionService>());
+    }
 
     // ---------------- helpers ----------------
 

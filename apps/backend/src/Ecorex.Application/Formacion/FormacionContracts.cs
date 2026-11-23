@@ -66,7 +66,8 @@ public sealed record AgregarAsignacionRequest(
 /// <summary>Opcion de los selectores de asignacion (usuario o unidad del organigrama).</summary>
 public sealed record FormacionOpcionDto(Guid Id, string Nombre, string? Detalle);
 
-/// <summary>Curso visto desde el catalogo del usuario (con su asignacion y avance).</summary>
+/// <summary>Curso visto desde el catalogo del usuario (con su asignacion y avance). Completado = terminado
+/// (lecciones vistas y, si el curso la exige, evaluacion aprobada).</summary>
 public sealed record CatalogoCursoDto(
     Guid Id, string Titulo, string? Descripcion, string? Categoria, Guid? PortadaFileId, int? DuracionMinutos,
     int Lecciones, bool Obligatorio, DateOnly? FechaLimite, bool Vencido, bool Iniciado, int Porcentaje, bool Completado)
@@ -74,10 +75,11 @@ public sealed record CatalogoCursoDto(
     public string? PortadaUrl => PortadaFileId is Guid g ? $"/archivo/{g}" : null;
 }
 
-/// <summary>Curso abierto en el reproductor: estructura + lecciones vistas + avance.</summary>
+/// <summary>Curso abierto en el reproductor: estructura + lecciones vistas + avance. Completado = vio todas las
+/// lecciones; Terminado = ademas aprobo la evaluacion final si el curso la exige (ola 2).</summary>
 public sealed record CursoVistaDto(
     CursoDetalleDto Curso, IReadOnlySet<Guid> Vistas, int Porcentaje, bool Completado, Guid? UltimaLeccionId,
-    bool Obligatorio, DateOnly? FechaLimite);
+    bool Obligatorio, DateOnly? FechaLimite, bool TieneEvaluacion = false, bool Aprobado = false, bool Terminado = false);
 
 /// <summary>Avance tras marcar una leccion.</summary>
 public sealed record AvanceDto(int LeccionesVistas, int TotalLecciones, int Porcentaje, bool Completado);

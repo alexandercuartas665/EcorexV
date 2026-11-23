@@ -47,12 +47,16 @@ else
                 <span class="fm-badge req">Obligatorio@(_vista.FechaLimite is DateOnly f ? $" - hasta {f:dd/MM/yyyy}" : "")</span>
             }
         </div>
-        @if (_canEdit)
-        {
-            <div class="fm-actions">
+        <div class="fm-actions">
+            @if (_terminado)
+            {
+                <a class="btn btn-sm btn-success" href="@($"/formacion/certificado/{curso.Id}")" target="_blank" rel="noopener"><i class="fa-solid fa-award"></i> Descargar certificado</a>
+            }
+            @if (_canEdit)
+            {
                 <a class="btn btn-sm btn-outline-secondary" href="@($"/formacion/admin/{curso.Id}")"><i class="fa-regular fa-pen-to-square"></i> Editar curso</a>
-            </div>
-        }
+            }
+        </div>
     </div>
 
     @if (curso.TotalLecciones == 0)
@@ -75,22 +79,35 @@ else
                         @foreach (var l in m.Lecciones)
                         {
                             var leccion = l;
-                            <button class="fm-les @(_actual?.Id == l.Id ? "on" : null)" @onclick="() => AbrirAsync(leccion)">
+                            <button class="fm-les @(!_enEvaluacion && _actual?.Id == l.Id ? "on" : null)" @onclick="() => AbrirAsync(leccion)">
                                 <span class="fm-check @(_vistas.Contains(l.Id) ? "ok" : null)"><i class="fa-solid fa-check"></i></span>
                                 <span>@l.Titulo</span>
                                 <span class="fm-type" title="@TipoNombre(l.Tipo)"><i class="@TipoIcono(l.Tipo)"></i></span>
                             </button>
                         }
                     }
+                    @if (_vista.TieneEvaluacion)
+                    {
+                        <div class="fm-mod">Evaluacion</div>
+                        <button class="fm-les @(_enEvaluacion ? "on" : null)" @onclick="AbrirEvaluacionAsync">
+                            <span class="fm-check @(_aprobado ? "ok" : null)"><i class="fa-solid fa-check"></i></span>
+                            <span>Evaluacion final</span>
+                            <span class="fm-type" title="Evaluacion"><i class="fa-solid fa-clipboard-question"></i></span>
+                        </button>
+                    }
                 </div>
             </aside>
 
             <section class="fm-stage">
-                @if (_completado && _mostrarFelicitacion)
+                @if (_terminado && _mostrarFelicitacion)
                 {
-                    <div class="fm-done-banner"><i class="fa-solid fa-trophy"></i> Completaste el curso. Puedes repasar cualquier leccion cuando quieras.</div>
+                    <div class="fm-done-banner"><i class="fa-solid fa-trophy"></i> Terminaste el curso. Ya puedes descargar tu certificado (boton arriba) y repasar cualquier leccion.</div>
                 }
-                @if (_actual is not null)
+                @if (_enEvaluacion)
+                {
+                    @Evaluacion()
+                }
+                else if (_actual is not null)
                 {
                     <div class="fm-stage-head">
                         <h2>@_actual.Titulo</h2>
@@ -108,7 +125,14 @@ else
                         }
                         @if (_vistas.Contains(_actual.Id))
                         {
-                            <button class="btn btn-sm btn-primary" disabled="@(Siguiente is null)" @onclick="() => AbrirAsync(Siguiente!)">Siguiente <i class="fa-solid fa-chevron-right"></i></button>
+                            @if (Siguiente is null && _vista!.TieneEvaluacion)
+                            {
+                                <button class="btn btn-sm btn-primary" @onclick="AbrirEvaluacionAsync">Ir a la evaluacion <i class="fa-solid fa-chevron-right"></i></button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-primary" disabled="@(Siguiente is null)" @onclick="() => AbrirAsync(Siguiente!)">Siguiente <i class="fa-solid fa-chevron-right"></i></button>
+                            }
                         }
                         else
                         {
@@ -129,7 +153,13 @@ else
     private HashSet<Guid> _vistas = new();
     private int _porcentaje;
     private bool _completado;
+    private bool _terminado;
+    private bool _aprobado;
     private bool _mostrarFelicitacion;
+    private bool _enEvaluacion;
+    private EvaluacionAlumnoDto? _eval;
+    private readonly Dictionary<Guid, int> _respuestas = new();
+    private ResultadoEvaluacionDto? _resultado;
     private LeccionDto? _actual;
     private string? _wizardUrl;
     private bool _loading = true;
@@ -183,6 +213,8 @@ else
             _vistas = _vista.Vistas.ToHashSet();
             _porcentaje = _vista.Porcentaje;
             _completado = _vista.Completado;
+            _terminado = _vista.Terminado;
+            _aprobado = _vista.Aprobado;
             var orden = Orden;
             var inicial = orden.FirstOrDefault(l => l.Id == _vista.UltimaLeccionId)
                 ?? orden.FirstOrDefault(l => !_vistas.Contains(l.Id))
@@ -194,6 +226,7 @@ else
 
     private async Task AbrirAsync(LeccionDto leccion)
     {
+        _enEvaluacion = false;
         _actual = leccion;
         _error = null;
         _wizardUrl = null;
@@ -220,10 +253,14 @@ else
             }
             _vistas.Add(_actual.Id);
             _porcentaje = avance.Porcentaje;
-            var antes = _completado;
             _completado = avance.Completado;
-            if (_completado && !antes) { _mostrarFelicitacion = true; }
+            if (_completado && !_vista!.TieneEvaluacion && !_terminado)
+            {
+                _terminado = true;
+                _mostrarFelicitacion = true;
+            }
             if (Siguiente is { } sig) { await AbrirAsync(sig); }
+            else if (_completado && _vista!.TieneEvaluacion && !_aprobado) { await AbrirEvaluacionAsync(); }
         }
         catch (Exception)
         {
@@ -233,6 +270,143 @@ else
         {
             _busy = false;
         }
+    }
+
+    private async Task AbrirEvaluacionAsync()
+    {
+        _enEvaluacion = true;
+        _resultado = null;
+        _respuestas.Clear();
+        _error = null;
+        try { _eval = await RunEvalAsync(s => s.EvaluacionAsync(Id, _canEdit)); }
+        catch (Exception) { _eval = null; _error = "No se pudo cargar la evaluacion."; }
+    }
+
+    private async Task EnviarEvaluacionAsync()
+    {
+        if (_eval is null || _busy) { return; }
+        if (_eval.Preguntas.Any(p => !_respuestas.ContainsKey(p.Id)))
+        {
+            _error = "Responde todas las preguntas antes de enviar.";
+            return;
+        }
+        _busy = true;
+        _error = null;
+        try
+        {
+            var r = await RunEvalAsync(s => s.ResponderAsync(Id, new Dictionary<Guid, int>(_respuestas), _canEdit));
+            if (!r.Ok) { _error = r.Error; return; }
+            _resultado = r;
+            if (r.Aprobado)
+            {
+                _aprobado = true;
+                if (_completado && !_terminado) { _terminado = true; _mostrarFelicitacion = true; }
+            }
+            _eval = await RunEvalAsync(s => s.EvaluacionAsync(Id, _canEdit));
+        }
+        catch (Exception)
+        {
+            _error = "No se pudo enviar la evaluacion. Intenta de nuevo.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Reintentar()
+    {
+        _resultado = null;
+        _respuestas.Clear();
+    }
+
+    private RenderFragment Evaluacion() => __builder =>
+    {
+        <div class="fm-stage-head">
+            <h2>Evaluacion final</h2>
+            @if (_eval is not null)
+            {
+                <p>Aprueba con @_eval.PuntajeMinimo/100. Intentos: @_eval.IntentosUsados de @_eval.IntentosMax@(_eval.MejorNota is int mn ? $" - mejor nota {mn}/100" : "").</p>
+            }
+        </div>
+        <div style="padding:16px;">
+            @if (_eval is null)
+            {
+                <div class="fm-muted">@(_error ?? "Este curso no tiene evaluacion.")</div>
+            }
+            else if (_resultado is not null)
+            {
+                <div class="alert @(_resultado.Aprobado ? "alert-success" : "alert-warning")">
+                    <strong>@(_resultado.Aprobado ? "Aprobaste" : "No alcanzaste el puntaje minimo")</strong> - @_resultado.Puntaje/100 (@_resultado.Correctas de @_resultado.Total correctas).
+                    @if (!_resultado.Aprobado)
+                    {
+                        <span>@(_resultado.Bloqueado ? " Agotaste los intentos: pide al administrador que te desbloquee." : $" Te quedan {_resultado.IntentosRestantes} intento(s).")</span>
+                    }
+                </div>
+                @if (_resultado.Falladas is { Count: > 0 } falladas)
+                {
+                    <div class="fm-section-title">Repasa estas preguntas</div>
+                    @foreach (var f in falladas)
+                    {
+                        <div class="fm-panel" style="margin-bottom:8px;">
+                            <div><strong>@f.Enunciado</strong></div>
+                            @if (!string.IsNullOrWhiteSpace(f.Retroalimentacion)) { <div class="fm-muted" style="margin-top:4px;">@f.Retroalimentacion</div> }
+                        </div>
+                    }
+                }
+                @if (_resultado.Aprobado)
+                {
+                    <a class="btn btn-sm btn-success" href="@($"/formacion/certificado/{Id}")" target="_blank" rel="noopener"><i class="fa-solid fa-award"></i> Descargar certificado</a>
+                }
+                else if (!_resultado.Bloqueado)
+                {
+                    <button class="btn btn-sm btn-primary" @onclick="Reintentar">Intentar de nuevo</button>
+                }
+            }
+            else if (_eval.Aprobado)
+            {
+                <div class="alert alert-success">Ya aprobaste esta evaluacion@(_eval.MejorNota is int n ? $" con {n}/100" : "").</div>
+            }
+            else if (!_eval.LeccionesCompletas)
+            {
+                <div class="fm-muted">Primero termina todas las lecciones del curso; luego se habilita la evaluacion.</div>
+            }
+            else if (_eval.Bloqueado || _eval.IntentosRestantes == 0)
+            {
+                <div class="alert alert-danger">Agotaste los intentos. Pide al administrador del curso que te desbloquee.</div>
+            }
+            else
+            {
+                @for (var i = 0; i < _eval.Preguntas.Count; i++)
+                {
+                    var p = _eval.Preguntas[i];
+                    var num = i + 1;
+                    <div class="fm-panel" style="margin-bottom:10px;">
+                        <div style="font-weight:600;margin-bottom:8px;">@num. @p.Enunciado</div>
+                        @for (var j = 0; j < p.Opciones.Count; j++)
+                        {
+                            var idx = j;
+                            var nombre = $"q-{p.Id:N}";
+                            <label class="d-flex align-items-start gap-2" style="font-size:14px;margin:4px 0;cursor:pointer;">
+                                <input type="radio" class="form-check-input" name="@nombre" checked="@(_respuestas.TryGetValue(p.Id, out var sel) && sel == idx)"
+                                       @onchange="() => _respuestas[p.Id] = idx" />
+                                <span>@p.Opciones[j]</span>
+                            </label>
+                        }
+                    </div>
+                }
+                @if (_error is not null) { <div class="text-danger small" style="margin-bottom:8px;">@_error</div> }
+                <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="EnviarEvaluacionAsync"><i class="fa-solid fa-paper-plane"></i> Enviar respuestas</button>
+                <span class="fm-muted-sm" style="margin-left:8px;">@_respuestas.Count de @_eval.Preguntas.Count respondidas</span>
+            }
+        </div>
+    };
+
+    private async Task<T> RunEvalAsync<T>(Func<IFormacionEvaluacionService, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider.GetRequiredService<IFormacionEvaluacionService>());
     }
 
     private RenderFragment Contenido(LeccionDto l) => __builder =>

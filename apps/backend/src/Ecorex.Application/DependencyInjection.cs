@@ -373,6 +373,8 @@ public static class DependencyInjection
         services.AddScoped<Tenancy.IContenedorClasificacionService, Tenancy.ContenedorClasificacionService>();
         // ADR-0202: modulo de Formacion (cursos, lecciones, asignaciones y avance).
         services.AddScoped<Formacion.IFormacionService, Formacion.FormacionService>();
+        // ADR-0202 ola 2: evaluacion final, certificado y reporte de avance (misma clase parcial).
+        services.AddScoped<Formacion.IFormacionEvaluacionService, Formacion.FormacionService>();
         // ADR-0199: clasificacion con IA como paso de la importacion (la corre ImportClassifyWorker).
         services.AddScoped<DataContainers.IImportClassificationService, DataContainers.ImportClassificationService>();
         // Toolset de Inventario: el agente CONSULTA (solo lectura) items, precios y existencias.

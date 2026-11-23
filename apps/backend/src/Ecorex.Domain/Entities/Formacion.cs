@@ -56,6 +56,15 @@ public sealed class Curso : TenantEntity, ISoftDeletable
 
     public string? CreatedByName { get; set; }
 
+    /// <summary>Ola 2: el curso exige aprobar una evaluacion final (si ademas tiene preguntas).</summary>
+    public bool EvaluacionActiva { get; set; }
+
+    /// <summary>Puntaje minimo para aprobar (0..100).</summary>
+    public int PuntajeMinimo { get; set; } = 70;
+
+    /// <summary>Intentos permitidos antes de bloquear (el administrador puede desbloquear).</summary>
+    public int IntentosMax { get; set; } = 3;
+
     public List<CursoModulo> Modulos { get; set; } = new();
 
     public bool IsDeleted { get; set; }
@@ -170,6 +179,73 @@ public sealed class CursoProgreso : TenantEntity
     public int Porcentaje { get; set; }
 
     public Guid? UltimaLeccionId { get; set; }
+
+    // ---- Ola 2: evaluacion final y certificado ----
+
+    /// <summary>Intentos totales rendidos (historico: no se reinicia al desbloquear).</summary>
+    public int Intentos { get; set; }
+
+    /// <summary>Intentos "perdonados" por desbloqueos: los disponibles son IntentosMax - (Intentos - IntentosPerdonados).</summary>
+    public int IntentosPerdonados { get; set; }
+
+    public int? MejorNota { get; set; }
+
+    public bool Aprobado { get; set; }
+
+    public DateTimeOffset? FechaAprobacion { get; set; }
+
+    public bool Bloqueado { get; set; }
+
+    public Guid? DesbloqueadoPorTenantUserId { get; set; }
+
+    public DateTimeOffset? FechaDesbloqueo { get; set; }
+
+    /// <summary>Codigo publico del certificado (unico global, no adivinable); se emite al terminar el curso.</summary>
+    public string? CertificadoCodigo { get; set; }
+}
+
+/// <summary>Pregunta de opcion multiple (una correcta) de la evaluacion final de un curso. TENANT-SCOPED.</summary>
+public sealed class CursoPregunta : TenantEntity
+{
+    public Guid CursoId { get; set; }
+
+    public Curso? Curso { get; set; }
+
+    public int Orden { get; set; }
+
+    public string Enunciado { get; set; } = string.Empty;
+
+    /// <summary>Opciones como arreglo JSON de textos.</summary>
+    public string OpcionesJson { get; set; } = "[]";
+
+    /// <summary>Indice (base 0) de la opcion correcta. Nunca se envia al alumno.</summary>
+    public int IndiceCorrecto { get; set; }
+
+    /// <summary>Explicacion que ve el alumno si falla la pregunta.</summary>
+    public string? Retroalimentacion { get; set; }
+}
+
+/// <summary>Intento de la evaluacion final (auditoria: respuestas y resultado). TENANT-SCOPED.</summary>
+public sealed class CursoIntento : TenantEntity
+{
+    public Guid CursoId { get; set; }
+
+    public Curso? Curso { get; set; }
+
+    public Guid TenantUserId { get; set; }
+
+    public int Puntaje { get; set; }
+
+    public int Correctas { get; set; }
+
+    public int Total { get; set; }
+
+    public bool Aprobado { get; set; }
+
+    /// <summary>Respuestas dadas {preguntaId: indice} como JSON.</summary>
+    public string RespuestasJson { get; set; } = "{}";
+
+    public DateTimeOffset Fecha { get; set; }
 }
 
 /// <summary>Leccion marcada como vista por un usuario (avance persistido por leccion). TENANT-SCOPED.</summary>

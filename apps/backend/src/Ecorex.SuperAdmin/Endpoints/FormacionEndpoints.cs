@@ -70,6 +70,75 @@ public static class FormacionEndpoints
             http.SetEndpoint(null);
             return await cache.TryServeAsync(http, target.ZipFileId, root, subPath) ? Results.Empty : Results.NotFound();
         }).AllowAnonymous();
+
+        // Ola 2: certificado PDF del usuario actual (solo si termino el curso).
+        app.MapGet("/formacion/certificado/{cursoId:guid}", async (Guid cursoId, HttpContext http, IFormacionEvaluacionService eval,
+            Ecorex.Application.Common.IQuotePdfRenderer pdf, CancellationToken ct) =>
+        {
+            var cert = await eval.CertificadoAsync(cursoId, ct);
+            if (cert is null) { return Results.NotFound(); }
+            var verificar = $"{http.Request.Scheme}://{http.Request.Host}/formacion/verificar/{cert.Codigo}";
+            var bytes = await pdf.RenderHtmlToPdfAsync(CertificadoHtml(cert, verificar), ct);
+            return Results.File(bytes, "application/pdf", $"certificado-{cert.Codigo}.pdf");
+        }).RequireAuthorization(ViewPolicy);
+
+        // Ola 2: verificacion PUBLICA del certificado por su codigo (datos minimos: persona, curso, empresa, fecha).
+        app.MapGet("/formacion/verificar/{codigo}", async (string codigo, IFormacionEvaluacionService eval, CancellationToken ct) =>
+        {
+            var cert = await eval.VerificarCertificadoAsync(codigo, ct);
+            return Results.Content(VerificacionHtml(cert, codigo), "text/html; charset=utf-8");
+        }).AllowAnonymous();
+
+        // Ola 2: reporte de avance de un curso en Excel.
+        app.MapGet("/formacion/admin/{cursoId:guid}/avance.xlsx", async (Guid cursoId, IFormacionEvaluacionService eval, CancellationToken ct) =>
+        {
+            var bytes = await eval.ExportarAvanceAsync(cursoId, ct);
+            return bytes is null ? Results.NotFound()
+                : Results.File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"avance-curso-{cursoId:N}.xlsx");
+        }).RequireAuthorization(EditPolicy);
+    }
+
+    /// <summary>HTML del certificado (A4 vertical) para el renderizador de PDF. Todo texto va codificado.</summary>
+    public static string CertificadoHtml(CertificadoDto c, string urlVerificacion)
+    {
+        static string E(string? s) => System.Net.WebUtility.HtmlEncode(s ?? string.Empty);
+        var nota = c.Nota is int n ? $"<p class=\"meta\">Calificacion: <strong>{n}/100</strong></p>" : string.Empty;
+        var horas = c.DuracionMinutos is int m && m > 0 ? $"<p class=\"meta\">Intensidad: {(m >= 60 ? $"{m / 60} h {m % 60:00} min" : $"{m} min")}</p>" : string.Empty;
+        return $$"""
+            <!doctype html><html><head><meta charset="utf-8"><style>
+            body{margin:0;font-family:Georgia,'Times New Roman',serif;color:#1b1b1e}
+            .frame{border:10px double #7c3aed;padding:56px 48px;min-height:240mm;box-sizing:border-box;text-align:center;position:relative}
+            .brand{font-family:Arial,Helvetica,sans-serif;letter-spacing:.2em;text-transform:uppercase;color:#7c3aed;font-size:13px}
+            h1{font-size:44px;margin:28px 0 8px;font-weight:normal}
+            .sub{font-size:16px;color:#4b5563;margin:0 0 42px}
+            .name{font-size:34px;font-weight:bold;border-bottom:1px solid #d1d5db;display:inline-block;padding:0 24px 8px;margin:6px 0 30px}
+            .course{font-size:24px;font-style:italic;margin:8px 0 26px}
+            .meta{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#374151;margin:4px 0}
+            .foot{position:absolute;left:48px;right:48px;bottom:40px;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#6b7280}
+            .code{font-family:'Courier New',monospace;font-size:14px;color:#1b1b1e;letter-spacing:.1em}
+            </style></head><body><div class="frame">
+            <div class="brand">{{E(c.Empresa)}}</div>
+            <h1>Certificado</h1>
+            <p class="sub">de finalizacion de curso</p>
+            <p class="meta">Se certifica que</p>
+            <div class="name">{{E(c.Persona)}}</div>
+            <p class="meta">completo satisfactoriamente el curso</p>
+            <div class="course">{{E(c.Curso)}}</div>
+            <p class="meta">Fecha: <strong>{{c.Fecha:dd/MM/yyyy}}</strong></p>
+            {{nota}}{{horas}}
+            <div class="foot">Codigo de verificacion: <span class="code">{{E(c.Codigo)}}</span><br>Verificalo en {{E(urlVerificacion)}}</div>
+            </div></body></html>
+            """;
+    }
+
+    /// <summary>Pagina publica de verificacion de un certificado.</summary>
+    public static string VerificacionHtml(CertificadoDto? c, string codigo)
+    {
+        static string E(string? s) => System.Net.WebUtility.HtmlEncode(s ?? string.Empty);
+        var cuerpo = c is null
+            ? $"<h1 style=\"color:#b91c1c\">Certificado no encontrado</h1><p>El codigo <code>{E(codigo)}</code> no corresponde a ningun certificado emitido.</p>"
+            : $"<h1 style=\"color:#166534\">Certificado valido</h1><p><strong>{E(c.Persona)}</strong> completo el curso <strong>{E(c.Curso)}</strong> de <strong>{E(c.Empresa)}</strong> el {c.Fecha:dd/MM/yyyy}.</p><p>Codigo: <code>{E(c.Codigo)}</code></p>";
+        return $"<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"robots\" content=\"noindex\"><title>Verificacion de certificado</title></head><body style=\"font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:560px;margin:60px auto;padding:0 16px;color:#1b1b1e\">{cuerpo}<p style=\"color:#6b7280;font-size:13px\">ECOREX - Formacion</p></body></html>";
     }
 
     /// <summary>URL firmada de la entrada del wizard para el iframe (vence en 12 h).</summary>

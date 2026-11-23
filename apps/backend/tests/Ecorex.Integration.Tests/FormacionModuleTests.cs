@@ -268,6 +268,125 @@ public abstract class FormacionModuleTestsBase
         }
     }
 
+    [Fact]
+    public async Task Evaluacion_IntentosBloqueoDesbloqueo_CertificadoYAvance()
+    {
+        var t = await SeedTenantAsync("Formacion Evaluacion");
+        var otro = await SeedTenantAsync("Formacion Evaluacion Otro");
+        var admin = await SeedUserAsync(t, "admin");
+        var ana = await SeedUserAsync(t, "ana");
+        Guid cursoId, leccion, q1, q2;
+        await using (var ctx = _fixture.CreateContext(t))
+        {
+            var svc = Svc(ctx, t, admin.PlatformUserId, new MemFiles());
+            cursoId = (await svc.GuardarCursoAsync(new GuardarCursoRequest(null, "Alturas", null, "SST", true, 90))).Id!.Value;
+            var m = (await svc.GuardarModuloAsync(new GuardarModuloRequest(cursoId, null, "M", null))).Id!.Value;
+            leccion = (await svc.GuardarLeccionAsync(new GuardarLeccionRequest(m, null, "Lectura", null, CursoLeccionTipo.Texto, null, "<p>x</p>", null))).Id!.Value;
+            Assert.True((await svc.ConfigurarEvaluacionAsync(cursoId, true, 60, 2)).Ok);
+            Assert.False((await svc.ConfigurarEvaluacionAsync(cursoId, true, 120, 2)).Ok);
+            Assert.False((await svc.GuardarPreguntaAsync(new GuardarPreguntaRequest(cursoId, null, "Sola", new[] { "a" }, 0, null))).Ok);
+            Assert.False((await svc.GuardarPreguntaAsync(new GuardarPreguntaRequest(cursoId, null, "Fuera", new[] { "a", "b" }, 5, null))).Ok);
+            q1 = (await svc.GuardarPreguntaAsync(new GuardarPreguntaRequest(cursoId, null, "Altura minima?", new[] { "1 m", "1.5 m", "3 m" }, 1, "Desde 1.5 m es trabajo en alturas."))).Id!.Value;
+            q2 = (await svc.GuardarPreguntaAsync(new GuardarPreguntaRequest(cursoId, null, "Usar arnes?", new[] { "Si", "No" }, 0, null))).Id!.Value;
+            Assert.Equal(new[] { q1, q2 }, (await svc.ListarPreguntasAsync(cursoId)).Select(p => p.Id).ToArray());
+            Assert.Equal(new EvaluacionConfigDto(true, 60, 2, 2), await svc.ConfigEvaluacionAsync(cursoId));
+        }
+
+        await using (var ctx = _fixture.CreateContext(t))
+        {
+            var svc = Svc(ctx, t, ana.PlatformUserId, new MemFiles());
+            var ev = (await svc.EvaluacionAsync(cursoId, puedeEditar: false))!;
+            Assert.False(ev.LeccionesCompletas);
+            Assert.False(ev.PuedeRendir);
+            Assert.Equal(new[] { "1 m", "1.5 m", "3 m" }, ev.Preguntas[0].Opciones);
+            Assert.False((await svc.ResponderAsync(cursoId, Resp((q1, 1), (q2, 0)), false)).Ok); // falta terminar lecciones
+            Assert.Null(await svc.CertificadoAsync(cursoId));
+
+            await svc.MarcarVistaAsync(leccion, false);
+            var vista = (await svc.VerCursoAsync(cursoId, false))!;
+            Assert.True(vista.Completado);
+            Assert.True(vista.TieneEvaluacion);
+            Assert.False(vista.Terminado);
+            Assert.False((await svc.CatalogoAsync()).Single().Completado);
+
+            Assert.False((await svc.ResponderAsync(cursoId, Resp((q1, 1)), false)).Ok); // incompleta
+            var r1 = await svc.ResponderAsync(cursoId, Resp((q1, 0), (q2, 1)), false);
+            Assert.True(r1.Ok, r1.Error);
+            Assert.False(r1.Aprobado);
+            Assert.Equal(0, r1.Puntaje);
+            Assert.Equal(1, r1.IntentosRestantes);
+            Assert.Equal("Desde 1.5 m es trabajo en alturas.", r1.Falladas![0].Retroalimentacion);
+            var r2 = await svc.ResponderAsync(cursoId, Resp((q1, 1), (q2, 1)), false); // 50 < 60
+            Assert.Equal(50, r2.Puntaje);
+            Assert.True(r2.Bloqueado);
+            Assert.False((await svc.ResponderAsync(cursoId, Resp((q1, 1), (q2, 0)), false)).Ok); // bloqueado
+        }
+
+        // Admin: avance muestra el bloqueo; desbloquea (nueva tanda, historia intacta).
+        await using (var ctx = _fixture.CreateContext(t))
+        {
+            var svc = Svc(ctx, t, admin.PlatformUserId, new MemFiles());
+            var fila = (await svc.AvanceAsync(cursoId))!.Filas.Single(f => f.TenantUserId == ana.TenantUserId);
+            Assert.Equal(AvanceEstado.Bloqueado, fila.Estado);
+            Assert.Equal(2, fila.Intentos);
+            Assert.Equal(50, fila.MejorNota);
+            Assert.True((await svc.DesbloquearAsync(cursoId, ana.TenantUserId)).Ok);
+            Assert.False((await svc.DesbloquearAsync(cursoId, ana.TenantUserId)).Ok); // ya no esta bloqueada
+        }
+
+        string codigo;
+        await using (var ctx = _fixture.CreateContext(t))
+        {
+            var svc = Svc(ctx, t, ana.PlatformUserId, new MemFiles());
+            Assert.Equal(2, (await svc.EvaluacionAsync(cursoId, false))!.IntentosRestantes);
+            var r3 = await svc.ResponderAsync(cursoId, Resp((q1, 1), (q2, 0)), false);
+            Assert.True(r3.Aprobado);
+            Assert.Equal(100, r3.Puntaje);
+            Assert.False((await svc.ResponderAsync(cursoId, Resp((q1, 1), (q2, 0)), false)).Ok); // ya aprobo
+            Assert.True((await svc.VerCursoAsync(cursoId, false))!.Terminado);
+            Assert.True((await svc.CatalogoAsync()).Single().Completado);
+            var cert = (await svc.CertificadoAsync(cursoId))!;
+            Assert.Equal("ana", cert.Persona);
+            Assert.Equal("Alturas", cert.Curso);
+            Assert.Equal("Formacion Evaluacion", cert.Empresa);
+            Assert.Equal(100, cert.Nota);
+            Assert.Equal(new DateOnly(2026, 11, 22), cert.Fecha);
+            Assert.Equal(12, cert.Codigo.Length);
+            codigo = cert.Codigo;
+            Assert.Equal(codigo, (await svc.CertificadoAsync(cursoId))!.Codigo); // estable
+        }
+
+        // Verificacion publica por codigo (sin tenant) y avance/Excel del admin.
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            var svc = Svc(ctx, null, null, new MemFiles());
+            var v = (await svc.VerificarCertificadoAsync(codigo.ToLowerInvariant()))!;
+            Assert.Equal("ana", v.Persona);
+            Assert.Null(await svc.VerificarCertificadoAsync("ZZZZZZZZZZZZ"));
+            Assert.Null(await svc.VerificarCertificadoAsync("<script>"));
+        }
+        await using (var ctx = _fixture.CreateContext(t))
+        {
+            var svc = Svc(ctx, t, admin.PlatformUserId, new MemFiles());
+            var avance = (await svc.AvanceAsync(cursoId))!;
+            Assert.Equal(AvanceEstado.Terminado, avance.Filas.Single(f => f.TenantUserId == ana.TenantUserId).Estado);
+            Assert.Equal(codigo, avance.Filas.Single(f => f.TenantUserId == ana.TenantUserId).CertificadoCodigo);
+            var xlsx = (await svc.ExportarAvanceAsync(cursoId))!;
+            Assert.True(xlsx.Length > 100 && xlsx[0] == (byte)'P' && xlsx[1] == (byte)'K');
+            var intentos = await ctx.CursoIntentos.AsNoTracking().CountAsync(i => i.CursoId == cursoId && i.TenantUserId == ana.TenantUserId);
+            Assert.Equal(3, intentos);
+        }
+        // Otro tenant: ni el avance ni la evaluacion.
+        await using (var ctx = _fixture.CreateContext(otro))
+        {
+            var svc = Svc(ctx, otro, null, new MemFiles());
+            Assert.Null(await svc.AvanceAsync(cursoId));
+            Assert.Null(await svc.EvaluacionAsync(cursoId, true));
+        }
+    }
+
+    private static Dictionary<Guid, int> Resp(params (Guid Pregunta, int Opcion)[] r) => r.ToDictionary(x => x.Pregunta, x => x.Opcion);
+
     [Theory]
     [InlineData("https://youtu.be/dQw4w9WgXcQ", "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ")]
     [InlineData("https://www.youtube.com/shorts/abcDEF12345", "https://www.youtube-nocookie.com/embed/abcDEF12345")]

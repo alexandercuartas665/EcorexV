@@ -2,6 +2,29 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-22 - v0.16.376: Modulo de Formacion, olas 1 y 2 (ADR-0202) - EN TRONCO (sin desplegar)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/formacion-ola1`. Pedido del usuario: traer el modulo de
+formacion de DokTrino (subir manuales y videos) y poder cargar wizards/manuales en HTML. Decisiones del usuario:
+alumnos internos; catalogo + obligatorios por usuario/cargo/area con fecha limite; wizard .zip o .html; ola con
+evaluacion, YouTube/Vimeo, certificado PDF y reporte de avance.
+- **Ola 1**: cursos -> modulos -> lecciones (video subido por STREAMING con rangos, YouTube/Vimeo, PDF, imagen, texto
+  saneado, wizard HTML, archivo), catalogo /formacion, reproductor /formacion/curso/{id} con avance persistido por
+  leccion, admin /formacion/admin + editor, asignaciones (todos / usuario / dependencia o cargo con descendientes,
+  fecha limite, vencido). `IFileStorageService` gana `SaveStreamAsync`/`OpenReadAsync`. Wizard servido como las
+  maquetas (`MockupSiteCache`) en iframe sandbox SIN same-origin + CSP sandbox, con token de Data Protection (12 h).
+  Menu "Formacion" bajo "Cerebros" (backfill). Migracion dual `AddFormacionModule` (6 tablas).
+- **Ola 2**: evaluacion final (puntaje minimo, intentos, bloqueo/desbloqueo, calificada en servidor, retroalimentacion),
+  "terminado" = lecciones + evaluacion aprobada, certificado PDF (`IQuotePdfRenderer`) con codigo verificable en
+  /formacion/verificar/{codigo} (publico), reporte /formacion/admin/{id}/avance con desbloqueo y Excel. Migracion dual
+  `AddFormacionEvaluacion` (2 tablas + columnas con default).
+- **Pruebas**: integracion dual `FormacionModuleTests` 22/22 (PG + SQL Server). Validado en preview local 5281 contra
+  copia `ecorex_formacion`: crear curso, YouTube, subir wizard, avance 50 % -> 100 %, evaluacion aprobada, PDF del
+  certificado (117 KB), verificacion valida/invalida, avance y Excel.
+- **OJO**: dentro del navegador del panel de Claude el iframe del wizard sale `ERR_BLOCKED_BY_CLIENT` (bloqueo del
+  cliente; la URL responde 200 y el script corre al abrirla directo). Confirmar en Chrome real antes de desplegar.
+- **Siguiente**: deploy SOLO con OK del usuario; despues, permiso `formacion` en roles si se quiere restringir.
+
 ## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - DESPLEGADA
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/mcp-rellenar-columna`. Pedido de ECOREX.mcp para el dron FOMAG;

@@ -53,7 +53,7 @@ public interface IFormacionService
     Task<WizardTarget?> ResolverWizardParaTenantAsync(Guid leccionId, Guid tenantId, CancellationToken ct = default);
 }
 
-public sealed class FormacionService : IFormacionService
+public sealed partial class FormacionService : IFormacionService
 {
     /// <summary>Modulo del gestor de archivos donde caen portadas y archivos de lecciones.</summary>
     public const string FileModule = "Formacion";
@@ -469,8 +469,14 @@ public sealed class FormacionService : IFormacionService
         var cursos = await _db.Cursos.AsNoTracking().Where(c => c.Publicado)
             .Select(c => new
             {
-                c.Id, c.Titulo, c.Descripcion, c.Categoria, c.PortadaFileId, c.DuracionMinutos,
-                Lecciones = _db.CursoLecciones.Count(l => l.CursoId == c.Id)
+                c.Id,
+                c.Titulo,
+                c.Descripcion,
+                c.Categoria,
+                c.PortadaFileId,
+                c.DuracionMinutos,
+                Lecciones = _db.CursoLecciones.Count(l => l.CursoId == c.Id),
+                Eval = c.EvaluacionActiva && _db.CursoPreguntas.Any(q => q.CursoId == c.Id)
             })
             .ToListAsync(ct);
         if (cursos.Count == 0) { return Array.Empty<CatalogoCursoDto>(); }
@@ -485,7 +491,7 @@ public sealed class FormacionService : IFormacionService
         {
             var obligatorio = obligatorios.TryGetValue(c.Id, out var limite);
             progresos.TryGetValue(c.Id, out var p);
-            var completado = p?.FechaCompletado is not null;
+            var completado = p is not null && Terminado(p, c.Eval);
             return new CatalogoCursoDto(c.Id, c.Titulo, c.Descripcion, c.Categoria, c.PortadaFileId, c.DuracionMinutos, c.Lecciones,
                 obligatorio, limite, obligatorio && !completado && limite is DateOnly l && l < hoy,
                 p is not null, p?.Porcentaje ?? 0, completado);
@@ -501,6 +507,8 @@ public sealed class FormacionService : IFormacionService
         var detalle = await DetalleAsync(cursoId, ct);
         if (detalle is null || (!detalle.Publicado && !puedeEditar)) { return null; }
         var me = await TenantUserIdAsync(ct);
+        var tieneEval = await _db.Cursos.AnyAsync(c => c.Id == cursoId && c.EvaluacionActiva, ct)
+            && await _db.CursoPreguntas.AnyAsync(q => q.CursoId == cursoId, ct);
         IReadOnlySet<Guid> vistas = new HashSet<Guid>();
         CursoProgreso? progreso = null;
         DateOnly? limite = null;
@@ -514,7 +522,8 @@ public sealed class FormacionService : IFormacionService
             obligatorio = asign.TryGetValue(cursoId, out limite);
         }
         return new CursoVistaDto(detalle, vistas, progreso?.Porcentaje ?? 0, progreso?.FechaCompletado is not null,
-            progreso?.UltimaLeccionId, obligatorio, limite);
+            progreso?.UltimaLeccionId, obligatorio, limite, tieneEval, progreso?.Aprobado ?? false,
+            progreso is not null && Terminado(progreso, tieneEval));
     }
 
     public async Task RegistrarAperturaAsync(Guid cursoId, Guid? leccionId, bool puedeEditar, CancellationToken ct = default)
@@ -555,7 +564,11 @@ public sealed class FormacionService : IFormacionService
         {
             _db.CursoLeccionVistas.Add(new CursoLeccionVista
             {
-                TenantId = tenantId, LeccionId = leccionId, CursoId = leccion.CursoId, TenantUserId = u, VistaEn = _clock.GetUtcNow()
+                TenantId = tenantId,
+                LeccionId = leccionId,
+                CursoId = leccion.CursoId,
+                TenantUserId = u,
+                VistaEn = _clock.GetUtcNow()
             });
         }
         var progreso = await _db.CursoProgresos.FirstOrDefaultAsync(p => p.CursoId == leccion.CursoId && p.TenantUserId == u, ct);

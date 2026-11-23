@@ -1,0 +1,206 @@
+@page "/formacion/admin/{Id:guid}/avance"
+@attribute [Authorize(Policy = Ecorex.SuperAdmin.Endpoints.FormacionEndpoints.EditPolicy)]
+@* Reporte de AVANCE de un curso de FORMACION (ADR-0202 ola 2): personas obligadas (asignaciones) y quienes lo
+   iniciaron, con estado (no iniciado / en curso / falta evaluacion / bloqueado / terminado), vencidos, avance,
+   intentos, mejor nota y codigo de certificado. Desbloquear da una nueva tanda de intentos. Exporta a Excel.
+   Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Formacion
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IServiceScopeFactory ScopeFactory
+
+<PageTitle>Avance - Formacion</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <a href="/formacion">Formacion</a>
+    <span class="sep">/</span>
+    <a href="/formacion/admin">Administrar cursos</a>
+    <span class="sep">/</span>
+    <a href="@($"/formacion/admin/{Id}")">@(_avance?.Curso ?? "Curso")</a>
+    <span class="sep">/</span>
+    <span class="cur">Avance</span>
+</nav>
+
+@if (_loading)
+{
+    <div class="fm-muted">Cargando...</div>
+}
+else if (_avance is null)
+{
+    <div class="fm-empty">El curso no existe. <a href="/formacion/admin">Volver</a></div>
+}
+else
+{
+    <div class="fm-bar">
+        <div class="fm-title">
+            <h1 class="page-title" style="margin:0;">Avance: @_avance.Curso</h1>
+            <span class="page-sub" style="margin:0;">
+                @_avance.Terminados terminados - @_avance.Asignados obligados - @_avance.Vencidos vencidos - @_avance.Bloqueados bloqueados
+            </span>
+        </div>
+        <div class="fm-actions">
+            <a class="btn btn-sm btn-outline-secondary" href="@($"/formacion/admin/{Id}/avance.xlsx")" target="_blank" rel="noopener"><i class="fa-regular fa-file-excel"></i> Exportar a Excel</a>
+            <a class="btn btn-sm btn-outline-secondary" href="@($"/formacion/admin/{Id}")"><i class="fa-regular fa-pen-to-square"></i> Editar curso</a>
+        </div>
+    </div>
+
+    @if (_msg is not null)
+    {
+        <div class="alert @(_msgError ? "alert-danger" : "alert-success") py-2 fm-alert">@_msg</div>
+    }
+
+    <div class="fm-filters">
+        <div class="fm-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input placeholder="Buscar persona" @bind="_search" @bind:event="oninput" />
+        </div>
+        <div class="fm-chips">
+            <button class="fm-chip @(_filtro is null ? "on" : null)" @onclick="() => _filtro = null">Todos <span>@_avance.Filas.Count</span></button>
+            @foreach (var e in Enum.GetValues<AvanceEstado>())
+            {
+                var estado = e;
+                var n = _avance.Filas.Count(f => f.Estado == estado);
+                if (n == 0) { continue; }
+                <button class="fm-chip @(_filtro == estado ? "on" : null)" @onclick="() => _filtro = estado">@FormacionService.EstadoTexto(estado) <span>@n</span></button>
+            }
+            @if (_avance.Vencidos > 0)
+            {
+                <button class="fm-chip @(_soloVencidos ? "on" : null)" @onclick="() => _soloVencidos = !_soloVencidos">Vencidos <span>@_avance.Vencidos</span></button>
+            }
+        </div>
+    </div>
+
+    @if (Filas.Count == 0)
+    {
+        <div class="fm-empty">@(_avance.Filas.Count == 0 ? "Nadie ha iniciado el curso y no tiene asignaciones." : "Nadie coincide con el filtro.")</div>
+    }
+    else
+    {
+        <div class="fm-panel" style="padding:0;overflow:auto;">
+            <table class="fm-table">
+                <thead>
+                    <tr>
+                        <th>Persona</th><th>Estado</th><th>Avance</th><th>Limite</th><th>Inicio</th>
+                        @if (_avance.TieneEvaluacion) { <th>Intentos</th><th>Mejor nota</th> }
+                        <th>Certificado</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var f in Filas)
+                    {
+                        var fila = f;
+                        <tr>
+                            <td>@f.Nombre<div class="fm-muted-sm">@f.Email@(f.Obligatorio ? " - obligatorio" : "")</div></td>
+                            <td>
+                                <span class="fm-badge @Clase(f.Estado)">@FormacionService.EstadoTexto(f.Estado)</span>
+                                @if (f.Vencido) { <span class="fm-badge late">Vencido</span> }
+                            </td>
+                            <td style="min-width:110px;">
+                                <div class="fm-progress @(f.Estado == AvanceEstado.Terminado ? "done" : null)"><i style="width:@(f.Porcentaje)%"></i></div>
+                                <span class="fm-muted-sm">@f.Porcentaje%</span>
+                            </td>
+                            <td>@(f.FechaLimite?.ToString("dd/MM/yyyy") ?? "-")</td>
+                            <td>@(f.FechaInicio?.ToString("dd/MM/yyyy") ?? "-")</td>
+                            @if (_avance.TieneEvaluacion)
+                            {
+                                <td>@f.Intentos</td>
+                                <td>@(f.MejorNota?.ToString() ?? "-")</td>
+                            }
+                            <td><code>@(f.CertificadoCodigo ?? "-")</code></td>
+                            <td>
+                                @if (f.Estado == AvanceEstado.Bloqueado)
+                                {
+                                    <button class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="() => DesbloquearAsync(fila)">Desbloquear</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private AvanceCursoDto? _avance;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _msg;
+    private bool _msgError;
+    private string _search = string.Empty;
+    private AvanceEstado? _filtro;
+    private bool _soloVencidos;
+    private Guid _tenantId;
+    private Guid _userId;
+
+    private List<AvanceFilaDto> Filas
+    {
+        get
+        {
+            IEnumerable<AvanceFilaDto> q = _avance?.Filas ?? (IEnumerable<AvanceFilaDto>)Array.Empty<AvanceFilaDto>();
+            if (_filtro is AvanceEstado e) { q = q.Where(f => f.Estado == e); }
+            if (_soloVencidos) { q = q.Where(f => f.Vencido); }
+            var term = _search.Trim();
+            if (term.Length > 0)
+            {
+                q = q.Where(f => f.Nombre.Contains(term, StringComparison.OrdinalIgnoreCase) || f.Email.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+            return q.ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _tenantId);
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+        }
+        await CargarAsync();
+        _loading = false;
+    }
+
+    private async Task CargarAsync()
+    {
+        try { _avance = await RunAsync(s => s.AvanceAsync(Id)); }
+        catch (Exception) { _msg = "No se pudo cargar el avance."; _msgError = true; }
+    }
+
+    private async Task DesbloquearAsync(AvanceFilaDto f)
+    {
+        if (_busy) { return; }
+        _busy = true;
+        try
+        {
+            var r = await RunAsync(s => s.DesbloquearAsync(Id, f.TenantUserId));
+            _msg = r.Ok ? $"{f.Nombre} tiene una nueva tanda de intentos." : r.Error;
+            _msgError = !r.Ok;
+            await CargarAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string Clase(AvanceEstado e) => e switch
+    {
+        AvanceEstado.Terminado => "done",
+        AvanceEstado.Bloqueado => "late",
+        AvanceEstado.PendienteEvaluacion => "req",
+        _ => "draft"
+    };
+
+    private async Task<T> RunAsync<T>(Func<IFormacionEvaluacionService, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider.GetRequiredService<IFormacionEvaluacionService>());
+    }
+}

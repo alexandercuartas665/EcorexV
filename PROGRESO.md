@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-19 - v0.16.377 (la rama se habia marcado 0.16.357, ya tomada): asistente de formulario "leer PDF -> tabla" funciona con DeepSeek (adenda ADR-0174) - EN TRONCO (sin desplegar)
+
+- HECHO (sesion Compras UX): `FormAiIntakeService` rasteriza el PDF a imagenes (IPdfRasterizer, 150 dpi, 5 paginas)
+  cuando el agente no es Gemini/Claude; antes rechazaba cualquier otro proveedor. Texto de ayuda del disenador
+  actualizado. Sin migracion.
+- PRUEBA E2E local (5282, tenant demo INDUSTRIAS ANDINAS, T00007): agente "Asistente de Compras" pasado a
+  deepseek-v4-flash en BD local; lectura del PDF de la cotizacion -> 1 fila correcta; "Revisar con IA" -> 5 campos
+  con la inconsistencia de valor/cantidad. AiUsageLog: form-ai-intake y form-ai-compose en DeepSeek.
+- MOTIVO: Gemini responde HTTP 402 (sin creditos prepagados) en la config de plataforma.
+- SIGUIENTE: tras deploy, en prod pasar a DeepSeek los agentes de formularios que lean PDF (y recargar o retirar
+  Gemini; el transcriptor de audio de ADR-0174 sigue usando Gemini).
+
 ## 2026-11-22 - v0.16.376: Modulo de Formacion, olas 1 y 2 (ADR-0202) - DESPLEGADA
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/formacion-ola1`. Pedido del usuario: traer el modulo de

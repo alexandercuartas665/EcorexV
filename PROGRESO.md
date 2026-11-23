@@ -2,7 +2,9 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-23 - Reglas autonomas de un paso del flujo reciben el formulario de la tarea - v0.16.379 EN TRONCO (sin desplegar)
+## 2026-11-23 - Reglas autonomas de un paso del flujo reciben el formulario de la tarea - v0.16.379 DESPLEGADA
+
+- **Integracion + deploy (ECOREX.desarrollo, 2026-11-23 ~08:25 Bogota)**: merge --no-ff de feat/reglas-nodo-datos-form (44e37942) como v0.16.379 (0df21c18); lleva tambien v0.16.378 (cerebros olas 2 y 3, migracion AddBrainTemplates). Gates: build Release 0 errores, format ok, unitarias 1687/312/35, integracion dual Rule|Workflow|ScheduledJobs 54/54. OK expreso del usuario para desplegar YA (dentro de la ventana DRON; el usuario relanza el DRON a mano). Via rapida GHCR (CI 45180168803 verde). Footer /login = v0.16.379; migracion 20261123101812_AddBrainTemplates aplicada; Restarts=0; 0 errores. Rollback: sha256:0921462f...
 
 - HECHO (sesion Compras UX): RulesEngine.ExecuteForWorkflowNodeAsync carga el registro de formulario de la tarea
   (Reference = numero o numero-N; enviados primero, luego el mas reciente) y lo pasa como FormData/FormResponseId;
@@ -17,7 +19,7 @@
   perdio su condicion approval == 'Lista' (la v1 la tenia) -> toda eleccion caia en Devolver (H-10). Se restauro por
   dato. Revisar si el disenador borra condition_expression al guardar/publicar.
 
-## 2026-11-23 - Cerebros ola 3: cerebros plantilla del Super Admin, siembra bloqueada y duplicar (ADR-0200) - v0.16.378 EN TRONCO (sin desplegar)
+## 2026-11-23 - Cerebros ola 3: cerebros plantilla del Super Admin, siembra bloqueada y duplicar (ADR-0200) - v0.16.378 DESPLEGADA (con v0.16.379)
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.377). CON MIGRACION dual
 `AddBrainTemplates` (tablas brain_templates y brain_template_notes + columnas source_template_id, is_locked y
@@ -33,7 +35,7 @@ template_version en brains; sin datos).
   Super Admin se dio rol de plataforma temporal al usuario dev SOLO en la copia y se revirtio al terminar.
 - **Siguiente**: ola 4 (MCP por cerebro: listar_cerebros, parametro `cerebro`).
 
-## 2026-11-22 - Cerebros ola 2: tarjetas de cerebros vinculados en la maqueta + modal grande (ADR-0200) - v0.16.378 EN TRONCO (sin desplegar)
+## 2026-11-22 - Cerebros ola 2: tarjetas de cerebros vinculados en la maqueta + modal grande (ADR-0200) - v0.16.378 DESPLEGADA (con v0.16.379)
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.375). SIN migracion.
 - **Hecho**: pestana "Cerebros (N)" del editor de maquetas con TARJETAS de los cerebros vinculados (principal primero);

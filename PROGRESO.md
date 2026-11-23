@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Vault Obsidian "como usar los MCP de ECOREX" para sesiones de IA de clientes (docs/vault-mcp-ecorex) - SOLO DOCS, sin deploy
+
+Agente: ECOREX.mcp (Claude Opus 5.5). Sin codigo, sin migracion ni config.
+- **Motivo**: una sesion de IA nueva de un cliente, con el MCP conectado, no supo crear un contenedor ni reportes. Faltaba una guia operativa de los 3 servidores MCP.
+- **Hecho**: vault `docs/vault-mcp-ecorex/` (30 notas, ASCII): LEEME PRIMERO (mapa "quiero X -> receta" + protocolo de 6 pasos), conexion (Claude Code/Desktop/Gemini/Codex, tokens de /conectar-ia y /lineas), modelo mental, reglas de oro, 60 trampas conocidas, solucion de problemas, 11 recetas (tareas, directorio, flujos, formularios, contenedor, conector API + importacion, reportes/indicadores, dron, agentes, clasificacion IA, caso SECOP punta a punta) y referencia generada del catalogo vivo (Tableros 157 + Maquetas 16 + WhatsApp 36 = 209 tools, con parametros anidados, obligatorios, R/W/D y ejemplo) + indice A-Z + plantilla CLAUDE.md para el cliente. Ya incluye `ver_conector` y la edicion parcial de `guardar_conector` (ADR-0203).
+- **Validacion**: script contra los esquemas reales: 334 llamadas de ejemplo sin errores (tool/param/enum/obligatorios), 0 enlaces rotos, 0 no-ASCII, 0 datos privados (token, ids de tenant, correos, nombres de clientes).
+- **Operacion (prod, por MCP)**: con `ver_conector` se vio la causa del timeout de "SECOP II - Recientes" (`$where` con fecha FIJA + paginas de 50.000); se corrigio con guardar_conector parcial: `$order=fecha_de_ultima_publicaci DESC&$limit=10000` + paging None (17.7 s medido). Validar la corrida del 24-nov 5am.
+- **Siguiente**: publicar el vault como cerebro del modulo Cerebros (ADR-0200) y/o ampliar las `instructions` del servidor MCP para que toda IA conectada reciba la guia sin copiar archivos.
+
 ## 2026-11-23 - MCP ver_conector + guardar_conector edita solo lo enviado + tope de 20 min en importacion REST (ADR-0203) - v0.16.383 DESPLEGADA
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), a pedido de ECOREX.mcp. SIN migracion ni config.

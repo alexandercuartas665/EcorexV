@@ -156,6 +156,104 @@ public abstract class BrainTemplatesTestsBase
         Assert.Single(await brains.ListAsync());
     }
 
+    /// <summary>ADR-0204: guia de los MCP. Una sola marcada; sin publicar = error; la empresa sembrada lee SU cerebro;
+    /// la no sembrada lee el respaldo de la plantilla; ninguna lee el cerebro de otra.</summary>
+    [Fact]
+    public async Task GuiaMcp_UnaSola_SembradoYRespaldo_Aislado()
+    {
+        var sembrada = await SeedTenantAsync("Guia MCP sembrada");
+        var nueva = await SeedTenantAsync("Guia MCP nueva");
+        var platformUser = Guid.CreateVersion7();
+        Guid guiaId, otraId;
+        BrainTemplateSnapshot snapshot;
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            var svc = new BrainTemplateService(ctx, new AuditWriter(ctx));
+            guiaId = (await svc.SaveAsync(null, Input("Guia de uso de ECOREX por IA", BrainTemplateTargets.All, Array.Empty<Guid>()), platformUser)).Value;
+            Assert.True((await svc.SaveNoteAsync(guiaId, null, "00 - LEEME PRIMERO", "Empieza por [[R05 - Crear un contenedor de datos]].", platformUser)).IsOk);
+            Assert.True((await svc.SaveNoteAsync(guiaId, null, "R05 - Crear un contenedor de datos", "Paso 1: crear_contenedor_datos. Si ves Tiempo de espera agotado, revisa el endpoint.", platformUser)).IsOk);
+            Assert.True((await svc.SaveNoteAsync(guiaId, null, "T01 - Trampas", "No reenvies endpoints con ***.", platformUser)).IsOk);
+
+            // Una sola guia: marcar otra desmarca la anterior (misma transaccion).
+            otraId = (await svc.SaveAsync(null, Input("Otra plantilla", BrainTemplateTargets.All, Array.Empty<Guid>()), platformUser)).Value;
+            Assert.True((await svc.SetMcpGuideAsync(guiaId, true, platformUser)).IsOk);
+            Assert.True((await svc.SetMcpGuideAsync(otraId, true, platformUser)).IsOk);
+            Assert.Equal(new[] { otraId }, (await svc.ListAsync()).Where(t => t.IsMcpGuide).Select(t => t.Id).ToArray());
+            Assert.True((await svc.SetMcpGuideAsync(guiaId, true, platformUser)).IsOk);
+            Assert.Equal(new[] { guiaId }, (await svc.ListAsync()).Where(t => t.IsMcpGuide).Select(t => t.Id).ToArray());
+            Assert.Equal(TaskCoreStatus.NotFound, (await svc.SetMcpGuideAsync(Guid.CreateVersion7(), true, platformUser)).Status);
+        }
+
+        // Marcada pero SIN publicar: error claro.
+        await using (var ctx = _fixture.CreateContext(sembrada))
+        {
+            var (index, error) = await new McpGuideService(ctx).IndexAsync();
+            Assert.Null(index);
+            Assert.Equal(McpGuideService.NotPublishedMessage, error);
+        }
+
+        // Publicar y sembrar SOLO en "sembrada"; despues la plantilla cambia sin re-publicar.
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            var svc = new BrainTemplateService(ctx, new AuditWriter(ctx));
+            snapshot = (await svc.PreparePublishAsync(guiaId, platformUser)).Value!.Snapshot;
+        }
+        await using (var ctx = _fixture.CreateContext(sembrada))
+        {
+            Assert.Equal("created", (await new BrainService(ctx, new AuditWriter(ctx)).ApplyTemplateAsync(snapshot, sembrada, platformUser)).Outcome);
+        }
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            var svc = new BrainTemplateService(ctx, new AuditWriter(ctx));
+            var r05 = (await svc.GetAsync(guiaId))!.Notes.Single(n => n.Title.StartsWith("R05", StringComparison.Ordinal));
+            Assert.True((await svc.SaveNoteAsync(guiaId, r05.Id, r05.Title, "BORRADOR sin publicar", platformUser)).IsOk);
+        }
+
+        // Empresa sembrada: lee SU cerebro (lo publicado), no el borrador de la plantilla.
+        await using (var ctx = _fixture.CreateContext(sembrada))
+        {
+            var guide = new McpGuideService(ctx);
+            var (index, error) = await guide.IndexAsync();
+            Assert.Null(error);
+            Assert.Equal("cerebro", index!.Source);
+            Assert.Equal("00 - LEEME PRIMERO", index.Entry!.Title);
+            Assert.Contains("R05 - Crear un contenedor de datos", index.Entry.Links);
+            Assert.Equal(3, index.Titles.Count);
+
+            var (note, noteErr) = await guide.NoteAsync("r05 - crear un contenedor de datos");
+            Assert.Null(noteErr);
+            Assert.Contains("crear_contenedor_datos", note!.Body);
+            Assert.DoesNotContain("BORRADOR", note.Body);
+            Assert.NotNull((await guide.NoteAsync("T01")).Note); // titulo parcial unico
+            Assert.Null((await guide.NoteAsync("No existe")).Note);
+
+            var (hits, searchErr) = await guide.SearchAsync("tiempo de espera agotado");
+            Assert.Null(searchErr);
+            Assert.Equal("R05 - Crear un contenedor de datos", Assert.Single(hits).Title);
+            Assert.Contains("Tiempo de espera agotado", hits[0].Snippet);
+        }
+
+        // Empresa SIN siembra (creada despues de publicar): respaldo con la plantilla; no ve el cerebro de "sembrada".
+        await using (var ctx = _fixture.CreateContext(nueva))
+        {
+            Assert.Empty(await ctx.Brains.ToListAsync());
+            var (index, error) = await new McpGuideService(ctx).IndexAsync();
+            Assert.Null(error);
+            Assert.Equal("plantilla", index!.Source);
+            Assert.Contains("BORRADOR", (await new McpGuideService(ctx).NoteAsync("R05 - Crear un contenedor de datos")).Note!.Body);
+        }
+
+        // Archivar la guia la apaga.
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            Assert.True((await new BrainTemplateService(ctx, new AuditWriter(ctx)).ArchiveAsync(guiaId, platformUser)).IsOk);
+        }
+        await using (var ctx = _fixture.CreateContext(nueva))
+        {
+            Assert.Equal(McpGuideService.NotPublishedMessage, (await new McpGuideService(ctx).IndexAsync()).Error);
+        }
+    }
+
     // ---- Helpers ----
 
     private static BrainTemplateInput Input(string name, string mode, IReadOnlyList<Guid> ids)

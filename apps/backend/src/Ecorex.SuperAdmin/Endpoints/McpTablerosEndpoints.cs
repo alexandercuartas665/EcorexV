@@ -25,6 +25,8 @@ public static class McpTablerosEndpoints
     private const string AuditReason = "mcp-tableros";
 
     private const string ServerInstructions =
+        "Antes de construir o cambiar algo que no hayas hecho en esta sesion, llama guia_ecorex (sin argumentos) y sigue " +
+        "la receta que corresponda; ante un error, guia_ecorex(buscar=<texto del error>). " +
         "Servidor de tableros de tareas de ECOREX. Actuas como el usuario dueno del token: solo ves y cambias lo " +
         "que el puede. Empieza con listar_tableros o mis_pasos_pendientes. Las tareas se identifican por su numero " +
         "(ej. T00123). Si una tarea tiene flujo en curso no la muevas de columna: usa ver_tarea y completar_paso. " +

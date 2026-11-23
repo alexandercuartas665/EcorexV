@@ -2,7 +2,7 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-22 - v0.16.376: Modulo de Formacion, olas 1 y 2 (ADR-0202) - EN TRONCO (sin desplegar)
+## 2026-11-22 - v0.16.376: Modulo de Formacion, olas 1 y 2 (ADR-0202) - DESPLEGADA
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/formacion-ola1`. Pedido del usuario: traer el modulo de
 formacion de DokTrino (subir manuales y videos) y poder cargar wizards/manuales en HTML. Decisiones del usuario:
@@ -23,7 +23,8 @@ evaluacion, YouTube/Vimeo, certificado PDF y reporte de avance.
   certificado (117 KB), verificacion valida/invalida, avance y Excel.
 - **OJO**: dentro del navegador del panel de Claude el iframe del wizard sale `ERR_BLOCKED_BY_CLIENT` (bloqueo del
   cliente; la URL responde 200 y el script corre al abrirla directo). Confirmar en Chrome real antes de desplegar.
-- **Siguiente**: deploy SOLO con OK del usuario; despues, permiso `formacion` en roles si se quiere restringir.
+- **Deploy (2026-11-23 04:05 Bogota)**: OK del usuario, fuera de la ventana DRON. Via rapida GHCR (CI 45104633524 verde sobre a47da87d). Footer /login = v0.16.376; migraciones AddFormacionModule y AddFormacionEvaluacion aplicadas; ecorex-app Restarts=0, 0 errores; menu "Formacion" en las 16 vistas que tienen "Cerebros"; /formacion/verificar responde (codigo invalido = no encontrado). En Chrome real el iframe del wizard carga 200 (el bloqueo era solo del navegador del panel). Rollback: imagen anterior sha256:f32947ce...
+- **Siguiente**: permiso `formacion` en roles si se quiere restringir; notificaciones de asignacion/vencimiento.
 
 ## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - DESPLEGADA
 

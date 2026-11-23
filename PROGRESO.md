@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Cerebros ola 4: MCP por cerebro (listar_cerebros + parametro cerebro) (ADR-0200) - v0.16.381
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.380). SIN migracion.
+- **Integracion (ECOREX.desarrollo, 2026-11-23)**: merge --no-ff de feat/maquetas-cerebro (ffa46f00) como v0.16.381. Gates: build Release 0 errores, format ok, unitarias 1687/312/35, integracion dual BrainTemplates|BrainsModule|MockupBrain|Maqueta|McpTableros 111/111. OK expreso del usuario para desplegar.
+- **Hecho**: `MaquetaMcpToolset`: herramienta `listar_cerebros` (solo lectura) y parametro `cerebro` en las 8
+  herramientas de notas (prioridad sobre `proyecto`, que sigue funcionando con el cerebro principal de la maqueta);
+  respuestas con `cerebro` y enlaces a `/cerebros/{slug}`; resolucion sin parametros (unico cerebro / unica maqueta).
+  Instrucciones del servidor y prompts de "Chatear con Claude" (`MaquetaClaudeGuide`) en terminos de `cerebro`.
+- **Pruebas**: build OK; unitarias y integracion dual (ver commit), con el test nuevo
+  `McpMaquetas_PorCerebro_ListarCerebros_ParametroCerebro_YSoloLectura`.
+- **Pendiente**: validacion visual en prod de las olas 2 y 3 (necesita sesion de PROYECTOS y Super Admin en Chrome) y
+  re-importar el vault de VISAL con "Sobrescribir" en PROYECTOS.
+
 ## 2026-11-23 - Asistente "Nueva actividad": el formulario ENVIADO dentro del asistente se liga a la tarea - v0.16.380 DESPLEGADA
 
 Agente: sesion Compras UX (Claude Opus 5.5). Solo UI (TaskWizard.razor), sin migracion.

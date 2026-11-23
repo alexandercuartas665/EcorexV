@@ -1,8 +1,8 @@
 # ADR-0200: Cerebros como modulo propio (categorias, vinculo N:M con maquetas, siembra del Super Admin)
 
 Fecha: 2026-11-22
-Estado: Aceptada (ola 1 en v0.16.374; olas 2 y 3 construidas en la rama; ola 4 pendiente)
-Version: ola 1 = v0.16.374; olas 2 y 3 las asigna el dev principal al integrar (rama feat/maquetas-cerebro)
+Estado: Aceptada (olas 1-3 en produccion: v0.16.374 y v0.16.378/379; ola 4 construida en la rama)
+Version: ola 1 = v0.16.374; olas 2 y 3 = v0.16.378 (desplegadas con v0.16.379); ola 4 la asigna el dev principal
 Relacionado: ADR-0183 (cerebro digital de la maqueta), ADR-0182 (MCP de maquetas), ADR-0062 (plantillas globales
 + activacion por tenant), ADR-0013 (concurrencia optimista portable)
 
@@ -105,6 +105,18 @@ Se construye en 4 olas, cada una con su version:
    adjuntos NO se copian), sin plantilla ni candado, en la misma categoria.
 6. **Limitacion**: la siembra no lleva adjuntos (imagenes/PDF) ni se dispara sola al crear una empresa nueva; el Super
    Admin vuelve a publicar.
+
+### Ola 4 (MCP por cerebro)
+
+1. Nueva herramienta de solo lectura **`listar_cerebros`** (filtro opcional `texto`): slug, nombre, descripcion,
+   categoria, notas, `solo_lectura`, `sembrado_por_plataforma` y maquetas vinculadas (con `principal`).
+2. Las 8 herramientas de notas (`listar_notas`, `buscar_notas`, `ver_nota`, `crear_nota`, `editar_nota`,
+   `grafo_cerebro`, `listar_adjuntos`, `ver_adjunto`) aceptan **`cerebro`** (slug) con prioridad sobre `proyecto`, que
+   sigue funcionando (cerebro principal de la maqueta; un slug de cerebro tambien sirve). Sin ninguno: si la empresa
+   tiene un solo cerebro se usa ese; si hay una sola maqueta, su principal; si no, el error pide `cerebro`.
+3. Las respuestas devuelven `cerebro` (slug) y los enlaces apuntan a `/cerebros/{slug}` (antes a la maqueta).
+4. Los cerebros de solo lectura se leen por MCP; escribir devuelve el error del candado (el servidor ya lo exigia).
+5. Instrucciones del servidor MCP y prompts de "Chatear con Claude" hablan de `cerebro={slug}`. Sin migracion.
 
 ## Consecuencias
 

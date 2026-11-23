@@ -368,7 +368,7 @@ public abstract class MaquetaSolicitudesTestsBase
         var vista = await mcp.ExecuteAsync("ver_nota", JsonSerializer.Serialize(new { titulo = "decisiones" }), actor);
         Assert.False(vista.IsError, vista.Json);
         Assert.Contains("\"la_enlazan\":[{\"titulo\":\"Pendientes\"", vista.Json);
-        Assert.Contains("https://app.test/maqueta/tronox-sgdea?tab=cerebro", vista.Json);
+        Assert.Contains("https://app.test/cerebros/tronox-sgdea?nota=", vista.Json);
 
         var hits = await mcp.ExecuteAsync("buscar_notas", JsonSerializer.Serialize(new { texto = "tabs" }), actor);
         Assert.Contains("\"total\":1", hits.Json);
@@ -393,6 +393,62 @@ public abstract class MaquetaSolicitudesTestsBase
         Assert.Equal(Convert.ToBase64String(png), imagen.Media.Base64);
         Assert.True((await mcp.ExecuteAsync("ver_adjunto", JsonSerializer.Serialize(new { nombre = "nada.png" }), actor)).IsError);
         Assert.Contains("listar_adjuntos", mcp.ReadOnlyTools);
+    }
+
+    [Fact]
+    public async Task McpMaquetas_PorCerebro_ListarCerebros_ParametroCerebro_YSoloLectura()
+    {
+        // ADR-0200 ola 4: el MCP trabaja por cerebro (slug), no solo por maqueta.
+        var seed = await SeedTenantAsync("Maqueta Cerebros MCP", withActivityType: false);
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var files = new FakeFileStorage();
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var actor = Actor(seed);
+        var brains = new Ecorex.Application.Integraciones.Cerebro.BrainService(ctx, new AuditWriter(ctx));
+        var mcp = BuildMcp(ctx, tenantCtx, files);
+        mcp.PublicBaseUrl = "https://app.test";
+        Assert.Contains("listar_cerebros", mcp.ReadOnlyTools);
+
+        // Un solo cerebro (sin maquetas): las tools lo usan sin parametros.
+        var propio = (await brains.CreateAsync("Base de conocimiento", null, null, actor)).Value!;
+        Assert.False((await mcp.ExecuteAsync("crear_nota", JsonSerializer.Serialize(new { titulo = "Hola", contenido = "Primera" }), actor)).IsError);
+
+        // Con una maqueta y su cerebro principal, 'proyecto' sigue funcionando y 'cerebro' tiene prioridad.
+        var mockups = new MockupService(ctx, tenantCtx, files, new AuditWriter(ctx));
+        Assert.True((await mockups.CreateProjectAsync("TRONOX SGDEA", null, null, isOwnerOrAdmin: true)).IsOk);
+        Assert.True((await brains.CreateForMockupAsync("tronox-sgdea", actor)).IsOk);
+        Assert.True((await brains.LinkMockupAsync(propio.Slug, "tronox-sgdea", actor)).IsOk);
+        Assert.False((await mcp.ExecuteAsync("crear_nota", JsonSerializer.Serialize(new { proyecto = "tronox-sgdea", titulo = "De la maqueta", contenido = "x" }), actor)).IsError);
+        var enPropio = await mcp.ExecuteAsync("listar_notas", JsonSerializer.Serialize(new { cerebro = propio.Slug, proyecto = "tronox-sgdea" }), actor);
+        Assert.Contains("\"titulo\":\"Hola\"", enPropio.Json);
+        Assert.DoesNotContain("De la maqueta", enPropio.Json);
+        Assert.Contains($"\"cerebro\":\"{propio.Slug}\"", enPropio.Json);
+        Assert.Contains($"https://app.test/cerebros/{propio.Slug}", enPropio.Json);
+        Assert.True((await mcp.ExecuteAsync("listar_notas", JsonSerializer.Serialize(new { cerebro = "no-existe" }), actor)).IsError);
+
+        // listar_cerebros: slug, maquetas vinculadas y cual es principal.
+        var lista = await mcp.ExecuteAsync("listar_cerebros", "{}", actor);
+        Assert.False(lista.IsError, lista.Json);
+        Assert.Contains("\"total\":2", lista.Json);
+        Assert.Contains("{\"proyecto\":\"tronox-sgdea\",\"principal\":true}", lista.Json);
+        Assert.Contains("{\"proyecto\":\"tronox-sgdea\",\"principal\":false}", lista.Json);
+        Assert.Contains("\"total\":1", (await mcp.ExecuteAsync("listar_cerebros", JsonSerializer.Serialize(new { texto = "conocimiento" }), actor)).Json);
+
+        // Sembrado bloqueado: se lee por MCP pero no se escribe.
+        var sembrado = await brains.ApplyTemplateAsync(new Ecorex.Application.Integraciones.Cerebro.BrainTemplateSnapshot(Guid.CreateVersion7(),
+            "Guia de plataforma", null, null, null, IsLocked: true, Version: 1,
+            new[] { new Ecorex.Application.Integraciones.Cerebro.BrainTemplateSnapshotNote("Regla", "Solo lectura") }), seed.TenantId, Guid.CreateVersion7());
+        Assert.Contains("\"solo_lectura\":true", (await mcp.ExecuteAsync("listar_cerebros", JsonSerializer.Serialize(new { texto = "plataforma" }), actor)).Json);
+        Assert.False((await mcp.ExecuteAsync("ver_nota", JsonSerializer.Serialize(new { cerebro = sembrado.BrainSlug, titulo = "Regla" }), actor)).IsError);
+        var bloqueada = await mcp.ExecuteAsync("crear_nota", JsonSerializer.Serialize(new { cerebro = sembrado.BrainSlug, titulo = "Mia", contenido = "x" }), actor);
+        Assert.True(bloqueada.IsError);
+        Assert.Contains("solo lectura", bloqueada.Json);
+
+        // Varios cerebros y varias maquetas sin parametros: pide 'cerebro'.
+        Assert.True((await mockups.CreateProjectAsync("VISAL", null, null, isOwnerOrAdmin: true)).IsOk);
+        var ambiguo = await mcp.ExecuteAsync("listar_notas", "{}", actor);
+        Assert.True(ambiguo.IsError);
+        Assert.Contains("cerebro", ambiguo.Json);
     }
 
     private static McpActor Actor(SeedData s) => new(s.TenantId, s.OwnerUserId, s.OwnerPlatformId, "Owner Maqueta", true, Guid.NewGuid());

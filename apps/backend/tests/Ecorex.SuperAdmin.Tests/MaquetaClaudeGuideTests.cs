@@ -14,7 +14,8 @@ public sealed class MaquetaClaudeGuideTests
         Assert.All(prompts, p => Assert.Contains("tronox-sgdea", p.Prompt));
         Assert.Contains(prompts, p => p.Prompt.Contains("'Decisiones de menu'"));
         Assert.Contains(prompts, p => p.Prompt.Contains("[[rq07-terceros.html]]"));
-        Assert.DoesNotContain(prompts, p => p.Prompt.Contains("{proyecto}"));
+        Assert.DoesNotContain(prompts, p => p.Prompt.Contains("{cerebro}"));
+        Assert.Contains(prompts, p => p.Prompt.Contains("cerebro=tronox-sgdea"));
     }
 
     [Fact]
@@ -22,7 +23,7 @@ public sealed class MaquetaClaudeGuideTests
     {
         var prompts = MaquetaClaudeGuide.Prompts(null);
 
-        Assert.All(prompts, p => Assert.Contains("{proyecto}", p.Prompt));
+        Assert.All(prompts, p => Assert.Contains("{cerebro}", p.Prompt));
         Assert.Equal(4, prompts.Count);
     }
 

@@ -321,12 +321,12 @@
                                             <div style="display:flex;flex-direction:column;gap:8px">
                                                 @for (var _i = 0; _i < _formDraftIds.Count; _i++)
                                                 {
-                                                    var idx = _i; var did = _formDraftIds[_i]; var conDatos = _draftsWithData.Contains(did);
+                                                    var idx = _i; var did = _formDraftIds[_i]; var conDatos = _draftsWithData.Contains(did); var enviado = _submittedDraftIds.Contains(did);
                                                     <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line-2);border-radius:11px;background:var(--surface)">
                                                         <span style="width:32px;height:32px;border-radius:9px;background:var(--surface-2);color:var(--ink-3);display:grid;place-items:center;flex:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2.5"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg></span>
                                                         <div style="flex:1;min-width:0">
                                                             <div style="font-weight:600;font-size:13.5px">Cotizacion @(idx + 1)</div>
-                                                            <div style="font-size:12px;color:@(conDatos ? "var(--t-green)" : "var(--ink-3)")">@(conDatos ? "Con datos" : "Vacio")</div>
+                                                            <div style="font-size:12px;color:@(conDatos ? "var(--t-green)" : "var(--ink-3)")">@(enviado ? "Enviado" : conDatos ? "Con datos" : "Vacio")</div>
                                                         </div>
                                                         <button type="button" @onclick="@(() => OpenWizFormAsync(did))" style="height:31px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;font-weight:600;font-size:12px;color:var(--ink-2);cursor:pointer">Editar</button>
                                                         <button type="button" @onclick="@(() => RemoveWizForm(did))" title="Quitar" style="height:31px;width:31px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface);font:inherit;color:var(--ink-3);cursor:pointer;flex:none">&times;</button>
@@ -800,18 +800,32 @@
         return Task.CompletedTask;
     }
 
-    /// <summary>Enviar (submit interno): tiene datos y se cierra el modal, conservando la tarjeta.</summary>
-    private async Task OnWizFormSubmittedAsync(FormResponseDto response)
+    /// <summary>Respuestas ya ENVIADAS desde el modal del wizard. Quedan bloqueadas (FlushDraftAsync devuelve
+    /// false sobre una respuesta enviada), asi que NO deben tratarse como borrador vacio al cerrar el modal:
+    /// antes "Enviar" sacaba la tarjeta de la lista y la respuesta quedaba huerfana (Reference=null, sin
+    /// anclarse a la tarea al guardar; las reglas de nodo no veian sus datos).</summary>
+    private readonly HashSet<Guid> _submittedDraftIds = new();
+
+    /// <summary>Enviar (submit interno): la respuesta queda con datos y se cierra el modal, conservando la
+    /// tarjeta para anclarla a la actividad al guardar.</summary>
+    private Task OnWizFormSubmittedAsync(FormResponseDto response)
     {
+        if (!_formDraftIds.Contains(response.Id)) { _formDraftIds.Add(response.Id); }
         _draftsWithData.Add(response.Id);
-        await CloseWizFormAsync();
+        _submittedDraftIds.Add(response.Id);
+        // Ya quedo persistida por el submit: se cierra SIN flush (sobre una respuesta enviada el flush
+        // devuelve false y la descartaria como vacia).
+        _wizFormModalOpen = false;
+        _wizFormOpenId = null;
+        _wizFormRenderer = null;
+        return Task.CompletedTask;
     }
 
     /// <summary>Cierra el modal: hace flush del borrador (no perder los ultimos campos, el autosave es cada
     /// 30 s y no salva al desmontar) y marca si tiene datos, para decidir el anclaje al guardar.</summary>
     private async Task CloseWizFormAsync()
     {
-        if (_wizFormRenderer is not null && _wizFormOpenId is Guid id)
+        if (_wizFormRenderer is not null && _wizFormOpenId is Guid id && !_submittedDraftIds.Contains(id))
         {
             var has = await _wizFormRenderer.FlushDraftAsync();
             if (has)
@@ -835,6 +849,7 @@
     {
         _formDraftIds.Remove(draftId);
         _draftsWithData.Remove(draftId);
+        _submittedDraftIds.Remove(draftId);
     }
 
     /// <summary>Ancla a la actividad recien creada TODOS los borradores con datos (-1, -2, ...). Asi las
@@ -983,6 +998,7 @@
     {
         _formDraftIds.Clear();
         _draftsWithData.Clear();
+        _submittedDraftIds.Clear();
         _wizFormModalOpen = false;
         _wizFormOpenId = null;
         _wizFormRenderer = null;

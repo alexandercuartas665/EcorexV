@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Asistente "Nueva actividad": el formulario ENVIADO dentro del asistente se liga a la tarea - SIN VERSION (rama fix/wizard-form-ligar-tarea)
+
+Agente: sesion Compras UX (Claude Opus 5.5). Solo UI (TaskWizard.razor), sin migracion.
+- BUG (visto en prod EMPRESA_DEMOSTRACION al probar v0.16.379): en el paso 3 del asistente, al llenar el formulario
+  y pulsar "Enviar", la tarjeta desaparecia ("Aun no agregaste ningun formulario") y al "Guardar actividad" la
+  respuesta quedaba huerfana (Submitted con Reference=null; en DEMO queda 01a208db-ef6c-...). Causa: tras el submit
+  el wizard cerraba el modal con FlushDraftAsync(), que sobre una respuesta ENVIADA (bloqueada) devuelve false, y
+  CloseWizFormAsync la trataba como borrador vacio y la sacaba de la lista -> AnchorWizFormsAsync no la anclaba.
+  Efecto: las reglas autonomas de nodo (buscan la respuesta por numero de tarea) no veian sus datos.
+- FIX: el wizard recuerda las respuestas enviadas (_submittedDraftIds); OnWizFormSubmittedAsync conserva la tarjeta
+  (marcada "Enviado") y cierra el modal SIN flush; CloseWizFormAsync no descarta una respuesta enviada al reabrirla.
+- PRUEBA local (5265, ANDINAS): asistente -> formulario SOL-PEDIDO con 2 productos -> Enviar -> tarjeta
+  "Cotizacion 1 / Enviado" -> Guardar actividad T00009 -> respuesta T00009-1 Submitted con las 2 filas. Build verde.
+- SIGUIENTE: merge al tronco + version (dev principal). La respuesta huerfana de DEMO prod no se toco.
+
 ## 2026-11-23 - Reglas autonomas de un paso del flujo reciben el formulario de la tarea - v0.16.379 DESPLEGADA
 
 - **Integracion + deploy (ECOREX.desarrollo, 2026-11-23 ~08:25 Bogota)**: merge --no-ff de feat/reglas-nodo-datos-form (44e37942) como v0.16.379 (0df21c18); lleva tambien v0.16.378 (cerebros olas 2 y 3, migracion AddBrainTemplates). Gates: build Release 0 errores, format ok, unitarias 1687/312/35, integracion dual Rule|Workflow|ScheduledJobs 54/54. OK expreso del usuario para desplegar YA (dentro de la ventana DRON; el usuario relanza el DRON a mano). Via rapida GHCR (CI 45180168803 verde). Footer /login = v0.16.379; migracion 20261123101812_AddBrainTemplates aplicada; Restarts=0; 0 errores. Rollback: sha256:0921462f...

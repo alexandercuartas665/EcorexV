@@ -2,16 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-23 - MCP ver_conector + guardar_conector edita solo lo enviado + tope de 20 min en importacion REST (ADR-0203) - v0.16.383 (rama feat/mcp-ver-conector)
+## 2026-11-23 - MCP ver_conector + guardar_conector edita solo lo enviado + tope de 20 min en importacion REST (ADR-0203) - v0.16.383 DESPLEGADA
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), a pedido de ECOREX.mcp. SIN migracion ni config.
 - **Motivo**: la importacion diaria 5am de "SECOP II - Recientes" (BITCODE) falla desde el 22-nov por timeout (paginas de ~32 s). ECOREX.mcp tiene el endpoint corregido, pero el MCP no podia leer la config del conector y guardar_conector en edicion BORRABA mapeo, tabla destino, headers e intercambio de token si no se reenviaban.
 - **Hecho**: tool `ver_conector(contenedor, conector)` (solo lectura, sin secretos: credenciales solo "tiene_credenciales", headers solo nombres, parametros sensibles del endpoint y userinfo enmascarados con `ConnectorSecretMask`); `guardar_conector` en edicion conserva todo lo no enviado (nombre/tipo obligatorios solo al crear) y rechaza un endpoint con `***`; `ApiImportService.RunBudget` = 20 min por corrida paginada (se detiene antes de la siguiente pagina y conserva lo importado). MCP de tableros: 157 tools. ADR-0203.
 - **Pruebas**: build Release 0 errores, format ok, unitarias 1696 (+9 `ConnectorSecretMaskTests`)/312/35, integracion dual McpTableros|ApiImport|DataImport|ImportClasificacion 56/56 (nuevo `VerConector_SinSecretos_YEditarSoloEndpoint_ConservaMapeoDestinoYHeaders`).
-- **Integracion**: merge --no-ff como v0.16.383 sobre v0.16.382. Gates conjuntos 382+383: build Release 0 errores, format ok, unitarias 1696/312/35, integracion dual Requerimiento|Compras|McpTableros|ApiImport|DataImport 44/44.
+- **Integracion**: merge --no-ff como v0.16.383 sobre v0.16.382. Gates conjuntos 382+383: build Release 0 errores, format ok, unitarias 1696/312/35, integracion dual Requerimiento|Compras|McpTableros|ApiImport|DataImport 44/44. OK expreso del usuario para desplegar. Deploy 2026-11-23 Bogota via rapida GHCR (imagen de 98e3b63d, lleva 382+383): footer /login = v0.16.383, Restarts=0, 0 errores. Rollback: sha256:5953f3ca...
 - **Siguiente**: deploy con OK del usuario; luego ECOREX.mcp corrige el endpoint de "SECOP II - Recientes" con ver_conector -> guardar_conector.
 
-## 2026-11-23 - Requerimientos: total de la OC con IVA/descuento + el responsable de compras emite la OC - v0.16.382 (rama fix/wizard-form-ligar-tarea)
+## 2026-11-23 - Requerimientos: total de la OC con IVA/descuento + el responsable de compras emite la OC - v0.16.382 DESPLEGADA (con v0.16.383)
 
 - **Integracion (ECOREX.desarrollo, 2026-11-23)**: merge --no-ff de fix/wizard-form-ligar-tarea (dc750d3d) como v0.16.382. Gates junto con v0.16.383 (ver esa entrada). Despliegue solo con OK del usuario en la sesion de integracion.
 

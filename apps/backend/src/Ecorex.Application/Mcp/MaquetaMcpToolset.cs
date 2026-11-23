@@ -38,7 +38,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     private static readonly HashSet<string> ReadOnly = new(StringComparer.Ordinal)
     {
         "listar_proyectos", "listar_solicitudes", "ver_solicitud", "listar_versiones", "como_publicar_version",
-        "listar_notas", "buscar_notas", "ver_nota", "grafo_cerebro", "listar_adjuntos", "ver_adjunto"
+        "listar_notas", "buscar_notas", "ver_nota", "grafo_cerebro", "listar_adjuntos", "ver_adjunto", "listar_cerebros"
     };
 
     private static readonly HashSet<string> Destructive = new(StringComparer.Ordinal);
@@ -80,40 +80,46 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             "aplicar el cambio en la maqueta (idealmente despues de publicar la version, indicandola en la nota).",
             """{"type":"object","properties":{"numero":{"type":"string"},"nota":{"type":"string","description":"Que se cambio (archivo, version publicada)"},"motivo_cierre":{"type":"string","description":"Concepto de cierre si el tablero lo exige"}},"required":["numero","nota"],"additionalProperties":false}"""),
 
-        // Cerebro digital del proyecto (ADR-0183): notas markdown enlazadas tipo Obsidian.
+        // Cerebros (ADR-0183; modulo propio desde ADR-0200): notas markdown enlazadas tipo Obsidian. Las tools reciben
+        // 'cerebro' (slug, ola 4) o, por compatibilidad, 'proyecto' (usa el cerebro PRINCIPAL de esa maqueta).
+        new("listar_cerebros",
+            "Lista los CEREBROS de la empresa (bases de notas tipo Obsidian): slug, nombre, categoria, cuantas notas tiene, " +
+            "si es de SOLO LECTURA (sembrado por la plataforma) y a que maquetas esta vinculado (y si es su principal). " +
+            "Pasa su slug como 'cerebro' en las demas herramientas de notas.",
+            """{"type":"object","properties":{"texto":{"type":"string","description":"Filtra por nombre, descripcion o categoria"}},"additionalProperties":false}"""),
         new("listar_notas",
-            "Lista las notas del CEREBRO DIGITAL del proyecto (notas tipo Obsidian sobre lo que se esta construyendo en la " +
+            "Lista las notas de un CEREBRO (notas tipo Obsidian: decisiones, conocimiento, lo que se construye en una " +
             "maqueta): titulo, resumen, enlaces salientes y cuantas notas la enlazan. Mas recientes primero.",
-            """{"type":"object","properties":{"proyecto":{"type":"string"}},"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"}},"additionalProperties":false}"""),
         new("buscar_notas",
             "Busca notas del cerebro digital por texto en el titulo o en el contenido.",
-            """{"type":"object","properties":{"proyecto":{"type":"string"},"texto":{"type":"string"}},"required":["texto"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"},"texto":{"type":"string"}},"required":["texto"],"additionalProperties":false}"""),
         new("ver_nota",
             "Contenido completo de una nota del cerebro (markdown), su version, sus enlaces salientes ya resueltos (notas, " +
             "pantallas .html de la maqueta, tarjetas T00000, etiquetas) y las notas que la enlazan (backlinks).",
-            """{"type":"object","properties":{"proyecto":{"type":"string"},"titulo":{"type":"string"}},"required":["titulo"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"},"titulo":{"type":"string"}},"required":["titulo"],"additionalProperties":false}"""),
         new("crear_nota",
-            "Crea una nota en el cerebro digital del proyecto. Sintaxis de enlaces: [[Titulo de nota]], [[Titulo|texto]], " +
+            "Crea una nota en el cerebro (no se puede en uno de solo lectura). Sintaxis de enlaces: [[Titulo de nota]], [[Titulo|texto]], " +
             "[[pantalla.html]] (pantalla de la maqueta), [[T00046]] (solicitud) y #etiqueta. Un enlace a una nota que no " +
             "existe queda como nodo pendiente. Usala para guardar conclusiones, decisiones y preguntas abiertas.",
-            """{"type":"object","properties":{"proyecto":{"type":"string"},"titulo":{"type":"string","description":"Max 200, sin [ ] | # ^"},"contenido":{"type":"string","description":"Markdown"}},"required":["titulo","contenido"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"},"titulo":{"type":"string","description":"Max 200, sin [ ] | # ^"},"contenido":{"type":"string","description":"Markdown"}},"required":["titulo","contenido"],"additionalProperties":false}"""),
         new("editar_nota",
             "Edita una nota del cerebro: modo 'agregar' (por defecto) anade el contenido al final; 'reemplazar' sustituye " +
             "todo el cuerpo (pasa la 'version' que te dio ver_nota para no pisar cambios ajenos). 'nuevo_titulo' la " +
             "renombra y actualiza los [[enlaces]] de las demas notas.",
-            """{"type":"object","properties":{"proyecto":{"type":"string"},"titulo":{"type":"string"},"contenido":{"type":"string"},"modo":{"type":"string","enum":["agregar","reemplazar"]},"nuevo_titulo":{"type":"string"},"version":{"type":"integer"}},"required":["titulo"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"},"titulo":{"type":"string"},"contenido":{"type":"string"},"modo":{"type":"string","enum":["agregar","reemplazar"]},"nuevo_titulo":{"type":"string"},"version":{"type":"integer"}},"required":["titulo"],"additionalProperties":false}"""),
         new("grafo_cerebro",
             "Resumen del grafo del cerebro digital: nodos (notas, pantallas, tarjetas, etiquetas y notas pendientes por " +
             "crear) con su grado de conexion, y las aristas. Sirve para ver de que trata el proyecto y que esta suelto.",
-            """{"type":"object","properties":{"proyecto":{"type":"string"}},"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"}},"additionalProperties":false}"""),
         new("listar_adjuntos",
             "Lista los adjuntos del cerebro digital (imagenes y PDF: diagramas, bocetos, capturas, documentos): nombre, " +
             "tipo, tamano y en que notas se embeben (![[nombre]]). Usa ver_adjunto para mirar una imagen.",
-            """{"type":"object","properties":{"proyecto":{"type":"string"}},"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"}},"additionalProperties":false}"""),
         new("ver_adjunto",
             "Devuelve un adjunto del cerebro como IMAGEN para que la mires (diagramas, bocetos, capturas). Los PDF no se " +
             "devuelven: solo su informacion. Pasa el nombre exacto de listar_adjuntos o el que aparece en ![[...]].",
-            """{"type":"object","properties":{"proyecto":{"type":"string"},"nombre":{"type":"string","description":"Nombre del adjunto, ej. boceto.png"}},"required":["nombre"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"cerebro":{"type":"string","description":"Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto."},"proyecto":{"type":"string"},"nombre":{"type":"string","description":"Nombre del adjunto, ej. boceto.png"}},"required":["nombre"],"additionalProperties":false}"""),
     };
 
     private readonly IApplicationDbContext _db;
@@ -162,6 +168,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             "comentar_solicitud" => await DelegateAsync(args, actor, "comentar", "texto", cancellationToken),
             "mover_solicitud" => await DelegateAsync(args, actor, "mover_tarea", null, cancellationToken),
             "resolver_solicitud" => await ResolveAsync(args, actor, cancellationToken),
+            "listar_cerebros" => await ListBrainsAsync(args, cancellationToken),
             "listar_notas" => await ListNotesAsync(args, null, cancellationToken),
             "buscar_notas" => Str(args, "texto") is { } texto
                 ? await ListNotesAsync(args, texto, cancellationToken)
@@ -385,13 +392,13 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
 
     private async Task<McpToolResult> ListNotesAsync(JsonElement args, string? texto, CancellationToken ct)
     {
-        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(args, ct);
         if (error is not null) { return Err(error); }
         var notes = await _brain.ListNotesAsync(slug!, texto, ct);
         return Ok(new
         {
             ok = true,
-            proyecto = slug,
+            cerebro = slug,
             buscar = texto,
             total = notes.Count,
             notas = notes.Take(MaxList).Select(n => new
@@ -404,9 +411,9 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
                 por = n.UpdatedByName
             }),
             nota = notes.Count == 0
-                ? (texto is null ? "El cerebro de este proyecto esta vacio: crea la primera nota con crear_nota." : "Ninguna nota coincide.")
+                ? (texto is null ? "El cerebro esta vacio: crea la primera nota con crear_nota." : "Ninguna nota coincide.")
                 : null,
-            cerebro = Url($"/maqueta/{slug}?tab=cerebro")
+            enlace = Url($"/cerebros/{slug}")
         });
     }
 
@@ -414,7 +421,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     {
         var titulo = Str(args, "titulo");
         if (titulo is null) { return Err("'titulo' es obligatorio."); }
-        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(args, ct);
         if (error is not null) { return Err(error); }
         var note = await _brain.GetNoteAsync(slug!, null, titulo, ct);
         if (note is null) { return Err($"No existe la nota '{titulo}' en el cerebro de '{slug}'. Usa listar_notas o buscar_notas."); }
@@ -429,13 +436,13 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
 
     private async Task<McpToolResult> ListAssetsAsync(JsonElement args, CancellationToken ct)
     {
-        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(args, ct);
         if (error is not null) { return Err(error); }
         var assets = await _brain.ListAssetsAsync(slug!, true, ct);
         return Ok(new
         {
             ok = true,
-            proyecto = slug,
+            cerebro = slug,
             total = assets.Count,
             adjuntos = assets.Take(MaxList).Select(a => new
             {
@@ -452,7 +459,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     {
         var nombre = Str(args, "nombre");
         if (nombre is null) { return Err("'nombre' es obligatorio."); }
-        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(args, ct);
         if (error is not null) { return Err(error); }
         var key = MockupBrainAssets.Key(nombre);
         var asset = (await _brain.ListAssetsAsync(slug!, true, ct)).FirstOrDefault(a => MockupBrainAssets.Key(a.Name) == key);
@@ -463,7 +470,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         var info = new
         {
             ok = true,
-            proyecto = slug,
+            cerebro = slug,
             nombre = asset.Name,
             tipo = asset.IsImage ? "imagen" : "pdf",
             kb = Math.Max(1, asset.SizeBytes / 1024),
@@ -487,7 +494,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         var titulo = Str(args, "titulo");
         if (titulo is null) { return Err("'titulo' es obligatorio."); }
         var contenido = RawStr(args, "contenido") ?? string.Empty;
-        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(args, ct);
         if (error is not null) { return Err(error); }
         var res = await _brain.SaveNoteAsync(slug!, null, titulo, contenido, null, ViaIa(actor), ct);
         return res.IsOk ? Ok(NotePayload(slug!, res.Value!)) : Err(res.Error ?? "No se pudo crear la nota.");
@@ -497,7 +504,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     {
         var titulo = Str(args, "titulo");
         if (titulo is null) { return Err("'titulo' es obligatorio."); }
-        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(args, ct);
         if (error is not null) { return Err(error); }
         var note = await _brain.GetNoteAsync(slug!, null, titulo, ct);
         if (note is null) { return Err($"No existe la nota '{titulo}'. Usa crear_nota."); }
@@ -518,7 +525,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
 
     private async Task<McpToolResult> GraphAsync(JsonElement args, CancellationToken ct)
     {
-        var (slug, error) = await ResolveBrainAsync(Str(args, "proyecto"), ct);
+        var (slug, error) = await ResolveBrainAsync(args, ct);
         if (error is not null) { return Err(error); }
         var graph = await _brain.GetGraphAsync(slug!, ct);
         if (graph is null) { return Err($"No existe el proyecto de maqueta '{slug}'."); }
@@ -526,7 +533,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         return Ok(new
         {
             ok = true,
-            proyecto = slug,
+            cerebro = slug,
             nodos = graph.Nodes.Count,
             aristas = graph.Edges.Count,
             por_tipo = graph.Nodes.GroupBy(n => n.Kind).ToDictionary(g => TipoNodo(g.Key), g => g.Count()),
@@ -542,7 +549,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     private object NotePayload(string slug, MockupNoteDto note, IReadOnlyList<object>? adjuntos = null) => new
     {
         ok = true,
-        proyecto = slug,
+        cerebro = slug,
         titulo = note.Title,
         version = note.Version,
         contenido = note.Body,
@@ -557,7 +564,7 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
         }),
         la_enlazan = note.Backlinks.Select(b => new { titulo = b.Title, resumen = b.Snippet }),
         adjuntos,
-        abrir = Url($"/maqueta/{slug}?tab=cerebro&nota={Uri.EscapeDataString(note.Title)}")
+        abrir = Url($"/cerebros/{slug}?nota={Uri.EscapeDataString(note.Title)}")
     };
 
     private static McpActor ViaIa(McpActor actor)
@@ -594,13 +601,32 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
     }
 
     /// <summary>
-    /// Cerebro de una maqueta (ADR-0200): el PRINCIPAL vinculado al proyecto. Por compatibilidad "proyecto" tambien
-    /// acepta directamente el slug de un cerebro (los migrados comparten slug con su maqueta).
+    /// Cerebro de las herramientas de notas (ADR-0200 ola 4): 'cerebro' (slug) tiene prioridad; si no viene, 'proyecto'
+    /// usa el cerebro PRINCIPAL de esa maqueta (compatibilidad; un slug de cerebro tambien sirve). Sin ninguno: si la
+    /// empresa tiene un solo cerebro, ese; si no, el de la unica maqueta.
     /// </summary>
-    private async Task<(string? Slug, string? Error)> ResolveBrainAsync(string? proyecto, CancellationToken ct)
+    private async Task<(string? Slug, string? Error)> ResolveBrainAsync(JsonElement args, CancellationToken ct)
     {
+        if (Str(args, "cerebro") is { } cerebro)
+        {
+            var clean = cerebro.Trim().ToLowerInvariant();
+            if (!MockupService.IsValidSlug(clean)) { return (null, $"Cerebro invalido: '{cerebro}'. Usa el slug de listar_cerebros."); }
+            return await _db.Brains.AsNoTracking().AnyAsync(b => b.Slug == clean, ct)
+                ? (clean, null)
+                : (null, $"No existe el cerebro '{clean}'. Usa listar_cerebros.");
+        }
+        var proyecto = Str(args, "proyecto");
+        if (proyecto is null)
+        {
+            var only = await _db.Brains.AsNoTracking().OrderBy(b => b.Name).Select(b => b.Slug).Take(2).ToListAsync(ct);
+            if (only.Count == 1) { return (only[0], null); }
+            if (only.Count > 1 && (await _mockups.ListProjectsAsync(ct)).Count != 1)
+            {
+                return (null, "Indica 'cerebro' (slug de listar_cerebros) o 'proyecto' (maqueta).");
+            }
+        }
         var (slug, error) = await ResolveProjectAsync(proyecto, ct);
-        if (error is not null) { return (null, error); }
+        if (error is not null) { return (null, error + " O indica 'cerebro' (ver listar_cerebros)."); }
         var primary = await (from l in _db.MockupProjectBrains.AsNoTracking()
                              join p in _db.MockupProjects.AsNoTracking() on l.MockupProjectId equals p.Id
                              join b in _db.Brains.AsNoTracking() on l.BrainId equals b.Id
@@ -610,7 +636,71 @@ public sealed class MaquetaMcpToolset : IMaquetaMcpToolset
             .FirstOrDefaultAsync(ct);
         if (primary is not null) { return (primary, null); }
         if (await _db.Brains.AsNoTracking().AnyAsync(x => x.Slug == slug, ct)) { return (slug, null); }
-        return (null, $"La maqueta '{slug}' no tiene cerebro vinculado. Crealo desde la pestana Cerebro de la maqueta o en el modulo Cerebros.");
+        return (null, $"La maqueta '{slug}' no tiene cerebro vinculado. Crealo desde la pestana Cerebros de la maqueta o usa 'cerebro' (listar_cerebros).");
+    }
+
+    /// <summary>listar_cerebros (ADR-0200 ola 4): cerebros activos del tenant con su categoria, notas, candado y maquetas.</summary>
+    private async Task<McpToolResult> ListBrainsAsync(JsonElement args, CancellationToken ct)
+    {
+        var term = (Str(args, "texto") ?? string.Empty).Trim().ToLowerInvariant();
+        var query = _db.Brains.AsNoTracking();
+        if (term.Length > 0)
+        {
+            query = query.Where(b => b.Name.ToLower().Contains(term)
+                || (b.Description != null && b.Description.ToLower().Contains(term))
+                || (b.Category != null && b.Category.Name.ToLower().Contains(term)));
+        }
+        var brains = await query
+            .OrderBy(b => b.Name)
+            .Select(b => new
+            {
+                b.Id,
+                b.Slug,
+                b.Name,
+                b.Description,
+                b.IsLocked,
+                b.SourceTemplateId,
+                Categoria = b.Category != null ? b.Category.Name : null
+            })
+            .Take(200)
+            .ToListAsync(ct);
+        var ids = brains.Select(b => b.Id).ToList();
+        var notes = await _db.MockupNotes.AsNoTracking()
+            .Where(n => ids.Contains(n.BrainId))
+            .GroupBy(n => n.BrainId)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+        var links = await (from l in _db.MockupProjectBrains.AsNoTracking()
+                           join p in _db.MockupProjects.AsNoTracking() on l.MockupProjectId equals p.Id
+                           where p.DeletedAt == null && ids.Contains(l.BrainId)
+                           select new { l.BrainId, l.MockupProjectId, l.SortOrder, l.CreatedAt, p.Slug })
+            .ToListAsync(ct);
+        // Principal de cada maqueta = menor orden entre sus cerebros ACTIVOS (los de esta lista).
+        var allLinks = await (from l in _db.MockupProjectBrains.AsNoTracking()
+                              join b in _db.Brains.AsNoTracking() on l.BrainId equals b.Id
+                              select new { l.BrainId, l.MockupProjectId, l.SortOrder, l.CreatedAt })
+            .ToListAsync(ct);
+        var primaryByProject = allLinks.GroupBy(l => l.MockupProjectId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.SortOrder).ThenBy(x => x.CreatedAt).First().BrainId);
+        return Ok(new
+        {
+            ok = true,
+            total = brains.Count,
+            cerebros = brains.Select(b => new
+            {
+                cerebro = b.Slug,
+                nombre = b.Name,
+                descripcion = b.Description,
+                categoria = b.Categoria,
+                notas = notes.GetValueOrDefault(b.Id),
+                solo_lectura = b.IsLocked,
+                sembrado_por_plataforma = b.SourceTemplateId is not null,
+                maquetas = links.Where(l => l.BrainId == b.Id).OrderBy(l => l.Slug)
+                    .Select(l => new { proyecto = l.Slug, principal = primaryByProject.GetValueOrDefault(l.MockupProjectId) == b.Id })
+                    .ToList()
+            }).ToList(),
+            sugerencia = "Pasa 'cerebro' (slug) a listar_notas, ver_nota, crear_nota, editar_nota, grafo_cerebro y adjuntos."
+        });
     }
 
     /// <summary>Proyecto por slug; si no viene y la empresa tiene UNO solo, ese. Un slug sin proyecto (origen del kit

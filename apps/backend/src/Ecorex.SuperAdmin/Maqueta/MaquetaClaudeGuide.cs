@@ -16,19 +16,19 @@ public static class MaquetaClaudeGuide
         => $"claude mcp add --transport http {ServerName} {mcpUrl} --header \"Authorization: Bearer <TU_TOKEN_DE_MAQUETAS>\"";
 
     /// <summary>
-    /// Prompts de ejemplo para pensar con la maqueta y su cerebro. Se personalizan con el proyecto y, si los hay, la
-    /// nota y la pantalla abiertas. Sin proyecto se usa el marcador "{proyecto}".
+    /// Prompts de ejemplo para pensar con un cerebro (ADR-0200 ola 4: el slug es el del CEREBRO y se pasa como
+    /// 'cerebro' al MCP). Se personalizan con la nota y la pantalla abiertas. Sin slug se usa el marcador "{cerebro}".
     /// </summary>
     public static IReadOnlyList<(string Title, string Prompt)> Prompts(string? slug, string? nota = null, string? pantalla = null)
     {
-        var p = string.IsNullOrWhiteSpace(slug) ? "{proyecto}" : slug.Trim();
+        var p = string.IsNullOrWhiteSpace(slug) ? "{cerebro}" : slug.Trim();
         var list = new List<(string, string)>
         {
             ("Ponerte al dia",
-                $"Usa el MCP ecorex-maquetas. Lee el grafo y las notas del cerebro del proyecto {p} y las solicitudes " +
-                "abiertas. Resumeme en que estamos, que decisiones ya tomamos y que quedo suelto o sin responder."),
+                $"Usa el MCP ecorex-maquetas con cerebro={p}. Lee el grafo y las notas de ese cerebro y, si esta vinculado a " +
+                "una maqueta, sus solicitudes abiertas. Resumeme en que estamos, que decisiones ya tomamos y que quedo suelto o sin responder."),
             ("Pensar una pantalla",
-                $"En el proyecto {p}, revisa la pantalla {(string.IsNullOrWhiteSpace(pantalla) ? "<archivo.html>" : pantalla)}: " +
+                $"Con el cerebro {p} y su maqueta vinculada, revisa la pantalla {(string.IsNullOrWhiteSpace(pantalla) ? "<archivo.html>" : pantalla)}: " +
                 "que notas del cerebro y que solicitudes la mencionan. Proponme 3 mejoras y, si te digo que si, guardalas " +
                 "en una nota nueva enlazada a esa pantalla con [[" + (string.IsNullOrWhiteSpace(pantalla) ? "archivo.html" : pantalla) + "]]."),
             ("Ordenar el cerebro",

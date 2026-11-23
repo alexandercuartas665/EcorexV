@@ -85,6 +85,109 @@ public sealed class FileStorageService(
         return Map(entity);
     }
 
+    public async Task<StoredFileDto> SaveStreamAsync(FileStorageStreamSaveRequest request, CancellationToken ct = default)
+    {
+        // ADR-0202: igual que SaveAsync pero el binario fluye del stream al blob/disco sin pasar por un byte[].
+        if (tenant.TenantId is not Guid tenantId) { throw new InvalidOperationException("No hay tenant activo."); }
+
+        var module = Clean(request.Module, "archivos");
+        var ext = SanitizeExt(Path.GetExtension(request.FileName));
+        var id = Guid.CreateVersion7();
+        var ref1Seg = SafeSeg(request.Ref1);
+        var blobPath = $"{module}/{tenantId:N}/{ref1Seg}/{id:N}{ext}";
+        var counting = new CountingReadStream(request.Content);
+
+        var container = await GetBlobContainerAsync(ct);
+        string provider;
+        if (container is not null)
+        {
+            await container.CreateIfNotExistsAsync(cancellationToken: ct);
+            var blob = container.GetBlobClient(blobPath);
+            var opts = new BlobUploadOptions { HttpHeaders = new BlobHttpHeaders { ContentType = request.ContentType } };
+            await blob.UploadAsync(counting, opts, ct);
+            provider = "AzureBlob";
+        }
+        else
+        {
+            var dir = Path.Combine(env.WebRootPath, "uploads", module, tenantId.ToString("N"), ref1Seg);
+            Directory.CreateDirectory(dir);
+            await using (var output = File.Create(Path.Combine(dir, $"{id:N}{ext}")))
+            {
+                await counting.CopyToAsync(output, ct);
+            }
+            provider = "Local";
+        }
+
+        var entity = new StoredFile
+        {
+            Id = id,
+            TenantId = tenantId,
+            Module = module,
+            Ref1 = request.Ref1,
+            Ref2 = request.Ref2,
+            FileName = Path.GetFileName(request.FileName),
+            ContentType = request.ContentType,
+            Extension = ext,
+            SizeBytes = counting.BytesRead,
+            BlobPath = blobPath,
+            Provider = provider,
+        };
+        db.StoredFiles.Add(entity);
+        try { await db.SaveChangesAsync(ct); }
+        catch { db.Entry(entity).State = EntityState.Detached; throw; }
+        return Map(entity);
+    }
+
+    public async Task<FileStorageStream?> OpenReadAsync(Guid fileId, CancellationToken ct = default)
+    {
+        var f = await db.StoredFiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == fileId, ct);
+        if (f is null) { return null; }
+        var ctype = string.IsNullOrWhiteSpace(f.ContentType) ? "application/octet-stream" : f.ContentType!;
+        if (f.Provider == "AzureBlob")
+        {
+            var container = await GetBlobContainerAsync(ct);
+            if (container is null) { return null; }
+            var blob = container.GetBlobClient(f.BlobPath);
+            if (!await blob.ExistsAsync(ct)) { return null; }
+            // Stream perezoso y buscable: descarga por bloques solo lo que se pide (rangos del <video>).
+            var stream = await blob.OpenReadAsync(new BlobOpenReadOptions(allowModifications: false), ct);
+            return new FileStorageStream(stream, ctype, f.FileName, stream.Length);
+        }
+        var full = Path.Combine(env.WebRootPath, "uploads", f.BlobPath.Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(full)) { return null; }
+        var fs = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        return new FileStorageStream(fs, ctype, f.FileName, fs.Length);
+    }
+
+    /// <summary>Envoltorio de solo lectura que cuenta los bytes leidos (tamano real de una subida por stream).</summary>
+    private sealed class CountingReadStream(Stream inner) : Stream
+    {
+        public long BytesRead { get; private set; }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => BytesRead; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var n = inner.Read(buffer, offset, count);
+            BytesRead += n;
+            return n;
+        }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var n = await inner.ReadAsync(buffer, cancellationToken);
+            BytesRead += n;
+            return n;
+        }
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     public async Task<IReadOnlyList<StoredFileDto>> ListAsync(string module, string? ref1 = null, string? ref2 = null, CancellationToken ct = default)
     {
         var q = db.StoredFiles.AsNoTracking().Where(f => f.Module == module);

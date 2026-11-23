@@ -1,0 +1,582 @@
+@page "/formacion/admin/{Id:guid}"
+@attribute [Authorize(Policy = Ecorex.SuperAdmin.Endpoints.FormacionEndpoints.EditPolicy)]
+@* Editor de un curso de FORMACION (ADR-0202, ola 1). Izquierda: datos del curso (portada, titulo, categoria,
+   descripcion, duracion, publicado) y asignaciones como obligatorio (todos / usuario / dependencia o cargo, con
+   fecha limite). Derecha: modulos -> lecciones (agregar, renombrar, ordenar, eliminar) y el panel de la leccion
+   elegida segun su tipo: video subido, enlace YouTube/Vimeo, PDF, imagen, texto (HTML saneado), wizard HTML (.zip o
+   .html) o archivo. Las subidas van por stream al gestor de archivos (no se cargan enteras en memoria). Solo ASCII. *@
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Formacion
+@using Ecorex.Domain.Entities
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Nav
+
+<PageTitle>@(_curso?.Titulo ?? "Curso") - Administrar formacion</PageTitle>
+
+<nav class="ecorex-breadcrumb" aria-label="Ruta de navegacion">
+    <a href="/inicio">Workspace</a>
+    <span class="sep">/</span>
+    <a href="/formacion">Formacion</a>
+    <span class="sep">/</span>
+    <a href="/formacion/admin">Administrar cursos</a>
+    <span class="sep">/</span>
+    <span class="cur">@(_curso?.Titulo ?? "Curso")</span>
+</nav>
+
+@if (_loading)
+{
+    <div class="fm-muted">Cargando...</div>
+}
+else if (_curso is null)
+{
+    <div class="fm-empty">El curso no existe. <a href="/formacion/admin">Volver</a></div>
+}
+else
+{
+    <div class="fm-bar">
+        <div class="fm-title">
+            <h1 class="page-title" style="margin:0;">@_curso.Titulo</h1>
+            <span class="fm-badge @(_curso.Publicado ? "done" : "draft")">@(_curso.Publicado ? "Publicado" : "Borrador")</span>
+        </div>
+        <div class="fm-actions">
+            <a class="btn btn-sm btn-outline-secondary" href="@($"/formacion/curso/{_curso.Id}")" target="_blank" rel="noopener"><i class="fa-regular fa-eye"></i> Ver como alumno</a>
+        </div>
+    </div>
+
+    @if (_msg is not null)
+    {
+        <div class="alert @(_msgError ? "alert-danger" : "alert-success") py-2 fm-alert">@_msg</div>
+    }
+
+    <div class="fm-editor">
+        <div>
+            <div class="fm-panel">
+                <h3><i class="fa-solid fa-circle-info"></i> Datos del curso</h3>
+                <div class="fm-form">
+                    <div class="fm-cover-edit">
+                        @if (_curso.PortadaUrl is not null)
+                        {
+                            <img src="@_curso.PortadaUrl" alt="Portada" />
+                        }
+                        else
+                        {
+                            <i class="fa-solid fa-graduation-cap"></i>
+                        }
+                    </div>
+                    <label>
+                        Portada (imagen, max 20 MB)
+                        <InputFile class="form-control form-control-sm" accept="image/*" OnChange="SubirPortadaAsync" disabled="@_busy" />
+                    </label>
+                    <label>Titulo<input class="form-control form-control-sm" @bind="_titulo" maxlength="200" /></label>
+                    <label>Categoria<input class="form-control form-control-sm" @bind="_categoria" maxlength="80" placeholder="Ej. Seguridad, Comercial" /></label>
+                    <label>Descripcion<textarea class="form-control form-control-sm" rows="3" @bind="_descripcion" maxlength="2000"></textarea></label>
+                    <label>Duracion estimada (minutos)<input type="number" min="0" class="form-control form-control-sm" @bind="_duracion" /></label>
+                    <label class="fm-switch"><input type="checkbox" class="form-check-input" @bind="_publicado" /> Publicado (visible en el catalogo)</label>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="GuardarCursoAsync">Guardar curso</button>
+                        <button class="btn btn-sm btn-outline-danger ms-auto" disabled="@_busy" @onclick="EliminarCursoAsync">@(_confirmarEliminar ? "Confirmar: eliminar" : "Eliminar curso")</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="fm-panel">
+                <h3><i class="fa-solid fa-user-check"></i> Obligatorio para</h3>
+                @if (_asignaciones.Count == 0)
+                {
+                    <div class="fm-muted-sm" style="margin-bottom:8px;">Sin asignaciones: el curso solo aparece en el catalogo (opcional).</div>
+                }
+                else
+                {
+                    <table class="fm-table" style="margin-bottom:10px;">
+                        <thead><tr><th>Para</th><th>Limite</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _asignaciones)
+                            {
+                                var asig = a;
+                                <tr>
+                                    <td>@a.DestinoNombre <div class="fm-muted-sm">@a.Personas persona(s)</div></td>
+                                    <td>@(a.FechaLimite?.ToString("dd/MM/yyyy") ?? "-")</td>
+                                    <td><button class="fm-icon" title="Quitar" disabled="@_busy" @onclick="() => QuitarAsignacionAsync(asig)"><i class="fa-regular fa-trash-can"></i></button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                <div class="fm-form">
+                    <label>
+                        Para
+                        <select class="form-select form-select-sm" @bind="_asigDestino">
+                            <option value="@CursoAsignacionDestino.Todos">Todos los usuarios</option>
+                            <option value="@CursoAsignacionDestino.Usuario">Un usuario</option>
+                            <option value="@CursoAsignacionDestino.Unidad">Una dependencia o cargo</option>
+                        </select>
+                    </label>
+                    @if (_asigDestino == CursoAsignacionDestino.Usuario)
+                    {
+                        <label>
+                            Usuario
+                            <select class="form-select form-select-sm" @bind="_asigUsuario">
+                                <option value="">Elige...</option>
+                                @foreach (var u in _usuarios)
+                                {
+                                    <option value="@u.Id">@u.Nombre</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    else if (_asigDestino == CursoAsignacionDestino.Unidad)
+                    {
+                        <label>
+                            Dependencia o cargo
+                            <select class="form-select form-select-sm" @bind="_asigUnidad">
+                                <option value="">Elige...</option>
+                                @foreach (var u in _unidades)
+                                {
+                                    <option value="@u.Id">@u.Nombre (@u.Detalle)</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    <label>Fecha limite (opcional)<input type="date" class="form-control form-control-sm" @bind="_asigFecha" /></label>
+                    <button class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="AgregarAsignacionAsync">Asignar</button>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <div class="fm-panel">
+                <h3><i class="fa-solid fa-layer-group"></i> Contenido <span class="fm-muted-sm">(@_curso.Modulos.Count modulos, @_curso.TotalLecciones lecciones)</span></h3>
+                @for (var mi = 0; mi < _curso.Modulos.Count; mi++)
+                {
+                    var m = _curso.Modulos[mi];
+                    var idx = mi;
+                    <div class="fm-module">
+                        <div class="fm-module-head">
+                            <input class="form-control form-control-sm" value="@m.Titulo" maxlength="200" title="Nombre del modulo"
+                                   @onchange="e => RenombrarModuloAsync(m, e.Value?.ToString())" />
+                            <button class="fm-icon" title="Subir" disabled="@(idx == 0 || _busy)" @onclick="() => MoverModuloAsync(m, -1)"><i class="fa-solid fa-arrow-up"></i></button>
+                            <button class="fm-icon" title="Bajar" disabled="@(idx == _curso.Modulos.Count - 1 || _busy)" @onclick="() => MoverModuloAsync(m, 1)"><i class="fa-solid fa-arrow-down"></i></button>
+                            <button class="fm-icon" title="Eliminar modulo y sus lecciones" disabled="@_busy" @onclick="() => EliminarModuloAsync(m)">
+                                <i class="fa-regular fa-trash-can @(_confirmarModulo == m.Id ? "text-danger" : null)"></i>
+                            </button>
+                        </div>
+                        @for (var li = 0; li < m.Lecciones.Count; li++)
+                        {
+                            var l = m.Lecciones[li];
+                            var lidx = li;
+                            <div class="fm-lesson @(_leccion?.Id == l.Id ? "on" : null)" @onclick="() => Elegir(l)">
+                                <span class="fm-type"><i class="@FormacionCursoPage.TipoIcono(l.Tipo)"></i></span>
+                                <span class="fm-name">@l.Titulo</span>
+                                @if (!l.TieneContenido)
+                                {
+                                    <span class="fm-warn" title="Le falta el archivo, enlace o texto"><i class="fa-solid fa-triangle-exclamation"></i> sin contenido</span>
+                                }
+                                <button class="fm-icon" title="Subir" disabled="@(lidx == 0 || _busy)" @onclick="() => MoverLeccionAsync(l, -1)" @onclick:stopPropagation><i class="fa-solid fa-arrow-up"></i></button>
+                                <button class="fm-icon" title="Bajar" disabled="@(lidx == m.Lecciones.Count - 1 || _busy)" @onclick="() => MoverLeccionAsync(l, 1)" @onclick:stopPropagation><i class="fa-solid fa-arrow-down"></i></button>
+                            </div>
+                        }
+                        <div class="fm-add">
+                            <input class="form-control form-control-sm" placeholder="Nueva leccion" maxlength="200"
+                                   value="@NuevaLeccionTitulo(m.Id)" @onchange="e => _nuevaLeccion[m.Id] = e.Value?.ToString() ?? string.Empty" />
+                            <select class="form-select form-select-sm" style="max-width:190px;" value="@NuevaLeccionTipo(m.Id)"
+                                    @onchange="e => _nuevaLeccionTipo[m.Id] = Enum.Parse<CursoLeccionTipo>(e.Value?.ToString() ?? nameof(CursoLeccionTipo.Video))">
+                                @foreach (var t in Enum.GetValues<CursoLeccionTipo>())
+                                {
+                                    <option value="@t">@FormacionCursoPage.TipoNombre(t)</option>
+                                }
+                            </select>
+                            <button class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="() => AgregarLeccionAsync(m)">Agregar</button>
+                        </div>
+                    </div>
+                }
+                <div class="d-flex gap-2">
+                    <input class="form-control form-control-sm" placeholder="Nuevo modulo (ej. 1. Introduccion)" maxlength="200" @bind="_nuevoModulo" />
+                    <button class="btn btn-sm btn-outline-primary" disabled="@_busy" @onclick="AgregarModuloAsync">+ Modulo</button>
+                </div>
+            </div>
+
+            @if (_leccion is not null)
+            {
+                <div class="fm-panel">
+                    <h3><i class="@FormacionCursoPage.TipoIcono(_lTipo)"></i> Leccion</h3>
+                    <div class="fm-form">
+                        <label>Titulo<input class="form-control form-control-sm" @bind="_lTitulo" maxlength="200" /></label>
+                        <div class="fm-row">
+                            <label>
+                                Tipo
+                                <select class="form-select form-select-sm" @bind="_lTipo">
+                                    @foreach (var t in Enum.GetValues<CursoLeccionTipo>())
+                                    {
+                                        <option value="@t">@FormacionCursoPage.TipoNombre(t)</option>
+                                    }
+                                </select>
+                            </label>
+                            <label>Duracion (min)<input type="number" min="0" class="form-control form-control-sm" @bind="_lDuracion" /></label>
+                        </div>
+                        <label>Descripcion<textarea class="form-control form-control-sm" rows="2" @bind="_lDescripcion" maxlength="1000"></textarea></label>
+                        @if (_lTipo == CursoLeccionTipo.VideoEnlace)
+                        {
+                            <label>Enlace de YouTube o Vimeo<input class="form-control form-control-sm" @bind="_lUrl" maxlength="500" placeholder="https://www.youtube.com/watch?v=..." /></label>
+                        }
+                        else if (_lTipo == CursoLeccionTipo.Texto)
+                        {
+                            <label>Contenido (admite HTML basico: titulos, listas, tablas, enlaces, imagenes)<textarea class="form-control form-control-sm" rows="10" @bind="_lContenido"></textarea></label>
+                        }
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="GuardarLeccionAsync">Guardar leccion</button>
+                            <button class="btn btn-sm btn-outline-danger ms-auto" disabled="@_busy" @onclick="EliminarLeccionAsync">@(_confirmarLeccion ? "Confirmar: eliminar" : "Eliminar leccion")</button>
+                        </div>
+
+                        @if (LlevaArchivo(_lTipo))
+                        {
+                            <div class="fm-filebox">
+                                @if (_leccion.Tipo != _lTipo)
+                                {
+                                    <span class="fm-muted-sm">Guarda la leccion con el nuevo tipo antes de subir el archivo.</span>
+                                }
+                                else
+                                {
+                                    <span>
+                                        @if (_leccion.ArchivoId is not null)
+                                        {
+                                            <span><i class="fa-regular fa-file"></i> @_leccion.ArchivoNombre @(_leccion.ArchivoBytes is long b ? $"({FormacionCursoPage.Tamano(b)})" : "")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fm-warn"><i class="fa-solid fa-triangle-exclamation"></i> Falta subir el archivo.</span>
+                                        }
+                                    </span>
+                                    <span class="fm-muted-sm">@AyudaArchivo(_lTipo)</span>
+                                    <InputFile class="form-control form-control-sm" accept="@AcceptDe(_lTipo)" OnChange="SubirArchivoAsync" disabled="@_busy" />
+                                    @if (_subiendo)
+                                    {
+                                        <span class="fm-muted-sm"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo... no cierres la pagina.</span>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private CursoDetalleDto? _curso;
+    private List<AsignacionDto> _asignaciones = new();
+    private List<FormacionOpcionDto> _usuarios = new();
+    private List<FormacionOpcionDto> _unidades = new();
+    private bool _loading = true;
+    private bool _busy;
+    private bool _subiendo;
+    private string? _msg;
+    private bool _msgError;
+    private Guid _tenantId;
+    private Guid _userId;
+
+    private string _titulo = string.Empty;
+    private string? _categoria;
+    private string? _descripcion;
+    private int? _duracion;
+    private bool _publicado;
+    private bool _confirmarEliminar;
+
+    private string _nuevoModulo = string.Empty;
+    private Guid? _confirmarModulo;
+    private readonly Dictionary<Guid, string> _nuevaLeccion = new();
+    private readonly Dictionary<Guid, CursoLeccionTipo> _nuevaLeccionTipo = new();
+
+    private LeccionDto? _leccion;
+    private string _lTitulo = string.Empty;
+    private CursoLeccionTipo _lTipo;
+    private string? _lDescripcion;
+    private int? _lDuracion;
+    private string? _lUrl;
+    private string? _lContenido;
+    private bool _confirmarLeccion;
+
+    private CursoAsignacionDestino _asigDestino = CursoAsignacionDestino.Todos;
+    private string _asigUsuario = string.Empty;
+    private string _asigUnidad = string.Empty;
+    private DateOnly? _asigFecha;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst("tenant_id")?.Value, out _tenantId);
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+        }
+        await RecargarAsync(datos: true);
+        _usuarios = (await RunAsync(s => s.ListarUsuariosAsync())).ToList();
+        _unidades = (await RunAsync(s => s.ListarUnidadesAsync())).ToList();
+        _loading = false;
+    }
+
+    private async Task RecargarAsync(bool datos = false)
+    {
+        _curso = await RunAsync(s => s.DetalleAsync(Id));
+        if (_curso is null) { return; }
+        _asignaciones = (await RunAsync(s => s.ListarAsignacionesAsync(Id))).ToList();
+        if (datos)
+        {
+            _titulo = _curso.Titulo;
+            _categoria = _curso.Categoria;
+            _descripcion = _curso.Descripcion;
+            _duracion = _curso.DuracionMinutos;
+            _publicado = _curso.Publicado;
+        }
+        if (_leccion is not null)
+        {
+            var actual = _curso.Modulos.SelectMany(m => m.Lecciones).FirstOrDefault(l => l.Id == _leccion.Id);
+            _leccion = actual;
+        }
+    }
+
+    private void Elegir(LeccionDto l)
+    {
+        _leccion = l;
+        _lTitulo = l.Titulo;
+        _lTipo = l.Tipo;
+        _lDescripcion = l.Descripcion;
+        _lDuracion = l.DuracionMinutos;
+        _lUrl = l.Url;
+        _lContenido = l.Contenido;
+        _confirmarLeccion = false;
+    }
+
+    // ---------------- curso ----------------
+
+    private async Task GuardarCursoAsync()
+    {
+        await Op(s => s.GuardarCursoAsync(new GuardarCursoRequest(Id, _titulo, _descripcion, _categoria, _publicado, _duracion)),
+            _publicado ? "Curso guardado y publicado." : "Curso guardado (borrador).", datos: true);
+    }
+
+    private async Task EliminarCursoAsync()
+    {
+        if (!_confirmarEliminar) { _confirmarEliminar = true; return; }
+        var r = await RunAsync(s => s.EliminarCursoAsync(Id));
+        if (r.Ok) { Nav.NavigateTo("/formacion/admin"); return; }
+        Mostrar(r.Error, true);
+    }
+
+    private async Task SubirPortadaAsync(InputFileChangeEventArgs e)
+    {
+        var f = e.File;
+        _busy = true;
+        try
+        {
+            await using var stream = f.OpenReadStream(FormacionService.MaxImagenBytes);
+            var r = await RunAsync(s => s.SubirPortadaAsync(Id, stream, f.Name, f.ContentType));
+            Mostrar(r.Ok ? "Portada actualizada." : r.Error, !r.Ok);
+            await RecargarAsync();
+        }
+        catch (IOException)
+        {
+            Mostrar($"La imagen supera {FormacionService.MaxImagenBytes / (1024 * 1024)} MB.", true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ---------------- modulos ----------------
+
+    private async Task AgregarModuloAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_nuevoModulo)) { Mostrar("Escribe el nombre del modulo.", true); return; }
+        if (await Op(s => s.GuardarModuloAsync(new GuardarModuloRequest(Id, null, _nuevoModulo, null)), null)) { _nuevoModulo = string.Empty; }
+    }
+
+    private Task RenombrarModuloAsync(ModuloDto m, string? titulo)
+        => string.IsNullOrWhiteSpace(titulo) || titulo == m.Titulo
+            ? Task.CompletedTask
+            : Op(s => s.GuardarModuloAsync(new GuardarModuloRequest(Id, m.Id, titulo, m.Descripcion)), "Modulo renombrado.");
+
+    private Task MoverModuloAsync(ModuloDto m, int delta) => Op(s => s.MoverModuloAsync(m.Id, delta), null);
+
+    private async Task EliminarModuloAsync(ModuloDto m)
+    {
+        if (_confirmarModulo != m.Id)
+        {
+            _confirmarModulo = m.Id;
+            Mostrar($"Pulsa otra vez la papelera para eliminar el modulo \"{m.Titulo}\" con sus {m.Lecciones.Count} lecciones.", true);
+            return;
+        }
+        _confirmarModulo = null;
+        if (_leccion is not null && m.Lecciones.Any(l => l.Id == _leccion.Id)) { _leccion = null; }
+        await Op(s => s.EliminarModuloAsync(m.Id), "Modulo eliminado.");
+    }
+
+    // ---------------- lecciones ----------------
+
+    private string NuevaLeccionTitulo(Guid moduloId) => _nuevaLeccion.TryGetValue(moduloId, out var t) ? t : string.Empty;
+
+    private CursoLeccionTipo NuevaLeccionTipo(Guid moduloId) => _nuevaLeccionTipo.TryGetValue(moduloId, out var t) ? t : CursoLeccionTipo.Video;
+
+    private async Task AgregarLeccionAsync(ModuloDto m)
+    {
+        var titulo = NuevaLeccionTitulo(m.Id);
+        if (string.IsNullOrWhiteSpace(titulo)) { Mostrar("Escribe el titulo de la leccion.", true); return; }
+        var tipo = NuevaLeccionTipo(m.Id);
+        _busy = true;
+        try
+        {
+            var r = await RunAsync(s => s.GuardarLeccionAsync(new GuardarLeccionRequest(m.Id, null, titulo, null, tipo, null, null, null)));
+            if (!r.Ok) { Mostrar(r.Error, true); return; }
+            _nuevaLeccion[m.Id] = string.Empty;
+            await RecargarAsync();
+            var nueva = _curso?.Modulos.SelectMany(x => x.Lecciones).FirstOrDefault(l => l.Id == r.Id);
+            if (nueva is not null) { Elegir(nueva); }
+            _msg = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task GuardarLeccionAsync()
+    {
+        if (_leccion is null) { return; }
+        var l = _leccion;
+        await Op(s => s.GuardarLeccionAsync(new GuardarLeccionRequest(l.ModuloId, l.Id, _lTitulo, _lDescripcion, _lTipo, _lUrl, _lContenido, _lDuracion)),
+            "Leccion guardada.");
+        if (_leccion is not null) { Elegir(_leccion); }
+    }
+
+    private async Task EliminarLeccionAsync()
+    {
+        if (_leccion is null) { return; }
+        if (!_confirmarLeccion) { _confirmarLeccion = true; return; }
+        var id = _leccion.Id;
+        _leccion = null;
+        await Op(s => s.EliminarLeccionAsync(id), "Leccion eliminada.");
+    }
+
+    private Task MoverLeccionAsync(LeccionDto l, int delta) => Op(s => s.MoverLeccionAsync(l.Id, delta), null);
+
+    private async Task SubirArchivoAsync(InputFileChangeEventArgs e)
+    {
+        if (_leccion is null) { return; }
+        var f = e.File;
+        var max = MaxDe(_lTipo);
+        if (f.Size > max)
+        {
+            Mostrar($"El archivo pesa {FormacionCursoPage.Tamano(f.Size)} y el limite es {FormacionCursoPage.Tamano(max)}.", true);
+            return;
+        }
+        var leccionId = _leccion.Id;
+        _busy = true;
+        _subiendo = true;
+        _msg = null;
+        StateHasChanged();
+        try
+        {
+            await using var stream = f.OpenReadStream(max);
+            var r = await RunAsync(s => s.SubirArchivoLeccionAsync(leccionId, stream, f.Name, f.ContentType));
+            Mostrar(r.Ok ? "Archivo subido." : r.Error, !r.Ok);
+            await RecargarAsync();
+            if (_leccion is not null) { Elegir(_leccion); }
+        }
+        catch (IOException)
+        {
+            Mostrar("Se interrumpio la subida. Intenta de nuevo.", true);
+        }
+        finally
+        {
+            _busy = false;
+            _subiendo = false;
+        }
+    }
+
+    private static bool LlevaArchivo(CursoLeccionTipo t) => t is not (CursoLeccionTipo.VideoEnlace or CursoLeccionTipo.Texto);
+
+    private static long MaxDe(CursoLeccionTipo t) => t switch
+    {
+        CursoLeccionTipo.Video => FormacionService.MaxVideoBytes,
+        CursoLeccionTipo.Imagen => FormacionService.MaxImagenBytes,
+        CursoLeccionTipo.WizardHtml => FormacionService.MaxWizardBytes,
+        _ => FormacionService.MaxDocBytes
+    };
+
+    private static string AcceptDe(CursoLeccionTipo t) => t switch
+    {
+        CursoLeccionTipo.Video => "video/mp4,video/webm,video/quicktime,video/ogg,.mp4,.webm,.m4v,.mov,.ogg",
+        CursoLeccionTipo.Pdf => "application/pdf,.pdf",
+        CursoLeccionTipo.Imagen => "image/*",
+        CursoLeccionTipo.WizardHtml => ".zip,.html,.htm",
+        _ => ""
+    };
+
+    private static string AyudaArchivo(CursoLeccionTipo t) => t switch
+    {
+        CursoLeccionTipo.Video => "mp4 (H.264) recomendado, hasta 1 GB. Se reproduce por streaming.",
+        CursoLeccionTipo.Pdf => "Manual en PDF, hasta 100 MB.",
+        CursoLeccionTipo.Imagen => "png, jpg, gif, webp o svg, hasta 20 MB.",
+        CursoLeccionTipo.WizardHtml => "Un .html con todo adentro o un .zip con la carpeta (index.html + css/js/imagenes), hasta 100 MB. Se muestra aislado del sistema.",
+        _ => "Cualquier archivo descargable, hasta 100 MB."
+    };
+
+    // ---------------- asignaciones ----------------
+
+    private async Task AgregarAsignacionAsync()
+    {
+        Guid? usuario = Guid.TryParse(_asigUsuario, out var u) ? u : null;
+        Guid? unidad = Guid.TryParse(_asigUnidad, out var o) ? o : null;
+        if (await Op(s => s.AgregarAsignacionAsync(new AgregarAsignacionRequest(Id, _asigDestino, usuario, unidad, _asigFecha)), "Asignacion agregada."))
+        {
+            _asigUsuario = string.Empty;
+            _asigUnidad = string.Empty;
+            _asigFecha = null;
+        }
+    }
+
+    private Task QuitarAsignacionAsync(AsignacionDto a) => Op(s => s.EliminarAsignacionAsync(a.Id), "Asignacion quitada.");
+
+    // ---------------- helpers ----------------
+
+    private async Task<bool> Op(Func<IFormacionService, Task<FormacionResult>> action, string? exito, bool datos = false)
+    {
+        if (_busy) { return false; }
+        _busy = true;
+        try
+        {
+            var r = await RunAsync(action);
+            if (!r.Ok) { Mostrar(r.Error, true); return false; }
+            if (exito is not null) { Mostrar(exito, false); } else { _msg = null; }
+            await RecargarAsync(datos);
+            return true;
+        }
+        catch (Exception)
+        {
+            Mostrar("No se pudo completar la operacion. Intenta de nuevo.", true);
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Mostrar(string? msg, bool error)
+    {
+        _msg = msg;
+        _msgError = error;
+    }
+
+    private async Task<T> RunAsync<T>(Func<IFormacionService, Task<T>> action)
+    {
+        using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        return await action(scope.ServiceProvider.GetRequiredService<IFormacionService>());
+    }
+}

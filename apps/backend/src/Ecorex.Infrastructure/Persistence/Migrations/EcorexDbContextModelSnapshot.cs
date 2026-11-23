@@ -5385,6 +5385,445 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.ToTable("conversations", (string)null);
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.Curso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Categoria")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("categoria");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CreatedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("created_by_name");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedByTenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by_tenant_user_id");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<int?>("DuracionMinutos")
+                        .HasColumnType("integer")
+                        .HasColumnName("duracion_minutos");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<Guid?>("PortadaFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("portada_file_id");
+
+                    b.Property<bool>("Publicado")
+                        .HasColumnType("boolean")
+                        .HasColumnName("publicado");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("titulo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_cursos");
+
+                    b.HasIndex("TenantId", "Publicado")
+                        .HasDatabaseName("ix_cursos_tenant_id_publicado");
+
+                    b.ToTable("cursos", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoAsignacion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("curso_id");
+
+                    b.Property<string>("Destino")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("destino");
+
+                    b.Property<DateOnly?>("FechaLimite")
+                        .HasColumnType("date")
+                        .HasColumnName("fecha_limite");
+
+                    b.Property<Guid?>("OrgUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("org_unit_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("TenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_curso_asignaciones");
+
+                    b.HasIndex("CursoId")
+                        .HasDatabaseName("ix_curso_asignaciones_curso_id");
+
+                    b.HasIndex("TenantId", "CursoId")
+                        .HasDatabaseName("ix_curso_asignaciones_tenant_id_curso_id");
+
+                    b.HasIndex("TenantId", "TenantUserId")
+                        .HasDatabaseName("ix_curso_asignaciones_tenant_id_tenant_user_id");
+
+                    b.ToTable("curso_asignaciones", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoLeccion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long?>("ArchivoBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("archivo_bytes");
+
+                    b.Property<Guid?>("ArchivoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("archivo_id");
+
+                    b.Property<string>("ArchivoMime")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("archivo_mime");
+
+                    b.Property<string>("ArchivoNombre")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("archivo_nombre");
+
+                    b.Property<string>("Contenido")
+                        .HasColumnType("text")
+                        .HasColumnName("contenido");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("curso_id");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<int?>("DuracionMinutos")
+                        .HasColumnType("integer")
+                        .HasColumnName("duracion_minutos");
+
+                    b.Property<Guid>("ModuloId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("modulo_id");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("tipo");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("titulo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Url")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("url");
+
+                    b.Property<string>("WizardEntryPath")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("wizard_entry_path");
+
+                    b.Property<string>("WizardRootPrefix")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("wizard_root_prefix");
+
+                    b.HasKey("Id")
+                        .HasName("pk_curso_lecciones");
+
+                    b.HasIndex("ModuloId", "Orden")
+                        .HasDatabaseName("ix_curso_lecciones_modulo_id_orden");
+
+                    b.HasIndex("TenantId", "CursoId")
+                        .HasDatabaseName("ix_curso_lecciones_tenant_id_curso_id");
+
+                    b.ToTable("curso_lecciones", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoLeccionVista", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("curso_id");
+
+                    b.Property<Guid>("LeccionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("leccion_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTimeOffset>("VistaEn")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("vista_en");
+
+                    b.HasKey("Id")
+                        .HasName("pk_curso_leccion_vistas");
+
+                    b.HasIndex("LeccionId")
+                        .HasDatabaseName("ix_curso_leccion_vistas_leccion_id");
+
+                    b.HasIndex("TenantId", "CursoId", "TenantUserId")
+                        .HasDatabaseName("ix_curso_leccion_vistas_tenant_id_curso_id_tenant_user_id");
+
+                    b.HasIndex("TenantId", "LeccionId", "TenantUserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_curso_leccion_vistas_tenant_id_leccion_id_tenant_user_id");
+
+                    b.ToTable("curso_leccion_vistas", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoModulo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("curso_id");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("descripcion");
+
+                    b.Property<int>("Orden")
+                        .HasColumnType("integer")
+                        .HasColumnName("orden");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("titulo");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_curso_modulos");
+
+                    b.HasIndex("CursoId", "Orden")
+                        .HasDatabaseName("ix_curso_modulos_curso_id_orden");
+
+                    b.ToTable("curso_modulos", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoProgreso", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CursoId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("curso_id");
+
+                    b.Property<DateTimeOffset?>("FechaCompletado")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fecha_completado");
+
+                    b.Property<DateTimeOffset>("FechaInicio")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("fecha_inicio");
+
+                    b.Property<int>("LeccionesVistas")
+                        .HasColumnType("integer")
+                        .HasColumnName("lecciones_vistas");
+
+                    b.Property<int>("Porcentaje")
+                        .HasColumnType("integer")
+                        .HasColumnName("porcentaje");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("TenantUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_user_id");
+
+                    b.Property<Guid?>("UltimaLeccionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ultima_leccion_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_curso_progresos");
+
+                    b.HasIndex("CursoId")
+                        .HasDatabaseName("ix_curso_progresos_curso_id");
+
+                    b.HasIndex("TenantId", "TenantUserId")
+                        .HasDatabaseName("ix_curso_progresos_tenant_id_tenant_user_id");
+
+                    b.HasIndex("TenantId", "CursoId", "TenantUserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_curso_progresos_tenant_id_curso_id_tenant_user_id");
+
+                    b.ToTable("curso_progresos", (string)null);
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.DataClient", b =>
                 {
                     b.Property<Guid>("Id")
@@ -22495,6 +22934,66 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                     b.Navigation("ContactWorkflow");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoAsignacion", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Curso", "Curso")
+                        .WithMany()
+                        .HasForeignKey("CursoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_curso_asignaciones_cursos_curso_id");
+
+                    b.Navigation("Curso");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoLeccion", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.CursoModulo", "Modulo")
+                        .WithMany("Lecciones")
+                        .HasForeignKey("ModuloId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_curso_lecciones_curso_modulos_modulo_id");
+
+                    b.Navigation("Modulo");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoLeccionVista", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.CursoLeccion", "Leccion")
+                        .WithMany()
+                        .HasForeignKey("LeccionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_curso_leccion_vistas_curso_lecciones_leccion_id");
+
+                    b.Navigation("Leccion");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoModulo", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Curso", "Curso")
+                        .WithMany("Modulos")
+                        .HasForeignKey("CursoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_curso_modulos_cursos_curso_id");
+
+                    b.Navigation("Curso");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoProgreso", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.Curso", "Curso")
+                        .WithMany()
+                        .HasForeignKey("CursoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_curso_progresos_cursos_curso_id");
+
+                    b.Navigation("Curso");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.DataConnector", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.DataContainer", "Container")
@@ -24682,6 +25181,16 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.ContactWorkflowStep", b =>
                 {
                     b.Navigation("Schedules");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.Curso", b =>
+                {
+                    b.Navigation("Modulos");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.CursoModulo", b =>
+                {
+                    b.Navigation("Lecciones");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.DataContainer", b =>

@@ -1404,9 +1404,9 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 12 + 16 + 3 + 17 + 23, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
+        Assert.Equal(16 + 12 + 16 + 3 + 17 + 24, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
 
-        // Las 23 de contenedores estan expuestas; 6 de lectura y 7 destructivas, sin solape.
+        // Las 24 de contenedores estan expuestas; 7 de lectura y 7 destructivas, sin solape.
         foreach (var n in new[] { "listar_contenedores_datos", "crear_contenedor_datos", "agregar_tabla",
             "agregar_columna", "agregar_relacion", "guardar_conector", "guardar_programacion_importacion",
             "publicar_contenedor", "eliminar_contenedor_datos" })
@@ -1529,6 +1529,92 @@ public abstract class McpTablerosTestsBase
         Assert.True(verMuerto.IsError);
     }
 
+    /// <summary>ADR-0203: ver_conector muestra la config completa SIN secretos y guardar_conector en edicion
+    /// solo cambia lo enviado (antes omitir mapeo_json/destino los borraba).</summary>
+    [Fact]
+    public async Task VerConector_SinSecretos_YEditarSoloEndpoint_ConservaMapeoDestinoYHeaders()
+    {
+        var seed = await SeedTenantAsync("Mcp Ver Conector");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx, withContainers: true);
+        var owner = Actor(seed, owner: true);
+
+        Assert.Contains("ver_conector", toolset.ReadOnlyTools);
+
+        Payload(await toolset.ExecuteAsync("crear_contenedor_datos", Args(new { nombre = "SECOP II" }), owner));
+        Payload(await toolset.ExecuteAsync("agregar_tabla", Args(new
+        {
+            contenedor = "SECOP II",
+            nombre = "Procesos",
+            columnas = new[] { new { nombre = "id_proceso", tipo = "texto", requerido = false } }
+        }), owner));
+
+        const string mapeo = """{"arrayPath":null,"paging":{"mode":"Offset","offsetParam":"$offset","limitParam":"$limit","startValue":0,"pageSize":50000,"maxPages":20},"fields":[{"column":"id_proceso","path":"id_del_proceso"}]}""";
+        Payload(await toolset.ExecuteAsync("guardar_conector", Args(new
+        {
+            contenedor = "SECOP II",
+            nombre = "SECOP II - Recientes",
+            tipo = "api",
+            destino = "Procesos",
+            endpoint = "https://www.datos.gov.co/resource/p6dx-8zbt.json?$$app_token=SECRETO123",
+            mapeo_json = mapeo
+        }), owner));
+
+        // Headers estaticos puestos desde la pantalla (el MCP no los recibe).
+        var entity = await ctx.DataConnectors.SingleAsync(c => c.Name == "SECOP II - Recientes");
+        entity.HeadersJson = """[{"name":"X-App-Token","value":"OTRO-SECRETO"}]""";
+        await ctx.SaveChangesAsync();
+        ctx.ChangeTracker.Clear();
+
+        // ver_conector: config completa, endpoint con el token enmascarado, headers solo por nombre.
+        var ver = await toolset.ExecuteAsync("ver_conector", Args(new { contenedor = "SECOP II", conector = "SECOP II - Recientes" }), owner);
+        Assert.DoesNotContain("SECRETO123", ver.Json);
+        Assert.DoesNotContain("OTRO-SECRETO", ver.Json);
+        var v = Payload(ver);
+        Assert.Equal("api", v.GetProperty("tipo").GetString());
+        Assert.Equal("Procesos", v.GetProperty("destino").GetString());
+        var api = v.GetProperty("api");
+        Assert.True(api.GetProperty("endpoint_enmascarado").GetBoolean());
+        Assert.Contains("$$app_token=***", api.GetProperty("endpoint").GetString());
+        Assert.Equal("X-App-Token", api.GetProperty("headers")[0].GetString());
+        Assert.Equal("Offset", v.GetProperty("mapeo").GetProperty("paging").GetProperty("mode").GetString());
+        Assert.False(v.TryGetProperty("bd", out _)); // los nulos no se serializan
+
+        // Reenviar el endpoint enmascarado se rechaza (romperia la fuente).
+        Assert.True((await toolset.ExecuteAsync("guardar_conector", Args(new
+        {
+            contenedor = "SECOP II",
+            conector = "SECOP II - Recientes",
+            endpoint = api.GetProperty("endpoint").GetString()
+        }), owner)).IsError);
+
+        // Editar SOLO el endpoint (sin nombre/tipo/destino/mapeo): lo demas se conserva.
+        const string nuevo = "https://www.datos.gov.co/resource/p6dx-8zbt.json?$order=fecha_de_publicacion_del DESC&$limit=5000";
+        Payload(await toolset.ExecuteAsync("guardar_conector", Args(new
+        {
+            contenedor = "SECOP II",
+            conector = "SECOP II - Recientes",
+            endpoint = nuevo
+        }), owner));
+        ctx.ChangeTracker.Clear();
+        var after = await ctx.DataConnectors.AsNoTracking().SingleAsync(c => c.Name == "SECOP II - Recientes");
+        Assert.Equal(nuevo, after.EndpointUrl);
+        // Postgres guarda el mapeo como jsonb (reordena claves): se compara por contenido, no por texto.
+        using (var esperado = JsonDocument.Parse(mapeo))
+        using (var guardado = JsonDocument.Parse(after.MappingJson!))
+        {
+            Assert.True(JsonElement.DeepEquals(esperado.RootElement, guardado.RootElement));
+        }
+        Assert.NotNull(after.ContainerId);
+        Assert.Equal(ConnectorKind.RestApi, after.Kind);
+        Assert.Contains("OTRO-SECRETO", after.HeadersJson); // se conserva, aunque no se muestre
+
+        // Crear sin tipo: error claro. Conector inexistente: error.
+        Assert.True((await toolset.ExecuteAsync("guardar_conector", Args(new { contenedor = "SECOP II", nombre = "Sin tipo" }), owner)).IsError);
+        Assert.True((await toolset.ExecuteAsync("ver_conector", Args(new { contenedor = "SECOP II", conector = "No existe" }), owner)).IsError);
+    }
+
     // ===================== Agentes de IA (ADR-0195) =====================
 
     [Fact]
@@ -1544,7 +1630,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 12 + 16 + 3 + 17 + 23 + 17, specs.Count); // ... + AGENTES
+        Assert.Equal(16 + 12 + 16 + 3 + 17 + 24 + 17, specs.Count); // ... + AGENTES
 
         // Las 17 de agentes estan expuestas; 3 de lectura y 3 destructivas, sin solape.
         foreach (var n in new[] { "listar_agentes", "ver_agente", "crear_agente", "editar_agente",

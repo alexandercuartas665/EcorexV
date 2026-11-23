@@ -31,7 +31,7 @@ public sealed partial class TableroMcpToolset
 
     private static readonly HashSet<string> ContainerReadOnly = new(StringComparer.Ordinal)
     {
-        "listar_contenedores_datos", "ver_contenedor_datos", "listar_conectores",
+        "listar_contenedores_datos", "ver_contenedor_datos", "listar_conectores", "ver_conector",
         "listar_programaciones_importacion", "listar_corridas_importacion", "ver_publicacion_contenedor"
     };
 
@@ -48,7 +48,7 @@ public sealed partial class TableroMcpToolset
         "agregar_tabla", "editar_tabla", "eliminar_tabla",
         "agregar_columna", "editar_columna", "eliminar_columna",
         "agregar_relacion", "eliminar_relacion",
-        "listar_conectores", "guardar_conector", "eliminar_conector",
+        "listar_conectores", "ver_conector", "guardar_conector", "eliminar_conector",
         "listar_programaciones_importacion", "guardar_programacion_importacion", "eliminar_programacion_importacion",
         "listar_corridas_importacion",
         "ver_publicacion_contenedor", "publicar_contenedor", "despublicar_contenedor"
@@ -121,12 +121,20 @@ public sealed partial class TableroMcpToolset
             "Lista los conectores (fuentes) de un contenedor: id, nombre, tipo (excel/api/bd/tabla), si ya tiene " +
             "credenciales, tabla destino y si esta activo. 'contenedor' = id o nombre.",
             """{"type":"object","properties":{"contenedor":{"type":"string"}},"required":["contenedor"],"additionalProperties":false}"""),
+        new("ver_conector",
+            "Muestra la configuracion COMPLETA de un conector (solo lectura, SIN secretos): tipo, tabla destino, activo " +
+            "y, segun el tipo, api -> endpoint (parametros sensibles enmascarados), metodo, auth, nombres de headers y " +
+            "mapeo_json (RestFetchSpec: arrayPath, campos y paginacion None/Offset/Page con limite y tope de paginas); " +
+            "bd -> motor, host, puerto, base, usuario y query; tabla -> receta de derivacion. Usala ANTES de editar con " +
+            "guardar_conector. 'contenedor' y 'conector' = id o nombre.",
+            """{"type":"object","properties":{"contenedor":{"type":"string"},"conector":{"type":"string","description":"id o nombre del conector"}},"required":["contenedor","conector"],"additionalProperties":false}"""),
         new("guardar_conector",
             "Crea o edita un conector (fuente de datos) de un contenedor. 'tipo': excel, api (REST), bd (base de datos) " +
             "o tabla (desde otra tabla del mismo contenedor). IMPORTANTE: el MCP NO recibe credenciales; el secreto " +
             "(clave de API / contrasena) se pone en la pantalla. 'destino' = tabla donde aterrizan los datos. Para " +
-            "editar, envia 'conector' (id o nombre).",
-            """{"type":"object","properties":{"contenedor":{"type":"string"},"conector":{"type":"string","description":"id o nombre si editas; omitelo para crear"},"nombre":{"type":"string"},"tipo":{"type":"string","enum":["excel","api","bd","tabla"]},"destino":{"type":"string","description":"tabla destino (id o nombre)"},"endpoint":{"type":"string","description":"API: URL"},"metodo":{"type":"string","description":"API: GET/POST"},"auth":{"type":"string","enum":["ninguna","apikey","bearer","basic","tokenexchange"]},"motor":{"type":"string","enum":["postgresql","mysql","sqlserver","oracle","mariadb","sqlite"]},"host":{"type":"string"},"puerto":{"type":"integer"},"base_datos":{"type":"string"},"usuario":{"type":"string"},"query":{"type":"string","description":"BD: SELECT"},"mapeo_json":{"type":"string"},"activo":{"type":"boolean"}},"required":["contenedor","nombre","tipo"],"additionalProperties":false}"""),
+            "editar, envia 'conector' (id o nombre): solo cambia lo que envies (el resto, incluido el mapeo, la tabla " +
+            "destino y los headers, se conserva; revisa antes con ver_conector). Para crear, 'nombre' y 'tipo' son obligatorios.",
+            """{"type":"object","properties":{"contenedor":{"type":"string"},"conector":{"type":"string","description":"id o nombre si editas; omitelo para crear"},"nombre":{"type":"string"},"tipo":{"type":"string","enum":["excel","api","bd","tabla"]},"destino":{"type":"string","description":"tabla destino (id o nombre)"},"endpoint":{"type":"string","description":"API: URL"},"metodo":{"type":"string","description":"API: GET/POST"},"auth":{"type":"string","enum":["ninguna","apikey","bearer","basic","tokenexchange"]},"motor":{"type":"string","enum":["postgresql","mysql","sqlserver","oracle","mariadb","sqlite"]},"host":{"type":"string"},"puerto":{"type":"integer"},"base_datos":{"type":"string"},"usuario":{"type":"string"},"query":{"type":"string","description":"BD: SELECT"},"mapeo_json":{"type":"string"},"activo":{"type":"boolean"}},"required":["contenedor"],"additionalProperties":false}"""),
         new("eliminar_conector",
             "Borra un conector de un contenedor. 'contenedor' = id o nombre; 'conector' = id o nombre.",
             """{"type":"object","properties":{"contenedor":{"type":"string"},"conector":{"type":"string"}},"required":["contenedor","conector"],"additionalProperties":false}"""),
@@ -177,7 +185,7 @@ public sealed partial class TableroMcpToolset
             : await _roles.ResolveEffectivePermissionsAsync(actor.PlatformUserId, ct);
         var denied = tool switch
         {
-            "listar_contenedores_datos" or "ver_contenedor_datos" or "listar_conectores"
+            "listar_contenedores_datos" or "ver_contenedor_datos" or "listar_conectores" or "ver_conector"
                 or "listar_programaciones_importacion" or "listar_corridas_importacion" or "ver_publicacion_contenedor"
                 => NeedContainer(perms, PermissionAction.View, "consultar contenedores de datos"),
             "crear_contenedor_datos" => NeedContainer(perms, PermissionAction.Create, "crear contenedores de datos"),
@@ -206,6 +214,7 @@ public sealed partial class TableroMcpToolset
                 "agregar_relacion" => await AddRelationAsync(args, actor, ct),
                 "eliminar_relacion" => await DeleteRelationAsync(args, actor, ct),
                 "listar_conectores" => await ListConnectorsAsync(args, ct),
+                "ver_conector" => await ViewConnectorAsync(args, ct),
                 "guardar_conector" => await SaveConnectorAsync(args, actor, ct),
                 "eliminar_conector" => await DeleteConnectorAsync(args, actor, ct),
                 "listar_programaciones_importacion" => await ListProcessesAsync(args, ct),
@@ -478,28 +487,100 @@ public sealed partial class TableroMcpToolset
         });
     }
 
+    /// <summary>
+    /// ver_conector (ADR-0203): la configuracion COMPLETA de un conector para poder editarlo sin adivinar. Nunca
+    /// devuelve secretos: las credenciales viven cifradas y solo se informa si existen; de los headers solo van
+    /// los nombres; los parametros sensibles del endpoint (token, key, secret...) y la userinfo se enmascaran.
+    /// </summary>
+    private async Task<McpToolResult> ViewConnectorAsync(JsonElement args, CancellationToken ct)
+    {
+        if (_dataImport is null) { return Err("La configuracion de importacion no esta disponible."); }
+        var (detail, error) = await ResolveModelDetailAsync(Str(args, "contenedor"), ct);
+        if (error is not null) { return Err(error); }
+        var c = await ResolveConnectorAsync(detail!.Id, Str(args, "conector"), ct);
+        if (c is null) { return Err($"No encontre el conector '{Str(args, "conector")}' en este contenedor (ver listar_conectores)."); }
+
+        object? mapeo = null;
+        if (!string.IsNullOrWhiteSpace(c.MappingJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(c.MappingJson);
+                mapeo = doc.RootElement.Clone();
+            }
+            catch (JsonException) { mapeo = null; }
+        }
+
+        var (endpoint, enmascarado) = ConnectorSecretMask.MaskEndpoint(c.EndpointUrl);
+        object? api = c.Kind != ConnectorKind.RestApi ? null : new
+        {
+            endpoint,
+            endpoint_enmascarado = enmascarado,
+            metodo = string.IsNullOrWhiteSpace(c.HttpMethod) ? "GET" : c.HttpMethod,
+            auth = AuthKindEs(c.AuthKind),
+            headers = ConnectorRestConfig.ParseHeaders(c.HeadersJson).Select(h => h.Name).ToList(),
+            intercambio_token_configurado = !string.IsNullOrWhiteSpace(c.TokenExchangeJson)
+        };
+        object? bd = c.Kind != ConnectorKind.Database ? null : new
+        {
+            motor = c.DbEngine is DbEngine e ? DbEngineEs(e) : null,
+            host = c.Host,
+            puerto = c.Port,
+            base_datos = c.DatabaseName,
+            usuario = c.Username,
+            query = c.Query
+        };
+
+        return Ok(new
+        {
+            conector_id = c.Id,
+            nombre = c.Name,
+            tipo = ConnectorKindEs(c.Kind),
+            destino = c.ContainerName,
+            destino_id = c.ContainerId,
+            activo = c.IsActive,
+            tiene_credenciales = c.HasCredentials,
+            api,
+            bd,
+            mapeo,
+            mapeo_json = c.MappingJson,
+            aviso = enmascarado
+                ? "El endpoint tiene valores enmascarados (***). Si lo editas con guardar_conector, envia la URL real completa; el secreto va en la pantalla."
+                : null
+        });
+    }
+
     private async Task<McpToolResult> SaveConnectorAsync(JsonElement args, McpActor actor, CancellationToken ct)
     {
         if (_dataImport is null) { return Err("La configuracion de importacion no esta disponible."); }
         var (detail, error) = await ResolveModelDetailAsync(Str(args, "contenedor"), ct);
         if (error is not null) { return Err(error); }
-        var nombre = Str(args, "nombre");
-        if (nombre is null) { return Err("Indica el 'nombre' del conector."); }
-        var kind = ParseConnectorKind(Str(args, "tipo"));
-        if (kind is null) { return Err("'tipo' debe ser excel, api, bd o tabla."); }
 
-        // Edicion: resuelve el conector existente por id o nombre (dentro del contenedor).
-        Guid? id = null;
+        // Edicion: resuelve el conector existente por id o nombre (dentro del contenedor). En edicion solo cambia
+        // lo que llega en los argumentos: antes se reemplazaba TODO y omitir 'mapeo_json' o 'destino' borraba el
+        // mapeo y la tabla destino (y los headers/intercambio de token, que el MCP no recibe). ADR-0203.
+        DataConnectorDto? existing = null;
         var conectorArg = Str(args, "conector");
         if (conectorArg is not null)
         {
-            var existing = await ResolveConnectorAsync(detail!.Id, conectorArg, ct);
+            existing = await ResolveConnectorAsync(detail!.Id, conectorArg, ct);
             if (existing is null) { return Err($"No encontre el conector '{conectorArg}' en este contenedor."); }
-            id = existing.Id;
         }
 
-        // Tabla destino (opcional): por id o nombre dentro del contenedor.
-        Guid? destino = null;
+        var nombre = Str(args, "nombre") ?? existing?.Name;
+        if (nombre is null) { return Err("Indica el 'nombre' del conector."); }
+        var kind = ArgPresent(args, "tipo") ? ParseConnectorKind(Str(args, "tipo")) : existing?.Kind;
+        if (kind is null) { return Err("'tipo' debe ser excel, api, bd o tabla."); }
+
+        // Un endpoint copiado de ver_conector con valores enmascarados romperia la fuente.
+        var endpoint = ArgPresent(args, "endpoint") ? Str(args, "endpoint") : existing?.EndpointUrl;
+        if (ArgPresent(args, "endpoint") && endpoint is not null && endpoint.Contains(ConnectorSecretMask.Mask, StringComparison.Ordinal))
+        {
+            return Err("El endpoint trae valores enmascarados (***) de ver_conector. Envia la URL real o pon el secreto en la pantalla.");
+        }
+
+        // Tabla destino: por id o nombre dentro del contenedor; si no llega, se conserva la actual.
+        var destino = existing?.ContainerId;
         var destinoArg = Str(args, "destino");
         if (destinoArg is not null)
         {
@@ -509,14 +590,22 @@ public sealed partial class TableroMcpToolset
         }
 
         var dto = await _dataImport.SaveConnectorAsync(new SaveDataConnectorRequest(
-            Id: id, ModelId: detail!.Id, Name: nombre, Kind: kind.Value,
-            EndpointUrl: Str(args, "endpoint"), HttpMethod: Str(args, "metodo"),
-            AuthKind: ParseAuthKind(Str(args, "auth")),
-            DbEngine: ParseDbEngine(Str(args, "motor")), Host: Str(args, "host"), Port: Int(args, "puerto"),
-            DatabaseName: Str(args, "base_datos"), Username: Str(args, "usuario"),
-            Credentials: null, // El MCP nunca recibe el secreto; se pone en la pantalla.
-            Query: Str(args, "query"), MappingJson: Str(args, "mapeo_json"),
-            IsActive: Bool(args, "activo") ?? true, ContainerId: destino),
+            Id: existing?.Id, ModelId: detail!.Id, Name: nombre, Kind: kind.Value,
+            EndpointUrl: endpoint,
+            HttpMethod: ArgPresent(args, "metodo") ? Str(args, "metodo") : existing?.HttpMethod,
+            AuthKind: ArgPresent(args, "auth") ? ParseAuthKind(Str(args, "auth")) : existing?.AuthKind ?? ConnectorAuthKind.None,
+            DbEngine: ArgPresent(args, "motor") ? ParseDbEngine(Str(args, "motor")) : existing?.DbEngine,
+            Host: ArgPresent(args, "host") ? Str(args, "host") : existing?.Host,
+            Port: ArgPresent(args, "puerto") ? Int(args, "puerto") : existing?.Port,
+            DatabaseName: ArgPresent(args, "base_datos") ? Str(args, "base_datos") : existing?.DatabaseName,
+            Username: ArgPresent(args, "usuario") ? Str(args, "usuario") : existing?.Username,
+            Credentials: null, // El MCP nunca recibe el secreto; se pone en la pantalla (el servicio conserva el actual).
+            Query: ArgPresent(args, "query") ? Str(args, "query") : existing?.Query,
+            MappingJson: ArgPresent(args, "mapeo_json") ? Str(args, "mapeo_json") : existing?.MappingJson,
+            IsActive: Bool(args, "activo") ?? existing?.IsActive ?? true,
+            ContainerId: destino,
+            HeadersJson: existing?.HeadersJson,
+            TokenExchangeJson: existing?.TokenExchangeJson),
             actor.PlatformUserId, ct);
         if (dto is null) { return Err("No se pudo guardar el conector."); }
         return Ok(new
@@ -915,6 +1004,30 @@ public sealed partial class TableroMcpToolset
         "mariadb" => DbEngine.MariaDb,
         "sqlite" => DbEngine.SqLite,
         _ => null
+    };
+
+    /// <summary>El argumento vino en la llamada (aunque sea vacio). Sirve para editar solo lo que se envia.</summary>
+    private static bool ArgPresent(JsonElement a, string name)
+        => a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null;
+
+    private static string AuthKindEs(ConnectorAuthKind k) => k switch
+    {
+        ConnectorAuthKind.ApiKey => "apikey",
+        ConnectorAuthKind.Bearer => "bearer",
+        ConnectorAuthKind.Basic => "basic",
+        ConnectorAuthKind.TokenExchange => "tokenexchange",
+        _ => "ninguna"
+    };
+
+    private static string DbEngineEs(DbEngine e) => e switch
+    {
+        DbEngine.PostgreSql => "postgresql",
+        DbEngine.MySql => "mysql",
+        DbEngine.SqlServer => "sqlserver",
+        DbEngine.Oracle => "oracle",
+        DbEngine.MariaDb => "mariadb",
+        DbEngine.SqLite => "sqlite",
+        _ => e.ToString().ToLowerInvariant()
     };
 
     private static ApiImportMode ParseImportMode(string? s) => s?.Trim().ToLowerInvariant() switch

@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - MCP ver_conector + guardar_conector edita solo lo enviado + tope de 20 min en importacion REST (ADR-0203) - SIN VERSION (rama feat/mcp-ver-conector)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5), a pedido de ECOREX.mcp. SIN migracion ni config.
+- **Motivo**: la importacion diaria 5am de "SECOP II - Recientes" (BITCODE) falla desde el 22-nov por timeout (paginas de ~32 s). ECOREX.mcp tiene el endpoint corregido, pero el MCP no podia leer la config del conector y guardar_conector en edicion BORRABA mapeo, tabla destino, headers e intercambio de token si no se reenviaban.
+- **Hecho**: tool `ver_conector(contenedor, conector)` (solo lectura, sin secretos: credenciales solo "tiene_credenciales", headers solo nombres, parametros sensibles del endpoint y userinfo enmascarados con `ConnectorSecretMask`); `guardar_conector` en edicion conserva todo lo no enviado (nombre/tipo obligatorios solo al crear) y rechaza un endpoint con `***`; `ApiImportService.RunBudget` = 20 min por corrida paginada (se detiene antes de la siguiente pagina y conserva lo importado). MCP de tableros: 157 tools. ADR-0203.
+- **Pruebas**: build Release 0 errores, format ok, unitarias 1696 (+9 `ConnectorSecretMaskTests`)/312/35, integracion dual McpTableros|ApiImport|DataImport|ImportClasificacion 56/56 (nuevo `VerConector_SinSecretos_YEditarSoloEndpoint_ConservaMapeoDestinoYHeaders`).
+- **Siguiente**: version + deploy con OK del usuario; luego ECOREX.mcp corrige el endpoint de "SECOP II - Recientes" con ver_conector -> guardar_conector.
+
 ## 2026-11-23 - Cerebros ola 4: MCP por cerebro (listar_cerebros + parametro cerebro) (ADR-0200) - v0.16.381 DESPLEGADA
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.380). SIN migracion.

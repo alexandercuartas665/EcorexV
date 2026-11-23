@@ -239,6 +239,37 @@ public sealed class RulesEngine : IRulesEngine
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
 
+        // Las reglas autonomas del nodo reciben los datos del formulario de la TAREA (el registro mas reciente
+        // cuyo Reference es el numero de la tarea o "T00007-1", "T00007-2"...; los ENVIADOS primero). Asi un verbo que lee FormData
+        // (p.ej. GENERAR_REQUERIMIENTOS_DESDE_TABLA en el paso "Generar orden de compra") ve las filas que el
+        // solicitante lleno, y el solicitante queda como quien envio el registro. Sin tarea o sin formulario
+        // el FormData sigue vacio, como antes.
+        IReadOnlyDictionary<string, string?>? nodeFormData = null;
+        Guid? nodeFormResponseId = null;
+        Guid? nodeSubmittedBy = null;
+        if (ruleIds.Count > 0 && taskItemId is Guid taskId)
+        {
+            var number = await _db.TaskItems.AsNoTracking()
+                .Where(t => t.Id == taskId).Select(t => t.Number).FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(number))
+            {
+                var prefix = number + "-";
+                var response = await _db.FormResponses.AsNoTracking()
+                    .Where(r => !r.IsDeleted && r.Reference != null && (r.Reference == number || r.Reference.StartsWith(prefix)))
+                    .OrderByDescending(r => r.Status == FormResponseStatus.Submitted)
+                    .ThenByDescending(r => r.UpdatedAt ?? r.CreatedAt)
+                    .Select(r => new { r.Id, r.Data, r.SubmittedByTenantUserId })
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (response is not null)
+                {
+                    nodeFormData = Forms.FormResponseService.ParseDocument(response.Data)
+                        .ToDictionary(kv => kv.Key, kv => kv.Value.Value, StringComparer.Ordinal);
+                    nodeFormResponseId = response.Id;
+                    nodeSubmittedBy = response.SubmittedByTenantUserId;
+                }
+            }
+        }
+
         var executions = new List<RuleExecutionOutcome>();
         var allSucceeded = true;
         var autoComplete = false;
@@ -248,7 +279,10 @@ public sealed class RulesEngine : IRulesEngine
                 RuleTriggerKind.WorkflowNode,
                 NodeId: workflowNodeId,
                 WorkflowInstanceId: workflowInstanceId,
-                TaskItemId: taskItemId), cancellationToken);
+                TaskItemId: taskItemId,
+                FormResponseId: nodeFormResponseId,
+                FormData: nodeFormData,
+                ExecutedByTenantUserId: nodeSubmittedBy), cancellationToken);
             if (result.Value is not RuleExecutionOutcome outcome)
             {
                 allSucceeded = false;

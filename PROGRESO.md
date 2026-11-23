@@ -2,10 +2,10 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-23 - Cerebros ola 4: MCP por cerebro (listar_cerebros + parametro cerebro) (ADR-0200) - v0.16.381
+## 2026-11-23 - Cerebros ola 4: MCP por cerebro (listar_cerebros + parametro cerebro) (ADR-0200) - v0.16.381 DESPLEGADA
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.380). SIN migracion.
-- **Integracion (ECOREX.desarrollo, 2026-11-23)**: merge --no-ff de feat/maquetas-cerebro (ffa46f00) como v0.16.381. Gates: build Release 0 errores, format ok, unitarias 1687/312/35, integracion dual BrainTemplates|BrainsModule|MockupBrain|Maqueta|McpTableros 111/111. OK expreso del usuario para desplegar.
+- **Integracion (ECOREX.desarrollo, 2026-11-23)**: merge --no-ff de feat/maquetas-cerebro (ffa46f00) como v0.16.381. Gates: build Release 0 errores, format ok, unitarias 1687/312/35, integracion dual BrainTemplates|BrainsModule|MockupBrain|Maqueta|McpTableros 111/111. OK expreso del usuario para desplegar. Deploy 2026-11-23 ~15:35 Bogota via rapida GHCR (1er intento fallo al bajar la imagen sin tocar la version en curso; 2do OK): footer /login = v0.16.381, Restarts=0, 0 errores. Rollback: sha256:f827b1dd...
 - **Hecho**: `MaquetaMcpToolset`: herramienta `listar_cerebros` (solo lectura) y parametro `cerebro` en las 8
   herramientas de notas (prioridad sobre `proyecto`, que sigue funcionando con el cerebro principal de la maqueta);
   respuestas con `cerebro` y enlaces a `/cerebros/{slug}`; resolucion sin parametros (unico cerebro / unica maqueta).

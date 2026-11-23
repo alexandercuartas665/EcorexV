@@ -439,6 +439,20 @@ public sealed class RequerimientoService : IRequerimientoService
         return provMap.TryGetValue(proveedorId, out var pv) ? pv : (int?)null;
     }
 
+    // Desglose fiscal de una division (descuento + IVA) con la regla UNICA del modulo (ComprasFiscal), la misma
+    // que usan la planificacion y la pestana Orden de compra.
+    private static LineaFiscal FiscalDe(RequerimientoCompraHijo h)
+        => ComprasFiscal.Calcular(h.PrecioUnitario, h.Cantidad, h.IvaPct ?? ComprasFiscal.IvaDefault, h.DescuentoPct, h.DescuentoValor);
+
+    // Texto de una linea de la OC: " = subtotal [- desc] + IVA n% x = total".
+    private static string LineaFiscalTexto(LineaFiscal f)
+    {
+        var s = $" = {f.Subtotal:#,##0.##}";
+        if (f.DescuentoMonto > 0) { s += $" - desc {f.DescuentoMonto:#,##0.##}"; }
+        s += $" + IVA {f.IvaPct:#,##0.##}% {f.IvaMonto:#,##0.##} = {f.Total:#,##0.##}";
+        return s;
+    }
+
     // Tiempo de entrega legible (la columna guarda el numero de dias; 0 = inmediato). Tolera valores viejos ("4 dias").
     private static string EntregaTexto(string? raw)
     {
@@ -517,8 +531,12 @@ public sealed class RequerimientoService : IRequerimientoService
         if (provNombre is not null) { desc.Append($"Proveedor: {provNombre}\n"); }
         if (hijo.PrecioUnitario > 0)
         {
+            var f = FiscalDe(hijo);
             desc.Append($"Precio unitario: {hijo.PrecioUnitario:#,##0.##}\n");
-            desc.Append($"Total estimado: {(hijo.Cantidad * hijo.PrecioUnitario):#,##0.##}\n");
+            desc.Append($"Subtotal: {f.Subtotal:#,##0.##}\n");
+            if (f.DescuentoMonto > 0) { desc.Append($"Descuento: -{f.DescuentoMonto:#,##0.##}\n"); }
+            desc.Append($"IVA {f.IvaPct:#,##0.##}%: {f.IvaMonto:#,##0.##}\n");
+            desc.Append($"Total estimado (con IVA): {f.Total:#,##0.##}\n");
         }
 
         var req = new CreateTaskItemRequest(
@@ -673,19 +691,28 @@ public sealed class RequerimientoService : IRequerimientoService
             if (contacto?.Email is { Length: > 0 } ce) { desc.Append($"Correo: {ce}\n"); }
             if (contacto?.Telefono is { Length: > 0 } ctel) { desc.Append($"Tel: {ctel}\n"); }
             desc.Append($"Articulos ({lineas.Count}):\n");
-            decimal total = 0m;
+            // Totales con la MISMA regla fiscal de la pantalla (ComprasFiscal: descuento + IVA), para que la
+            // tarea diga lo mismo que la pestana Orden de compra.
+            decimal subtotal = 0m, descuento = 0m, iva = 0m, total = 0m;
             foreach (var h in lineas)
             {
                 var p = padreMap.TryGetValue(h.RequerimientoId, out var pp) ? pp : null;
-                var sub = h.Cantidad * h.PrecioUnitario; total += sub;
+                var f = FiscalDe(h);
+                subtotal += f.Subtotal; descuento += f.DescuentoMonto; iva += f.IvaMonto; total += f.Total;
                 desc.Append($"  - {p?.Descripcion ?? "(producto)"} x {h.Cantidad:#,##0.##} {p?.UnidadMedida}".TrimEnd());
-                if (h.PrecioUnitario > 0) { desc.Append($" @ {h.PrecioUnitario:#,##0.##} = {sub:#,##0.##}"); }
+                if (h.PrecioUnitario > 0) { desc.Append($" @ {h.PrecioUnitario:#,##0.##}{LineaFiscalTexto(f)}"); }
                 if (h.FechaProgramadaCompra is { } fp) { desc.Append($" (compra {fp:yyyy-MM-dd})"); }
                 if (!string.IsNullOrWhiteSpace(h.TiempoEntrega)) { desc.Append($" [entrega {EntregaTexto(h.TiempoEntrega)}]"); }
                 if (!string.IsNullOrWhiteSpace(h.CaracteristicasDespacho)) { desc.Append($" [despacho: {h.CaracteristicasDespacho}]"); }
                 desc.Append('\n');
             }
-            if (total > 0) { desc.Append($"Total OC: {total:#,##0.##}\n"); }
+            if (total > 0)
+            {
+                desc.Append($"Subtotal: {subtotal:#,##0.##}\n");
+                if (descuento > 0) { desc.Append($"Descuento: -{descuento:#,##0.##}\n"); }
+                desc.Append($"IVA: {iva:#,##0.##}\n");
+                desc.Append($"Total OC (con IVA): {total:#,##0.##}\n");
+            }
 
             var titulo = $"Orden de compra: {provNombre} ({lineas.Count} articulo{(lineas.Count == 1 ? "" : "s")})";
             if (titulo.Length > 200) { titulo = titulo[..200]; }

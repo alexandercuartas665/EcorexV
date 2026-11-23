@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Requerimientos: total de la OC con IVA/descuento + el responsable de compras emite la OC - v0.16.382 (rama fix/wizard-form-ligar-tarea)
+
+- **Integracion (ECOREX.desarrollo, 2026-11-23)**: merge --no-ff de fix/wizard-form-ligar-tarea (dc750d3d) como v0.16.382. Gates junto con v0.16.383 (ver esa entrada). Despliegue solo con OK del usuario en la sesion de integracion.
+
+Agente: sesion compras (Claude Opus 5.5), sobre v0.16.381. SIN migracion (config en TenantConfiguration).
+- **Contexto**: prueba E2E en PROD EMPRESA_DEMOSTRACION hasta la orden de compra (T00006 Suministros Industriales Andinos, T00007 Motores y Bombas del Pacifico). Salieron 2 hallazgos.
+- **Fix 1 - total de la OC**: la descripcion de la tarea de OC ("Total OC") sumaba cantidad x precio SIN descuento ni IVA (T00007 decia 1,960,000; la pantalla 2,099,160). Ahora `GestionarOrdenCompraAsync` usa `ComprasFiscal.Calcular` (misma regla que planificacion y pestana Orden de compra): por linea `= subtotal - desc + IVA n% = total` y al pie Subtotal / Descuento / IVA / Total OC (con IVA). Igual en la compra individual (`EjecutarCompra`: "Total estimado (con IVA)").
+- **Fix 2 - permiso de emitir**: "Gestionar compra" (emitir la OC), "Liberar" y "Enviar a orden de compra" solo los veia Owner/Admin; el Supervisor de compras (Carlos) no podia. Nueva opcion en Configuracion de Requerimientos > General: **Dependencia de compras** (organigrama, clave `requerimientos.dependencia_compras`). Su RESPONSABLE (miembro IsResponsible o responsable de la unidad) puede emitir/liberar ademas de Owner/Admin (`IRequerimientoConfigService.EsResponsableComprasAsync`; guard tambien en los handlers). Sin dependencia fijada = comportamiento anterior.
+- **Probado local** (ANDINAS, BD ecorex 5442): admin fija dependencia "Compras" en la UI; Carlos Ruiz (Supervisor, responsable de Compras) planifica Bomba x1 -> Usar recomendado -> Generar OC -> ve "Gestionar compra (1)" -> T00010 con `980,000 - desc 98,000 + IVA 19% 167,580 = 1,049,580` = pantalla. Build 0 errores; Application.Tests 1687/1687.
+- **Siguiente**: deploy (dev principal, OK del usuario). En PROD DEMO, tras desplegar, fijar Dependencia de compras = "Gestion de Compras" (Carlos Mejia responsable).
+
 ## 2026-11-23 - Cerebros ola 4: MCP por cerebro (listar_cerebros + parametro cerebro) (ADR-0200) - v0.16.381 DESPLEGADA
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.380). SIN migracion.

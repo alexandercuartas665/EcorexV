@@ -14,6 +14,41 @@ Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (
   y volver, y "Nota de esta pantalla" con el borrador de la pantalla.
 - **Siguiente**: ola 3 (cerebros plantilla del Super Admin: siembra a todos/plan/tenants, bloqueo de solo lectura,
   "Duplicar como propio" y sincronizacion), ola 4 (MCP por cerebro).
+## 2026-11-19 - v0.16.377 (la rama se habia marcado 0.16.357, ya tomada): asistente de formulario "leer PDF -> tabla" funciona con DeepSeek (adenda ADR-0174) - EN TRONCO (sin desplegar)
+
+- HECHO (sesion Compras UX): `FormAiIntakeService` rasteriza el PDF a imagenes (IPdfRasterizer, 150 dpi, 5 paginas)
+  cuando el agente no es Gemini/Claude; antes rechazaba cualquier otro proveedor. Texto de ayuda del disenador
+  actualizado. Sin migracion.
+- PRUEBA E2E local (5282, tenant demo INDUSTRIAS ANDINAS, T00007): agente "Asistente de Compras" pasado a
+  deepseek-v4-flash en BD local; lectura del PDF de la cotizacion -> 1 fila correcta; "Revisar con IA" -> 5 campos
+  con la inconsistencia de valor/cantidad. AiUsageLog: form-ai-intake y form-ai-compose en DeepSeek.
+- MOTIVO: Gemini responde HTTP 402 (sin creditos prepagados) en la config de plataforma.
+- SIGUIENTE: tras deploy, en prod pasar a DeepSeek los agentes de formularios que lean PDF (y recargar o retirar
+  Gemini; el transcriptor de audio de ADR-0174 sigue usando Gemini).
+
+## 2026-11-22 - v0.16.376: Modulo de Formacion, olas 1 y 2 (ADR-0202) - DESPLEGADA
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5), rama `feat/formacion-ola1`. Pedido del usuario: traer el modulo de
+formacion de DokTrino (subir manuales y videos) y poder cargar wizards/manuales en HTML. Decisiones del usuario:
+alumnos internos; catalogo + obligatorios por usuario/cargo/area con fecha limite; wizard .zip o .html; ola con
+evaluacion, YouTube/Vimeo, certificado PDF y reporte de avance.
+- **Ola 1**: cursos -> modulos -> lecciones (video subido por STREAMING con rangos, YouTube/Vimeo, PDF, imagen, texto
+  saneado, wizard HTML, archivo), catalogo /formacion, reproductor /formacion/curso/{id} con avance persistido por
+  leccion, admin /formacion/admin + editor, asignaciones (todos / usuario / dependencia o cargo con descendientes,
+  fecha limite, vencido). `IFileStorageService` gana `SaveStreamAsync`/`OpenReadAsync`. Wizard servido como las
+  maquetas (`MockupSiteCache`) en iframe sandbox SIN same-origin + CSP sandbox, con token de Data Protection (12 h).
+  Menu "Formacion" bajo "Cerebros" (backfill). Migracion dual `AddFormacionModule` (6 tablas).
+- **Ola 2**: evaluacion final (puntaje minimo, intentos, bloqueo/desbloqueo, calificada en servidor, retroalimentacion),
+  "terminado" = lecciones + evaluacion aprobada, certificado PDF (`IQuotePdfRenderer`) con codigo verificable en
+  /formacion/verificar/{codigo} (publico), reporte /formacion/admin/{id}/avance con desbloqueo y Excel. Migracion dual
+  `AddFormacionEvaluacion` (2 tablas + columnas con default).
+- **Pruebas**: integracion dual `FormacionModuleTests` 22/22 (PG + SQL Server). Validado en preview local 5281 contra
+  copia `ecorex_formacion`: crear curso, YouTube, subir wizard, avance 50 % -> 100 %, evaluacion aprobada, PDF del
+  certificado (117 KB), verificacion valida/invalida, avance y Excel.
+- **OJO**: dentro del navegador del panel de Claude el iframe del wizard sale `ERR_BLOCKED_BY_CLIENT` (bloqueo del
+  cliente; la URL responde 200 y el script corre al abrirla directo). Confirmar en Chrome real antes de desplegar.
+- **Deploy (2026-11-23 04:05 Bogota)**: OK del usuario, fuera de la ventana DRON. Via rapida GHCR (CI 45104633524 verde sobre a47da87d). Footer /login = v0.16.376; migraciones AddFormacionModule y AddFormacionEvaluacion aplicadas; ecorex-app Restarts=0, 0 errores; menu "Formacion" en las 16 vistas que tienen "Cerebros"; /formacion/verificar responde (codigo invalido = no encontrado). En Chrome real el iframe del wizard carga 200 (el bloqueo era solo del navegador del panel). Rollback: imagen anterior sha256:f32947ce...
+- **Siguiente**: permiso `formacion` en roles si se quiere restringir; notificaciones de asignacion/vencimiento.
 
 ## 2026-11-22 - v0.16.375: MCP `rellenar_columna` (ADR-0201) - DESPLEGADA
 

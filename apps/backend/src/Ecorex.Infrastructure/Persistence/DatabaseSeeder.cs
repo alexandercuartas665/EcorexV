@@ -3053,6 +3053,8 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
         Item(act.Id, "Maquetas", "maqueta");
         // Cerebros (ADR-0200): notas enlazadas tipo Obsidian como modulo propio, vinculables a maquetas.
         Item(act.Id, "Cerebros", "cerebros");
+        // Formacion (ADR-0202): cursos con videos, manuales, wizards HTML; catalogo + obligatorios por cargo.
+        Item(act.Id, "Formacion", "formacion");
         Item(act.Id, "Conceptos", "conceptos", "000270");
         // Prioridades, Estados y Tipos de proyecto se unificaron en un solo modulo con CRUD
         // (cards + modal), igual que se hizo con inventarios. Un solo item de menu.
@@ -3467,6 +3469,13 @@ public sealed class DatabaseSeeder : IMenuProvisioningService
     /// </summary>
     public Task EnsureCerebrosMenuItemAsync(CancellationToken cancellationToken = default)
         => EnsureMenuItemAfterAsync("maqueta", "cerebros", "Cerebros", cancellationToken);
+
+    /// <summary>
+    /// Backfill IDEMPOTENTE: asegura el item "Formacion" (ruta formacion, ADR-0202) justo debajo de "Cerebros" en toda
+    /// vista de menu que lo tenga. Corre DESPUES de <see cref="EnsureCerebrosMenuItemAsync"/>. No duplica.
+    /// </summary>
+    public Task EnsureFormacionMenuItemAsync(CancellationToken cancellationToken = default)
+        => EnsureMenuItemAfterAsync("cerebros", "formacion", "Formacion", cancellationToken);
 
     /// <summary>Marca por tenant (TenantConfiguration) de que la plantilla de orden de compra ya se sembro una vez.</summary>
     public const string OrdenCompraTemplateSeedKey = "seed.plantilla_orden_compra";

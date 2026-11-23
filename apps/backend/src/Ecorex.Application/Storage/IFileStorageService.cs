@@ -16,6 +16,16 @@ public sealed record FileStorageSaveRequest(
 /// <summary>Contenido de un archivo para servirlo (descarga).</summary>
 public sealed record FileStorageContent(byte[] Content, string ContentType, string FileName);
 
+/// <summary>Peticion para guardar un binario GRANDE por stream (videos): no se carga entero en memoria (ADR-0202).</summary>
+public sealed record FileStorageStreamSaveRequest(
+    string Module, string? Ref1, string? Ref2, string FileName, string? ContentType, Stream Content);
+
+/// <summary>
+/// Archivo abierto para LEER por stream (ADR-0202). El stream es buscable (seek) para servir rangos HTTP (adelantar
+/// un video). Quien lo recibe debe disponerlo (Results.File lo hace al terminar la respuesta).
+/// </summary>
+public sealed record FileStorageStream(Stream Content, string ContentType, string FileName, long? Length);
+
 /// <summary>
 /// Gestor UNIFICADO y transversal del almacenamiento de archivos del sistema (Azure Blob con fallback a disco).
 /// Todo modulo que suba/lea binarios pasa por aqui: deja una fila en StoredFile (llave = Id) y el binario en
@@ -50,6 +60,28 @@ public interface IFileStorageService
     /// </summary>
     Task<FileStorageContent?> ReadPublicAsync(Guid fileId, string module, CancellationToken ct = default)
         => Task.FromResult<FileStorageContent?>(null);
+
+    /// <summary>
+    /// Guarda un binario leyendo de un stream, sin cargarlo entero en memoria (videos, ADR-0202). La implementacion
+    /// por defecto lo copia a memoria y usa <see cref="SaveAsync"/> (para dobles de prueba).
+    /// </summary>
+    async Task<StoredFileDto> SaveStreamAsync(FileStorageStreamSaveRequest request, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        await request.Content.CopyToAsync(ms, ct);
+        return await SaveAsync(new FileStorageSaveRequest(request.Module, request.Ref1, request.Ref2, request.FileName,
+            request.ContentType, ms.ToArray()), ct);
+    }
+
+    /// <summary>
+    /// Abre un archivo del tenant activo para leerlo por stream buscable (rangos HTTP), sin cargarlo en memoria. Null
+    /// si no existe o no es del tenant. La implementacion por defecto usa <see cref="ReadAsync"/> (dobles de prueba).
+    /// </summary>
+    async Task<FileStorageStream?> OpenReadAsync(Guid fileId, CancellationToken ct = default)
+    {
+        var c = await ReadAsync(fileId, ct);
+        return c is null ? null : new FileStorageStream(new MemoryStream(c.Content, writable: false), c.ContentType, c.FileName, c.Content.LongLength);
+    }
 
     /// <summary>Elimina el archivo (binario + registro). Devuelve true si existia.</summary>
     Task<bool> DeleteAsync(Guid fileId, CancellationToken ct = default);

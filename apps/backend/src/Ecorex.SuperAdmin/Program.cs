@@ -436,6 +436,7 @@ if (!app.Environment.IsDevelopment())
         await seeder.EnsurePlantillasCorreoMenuItemAsync();
         await seeder.EnsureMaquetasMenuItemAsync();
         await seeder.EnsureCerebrosMenuItemAsync();
+        await seeder.EnsureFormacionMenuItemAsync();
         // Plantilla "Orden de compra" (grupo Compras) una vez por tenant (ADR-0189). Idempotente.
         await seeder.EnsureOrdenCompraTemplateAsync();
         // Plantillas de arranque del marketplace (ADR-0097): formularios genericos publicados si el
@@ -614,6 +615,7 @@ else
     await seeder.EnsurePlantillasCorreoMenuItemAsync();
     await seeder.EnsureMaquetasMenuItemAsync();
     await seeder.EnsureCerebrosMenuItemAsync();
+    await seeder.EnsureFormacionMenuItemAsync();
     // Plantilla "Orden de compra" (grupo Compras) una vez por tenant (ADR-0189). Idempotente.
     await seeder.EnsureOrdenCompraTemplateAsync();
     // Retira el item de menu "plantillas" (galeria ahora es modal en Flujos/Formularios, ADR-0097). Idempotente.
@@ -2483,6 +2485,8 @@ Ecorex.SuperAdmin.Endpoints.McpWhatsAppEndpoints.MapMcpWhatsAppEndpoints(app);
 Ecorex.SuperAdmin.Endpoints.McpMaquetasEndpoints.MapMcpMaquetasEndpoints(app);
 // Integracion maqueta (ADR-0176): POST /api/maqueta/solicitudes con token personal integ:maqueta + CORS propio.
 Ecorex.SuperAdmin.Endpoints.MaquetaSolicitudesEndpoints.MapMaquetaSolicitudesEndpoints(app);
+// ADR-0202: entrega de contenido de Formacion (recursos con rangos + wizard HTML con token firmado).
+Ecorex.SuperAdmin.Endpoints.FormacionEndpoints.MapFormacionEndpoints(app);
 // Exportar el cerebro de la maqueta como vault de Obsidian (ADR-0183, v0.16.352), con la sesion del usuario.
 Ecorex.SuperAdmin.Endpoints.MaquetaCerebroEndpoints.MapMaquetaCerebroEndpoints(app);
 app.MapOpenApi();

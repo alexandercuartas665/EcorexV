@@ -391,6 +391,15 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<Brain> Brains => Set<Brain>();
     public DbSet<BrainCategory> BrainCategories => Set<BrainCategory>();
     public DbSet<MockupProjectBrain> MockupProjectBrains => Set<MockupProjectBrain>();
+    // ADR-0202: modulo de Formacion.
+    public DbSet<Curso> Cursos => Set<Curso>();
+    public DbSet<CursoModulo> CursoModulos => Set<CursoModulo>();
+    public DbSet<CursoLeccion> CursoLecciones => Set<CursoLeccion>();
+    public DbSet<CursoAsignacion> CursoAsignaciones => Set<CursoAsignacion>();
+    public DbSet<CursoProgreso> CursoProgresos => Set<CursoProgreso>();
+    public DbSet<CursoLeccionVista> CursoLeccionVistas => Set<CursoLeccionVista>();
+    public DbSet<CursoPregunta> CursoPreguntas => Set<CursoPregunta>();
+    public DbSet<CursoIntento> CursoIntentos => Set<CursoIntento>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -4130,6 +4139,76 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasOne(x => x.Brain).WithMany().HasForeignKey(x => x.BrainId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ADR-0202: modulo de Formacion. Curso = agregado (borrado logico); modulos/lecciones viven y mueren con el
+        // curso (Cascade); el avance cuelga del curso y del usuario (Restrict al usuario: no se borra historia).
+        modelBuilder.Entity<Curso>(b =>
+        {
+            b.Property(x => x.Titulo).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(2000);
+            b.Property(x => x.Categoria).HasMaxLength(80);
+            b.Property(x => x.CreatedByName).HasMaxLength(150);
+            b.Property(x => x.PuntajeMinimo).HasDefaultValue(70);
+            b.Property(x => x.IntentosMax).HasDefaultValue(3);
+            b.HasIndex(x => new { x.TenantId, x.Publicado });
+        });
+        modelBuilder.Entity<CursoModulo>(b =>
+        {
+            b.Property(x => x.Titulo).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(1000);
+            b.HasIndex(x => new { x.CursoId, x.Orden });
+            b.HasOne(x => x.Curso).WithMany(c => c.Modulos).HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoLeccion>(b =>
+        {
+            b.Property(x => x.Titulo).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Descripcion).HasMaxLength(1000);
+            b.Property(x => x.Tipo).HasConversion<string>().HasMaxLength(20);
+            b.Property(x => x.ArchivoNombre).HasMaxLength(255);
+            b.Property(x => x.ArchivoMime).HasMaxLength(120);
+            b.Property(x => x.Url).HasMaxLength(500);
+            b.Property(x => x.WizardRootPrefix).HasMaxLength(300);
+            b.Property(x => x.WizardEntryPath).HasMaxLength(300);
+            b.HasIndex(x => new { x.ModuloId, x.Orden });
+            b.HasIndex(x => new { x.TenantId, x.CursoId });
+            b.HasOne(x => x.Modulo).WithMany(m => m.Lecciones).HasForeignKey(x => x.ModuloId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoAsignacion>(b =>
+        {
+            b.Property(x => x.Destino).HasConversion<string>().HasMaxLength(20);
+            b.HasIndex(x => new { x.TenantId, x.CursoId });
+            b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+            b.HasOne(x => x.Curso).WithMany().HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoProgreso>(b =>
+        {
+            b.Property(x => x.CertificadoCodigo).HasMaxLength(20);
+            b.HasIndex(x => x.CertificadoCodigo).IsUnique()
+                .HasFilter(isNpgsql ? "certificado_codigo IS NOT NULL" : "[certificado_codigo] IS NOT NULL");
+            b.HasIndex(x => new { x.TenantId, x.CursoId, x.TenantUserId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.TenantUserId });
+            b.HasOne(x => x.Curso).WithMany().HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoPregunta>(b =>
+        {
+            b.Property(x => x.Enunciado).HasMaxLength(2000).IsRequired();
+            b.Property(x => x.OpcionesJson).HasMaxLength(8000).IsRequired();
+            b.Property(x => x.Retroalimentacion).HasMaxLength(2000);
+            b.HasIndex(x => new { x.CursoId, x.Orden });
+            b.HasOne(x => x.Curso).WithMany().HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoIntento>(b =>
+        {
+            b.Property(x => x.RespuestasJson).HasMaxLength(8000).IsRequired();
+            b.HasIndex(x => new { x.TenantId, x.CursoId, x.TenantUserId });
+            b.HasOne(x => x.Curso).WithMany().HasForeignKey(x => x.CursoId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<CursoLeccionVista>(b =>
+        {
+            b.HasIndex(x => new { x.TenantId, x.LeccionId, x.TenantUserId }).IsUnique();
+            b.HasIndex(x => new { x.TenantId, x.CursoId, x.TenantUserId });
+            b.HasOne(x => x.Leccion).WithMany().HasForeignKey(x => x.LeccionId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ImportProcess>(b =>

@@ -33,6 +33,16 @@ else
                 <span class="cp-name">@_brain.Name</span>
                 <small>@(_brain.CategoryName ?? "Sin categoria")</small>
             </div>
+            @if (_brain.IsLocked)
+            {
+                <span class="cp-locked" title="Lo administra la plataforma: se actualiza solo y no se puede editar aqui"><i class="fa-solid fa-lock"></i> Cerebro de la plataforma</span>
+                @if (_isAdmin)
+                {
+                    <button class="btn btn-sm btn-outline-primary" disabled="@_duplicating" @onclick="DuplicateAsync">
+                        <i class="fa-regular fa-copy"></i> @(_duplicating ? "Duplicando..." : "Duplicar como propio")
+                    </button>
+                }
+            }
             <div class="cp-mockups">
                 @foreach (var m in _brain.Mockups)
                 {
@@ -44,7 +54,8 @@ else
         </header>
         <div class="cp-body">
             <MaquetaCerebro @key="_brain.Slug" Slug="@_brain.Slug" ProjectName="@_brain.Name" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
-                            Active="true" InitialNote="@Nota" OnOpenPage="OpenPageAsync" OnOpenTask="OpenTaskAsync" OnToast="ShowToast" />
+                            Active="true" InitialNote="@Nota" OnOpenPage="OpenPageAsync" OnOpenTask="OpenTaskAsync" OnToast="ShowToast"
+                            ReadOnly="@_brain.IsLocked" />
         </div>
     </div>
 }
@@ -70,6 +81,7 @@ else
     private string? _toast;
     private CancellationTokenSource? _toastCts;
     private TaskDetailModal? _taskModal;
+    private bool _duplicating;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -105,6 +117,40 @@ else
         }
         Nav.NavigateTo($"/maqueta/{mockup.Slug}?page={Uri.EscapeDataString(file)}");
         return Task.CompletedTask;
+    }
+
+    /// <summary>"Duplicar como propio" (ADR-0200 ola 3): copia editable del cerebro sembrado y abre la copia.</summary>
+    private async Task DuplicateAsync()
+    {
+        if (_brain is null || _duplicating) { return; }
+        _duplicating = true;
+        try
+        {
+            using var ambient = Ecorex.SuperAdmin.Auth.AmbientTenantContext.Begin(_tenantId, _userId);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var sp = scope.ServiceProvider;
+            var actor = await sp.GetRequiredService<Ecorex.Application.Integraciones.Maqueta.IMaquetaSolicitudService>().ResolveSessionActorAsync(_userId);
+            if (actor is null)
+            {
+                ShowToast("Tu usuario no puede duplicar cerebros en esta empresa.");
+                return;
+            }
+            var res = await sp.GetRequiredService<IBrainService>().DuplicateAsync(_brain.Slug, null, actor);
+            if (!res.IsOk || res.Value is null)
+            {
+                ShowToast(res.Error ?? "No se pudo duplicar el cerebro.");
+                return;
+            }
+            Nav.NavigateTo($"/cerebros/{res.Value.Slug}");
+        }
+        catch (Exception)
+        {
+            ShowToast("No se pudo duplicar el cerebro. Intenta de nuevo.");
+        }
+        finally
+        {
+            _duplicating = false;
+        }
     }
 
     private async Task OpenTaskAsync(Guid taskId)

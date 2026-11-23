@@ -1,0 +1,511 @@
+@page "/cerebros-plantilla"
+@attribute [Authorize(Policy = "PlatformOperator")]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Ecorex.Application.Integraciones.Cerebro
+@using Ecorex.Domain.Entities
+@using Ecorex.SuperAdmin.Cerebros
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IServiceScopeFactory ScopeFactory
+@inject BrainTemplatePublisher Publisher
+
+@* Cerebros plantilla de PLATAFORMA (ADR-0200, ola 3): el Super Admin cura cerebros (notas tipo Obsidian) y los
+   SIEMBRA en las empresas: todas, las de ciertos planes o las elegidas. Bloqueado = el cerebro sembrado es de solo
+   lectura en la empresa y se re-sincroniza en cada publicacion; libre = copia editable que no se vuelve a tocar.
+   Cada mutacion queda AUDITADA. La siembra corre en el contexto de cada empresa (filtro global). Solo ASCII. *@
+
+<PageTitle>Cerebros plantilla - ECOREX.tareas</PageTitle>
+
+<div class="module-head">
+    <div>
+        <div class="module-eyebrow">
+            <div class="module-icon"><i class="fa-solid fa-brain"></i></div>
+            <span>Super Admin SaaS</span>
+        </div>
+        <h1 class="page-title" style="margin-top:12px;">Cerebros plantilla</h1>
+        <p class="page-sub" style="margin-bottom:0;">Cerebros que la plataforma siembra en las empresas. Bloqueado: solo lectura en la empresa y se actualiza en cada publicacion. Libre: copia editable que no se vuelve a sincronizar.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate">+ Nuevo cerebro plantilla</button>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert @(_messageIsError ? "alert-danger" : "alert-success") py-2 mt-3">@_message</div>
+}
+
+@if (_items is null)
+{
+    <p class="mt-3"><em>Cargando...</em></p>
+}
+else if (_items.Count == 0)
+{
+    <div class="bt-empty">Aun no hay cerebros plantilla. Crea uno, agrega sus notas (o importa un vault de Obsidian) y publicalo.</div>
+}
+else
+{
+    <div class="bt-gallery">
+        @foreach (var t in _items)
+        {
+            <div class="bt-card" style="--bt-accent:@(t.CategoryColor ?? "#7c3aed")">
+                <div class="bt-card-head">
+                    <span class="bt-icon"><i class="fa-solid fa-brain"></i></span>
+                    <div class="bt-titles">
+                        <strong>@t.Name</strong>
+                        <small>@(t.CategoryName ?? "Sin categoria")</small>
+                    </div>
+                    <span class="bt-badge @(t.IsLocked ? "lock" : "free")">@(t.IsLocked ? "Bloqueado" : "Libre")</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(t.Description))
+                {
+                    <div class="bt-desc">@t.Description</div>
+                }
+                <div class="bt-meta">
+                    <span><i class="fa-regular fa-note-sticky"></i> @t.Notes notas</span>
+                    <span><i class="fa-solid fa-bullseye"></i> @TargetLabel(t)</span>
+                    <span>@(t.PublishedVersion == 0 ? "Sin publicar" : $"v{t.PublishedVersion} publicada {Ago(t.PublishedAt)}")</span>
+                </div>
+                <div class="bt-actions">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenEdit(t)">Editar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => OpenNotesAsync(t)">Notas</button>
+                    <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="() => PublishAsync(t)">
+                        @(_confirmPublish == t.Id ? "Confirmar publicacion" : "Publicar")
+                    </button>
+                    <button class="btn btn-sm btn-link text-danger ms-auto" disabled="@_busy" @onclick="() => ArchiveAsync(t)">
+                        @(_confirmArchive == t.Id ? "Confirmar: archivar" : "Archivar")
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (_lastPublish is not null)
+{
+    <div class="bt-result">
+        <div class="bt-result-head">
+            <strong>Publicacion v@(_lastPublish.Version) de "@_lastPublishName"</strong>
+            <span>@_lastPublish.Count("created") sembrados &middot; @_lastPublish.Count("synced") sincronizados &middot; @_lastPublish.Count("skipped") omitidos (copias libres) &middot; @_lastPublish.Count("error") con error</span>
+            <button class="btn btn-sm btn-link ms-auto" @onclick="() => _lastPublish = null">Cerrar</button>
+        </div>
+        @if (_lastPublish.Tenants.Count == 0)
+        {
+            <div class="bt-muted">Ninguna empresa coincide con los destinos de la plantilla.</div>
+        }
+        else
+        {
+            <table class="table table-sm mb-0">
+                <thead><tr><th>Empresa</th><th>Resultado</th><th>Cerebro</th><th>Notas nuevas</th><th>Actualizadas</th><th>Archivadas</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _lastPublish.Tenants)
+                    {
+                        <tr>
+                            <td>@r.TenantName</td>
+                            <td>@OutcomeLabel(r)</td>
+                            <td><code>@(r.BrainSlug ?? "-")</code></td>
+                            <td>@r.Created</td>
+                            <td>@r.Updated</td>
+                            <td>@r.Archived</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@if (_editing)
+{
+    <div class="bt-modal-back" @onclick="() => _editing = false"></div>
+    <div class="bt-modal" role="dialog" aria-label="Cerebro plantilla">
+        <div class="bt-modal-head">
+            <h3>@(_editId is null ? "Nuevo cerebro plantilla" : "Editar cerebro plantilla")</h3>
+            <button class="bt-x" title="Cerrar" @onclick="() => _editing = false"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="bt-form">
+            <label>Nombre<input class="form-control form-control-sm" maxlength="150" @bind="_name" placeholder="Guia de buenas practicas" /></label>
+            <label>Descripcion<textarea class="form-control form-control-sm" rows="2" maxlength="600" @bind="_desc"></textarea></label>
+            <div class="bt-row">
+                <label class="bt-grow">Categoria en la empresa<input class="form-control form-control-sm" maxlength="80" @bind="_category" placeholder="Base de conocimiento" /></label>
+                <label>Color<input type="color" class="bt-color" @bind="_color" /></label>
+            </div>
+            <label class="bt-check"><input type="checkbox" @bind="_locked" /> Bloqueado (solo lectura en la empresa y se actualiza en cada publicacion)</label>
+            <div class="bt-targets">
+                <span class="bt-label">Sembrar en</span>
+                <label class="bt-check"><input type="radio" name="bt-target" checked="@(_mode == BrainTemplateTargets.All)" @onchange="() => _mode = BrainTemplateTargets.All" /> Todas las empresas activas</label>
+                <label class="bt-check"><input type="radio" name="bt-target" checked="@(_mode == BrainTemplateTargets.Plans)" @onchange="() => _mode = BrainTemplateTargets.Plans" /> Las empresas de ciertos planes</label>
+                <label class="bt-check"><input type="radio" name="bt-target" checked="@(_mode == BrainTemplateTargets.Tenants)" @onchange="() => _mode = BrainTemplateTargets.Tenants" /> Empresas elegidas</label>
+                @if (_mode != BrainTemplateTargets.All)
+                {
+                    var options = _mode == BrainTemplateTargets.Plans ? _plans : _tenants;
+                    <input class="form-control form-control-sm" placeholder="Buscar" @bind="_targetSearch" @bind:event="oninput" />
+                    <div class="bt-options">
+                        @foreach (var o in options.Where(o => _targetSearch.Length == 0 || o.Name.Contains(_targetSearch, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            <label class="bt-check"><input type="checkbox" checked="@_targets.Contains(o.Id)" @onchange="e => ToggleTarget(o.Id, e)" /> @o.Name</label>
+                        }
+                    </div>
+                    <small class="bt-muted">@_targets.Count(id => options.Any(o => o.Id == id)) seleccionados</small>
+                }
+            </div>
+            @if (_formError is not null)
+            {
+                <div class="text-danger small">@_formError</div>
+            }
+        </div>
+        <div class="bt-modal-actions">
+            <button class="btn btn-sm btn-link" @onclick="() => _editing = false">Cancelar</button>
+            <button class="btn btn-sm btn-primary" disabled="@_busy" @onclick="SaveAsync">Guardar</button>
+        </div>
+    </div>
+}
+
+@if (_notesOf is not null)
+{
+    <div class="bt-modal-back"></div>
+    <div class="bt-modal bt-modal-wide" role="dialog" aria-label="Notas de la plantilla">
+        <div class="bt-modal-head">
+            <h3>Notas de "@_notesOf.Template.Name"</h3>
+            <button class="bt-x" title="Cerrar" @onclick="CloseNotesAsync"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="bt-notes">
+            <aside class="bt-notes-list">
+                <button class="btn btn-sm btn-primary w-100" @onclick="NewNote">+ Nota</button>
+                <label class="btn btn-sm btn-outline-secondary w-100 mb-0 bt-import">
+                    Importar vault (.zip)
+                    <InputFile OnChange="ImportAsync" accept=".zip,application/zip" hidden />
+                </label>
+                @foreach (var n in _notesOf.Notes)
+                {
+                    <button class="bt-note @(n.Id == _noteId ? "on" : null)" @onclick="() => EditNote(n)">@n.Title</button>
+                }
+                @if (_notesOf.Notes.Count == 0)
+                {
+                    <div class="bt-muted">Sin notas.</div>
+                }
+            </aside>
+            <section class="bt-notes-edit">
+                <input class="form-control form-control-sm" placeholder="Titulo de la nota" maxlength="200" @bind="_noteTitle" />
+                <textarea class="form-control form-control-sm bt-body" placeholder="Markdown. [[Otra nota]] enlaza; #etiqueta agrupa." @bind="_noteBody"></textarea>
+                @if (_noteError is not null)
+                {
+                    <div class="text-danger small">@_noteError</div>
+                }
+                <div class="bt-row">
+                    @if (_noteId is not null)
+                    {
+                        <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="DeleteNoteAsync">Quitar nota</button>
+                    }
+                    <button class="btn btn-sm btn-primary ms-auto" disabled="@_busy" @onclick="SaveNoteAsync">Guardar nota</button>
+                </div>
+                <small class="bt-muted">Los cambios llegan a las empresas cuando publicas. En las bloqueadas, una nota quitada se archiva.</small>
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<BrainTemplateSummaryDto>? _items;
+    private List<BrainTemplateTargetOption> _plans = new();
+    private List<BrainTemplateTargetOption> _tenants = new();
+    private Guid _userId;
+    private bool _busy;
+    private string? _message;
+    private bool _messageIsError;
+    private Guid? _confirmPublish;
+    private Guid? _confirmArchive;
+    private BrainTemplatePublishResult? _lastPublish;
+    private string? _lastPublishName;
+
+    private bool _editing;
+    private Guid? _editId;
+    private string _name = string.Empty;
+    private string? _desc;
+    private string? _category;
+    private string _color = "#7c3aed";
+    private bool _locked = true;
+    private string _mode = BrainTemplateTargets.All;
+    private HashSet<Guid> _targets = new();
+    private string _targetSearch = string.Empty;
+    private string? _formError;
+
+    private BrainTemplateDetailDto? _notesOf;
+    private Guid? _noteId;
+    private string _noteTitle = string.Empty;
+    private string _noteBody = string.Empty;
+    private string? _noteError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+        }
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        var svc = scope.ServiceProvider.GetRequiredService<IBrainTemplateService>();
+        _items = (await svc.ListAsync()).ToList();
+        _plans = (await svc.ListPlansAsync()).ToList();
+        _tenants = (await svc.ListTenantsAsync()).ToList();
+    }
+
+    private void OpenCreate()
+    {
+        _editId = null;
+        _name = string.Empty;
+        _desc = null;
+        _category = null;
+        _color = "#7c3aed";
+        _locked = true;
+        _mode = BrainTemplateTargets.All;
+        _targets = new();
+        _targetSearch = string.Empty;
+        _formError = null;
+        _editing = true;
+    }
+
+    private void OpenEdit(BrainTemplateSummaryDto t)
+    {
+        _editId = t.Id;
+        _name = t.Name;
+        _desc = t.Description;
+        _category = t.CategoryName;
+        _color = t.CategoryColor ?? "#7c3aed";
+        _locked = t.IsLocked;
+        _mode = t.TargetMode;
+        _targets = t.TargetIds.ToHashSet();
+        _targetSearch = string.Empty;
+        _formError = null;
+        _editing = true;
+    }
+
+    private void ToggleTarget(Guid id, ChangeEventArgs e)
+    {
+        if (e.Value is true) { _targets.Add(id); } else { _targets.Remove(id); }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy) { return; }
+        _busy = true;
+        _formError = null;
+        try
+        {
+            var options = _mode == BrainTemplateTargets.Plans ? _plans : _tenants;
+            var ids = _mode == BrainTemplateTargets.All ? new List<Guid>() : _targets.Where(id => options.Any(o => o.Id == id)).ToList();
+            var input = new BrainTemplateInput(_name, _desc, _category, _color, _locked, _mode, ids);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var res = await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>().SaveAsync(_editId, input, _userId);
+            if (!res.IsOk)
+            {
+                _formError = res.Error;
+                return;
+            }
+            _editing = false;
+            Show("Cerebro plantilla guardado. Publicalo para que llegue a las empresas.", false);
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ArchiveAsync(BrainTemplateSummaryDto t)
+    {
+        if (_confirmArchive != t.Id)
+        {
+            _confirmArchive = t.Id;
+            return;
+        }
+        _confirmArchive = null;
+        _busy = true;
+        try
+        {
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var res = await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>().ArchiveAsync(t.Id, _userId);
+            Show(res.IsOk ? $"'{t.Name}' archivado. Los cerebros ya sembrados quedan como estan." : res.Error ?? "No se pudo archivar.", !res.IsOk);
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task PublishAsync(BrainTemplateSummaryDto t)
+    {
+        if (_confirmPublish != t.Id)
+        {
+            _confirmPublish = t.Id;
+            return;
+        }
+        _confirmPublish = null;
+        _busy = true;
+        _message = null;
+        try
+        {
+            var res = await Publisher.PublishAsync(t.Id, _userId);
+            if (!res.IsOk || res.Value is null)
+            {
+                Show(res.Error ?? "No se pudo publicar.", true);
+                return;
+            }
+            _lastPublish = res.Value;
+            _lastPublishName = t.Name;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ notas de la plantilla
+
+    private async Task OpenNotesAsync(BrainTemplateSummaryDto t)
+    {
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        _notesOf = await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>().GetAsync(t.Id);
+        NewNote();
+    }
+
+    private async Task CloseNotesAsync()
+    {
+        _notesOf = null;
+        await ReloadAsync();
+    }
+
+    private void NewNote()
+    {
+        _noteId = null;
+        _noteTitle = string.Empty;
+        _noteBody = string.Empty;
+        _noteError = null;
+    }
+
+    private void EditNote(BrainTemplateNoteDto n)
+    {
+        _noteId = n.Id;
+        _noteTitle = n.Title;
+        _noteBody = n.Body;
+        _noteError = null;
+    }
+
+    private async Task RefreshNotesAsync()
+    {
+        if (_notesOf is null) { return; }
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        _notesOf = await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>().GetAsync(_notesOf.Template.Id);
+    }
+
+    private async Task SaveNoteAsync()
+    {
+        if (_notesOf is null || _busy) { return; }
+        _busy = true;
+        _noteError = null;
+        try
+        {
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var res = await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>()
+                .SaveNoteAsync(_notesOf.Template.Id, _noteId, _noteTitle, _noteBody, _userId);
+            if (!res.IsOk)
+            {
+                _noteError = res.Error;
+                return;
+            }
+            _noteId = res.Value;
+            await RefreshNotesAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteNoteAsync()
+    {
+        if (_notesOf is null || _noteId is null || _busy) { return; }
+        _busy = true;
+        try
+        {
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>().DeleteNoteAsync(_notesOf.Template.Id, _noteId.Value, _userId);
+            NewNote();
+            await RefreshNotesAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        if (_notesOf is null) { return; }
+        _busy = true;
+        _noteError = null;
+        try
+        {
+            using var ms = new MemoryStream();
+            await e.File.OpenReadStream(MockupBrainServiceLimits.MaxVaultZipBytes).CopyToAsync(ms);
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var res = await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>().ImportVaultAsync(_notesOf.Template.Id, ms.ToArray(), _userId);
+            if (!res.IsOk) { _noteError = res.Error; return; }
+            _noteError = null;
+            Show($"Se importaron {res.Value} notas en la plantilla.", false);
+            await RefreshNotesAsync();
+        }
+        catch (IOException)
+        {
+            _noteError = "El archivo supera el tamano permitido.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private void Show(string message, bool isError)
+    {
+        _message = message;
+        _messageIsError = isError;
+    }
+
+    private string TargetLabel(BrainTemplateSummaryDto t) => t.TargetMode switch
+    {
+        BrainTemplateTargets.Plans => $"{t.TargetIds.Count} plan(es)",
+        BrainTemplateTargets.Tenants => $"{t.TargetIds.Count} empresa(s)",
+        _ => "Todas las empresas"
+    };
+
+    private static string OutcomeLabel(BrainTemplateTenantResult r) => r.Outcome switch
+    {
+        "created" => "Sembrado",
+        "synced" => "Sincronizado",
+        "skipped" => "Omitido (copia libre)",
+        _ => r.Error ?? "Error"
+    };
+
+    private static string Ago(DateTimeOffset? at)
+    {
+        if (at is null) { return string.Empty; }
+        var d = DateTimeOffset.UtcNow - at.Value;
+        if (d.TotalMinutes < 1) { return "ahora"; }
+        if (d.TotalHours < 1) { return $"hace {(int)d.TotalMinutes} min"; }
+        if (d.TotalDays < 1) { return $"hace {(int)d.TotalHours} h"; }
+        return $"hace {(int)d.TotalDays} d";
+    }
+
+    private static class MockupBrainServiceLimits
+    {
+        public const long MaxVaultZipBytes = Ecorex.Application.Integraciones.Maqueta.MockupBrainService.MaxVaultZipBytes;
+    }
+}

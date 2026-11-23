@@ -351,3 +351,15 @@
         max-width: none;
     }
 }
+
+/* ADR-0200 ola 3: insignia de cerebro sembrado bloqueado. */
+.cb-lock {
+    flex: none;
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #92400e;
+    background: #fef3c7;
+}

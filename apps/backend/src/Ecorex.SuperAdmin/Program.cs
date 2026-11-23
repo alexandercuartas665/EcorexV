@@ -263,6 +263,9 @@ builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupServi
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Maqueta.IMockupBrainService, Ecorex.Application.Integraciones.Maqueta.MockupBrainService>();
 // ADR-0200: catalogo de cerebros (modulo Cerebros, categorias, vinculo con maquetas).
 builder.Services.AddScoped<Ecorex.Application.Integraciones.Cerebro.IBrainService, Ecorex.Application.Integraciones.Cerebro.BrainService>();
+// ADR-0200 ola 3: cerebros plantilla de plataforma (Super Admin) y su siembra por tenant.
+builder.Services.AddScoped<Ecorex.Application.Integraciones.Cerebro.IBrainTemplateService, Ecorex.Application.Integraciones.Cerebro.BrainTemplateService>();
+builder.Services.AddScoped<Ecorex.SuperAdmin.Cerebros.BrainTemplatePublisher>();
 // MCP de maquetas (ADR-0182): aqui y no en Application porque depende de IMockupService/IMockupBrainService.
 builder.Services.AddScoped<Ecorex.Application.Mcp.IMaquetaMcpToolset, Ecorex.Application.Mcp.MaquetaMcpToolset>();
 builder.Services.AddSingleton<MockupSiteCache>();

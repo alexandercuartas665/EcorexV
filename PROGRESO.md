@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Cerebros ola 3: cerebros plantilla del Super Admin, siembra bloqueada y duplicar (ADR-0200) - SIN VERSION (la asigna el dev principal)
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.377). CON MIGRACION dual
+`AddBrainTemplates` (tablas brain_templates y brain_template_notes + columnas source_template_id, is_locked y
+template_version en brains; sin datos).
+- **Hecho**: pagina de plataforma `/cerebros-plantilla` (menu Super Admin): plantillas, notas (editor + importar vault),
+  destinos (todas / por plan / elegidas), Publicar con resultado por empresa. `BrainTemplatePublisher` siembra en el
+  contexto de CADA tenant (`IBrainService.ApplyTemplateAsync`): crea el cerebro o sincroniza el bloqueado (notas por
+  titulo: crea, actualiza, archiva) y omite copias libres. Candado de solo lectura en `MockupBrainService` y
+  `BrainService`; `MaquetaCerebro.ReadOnly`; "Duplicar como propio" (`DuplicateAsync`). Todo auditado.
+- **Pruebas**: build OK; unitarias (ver commit); integracion dual BrainTemplates|BrainsModule|MockupBrain|Maqueta 67/67.
+  Validado en local 5285 sobre la copia `ecorex_cerebros`: crear plantilla bloqueada con 2 notas enlazadas, publicar
+  a BITCODE (sembrado), verla de solo lectura en la empresa y "Duplicar como propio" (copia editable). Para entrar al
+  Super Admin se dio rol de plataforma temporal al usuario dev SOLO en la copia y se revirtio al terminar.
+- **Siguiente**: ola 4 (MCP por cerebro: listar_cerebros, parametro `cerebro`).
+
 ## 2026-11-22 - Cerebros ola 2: tarjetas de cerebros vinculados en la maqueta + modal grande (ADR-0200) - SIN VERSION (la asigna el dev principal)
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.375). SIN migracion.

@@ -400,6 +400,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
     public DbSet<CursoLeccionVista> CursoLeccionVistas => Set<CursoLeccionVista>();
     public DbSet<CursoPregunta> CursoPreguntas => Set<CursoPregunta>();
     public DbSet<CursoIntento> CursoIntentos => Set<CursoIntento>();
+    // ADR-0200 ola 3: cerebros plantilla de plataforma (Super Admin).
+    public DbSet<BrainTemplate> BrainTemplates => Set<BrainTemplate>();
+    public DbSet<BrainTemplateNote> BrainTemplateNotes => Set<BrainTemplateNote>();
 
     /// <summary>
     /// Transaccion explicita para casos de uso multi-paso (IApplicationDbContext).
@@ -4140,6 +4143,26 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.HasOne(x => x.Brain).WithMany().HasForeignKey(x => x.BrainId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+        // ADR-0200 ola 3: cerebros plantilla de PLATAFORMA (sin tenant). El sembrado en cada tenant es un Brain con
+        // SourceTemplateId (sin FK: la plantilla vive fuera del tenant y su archivo no debe tocar los cerebros).
+        modelBuilder.Entity<BrainTemplate>(b =>
+        {
+            b.Property(x => x.Name).HasMaxLength(150).IsRequired();
+            b.Property(x => x.Description).HasMaxLength(600);
+            b.Property(x => x.CategoryName).HasMaxLength(80);
+            b.Property(x => x.CategoryColor).HasMaxLength(9);
+            b.Property(x => x.TargetMode).HasMaxLength(10).IsRequired();
+        });
+        modelBuilder.Entity<BrainTemplateNote>(b =>
+        {
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.TitleKey).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Body).IsRequired();
+            b.HasIndex(x => new { x.TemplateId, x.TitleKey }).IsUnique();
+            b.HasOne(x => x.Template).WithMany(t => t.Notes).HasForeignKey(x => x.TemplateId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<Brain>(b => b.HasIndex(x => new { x.TenantId, x.SourceTemplateId }));
 
         // ADR-0202: modulo de Formacion. Curso = agregado (borrado logico); modulos/lecciones viven y mueren con el
         // curso (Cascade); el avance cuelga del curso y del usuario (Restrict al usuario: no se borra historia).

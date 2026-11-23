@@ -59,6 +59,8 @@ public interface IApplicationDbContext
     DbSet<CursoLeccionVista> CursoLeccionVistas => throw new NotSupportedException();
     DbSet<CursoPregunta> CursoPreguntas => throw new NotSupportedException();
     DbSet<CursoIntento> CursoIntentos => throw new NotSupportedException();
+    DbSet<BrainTemplate> BrainTemplates => throw new NotSupportedException();
+    DbSet<BrainTemplateNote> BrainTemplateNotes => throw new NotSupportedException();
     DbSet<TemplateAsset> TemplateAssets { get; }
     DbSet<AiAgent> AiAgents { get; }
     DbSet<AiAgentResource> AiAgentResources { get; }

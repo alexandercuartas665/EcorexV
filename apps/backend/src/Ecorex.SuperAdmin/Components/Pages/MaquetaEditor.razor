@@ -160,6 +160,10 @@ else
                                                 <span class="me-brain-card-desc">@b.Description</span>
                                             }
                                         </span>
+                                        @if (b.IsLocked)
+                                        {
+                                            <span class="me-brain-lock" title="Lo administra la plataforma (solo lectura)"><i class="fa-solid fa-lock"></i></span>
+                                        }
                                         @if (b.IsPrimary)
                                         {
                                             <span class="me-brain-primary" title="Cerebro principal de la maqueta">Principal</span>
@@ -200,7 +204,8 @@ else
                     <div class="me-bmodal-body">
                         <MaquetaCerebro @key="_openBrain.Slug" @ref="_brain" Slug="@_openBrain.Slug" ProjectName="@_openBrain.Name" TenantId="_tenantId" UserId="_userId" IsAdmin="_isAdmin"
                                         Active="true" Pages="_pages" Solicitudes="_solicitudes" CurrentFile="@_currentFile"
-                                        InitialNote="@_openNote" InitialPageFile="@_openPageFile" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast" />
+                                        InitialNote="@_openNote" InitialPageFile="@_openPageFile" OnOpenPage="OpenPageFromBrainAsync" OnOpenTask="OpenTaskFromBrainAsync" OnToast="ShowToast"
+                                        ReadOnly="@_openBrain.IsLocked" />
                     </div>
                 </div>
             }

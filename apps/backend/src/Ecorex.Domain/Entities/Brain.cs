@@ -27,6 +27,15 @@ public sealed class Brain : TenantEntity, ISoftDeletable, IVersioned
 
     public string? CreatedByName { get; set; }
 
+    /// <summary>Cerebro plantilla de plataforma del que se sembro (ola 3). Null = cerebro propio del tenant.</summary>
+    public Guid? SourceTemplateId { get; set; }
+
+    /// <summary>Sembrado BLOQUEADO: solo lectura en el tenant (ni Owner/Admin edita); lo administra la plataforma.</summary>
+    public bool IsLocked { get; set; }
+
+    /// <summary>Version de la plantilla aplicada por ultima vez (sembrados).</summary>
+    public int? TemplateVersion { get; set; }
+
     public bool IsDeleted { get; set; }
 
     public DateTimeOffset? DeletedAt { get; set; }

@@ -27,12 +27,25 @@
                 <input placeholder="Buscar en titulos y contenido" @bind="_search" @bind:event="oninput" @bind:after="OnSearchChanged" />
             </div>
             <div class="mb-list-actions">
-                <button class="mb-btn primary" @onclick="NewNoteAsync"><i class="fa-solid fa-plus"></i> Nota</button>
+                @if (!ReadOnly)
+                {
+                    <button class="mb-btn primary" @onclick="NewNoteAsync"><i class="fa-solid fa-plus"></i> Nota</button>
+                }
+                else
+                {
+                    <span class="mb-locked" title="Cerebro de la plataforma: solo lectura"><i class="fa-solid fa-lock"></i> Solo lectura</span>
+                }
                 <button class="mb-btn" title="Grafo completo del cerebro" @onclick="OpenGraphAsync"><i class="fa-solid fa-diagram-project"></i> Grafo</button>
                 <button class="mb-icon" title="Adjuntos del cerebro (imagenes y PDF)" @onclick="OpenAssetsPanelAsync"><i class="fa-solid fa-paperclip"></i></button>
-                <button class="mb-icon" title="Importar un vault de Obsidian (.zip con notas .md)" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i></button>
+                @if (!ReadOnly)
+                {
+                    <button class="mb-icon" title="Importar un vault de Obsidian (.zip con notas .md)" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i></button>
+                }
                 <a class="mb-icon" href="@ExportUrl" download data-enhance-nav="false" title="Exportar el cerebro como vault de Obsidian (.zip con las notas .md y los adjuntos)"><i class="fa-solid fa-file-export"></i></a>
-                <button class="mb-icon" title="Papelera: notas archivadas (restaurarlas)" @onclick="OpenTrashAsync"><i class="fa-solid fa-trash-arrow-up"></i></button>
+                @if (!ReadOnly)
+                {
+                    <button class="mb-icon" title="Papelera: notas archivadas (restaurarlas)" @onclick="OpenTrashAsync"><i class="fa-solid fa-trash-arrow-up"></i></button>
+                }
             </div>
             <button class="mb-claude" title="Piensa con Claude sobre este cerebro (tu plan de Claude)" @onclick="() => _showClaude = true">
                 <i class="fa-regular fa-comments"></i> Chatear con Claude sobre este cerebro
@@ -79,20 +92,33 @@
                     <li><code>#etiqueta</code> agrupa notas por tema</li>
                 </ul>
                 <div class="mb-welcome-actions">
+                    @if (ReadOnly)
+                    {
+                        <span class="mb-locked"><i class="fa-solid fa-lock"></i> Cerebro de la plataforma: solo lectura. Abre una nota de la lista.</span>
+                    }
+                    else
+                    {
                     <button class="mb-btn primary" @onclick="NewNoteAsync"><i class="fa-solid fa-plus"></i> Nueva nota</button>
                     @if (!string.IsNullOrEmpty(CurrentFile))
                     {
                         <button class="mb-btn" @onclick="() => OpenPageNoteAsync(CurrentFile)"><i class="fa-regular fa-window-maximize"></i> Nota de la pantalla actual</button>
                     }
                     <button class="mb-btn" @onclick="() => { _showImport = true; _importResult = null; _importError = null; }"><i class="fa-solid fa-file-import"></i> Importar Obsidian</button>
+                    }
                 </div>
             </div>
         }
         else
         {
             <div class="mb-note-head">
-                <input class="mb-title" @bind="_draftTitle" @bind:event="oninput" placeholder="Titulo de la nota" maxlength="200" />
+                <input class="mb-title" @bind="_draftTitle" @bind:event="oninput" placeholder="Titulo de la nota" maxlength="200" readonly="@ReadOnly" />
                 <div class="mb-note-tools">
+                    @if (ReadOnly)
+                    {
+                        <span class="mb-locked" title="Cerebro de la plataforma: duplicalo como propio para editarlo"><i class="fa-solid fa-lock"></i> Solo lectura</span>
+                    }
+                    else
+                    {
                     <span class="mb-status @(Dirty ? "dirty" : null)">@StatusText</span>
                     <div class="mb-seg">
                         <button class="@(_editing ? "on" : null)" title="Editar (markdown)" @onclick="() => SetEditingAsync(true)"><i class="fa-solid fa-pen"></i> Editar</button>
@@ -102,6 +128,7 @@
                     @if (_current is not null && CanArchive)
                     {
                         <button class="mb-icon" title="Archivar nota" @onclick="ArchiveAsync"><i class="fa-regular fa-trash-can"></i></button>
+                    }
                     }
                 </div>
             </div>
@@ -298,7 +325,7 @@
             <div class="mb-modal-head">
                 <h3><i class="fa-solid fa-paperclip"></i> Adjuntos de @ProjectName</h3>
                 <span class="mb-count">@_panelAssets.Count adjuntos</span>
-                <label class="mb-btn mb-attach @(_uploading ? "busy" : null)" title="Imagen PNG/JPG/GIF/WEBP/BMP o PDF, max 10 MB">
+                <label class="mb-btn mb-attach @(_uploading ? "busy" : null)" hidden="@ReadOnly" title="Imagen PNG/JPG/GIF/WEBP/BMP o PDF, max 10 MB">
                     <i class="fa-solid fa-upload"></i> @(_uploading ? "Subiendo..." : "Subir")
                     <InputFile OnChange="OnPanelAssetSelected" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.pdf" disabled="@_uploading" />
                 </label>
@@ -335,11 +362,11 @@
                                     @Size(a.SizeBytes) &middot; @(used.Count == 0 ? "sin usar" : used.Count == 1 ? "en 1 nota" : $"en {used.Count} notas")
                                 </div>
                                 <div class="mb-asset-actions">
-                                    @if (_hasNote)
+                                    @if (_hasNote && !ReadOnly)
                                     {
                                         <button class="mb-link" title="Insertar en la nota abierta" @onclick="() => InsertAsset(a)"><i class="fa-solid fa-arrow-right-to-bracket"></i> Insertar</button>
                                     }
-                                    @if (IsAdmin)
+                                    @if (IsAdmin && !ReadOnly)
                                     {
                                         <button class="mb-link danger" title="Borrar definitivamente" @onclick="() => DeleteAssetAsync(a)"><i class="fa-regular fa-trash-can"></i> Borrar</button>
                                     }
@@ -446,6 +473,8 @@
     [Parameter] public string ProjectName { get; set; } = "Cerebro";
     /// <summary>Enlace a la pagina del cerebro en el modulo Cerebros (solo cuando se muestra dentro de una maqueta).</summary>
     [Parameter] public string? ModuleUrl { get; set; }
+    /// <summary>Cerebro sembrado BLOQUEADO por la plataforma (ADR-0200 ola 3): solo lectura (el servidor tambien lo exige).</summary>
+    [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public Guid TenantId { get; set; }
     [Parameter] public Guid UserId { get; set; }
     [Parameter] public bool IsAdmin { get; set; }
@@ -793,7 +822,7 @@
     /// <summary>Inserta el adjunto en la nota abierta (pasa a modo edicion).</summary>
     private void InsertAsset(MockupBrainAssetDto asset)
     {
-        if (!_hasNote) { return; }
+        if (!_hasNote || ReadOnly) { return; }
         _showAssets = false;
         _pendingInsert = $"![[{asset.Name}]]";
         _editing = true;
@@ -865,7 +894,7 @@
         _draftBody = note.Body;
         _error = null;
         _conflict = false;
-        _editing = string.IsNullOrWhiteSpace(note.Body);
+        _editing = !ReadOnly && string.IsNullOrWhiteSpace(note.Body);
         _editorPending = _editing;
         _previewPending = !_editing;
         _localGraphPending = true;
@@ -873,6 +902,8 @@
 
     private void StartNew(string title, string body)
     {
+        // Solo lectura (cerebro sembrado bloqueado, ADR-0200 ola 3): no se crean notas.
+        if (ReadOnly) { return; }
         _current = null;
         _isNew = true;
         _draftTitle = title;
@@ -892,6 +923,7 @@
 
     private Task SetEditingAsync(bool editing)
     {
+        if (ReadOnly) { editing = false; }
         if (_editing == editing) { return Task.CompletedTask; }
         _editing = editing;
         _editorPending = editing;

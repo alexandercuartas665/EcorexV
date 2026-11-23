@@ -980,3 +980,14 @@
         flex-direction: column;
     }
 }
+
+/* ADR-0200 ola 3: cerebro sembrado bloqueado. */
+.me-brain-lock {
+    flex: none;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #92400e;
+    background: #fef3c7;
+}

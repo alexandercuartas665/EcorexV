@@ -3355,6 +3355,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_locked");
 
+                    b.Property<bool>("IsMcpGuide")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_mcp_guide");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)

@@ -158,7 +158,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private HashSet<string> BuildReadOnly()
     {
         // Siempre subconjunto de lo EXPUESTO (GetSpecs): lo garantiza la prueba de integridad del catalogo.
-        var set = new HashSet<string>(ReadOnly, StringComparer.Ordinal);
+        var set = new HashSet<string>(ReadOnly, StringComparer.Ordinal) { GuideToolName };
         if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); }
         if (_scrape is not null) { set.UnionWith(ExtractionReadOnly); }
         if (_dataModel is not null) { set.UnionWith(ContainerReadOnly); }
@@ -182,7 +182,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
 
     private AiToolSpec[] BuildSpecs()
     {
-        var all = new List<AiToolSpec>(Specs);
+        var all = new List<AiToolSpec>(Specs) { GuideSpec }; // ADR-0204: la guia siempre (solo lee la plataforma)
         all.AddRange(DirectorySpecs);
         if (_flowDesign is not null) { all.AddRange(FlowSpecs); }
         if (_scrape is not null) { all.AddRange(ExtractionSpecs); }
@@ -294,6 +294,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 "registrar_tiempo" => await WorkLogAsync(args, actor, cancellationToken),
                 "tomar_paso" => await ClaimAsync(args, actor, cancellationToken),
                 "completar_paso" => await CompleteStepAsync(args, actor, cancellationToken),
+                GuideToolName => await GuideAsync(args, cancellationToken),
                 _ when DirectoryToolNames.Contains(toolName) => await ExecuteDirectoryAsync(toolName, args, argumentsJson, actor, cancellationToken),
                 _ when _flowDesign is not null && FlowToolNames.Contains(toolName) => await ExecuteFlowAsync(toolName, args, actor, cancellationToken),
                 _ when _scrape is not null && ExtractionToolNames.Contains(toolName) => await ExecuteExtractionAsync(toolName, args, actor, cancellationToken),

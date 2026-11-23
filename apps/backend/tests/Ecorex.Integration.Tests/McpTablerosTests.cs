@@ -668,7 +668,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 12 + 16 + 3, specs.Count); // nucleo + directorio + flujos + formularios permitidos del doble
+        Assert.Equal(16 + 1 + 12 + 16 + 3, specs.Count); // nucleo + guia_ecorex + directorio + flujos + formularios permitidos del doble
 
         foreach (var s in specs)
         {
@@ -690,6 +690,10 @@ public abstract class McpTablerosTestsBase
         Assert.All(toolset.ReadOnlyTools, n => Assert.Contains(n, names));
         Assert.All(toolset.DestructiveTools, n => Assert.Contains(n, names));
         Assert.Empty(toolset.ReadOnlyTools.Intersect(toolset.DestructiveTools));
+        Assert.Contains("guia_ecorex", toolset.ReadOnlyTools); // ADR-0204: manual de uso, solo lectura y sin gate
+
+        // 'nota' y 'buscar' son excluyentes.
+        Assert.True((await toolset.ExecuteAsync("guia_ecorex", """{"nota":"a","buscar":"b"}""", owner)).IsError);
 
         foreach (var name in names)
         {
@@ -1284,7 +1288,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 12 + 16 + 3 + 17, specs.Count); // nucleo + directorio + flujos + formularios + EXTRACCION
+        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17, specs.Count); // nucleo + directorio + flujos + formularios + EXTRACCION
 
         // Las 17 de extraccion estan expuestas, 6 de lectura y 4 destructivas, sin solape.
         foreach (var n in new[] { "listar_drones", "ver_dron", "crear_dron", "agregar_paso", "guardar_programacion", "eliminar_dron" })
@@ -1404,7 +1408,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 12 + 16 + 3 + 17 + 24, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
+        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 24, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
 
         // Las 24 de contenedores estan expuestas; 7 de lectura y 7 destructivas, sin solape.
         foreach (var n in new[] { "listar_contenedores_datos", "crear_contenedor_datos", "agregar_tabla",
@@ -1630,7 +1634,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 12 + 16 + 3 + 17 + 24 + 17, specs.Count); // ... + AGENTES
+        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 24 + 17, specs.Count); // ... + AGENTES
 
         // Las 17 de agentes estan expuestas; 3 de lectura y 3 destructivas, sin solape.
         foreach (var n in new[] { "listar_agentes", "ver_agente", "crear_agente", "editar_agente",

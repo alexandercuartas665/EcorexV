@@ -36,6 +36,12 @@ public sealed class BrainTemplate : BaseEntity
 
     public bool IsArchived { get; set; }
 
+    /// <summary>
+    /// Es la GUIA de uso de los MCP (ADR-0204): la herramienta guia_ecorex del MCP de tableros la sirve a cualquier IA
+    /// conectada. Solo una plantilla la tiene activa (al marcar una se desmarca la anterior en la misma transaccion).
+    /// </summary>
+    public bool IsMcpGuide { get; set; }
+
     public ICollection<BrainTemplateNote> Notes { get; set; } = new List<BrainTemplateNote>();
 }
 

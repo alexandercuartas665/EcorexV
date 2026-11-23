@@ -3355,6 +3355,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_locked");
 
+                    b.Property<bool>("IsMcpGuide")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_mcp_guide");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)

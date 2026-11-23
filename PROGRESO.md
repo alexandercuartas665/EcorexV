@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Guia de los MCP como cerebro de plataforma: tool guia_ecorex (ADR-0204) - v0.16.384 (rama feat/guia-mcp-cerebro)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5), spec de ECOREX.mcp aprobada por el usuario (docs/mcp/SPEC-guia-mcp-como-cerebro.md). Migracion dual AddBrainTemplateMcpGuide (PG 20261123231854, SqlServer 20261123232125): solo agrega brain_templates.is_mcp_guide.
+- **Hecho**: BrainTemplate.IsMcpGuide + SetMcpGuideAsync (una sola guia, se desmarca la anterior en la misma transaccion, auditado cerebro.plantilla.guia-mcp); check "Es la guia de los MCP" y distintivo "Guia MCP" en /cerebros-plantilla; McpGuideService (lee el cerebro SEMBRADO de la empresa por SourceTemplateId; respaldo con la plantilla si la empresa no esta sembrada y ya se publico; sin guia = error claro); tool guia_ecorex {nota?, buscar?} de solo lectura sin gate de modulo (158 tools); primera frase de las instructions del MCP de tableros manda llamarla. ADR-0204; INVENTARIO-MCP.
+- **Pruebas**: build Release 0 errores, format ok, unitarias 1696/312/35, integracion dual BrainTemplates|BrainsModule|MockupBrain|McpTableros|Maqueta 115/115 (nuevo GuiaMcp_UnaSola_SembradoYRespaldo_Aislado).
+- **Siguiente**: deploy con OK del usuario. Luego ECOREX.mcp ajusta el vault y arma el ZIP; el Super Admin crea la plantilla "Guia de uso de ECOREX por IA" (bloqueada, todas las empresas), importa, marca "Es la guia de los MCP" y publica; ECOREX.mcp valida en vivo (spec seccion 5).
+
 ## 2026-11-23 - Vault Obsidian "como usar los MCP de ECOREX" para sesiones de IA de clientes (docs/vault-mcp-ecorex) - SOLO DOCS, sin deploy
 
 Agente: ECOREX.mcp (Claude Opus 5.5). Sin codigo, sin migracion ni config.

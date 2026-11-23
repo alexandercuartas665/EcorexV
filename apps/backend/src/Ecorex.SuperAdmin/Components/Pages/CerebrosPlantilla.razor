@@ -53,6 +53,10 @@ else
                         <small>@(t.CategoryName ?? "Sin categoria")</small>
                     </div>
                     <span class="bt-badge @(t.IsLocked ? "lock" : "free")">@(t.IsLocked ? "Bloqueado" : "Libre")</span>
+                    @if (t.IsMcpGuide)
+                    {
+                        <span class="bt-badge lock" title="La sirve guia_ecorex a cualquier IA conectada al MCP de tableros"><i class="fa-solid fa-robot"></i> Guia MCP</span>
+                    }
                 </div>
                 @if (!string.IsNullOrWhiteSpace(t.Description))
                 {
@@ -128,6 +132,7 @@ else
                 <label>Color<input type="color" class="bt-color" @bind="_color" /></label>
             </div>
             <label class="bt-check"><input type="checkbox" @bind="_locked" /> Bloqueado (solo lectura en la empresa y se actualiza en cada publicacion)</label>
+            <label class="bt-check"><input type="checkbox" @bind="_mcpGuide" /> Es la guia de los MCP (la sirve guia_ecorex; solo una plantilla a la vez)</label>
             <div class="bt-targets">
                 <span class="bt-label">Sembrar en</span>
                 <label class="bt-check"><input type="radio" name="bt-target" checked="@(_mode == BrainTemplateTargets.All)" @onchange="() => _mode = BrainTemplateTargets.All" /> Todas las empresas activas</label>
@@ -224,6 +229,8 @@ else
     private string? _category;
     private string _color = "#7c3aed";
     private bool _locked = true;
+    private bool _mcpGuide;
+    private bool _mcpGuideOriginal;
     private string _mode = BrainTemplateTargets.All;
     private HashSet<Guid> _targets = new();
     private string _targetSearch = string.Empty;
@@ -262,6 +269,8 @@ else
         _category = null;
         _color = "#7c3aed";
         _locked = true;
+        _mcpGuide = false;
+        _mcpGuideOriginal = false;
         _mode = BrainTemplateTargets.All;
         _targets = new();
         _targetSearch = string.Empty;
@@ -277,6 +286,8 @@ else
         _category = t.CategoryName;
         _color = t.CategoryColor ?? "#7c3aed";
         _locked = t.IsLocked;
+        _mcpGuide = t.IsMcpGuide;
+        _mcpGuideOriginal = t.IsMcpGuide;
         _mode = t.TargetMode;
         _targets = t.TargetIds.ToHashSet();
         _targetSearch = string.Empty;
@@ -300,11 +311,22 @@ else
             var ids = _mode == BrainTemplateTargets.All ? new List<Guid>() : _targets.Where(id => options.Any(o => o.Id == id)).ToList();
             var input = new BrainTemplateInput(_name, _desc, _category, _color, _locked, _mode, ids);
             await using var scope = ScopeFactory.CreateAsyncScope();
-            var res = await scope.ServiceProvider.GetRequiredService<IBrainTemplateService>().SaveAsync(_editId, input, _userId);
+            var svc = scope.ServiceProvider.GetRequiredService<IBrainTemplateService>();
+            var res = await svc.SaveAsync(_editId, input, _userId);
             if (!res.IsOk)
             {
                 _formError = res.Error;
                 return;
+            }
+            if (_mcpGuide != _mcpGuideOriginal)
+            {
+                // ADR-0204: marcar desmarca la guia anterior en la misma transaccion (auditado).
+                var guide = await svc.SetMcpGuideAsync(res.Value, _mcpGuide, _userId);
+                if (!guide.IsOk)
+                {
+                    _formError = guide.Error;
+                    return;
+                }
             }
             _editing = false;
             Show("Cerebro plantilla guardado. Publicalo para que llegue a las empresas.", false);

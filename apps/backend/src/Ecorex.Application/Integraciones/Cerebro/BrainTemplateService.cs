@@ -11,7 +11,8 @@ namespace Ecorex.Application.Integraciones.Cerebro;
 
 public sealed record BrainTemplateSummaryDto(
     Guid Id, string Name, string? Description, string? CategoryName, string? CategoryColor, bool IsLocked,
-    string TargetMode, IReadOnlyList<Guid> TargetIds, int PublishedVersion, DateTimeOffset? PublishedAt, int Notes);
+    string TargetMode, IReadOnlyList<Guid> TargetIds, int PublishedVersion, DateTimeOffset? PublishedAt, int Notes,
+    bool IsMcpGuide = false);
 
 public sealed record BrainTemplateNoteDto(Guid Id, string Title, string Body);
 
@@ -62,6 +63,12 @@ public interface IBrainTemplateService
     /// planes elegidos o las elegidas). Auditado. La aplicacion por tenant la hace el Super Admin despues.
     /// </summary>
     Task<TaskCoreResult<BrainTemplatePublishPlan>> PreparePublishAsync(Guid id, Guid platformUserId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Marca (o desmarca) la plantilla como GUIA de los MCP (ADR-0204), la que sirve guia_ecorex. Solo una activa: al
+    /// marcar una se desmarca la anterior en el MISMO SaveChanges (una transaccion). Auditado.
+    /// </summary>
+    Task<TaskCoreResult<bool>> SetMcpGuideAsync(Guid id, bool isGuide, Guid platformUserId, CancellationToken ct = default);
 }
 
 public sealed partial class BrainTemplateService : IBrainTemplateService
@@ -275,9 +282,30 @@ public sealed partial class BrainTemplateService : IBrainTemplateService
         return TaskCoreResult<BrainTemplatePublishPlan>.Ok(new BrainTemplatePublishPlan(snapshot, targets));
     }
 
+    public async Task<TaskCoreResult<bool>> SetMcpGuideAsync(Guid id, bool isGuide, Guid platformUserId, CancellationToken ct = default)
+    {
+        var template = await _db.BrainTemplates.FirstOrDefaultAsync(t => t.Id == id && !t.IsArchived, ct);
+        if (template is null) { return TaskCoreResult<bool>.NotFound("La plantilla no existe."); }
+        if (template.IsMcpGuide == isGuide) { return TaskCoreResult<bool>.Ok(isGuide); }
+
+        string? previous = null;
+        if (isGuide)
+        {
+            var others = await _db.BrainTemplates.Where(t => t.IsMcpGuide && t.Id != id).ToListAsync(ct);
+            foreach (var o in others) { o.IsMcpGuide = false; }
+            previous = others.Count > 0 ? string.Join(", ", others.Select(o => o.Name)) : null;
+        }
+        template.IsMcpGuide = isGuide;
+        _audit.Write(platformUserId, "cerebro.plantilla.guia-mcp", nameof(BrainTemplate), template.Id,
+            previousValue: new { guia_anterior = previous }, newValue: new { template.Name, es_guia = isGuide }, reason: AuditReason);
+        // Un solo SaveChanges = una transaccion: nunca quedan dos guias marcadas.
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<bool>.Ok(isGuide);
+    }
+
     private static BrainTemplateSummaryDto ToSummary(BrainTemplate t, int notes)
         => new(t.Id, t.Name, t.Description, t.CategoryName, t.CategoryColor, t.IsLocked, t.TargetMode, ParseIds(t.TargetIdsJson),
-            t.PublishedVersion, t.PublishedAt, notes);
+            t.PublishedVersion, t.PublishedAt, notes, t.IsMcpGuide);
 
     private static List<Guid> ParseIds(string? json)
     {

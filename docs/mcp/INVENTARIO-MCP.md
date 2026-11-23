@@ -16,6 +16,8 @@
 > (addendum 2026-11-22: +1 herramienta `rellenar_columna`, ADR-0201, total 156; rama `feat/mcp-rellenar-columna`)
 > (addendum 2026-11-23: +1 herramienta `ver_conector` y `guardar_conector` edita solo lo enviado, ADR-0203, total 157;
 > rama `feat/mcp-ver-conector`)
+> (addendum 2026-11-23: +1 herramienta `guia_ecorex` (manual de los MCP servido desde el cerebro plantilla guia), ADR-0204,
+> total 158; rama `feat/guia-mcp-cerebro`)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -26,7 +28,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **157** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **158** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -75,6 +77,7 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | registrar_tiempo | W | Worklog en minutos |
 | tomar_paso | W | Reclama un paso sin asignar |
 | completar_paso | W | Cierra el paso (con opcion/ruta en compuertas). Si exige formulario sin enviar, se niega |
+| guia_ecorex | R | Manual de uso de los MCP (ADR-0204): sin argumentos = LEEME + titulos; `nota` = nota completa; `buscar` = max 20. Sin gate de modulo |
 
 ### 2.2 Directorio de contactos (12) - `TableroMcpToolset.Directorio.cs` - permiso `directorio-general`
 
@@ -397,7 +400,7 @@ Brechas priorizadas (propuesta):
 | ADR-0193 (extraccion) / ADR-0194 (contenedor de datos) / ADR-0195 (agentes de IA) | Nuevos; 17 + 23 + 17 herramientas en la rama `feat/mcp-terminar-tarea` |
 | ADR-0067 (admin) | Existe |
 | `instructions` del MCP personal | Completas: reglas de flujo en curso, contactos, autoria (insertar entre nodos, avisos, forzar, enlaces publicos) |
-| Descripciones y esquemas | 157/157 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
+| Descripciones y esquemas | 158/158 con descripcion >= 25 caracteres y JSON-Schema valido (84 verificadas en vivo; las 17 de extraccion + 23 de contenedor + 17 de agentes por prueba, pendientes de validar en vivo) |
 | `/conectar-ia` | Snippets para Claude Code, Gemini CLI, Gemini app, Codex y Claude Desktop |
 | Este inventario | Nuevo (docs/mcp/INVENTARIO-MCP.md) |
 | Vault (INVENTARIO GENERAL / ADRs) | PENDIENTE de reflejar (repo aparte) |

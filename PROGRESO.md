@@ -2,6 +2,35 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Cerebros ola 3: cerebros plantilla del Super Admin, siembra bloqueada y duplicar (ADR-0200) - v0.16.378 EN TRONCO (sin desplegar)
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.377). CON MIGRACION dual
+`AddBrainTemplates` (tablas brain_templates y brain_template_notes + columnas source_template_id, is_locked y
+template_version en brains; sin datos).
+- **Hecho**: pagina de plataforma `/cerebros-plantilla` (menu Super Admin): plantillas, notas (editor + importar vault),
+  destinos (todas / por plan / elegidas), Publicar con resultado por empresa. `BrainTemplatePublisher` siembra en el
+  contexto de CADA tenant (`IBrainService.ApplyTemplateAsync`): crea el cerebro o sincroniza el bloqueado (notas por
+  titulo: crea, actualiza, archiva) y omite copias libres. Candado de solo lectura en `MockupBrainService` y
+  `BrainService`; `MaquetaCerebro.ReadOnly`; "Duplicar como propio" (`DuplicateAsync`). Todo auditado.
+- **Pruebas**: build OK; unitarias (ver commit); integracion dual BrainTemplates|BrainsModule|MockupBrain|Maqueta 67/67.
+  Validado en local 5285 sobre la copia `ecorex_cerebros`: crear plantilla bloqueada con 2 notas enlazadas, publicar
+  a BITCODE (sembrado), verla de solo lectura en la empresa y "Duplicar como propio" (copia editable). Para entrar al
+  Super Admin se dio rol de plataforma temporal al usuario dev SOLO en la copia y se revirtio al terminar.
+- **Siguiente**: ola 4 (MCP por cerebro: listar_cerebros, parametro `cerebro`).
+
+## 2026-11-22 - Cerebros ola 2: tarjetas de cerebros vinculados en la maqueta + modal grande (ADR-0200) - v0.16.378 EN TRONCO (sin desplegar)
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.375). SIN migracion.
+- **Hecho**: pestana "Cerebros (N)" del editor de maquetas con TARJETAS de los cerebros vinculados (principal primero);
+  cada una abre el cerebro completo en un modal grande (pregunta si hay nota sin guardar al cerrar). Owner/Admin:
+  "Vincular cerebro" (selector con busqueda + "Crear y vincular"), "Hacer principal" y "Desvincular". "Nota de esta
+  pantalla" abre el principal en el modal con la nota de la pantalla. Servicio: `ListForMockupAsync`, `SetPrimaryAsync`.
+- **Pruebas**: build OK; integracion dual Maqueta|MockupBrain|BrainsModule (ver commit); validado en local 5285 sobre
+  la copia `ecorex_cerebros`: vincular la "Base de conocimiento clinica" a TRONOX, abrirla en el modal, hacer principal
+  y volver, y "Nota de esta pantalla" con el borrador de la pantalla.
+- **Siguiente**: ola 3 (cerebros plantilla del Super Admin: siembra a todos/plan/tenants, bloqueo de solo lectura,
+  "Duplicar como propio" y sincronizacion), ola 4 (MCP por cerebro).
+
 ## 2026-11-19 - v0.16.377 (la rama se habia marcado 0.16.357, ya tomada): asistente de formulario "leer PDF -> tabla" funciona con DeepSeek (adenda ADR-0174) - DESPLEGADA
 
 - **Integracion + deploy (ECOREX.desarrollo, 2026-11-23 05:12 Bogota)**: merge --no-ff de feat/form-ia-deepseek (95351889) como v0.16.377 (69c982cd). Gates: build Release 0 errores, format ok, unitarias 1687/312/35, integracion dual DynamicForms 24/24. OK del usuario; via rapida GHCR (CI 45152029012 verde), antes de la ventana DRON. Footer /login = v0.16.377, Restarts=0. 2 lineas de error en el arranque = indice unico ix_import_runs_tenant_id_process_id_fired_at (el contenedor nuevo re-intento registrar las corridas de las 05:00 ya anotadas; guarda de idempotencia, no relacionado). Rollback: sha256:f24a2d06...

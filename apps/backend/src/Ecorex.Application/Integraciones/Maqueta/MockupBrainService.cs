@@ -120,6 +120,9 @@ public sealed class MockupBrainService : IMockupBrainService
 
     private const string AuditReason = "maqueta-cerebro";
 
+    /// <summary>Respuesta para escrituras sobre un cerebro sembrado bloqueado (ola 3).</summary>
+    private const string LockedMessage = Ecorex.Application.Integraciones.Cerebro.BrainService.LockedMessage;
+
     private readonly IApplicationDbContext _db;
     private readonly IAuditWriter _audit;
     private readonly IFileStorageService _files;
@@ -250,6 +253,8 @@ public sealed class MockupBrainService : IMockupBrainService
     {
         var brain = await FindBrainAsync(slug, ct);
         if (brain is null) { return TaskCoreResult<MockupNoteDto>.NotFound($"No existe el cerebro '{slug}'."); }
+        // ADR-0200 ola 3: los cerebros sembrados bloqueados son de solo lectura para el tenant.
+        if (brain.IsLocked) { return TaskCoreResult<MockupNoteDto>.Forbidden(LockedMessage); }
         var (cleanTitle, titleError) = MockupBrainLinks.CleanTitle(title);
         if (titleError is not null) { return TaskCoreResult<MockupNoteDto>.Invalid(titleError); }
         var cleanBody = (body ?? string.Empty).Replace("\r\n", "\n");
@@ -346,6 +351,8 @@ public sealed class MockupBrainService : IMockupBrainService
     {
         var brain = await FindBrainAsync(slug, ct);
         if (brain is null) { return TaskCoreResult<bool>.NotFound($"No existe el cerebro '{slug}'."); }
+        // ADR-0200 ola 3: los cerebros sembrados bloqueados son de solo lectura para el tenant.
+        if (brain.IsLocked) { return TaskCoreResult<bool>.Forbidden(LockedMessage); }
         var note = await _db.MockupNotes.FirstOrDefaultAsync(n => n.Id == id && n.BrainId == brain.Id, ct);
         if (note is null) { return TaskCoreResult<bool>.NotFound("La nota no existe o ya fue archivada."); }
         if (!actor.IsOwnerOrAdmin && note.AuthorTenantUserId != actor.TenantUserId)
@@ -379,6 +386,8 @@ public sealed class MockupBrainService : IMockupBrainService
     {
         var brain = await FindBrainAsync(slug, ct);
         if (brain is null) { return TaskCoreResult<MockupBrainImportResult>.NotFound($"No existe el cerebro '{slug}'."); }
+        // ADR-0200 ola 3: los cerebros sembrados bloqueados son de solo lectura para el tenant.
+        if (brain.IsLocked) { return TaskCoreResult<MockupBrainImportResult>.Forbidden(LockedMessage); }
         var read = ReadVault(zip);
         if (read.Error is not null) { return TaskCoreResult<MockupBrainImportResult>.Invalid(read.Error); }
 
@@ -513,6 +522,8 @@ public sealed class MockupBrainService : IMockupBrainService
     {
         var brain = await FindBrainAsync(slug, ct);
         if (brain is null) { return TaskCoreResult<bool>.NotFound($"No existe el cerebro '{slug}'."); }
+        // ADR-0200 ola 3: los cerebros sembrados bloqueados son de solo lectura para el tenant.
+        if (brain.IsLocked) { return TaskCoreResult<bool>.Forbidden(LockedMessage); }
         if (!actor.IsOwnerOrAdmin) { return TaskCoreResult<bool>.Forbidden("Solo Owner/Admin borra adjuntos del cerebro (el borrado es definitivo)."); }
         // El adjunto debe ser de ESTE proyecto (modulo + Ref1): no se borra cualquier archivo del gestor por su id.
         var asset = (await _files.ListAsync(MockupBrainAssets.Module, brain.Id.ToString(), null, ct)).FirstOrDefault(f => f.Id == assetId);
@@ -532,6 +543,8 @@ public sealed class MockupBrainService : IMockupBrainService
     {
         var brain = await FindBrainAsync(slug, ct);
         if (brain is null) { return TaskCoreResult<MockupBrainAssetDto>.NotFound($"No existe el cerebro '{slug}'."); }
+        // ADR-0200 ola 3: los cerebros sembrados bloqueados son de solo lectura para el tenant.
+        if (brain.IsLocked) { return TaskCoreResult<MockupBrainAssetDto>.Forbidden(LockedMessage); }
         var name = MockupBrainAssets.SafeName(fileName);
         var type = MockupBrainAssets.ContentTypeFor(name);
         if (name is null || type is null)
@@ -625,6 +638,8 @@ public sealed class MockupBrainService : IMockupBrainService
     {
         var brain = await FindBrainAsync(slug, ct);
         if (brain is null) { return TaskCoreResult<MockupNoteDto>.NotFound($"No existe el cerebro '{slug}'."); }
+        // ADR-0200 ola 3: los cerebros sembrados bloqueados son de solo lectura para el tenant.
+        if (brain.IsLocked) { return TaskCoreResult<MockupNoteDto>.Forbidden(LockedMessage); }
         var note = await ArchivedQuery(brain.Id, actor.TenantId).FirstOrDefaultAsync(n => n.Id == id, ct);
         if (note is null) { return TaskCoreResult<MockupNoteDto>.NotFound("La nota no esta en la papelera (quizas ya la restauraron)."); }
         if (!actor.IsOwnerOrAdmin && note.AuthorTenantUserId != actor.TenantUserId)
@@ -795,7 +810,7 @@ public sealed class MockupBrainService : IMockupBrainService
 
     // ------------------------------------------------------------------ helpers
 
-    private sealed record BrainRef(Guid Id, string Slug);
+    private sealed record BrainRef(Guid Id, string Slug, bool IsLocked);
 
     /// <summary>Cerebro ACTIVO por slug (ADR-0200). El filtro global ya lo acota al tenant y oculta los archivados.</summary>
     private async Task<BrainRef?> FindBrainAsync(string slug, CancellationToken ct)
@@ -804,7 +819,7 @@ public sealed class MockupBrainService : IMockupBrainService
         if (!MockupService.IsValidSlug(clean)) { return null; }
         return await _db.Brains.AsNoTracking()
             .Where(b => b.Slug == clean)
-            .Select(b => new BrainRef(b.Id, b.Slug))
+            .Select(b => new BrainRef(b.Id, b.Slug, b.IsLocked))
             .FirstOrDefaultAsync(ct);
     }
 

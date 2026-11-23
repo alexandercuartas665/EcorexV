@@ -14,17 +14,32 @@ public sealed record BrainMockupRefDto(Guid ProjectId, string Slug, string Name,
 /// <summary>Tarjeta de la galeria de cerebros.</summary>
 public sealed record BrainCardDto(
     Guid Id, string Slug, string Name, string? Description, Guid? CategoryId, string? CategoryName, string? CategoryColor,
-    int Notes, DateTimeOffset UpdatedAt, IReadOnlyList<BrainMockupRefDto> Mockups);
+    int Notes, DateTimeOffset UpdatedAt, IReadOnlyList<BrainMockupRefDto> Mockups, bool IsLocked = false);
 
-/// <summary>Cerebro con lo necesario para su pagina (/cerebros/{slug}).</summary>
+/// <summary>Cerebro con lo necesario para su pagina (/cerebros/{slug}). IsLocked = sembrado de solo lectura (ola 3).</summary>
 public sealed record BrainDetailDto(
     Guid Id, string Slug, string Name, string? Description, Guid? CategoryId, string? CategoryName, string? CategoryColor,
-    long Version, IReadOnlyList<BrainMockupRefDto> Mockups);
+    long Version, IReadOnlyList<BrainMockupRefDto> Mockups, bool IsLocked = false);
+
+/// <summary>Contenido de un cerebro plantilla listo para aplicarse en un tenant (ola 3).</summary>
+public sealed record BrainTemplateSnapshot(
+    Guid Id, string Name, string? Description, string? CategoryName, string? CategoryColor, bool IsLocked, int Version,
+    IReadOnlyList<BrainTemplateSnapshotNote> Notes);
+
+public sealed record BrainTemplateSnapshotNote(string Title, string Body);
+
+/// <summary>Que paso al aplicar una plantilla en un tenant: created | synced | skipped (copia libre o archivada).</summary>
+public sealed record BrainTemplateApplyResult(string Outcome, string? BrainSlug, int NotesCreated, int NotesUpdated, int NotesArchived);
 
 public sealed record BrainCategoryDto(Guid Id, string Name, string? Color, int SortOrder, int Brains);
 
 /// <summary>Cerebro principal de una maqueta (el que abre la pestana Cerebro del editor).</summary>
 public sealed record BrainRefDto(Guid Id, string Slug, string Name);
+
+/// <summary>Cerebro vinculado a una maqueta (tarjeta de la pestana Cerebros del editor, ADR-0200 ola 2).</summary>
+public sealed record BrainLinkedDto(
+    Guid Id, string Slug, string Name, string? Description, string? CategoryName, string? CategoryColor, int Notes, bool IsPrimary,
+    bool IsLocked = false);
 
 /// <summary>
 /// Catalogo de CEREBROS del tenant (ADR-0200, ola 1): galeria con categorias, alta/edicion/archivo y vinculo N:M con
@@ -64,6 +79,27 @@ public interface IBrainService
     Task<TaskCoreResult<bool>> LinkMockupAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default);
 
     Task<TaskCoreResult<bool>> UnlinkMockupAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default);
+
+    /// <summary>Cerebros ACTIVOS vinculados a la maqueta, el principal primero (orden del vinculo).</summary>
+    Task<IReadOnlyList<BrainLinkedDto>> ListForMockupAsync(string projectSlug, CancellationToken ct = default);
+
+    /// <summary>Hace PRINCIPAL de la maqueta a un cerebro ya vinculado (queda primero; el resto conserva su orden).</summary>
+    Task<TaskCoreResult<bool>> SetPrimaryAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default);
+
+    /// <summary>
+    /// "Duplicar como propio" (ola 3): copia editable del cerebro (notas activas y sus enlaces; los adjuntos NO se
+    /// copian), sin plantilla ni candado, en la misma categoria. Owner/Admin.
+    /// </summary>
+    Task<TaskCoreResult<BrainDetailDto>> DuplicateAsync(string brainSlug, string? newName, McpActor actor, CancellationToken ct = default);
+
+    /// <summary>
+    /// Aplica un cerebro plantilla de plataforma en el TENANT ACTIVO (lo invoca el Super Admin dentro del contexto de
+    /// cada tenant, ola 3): crea el cerebro sembrado si no existe; si existe y esta BLOQUEADO lo sincroniza (nombre,
+    /// categoria y notas por titulo: crea, actualiza y archiva las que ya no estan); si es una copia libre no la toca.
+    /// Un solo SaveChanges (transaccion) y auditado con el usuario de plataforma.
+    /// </summary>
+    Task<BrainTemplateApplyResult> ApplyTemplateAsync(BrainTemplateSnapshot template, Guid tenantId, Guid platformUserId,
+        CancellationToken ct = default);
 }
 
 public sealed partial class BrainService : IBrainService
@@ -72,6 +108,9 @@ public sealed partial class BrainService : IBrainService
     public const int MaxDescriptionLength = 600;
     public const int MaxCategoryNameLength = 80;
     private const string AuditReason = "cerebro";
+
+    /// <summary>Mensaje de los sembrados bloqueados (ola 3).</summary>
+    public const string LockedMessage = "Este cerebro lo administra la plataforma (solo lectura). Duplicalo como propio para editarlo.";
 
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
     private static partial Regex ColorPattern();
@@ -106,7 +145,8 @@ public sealed partial class BrainService : IBrainService
                 b.CategoryId,
                 CategoryName = b.Category != null ? b.Category.Name : null,
                 CategoryColor = b.Category != null ? b.Category.Color : null,
-                Updated = b.UpdatedAt ?? b.CreatedAt
+                Updated = b.UpdatedAt ?? b.CreatedAt,
+                b.IsLocked
             })
             .ToListAsync(ct);
         if (rows.Count == 0) { return Array.Empty<BrainCardDto>(); }
@@ -121,7 +161,8 @@ public sealed partial class BrainService : IBrainService
 
         return rows
             .Select(r => new BrainCardDto(r.Id, r.Slug, r.Name, r.Description, r.CategoryId, r.CategoryName, r.CategoryColor,
-                notes.GetValueOrDefault(r.Id), r.Updated, mockups.GetValueOrDefault(r.Id) ?? (IReadOnlyList<BrainMockupRefDto>)Array.Empty<BrainMockupRefDto>()))
+                notes.GetValueOrDefault(r.Id), r.Updated, mockups.GetValueOrDefault(r.Id) ?? (IReadOnlyList<BrainMockupRefDto>)Array.Empty<BrainMockupRefDto>(),
+                r.IsLocked))
             .OrderBy(r => r.CategoryName is null)
             .ThenBy(r => r.CategoryName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
@@ -171,6 +212,7 @@ public sealed partial class BrainService : IBrainService
         if (error is not null) { return TaskCoreResult<BrainDetailDto>.Invalid(error); }
         var brain = await _db.Brains.FirstOrDefaultAsync(b => b.Id == id, ct);
         if (brain is null) { return TaskCoreResult<BrainDetailDto>.NotFound("El cerebro no existe o fue archivado."); }
+        if (brain.IsLocked) { return TaskCoreResult<BrainDetailDto>.Forbidden(LockedMessage); }
         if (brain.Version != expectedVersion) { return TaskCoreResult<BrainDetailDto>.Conflict("Otra persona modifico el cerebro. Recarga e intenta de nuevo."); }
         if (categoryId is { } cat && !await _db.BrainCategories.AnyAsync(c => c.Id == cat, ct))
         {
@@ -199,6 +241,7 @@ public sealed partial class BrainService : IBrainService
         if (!actor.IsOwnerOrAdmin) { return TaskCoreResult<bool>.Forbidden("Solo Owner/Admin archiva cerebros."); }
         var brain = await _db.Brains.FirstOrDefaultAsync(b => b.Id == id, ct);
         if (brain is null) { return TaskCoreResult<bool>.NotFound("El cerebro no existe o ya fue archivado."); }
+        if (brain.IsLocked) { return TaskCoreResult<bool>.Forbidden(LockedMessage); }
         brain.IsDeleted = true;
         brain.DeletedAt = DateTimeOffset.UtcNow;
         brain.DeletedByTenantUserId = actor.TenantUserId;
@@ -361,13 +404,253 @@ public sealed partial class BrainService : IBrainService
         return TaskCoreResult<bool>.Ok(true);
     }
 
+    public async Task<IReadOnlyList<BrainLinkedDto>> ListForMockupAsync(string projectSlug, CancellationToken ct = default)
+    {
+        var project = await FindProjectAsync(projectSlug, ct);
+        if (project is null) { return Array.Empty<BrainLinkedDto>(); }
+        // El join con Brains aplica el filtro global: los cerebros archivados no aparecen.
+        var rows = await (from l in _db.MockupProjectBrains.AsNoTracking()
+                          where l.MockupProjectId == project.Value.Id
+                          join b in _db.Brains.AsNoTracking() on l.BrainId equals b.Id
+                          orderby l.SortOrder, l.CreatedAt
+                          select new
+                          {
+                              b.Id,
+                              b.Slug,
+                              b.Name,
+                              b.Description,
+                              CategoryName = b.Category != null ? b.Category.Name : null,
+                              CategoryColor = b.Category != null ? b.Category.Color : null,
+                              b.IsLocked
+                          })
+            .ToListAsync(ct);
+        if (rows.Count == 0) { return Array.Empty<BrainLinkedDto>(); }
+        var ids = rows.Select(r => r.Id).ToList();
+        var notes = await _db.MockupNotes.AsNoTracking()
+            .Where(n => ids.Contains(n.BrainId))
+            .GroupBy(n => n.BrainId)
+            .Select(g => new { BrainId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.BrainId, x => x.Count, ct);
+        return rows
+            .Select((r, i) => new BrainLinkedDto(r.Id, r.Slug, r.Name, r.Description, r.CategoryName, r.CategoryColor,
+                notes.GetValueOrDefault(r.Id), i == 0, r.IsLocked))
+            .ToList();
+    }
+
+    public async Task<TaskCoreResult<bool>> SetPrimaryAsync(string brainSlug, string projectSlug, McpActor actor, CancellationToken ct = default)
+    {
+        if (!actor.IsOwnerOrAdmin) { return TaskCoreResult<bool>.Forbidden("Solo Owner/Admin elige el cerebro principal."); }
+        var (brain, project, error) = await FindPairAsync(brainSlug, projectSlug, ct);
+        if (error is not null) { return TaskCoreResult<bool>.NotFound(error); }
+        var links = await _db.MockupProjectBrains
+            .Where(l => l.MockupProjectId == project!.Value.Id)
+            .OrderBy(l => l.SortOrder).ThenBy(l => l.CreatedAt)
+            .ToListAsync(ct);
+        var chosen = links.FirstOrDefault(l => l.BrainId == brain!.Id);
+        if (chosen is null) { return TaskCoreResult<bool>.Invalid("El cerebro no esta vinculado a esta maqueta."); }
+        var order = 1;
+        chosen.SortOrder = 0;
+        foreach (var l in links.Where(l => l != chosen)) { l.SortOrder = order++; }
+        _audit.Write(actor.PlatformUserId, "cerebro.principal", nameof(Brain), brain!.Id, previousValue: null,
+            newValue: new { cerebro = brain.Slug, maqueta = project!.Value.Slug }, tenantId: actor.TenantId, reason: AuditReason);
+        // Un solo SaveChanges = una transaccion (todos los ordenes cambian juntos).
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<bool>.Ok(true);
+    }
+
+    // ------------------------------------------------------------------ plantillas y duplicar (ola 3)
+
+    public async Task<TaskCoreResult<BrainDetailDto>> DuplicateAsync(string brainSlug, string? newName, McpActor actor,
+        CancellationToken ct = default)
+    {
+        if (!actor.IsOwnerOrAdmin) { return TaskCoreResult<BrainDetailDto>.Forbidden("Solo Owner/Admin duplica cerebros."); }
+        var clean = CleanSlug(brainSlug);
+        var source = clean is null ? null : await _db.Brains.AsNoTracking().FirstOrDefaultAsync(b => b.Slug == clean, ct);
+        if (source is null) { return TaskCoreResult<BrainDetailDto>.NotFound($"No existe el cerebro '{brainSlug}'."); }
+        var (cleanName, _, error) = CleanNameAndDescription(string.IsNullOrWhiteSpace(newName) ? Trim("Copia de " + source.Name, MaxNameLength) : newName, null);
+        if (error is not null) { return TaskCoreResult<BrainDetailDto>.Invalid(error); }
+
+        var copy = new Brain
+        {
+            TenantId = actor.TenantId,
+            Slug = await UniqueSlugAsync(cleanName!, ct),
+            Name = cleanName!,
+            Description = source.Description,
+            CategoryId = source.CategoryId,
+            CreatedByName = Trim(actor.DisplayName, 150)
+        };
+        _db.Brains.Add(copy);
+        var notes = await _db.MockupNotes.AsNoTracking().Where(n => n.BrainId == source.Id).ToListAsync(ct);
+        var userName = Trim(actor.DisplayName, 150);
+        foreach (var n in notes)
+        {
+            var note = new MockupNote
+            {
+                TenantId = actor.TenantId,
+                BrainId = copy.Id,
+                Title = n.Title,
+                TitleKey = n.TitleKey,
+                Body = n.Body,
+                AuthorTenantUserId = actor.TenantUserId,
+                AuthorName = userName,
+                UpdatedByName = userName,
+                ImportedFrom = n.ImportedFrom
+            };
+            _db.MockupNotes.Add(note);
+            AddLinks(note);
+        }
+        _audit.Write(actor.PlatformUserId, "cerebro.duplicar", nameof(Brain), copy.Id, previousValue: null,
+            newValue: new { origen = source.Slug, copy.Slug, notas = notes.Count }, tenantId: actor.TenantId, reason: AuditReason);
+        // Un solo SaveChanges = una transaccion (cerebro + notas + enlaces).
+        await _db.SaveChangesAsync(ct);
+        return TaskCoreResult<BrainDetailDto>.Ok((await GetAsync(copy.Slug, ct))!);
+    }
+
+    public async Task<BrainTemplateApplyResult> ApplyTemplateAsync(BrainTemplateSnapshot template, Guid tenantId, Guid platformUserId,
+        CancellationToken ct = default)
+    {
+        var brain = await _db.Brains.FirstOrDefaultAsync(b => b.SourceTemplateId == template.Id, ct);
+        if (brain is not null && !brain.IsLocked)
+        {
+            // Copia libre: el tenant ya la hizo suya; nunca se sincroniza.
+            return new BrainTemplateApplyResult("skipped", brain.Slug, 0, 0, 0);
+        }
+        if (brain is null && await _db.Brains.IgnoreQueryFilters().AnyAsync(b => b.TenantId == tenantId && b.SourceTemplateId == template.Id, ct))
+        {
+            // El tenant archivo una copia libre de esta plantilla: no se vuelve a sembrar.
+            return new BrainTemplateApplyResult("skipped", null, 0, 0, 0);
+        }
+
+        var categoryId = await EnsureCategoryAsync(template.CategoryName, template.CategoryColor, tenantId, ct);
+        var outcome = brain is null ? "created" : "synced";
+        if (brain is null)
+        {
+            brain = new Brain
+            {
+                TenantId = tenantId,
+                Slug = await UniqueSlugAsync(template.Name, ct),
+                CreatedByName = "Plataforma",
+                SourceTemplateId = template.Id
+            };
+            _db.Brains.Add(brain);
+        }
+        brain.Name = Trim(template.Name, MaxNameLength) ?? "Cerebro";
+        brain.Description = Trim(template.Description, MaxDescriptionLength);
+        brain.CategoryId = categoryId;
+        brain.IsLocked = template.IsLocked;
+        brain.TemplateVersion = template.Version;
+
+        // Notas por titulo normalizado: crea, actualiza y archiva las que ya no estan en la plantilla.
+        var existing = outcome == "created"
+            ? new List<MockupNote>()
+            : await _db.MockupNotes.Where(n => n.BrainId == brain.Id).ToListAsync(ct);
+        var byKey = existing.GroupBy(n => n.TitleKey).ToDictionary(g => g.Key, g => g.First());
+        var wanted = new HashSet<string>(StringComparer.Ordinal);
+        int created = 0, updated = 0, archived = 0;
+        foreach (var tn in template.Notes)
+        {
+            var (title, titleError) = MockupBrainLinks.CleanTitle(tn.Title);
+            if (titleError is not null || title is null) { continue; }
+            var key = MockupBrainLinks.NormalizeTitle(title);
+            if (!wanted.Add(key)) { continue; }
+            if (byKey.TryGetValue(key, out var note))
+            {
+                if (note.Title == title && note.Body == tn.Body) { continue; }
+                note.Title = title;
+                note.Body = tn.Body;
+                note.UpdatedByName = "Plataforma";
+                await RemoveLinksAsync(note.Id, ct);
+                AddLinks(note);
+                updated++;
+            }
+            else
+            {
+                note = new MockupNote
+                {
+                    TenantId = tenantId,
+                    BrainId = brain.Id,
+                    Title = title,
+                    TitleKey = key,
+                    Body = tn.Body,
+                    AuthorName = "Plataforma",
+                    UpdatedByName = "Plataforma",
+                    ImportedFrom = "plantilla"
+                };
+                _db.MockupNotes.Add(note);
+                AddLinks(note);
+                created++;
+            }
+        }
+        foreach (var stale in existing.Where(n => !wanted.Contains(n.TitleKey)))
+        {
+            stale.IsDeleted = true;
+            stale.DeletedAt = DateTimeOffset.UtcNow;
+            stale.UpdatedByName = "Plataforma";
+            await RemoveLinksAsync(stale.Id, ct);
+            archived++;
+        }
+
+        _audit.Write(platformUserId, "cerebro.plantilla.aplicar", nameof(Brain), brain.Id, previousValue: null,
+            newValue: new { plantilla = template.Id, version = template.Version, outcome, brain.Slug, created, updated, archived },
+            tenantId: tenantId, reason: AuditReason);
+        // Un solo SaveChanges = una transaccion por tenant (cerebro, notas, enlaces y auditoria).
+        await _db.SaveChangesAsync(ct);
+        return new BrainTemplateApplyResult(outcome, brain.Slug, created, updated, archived);
+    }
+
+    /// <summary>Categoria del tenant por nombre (sin distinguir mayusculas); la crea si no existe. Null si no hay nombre.</summary>
+    private async Task<Guid?> EnsureCategoryAsync(string? name, string? color, Guid tenantId, CancellationToken ct)
+    {
+        var clean = Regex.Replace((name ?? string.Empty).Trim(), @"\s+", " ");
+        if (clean.Length == 0) { return null; }
+        if (clean.Length > MaxCategoryNameLength) { clean = clean[..MaxCategoryNameLength]; }
+        var lower = clean.ToLowerInvariant();
+        var found = await _db.BrainCategories.FirstOrDefaultAsync(c => c.Name.ToLower() == lower, ct);
+        if (found is not null) { return found.Id; }
+        var max = await _db.BrainCategories.Select(c => (int?)c.SortOrder).MaxAsync(ct) ?? 0;
+        var cat = new BrainCategory
+        {
+            TenantId = tenantId,
+            Name = clean,
+            SortOrder = max + 1,
+            Color = color is not null && ColorPattern().IsMatch(color) ? color : null
+        };
+        _db.BrainCategories.Add(cat);
+        return cat.Id;
+    }
+
+    private async Task RemoveLinksAsync(Guid noteId, CancellationToken ct)
+    {
+        var old = await _db.MockupNoteLinks.Where(l => l.FromNoteId == noteId).ToListAsync(ct);
+        _db.MockupNoteLinks.RemoveRange(old);
+    }
+
+    /// <summary>Enlaces derivados de la nota (mismo criterio que MockupBrainService: sin autoenlace, tope por nota).</summary>
+    private void AddLinks(MockupNote note)
+    {
+        foreach (var l in MockupBrainLinks.Parse(note.Body)
+                     .Where(l => !(l.Kind == MockupBrainLinkKinds.Note && l.Key == note.TitleKey))
+                     .Take(MockupBrainService.MaxLinksPerNote))
+        {
+            _db.MockupNoteLinks.Add(new MockupNoteLink
+            {
+                TenantId = note.TenantId,
+                BrainId = note.BrainId,
+                FromNoteId = note.Id,
+                TargetKind = l.Kind,
+                TargetKey = l.Key.Length > 200 ? l.Key[..200] : l.Key,
+                Label = l.Label.Length > 200 ? l.Label[..200] : l.Label
+            });
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private async Task<BrainDetailDto> ToDetailAsync(Brain b, CancellationToken ct)
     {
         var mockups = await MockupsOfAsync(new List<Guid> { b.Id }, ct);
         return new BrainDetailDto(b.Id, b.Slug, b.Name, b.Description, b.CategoryId, b.Category?.Name, b.Category?.Color, b.Version,
-            mockups.GetValueOrDefault(b.Id) ?? (IReadOnlyList<BrainMockupRefDto>)Array.Empty<BrainMockupRefDto>());
+            mockups.GetValueOrDefault(b.Id) ?? (IReadOnlyList<BrainMockupRefDto>)Array.Empty<BrainMockupRefDto>(), b.IsLocked);
     }
 
     /// <summary>Maquetas activas vinculadas a cada cerebro; IsPrimary = el cerebro es el principal de esa maqueta.</summary>

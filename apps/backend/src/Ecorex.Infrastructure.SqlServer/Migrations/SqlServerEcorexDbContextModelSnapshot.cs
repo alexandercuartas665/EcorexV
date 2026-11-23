@@ -3191,6 +3191,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_deleted");
 
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_locked");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -3202,6 +3206,14 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)")
                         .HasColumnName("slug");
+
+                    b.Property<Guid?>("SourceTemplateId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("source_template_id");
+
+                    b.Property<int?>("TemplateVersion")
+                        .HasColumnType("int")
+                        .HasColumnName("template_version");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier")
@@ -3233,6 +3245,9 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_brains_tenant_id_slug")
                         .HasFilter("[is_deleted] = 0");
+
+                    b.HasIndex("TenantId", "SourceTemplateId")
+                        .HasDatabaseName("ix_brains_tenant_id_source_template_id");
 
                     b.ToTable("brains", (string)null);
                 });
@@ -3300,6 +3315,136 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasFilter("[is_deleted] = 0");
 
                     b.ToTable("brain_categories", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.BrainTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CategoryColor")
+                        .HasMaxLength(9)
+                        .HasColumnType("nvarchar(9)")
+                        .HasColumnName("category_color");
+
+                    b.Property<string>("CategoryName")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("category_name");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_archived");
+
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_locked");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("published_at");
+
+                    b.Property<int>("PublishedVersion")
+                        .HasColumnType("int")
+                        .HasColumnName("published_version");
+
+                    b.Property<string>("TargetIdsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("target_ids_json");
+
+                    b.Property<string>("TargetMode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)")
+                        .HasColumnName("target_mode");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_brain_templates");
+
+                    b.ToTable("brain_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.BrainTemplateNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("body");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("template_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("TitleKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title_key");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_brain_template_notes");
+
+                    b.HasIndex("TemplateId", "TitleKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_brain_template_notes_template_id_title_key");
+
+                    b.ToTable("brain_template_notes", (string)null);
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.Brand", b =>
@@ -22992,6 +23137,18 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                     b.Navigation("Category");
                 });
 
+            modelBuilder.Entity("Ecorex.Domain.Entities.BrainTemplateNote", b =>
+                {
+                    b.HasOne("Ecorex.Domain.Entities.BrainTemplate", "Template")
+                        .WithMany("Notes")
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_brain_template_notes_brain_templates_template_id");
+
+                    b.Navigation("Template");
+                });
+
             modelBuilder.Entity("Ecorex.Domain.Entities.Cita", b =>
                 {
                     b.HasOne("Ecorex.Domain.Entities.Oportunidad", "Oportunidad")
@@ -25386,6 +25543,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Ecorex.Domain.Entities.AnalisisLibro", b =>
                 {
                     b.Navigation("Hojas");
+                });
+
+            modelBuilder.Entity("Ecorex.Domain.Entities.BrainTemplate", b =>
+                {
+                    b.Navigation("Notes");
                 });
 
             modelBuilder.Entity("Ecorex.Domain.Entities.ConciliacionDianDocumento", b =>

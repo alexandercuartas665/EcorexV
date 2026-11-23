@@ -90,6 +90,10 @@ else
                             <span class="cb-card-title">@b.Name</span>
                             <span class="cb-card-cat">@(b.CategoryName ?? "Sin categoria")</span>
                         </div>
+                        @if (b.IsLocked)
+                        {
+                            <span class="cb-lock" title="Lo administra la plataforma (solo lectura)"><i class="fa-solid fa-lock"></i> Plataforma</span>
+                        }
                     </div>
                     @if (!string.IsNullOrWhiteSpace(b.Description))
                     {
@@ -113,7 +117,7 @@ else
                             </a>
                         }
                     </div>
-                    @if (_isAdmin)
+                    @if (_isAdmin && !b.IsLocked)
                     {
                         <button class="cb-icon" title="Editar nombre, descripcion y categoria" @onclick="() => OpenEdit(b)"><i class="fa-regular fa-pen-to-square"></i></button>
                     }

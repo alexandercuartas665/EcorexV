@@ -124,3 +124,16 @@
         width: 100%;
     }
 }
+
+/* ADR-0200 ola 3: cerebro sembrado bloqueado por la plataforma. */
+.cp-locked {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #92400e;
+    background: #fef3c7;
+}

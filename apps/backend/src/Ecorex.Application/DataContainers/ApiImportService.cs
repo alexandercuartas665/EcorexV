@@ -30,6 +30,11 @@ public sealed class ApiImportService : IApiImportService
     private const int MaxFieldScan = 50;
     private const int MaxImportRows = 50000;
 
+    /// <summary>Tope de duracion de UNA corrida paginada (ADR-0203). Con 30 s por pagina y hasta 1000 paginas, un
+    /// conector mal configurado podia colgar la corrida horas. Al pasarlo se detiene ANTES de pedir la siguiente
+    /// pagina y conserva lo ya importado (igual que el tope de filas), dejando el motivo en el detalle.</summary>
+    internal static readonly TimeSpan RunBudget = TimeSpan.FromMinutes(20);
+
     public ApiImportService(HttpClient http, IApplicationDbContext db, ITenantContext tenantContext, ISecretProtector protector, IRowIngestService ingest)
     {
         _http = http;
@@ -182,9 +187,17 @@ public sealed class ApiImportService : IApiImportService
         var paginated = paging is not null && paging.Mode != PagingMode.None && paging.PageSize > 0;
         var maxPages = paginated ? Math.Max(1, paging!.MaxPages) : 1;
         var stop = false;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
 
         for (var page = 0; page < maxPages && !stop; page++)
         {
+            if (page > 0 && clock.Elapsed > RunBudget)
+            {
+                errors.Add($"Se alcanzo el tope de {(int)RunBudget.TotalMinutes} minutos por corrida en la pagina {page + 1}; " +
+                           "lo ya importado se conserva. Ajusta el endpoint (filtro/orden/limite) o la paginacion del conector.");
+                break;
+            }
+
             // Reescribe el desplazamiento/pagina + limite en el query string de la URI base.
             var uri = baseUri;
             if (paginated && paging!.Mode == PagingMode.Offset)

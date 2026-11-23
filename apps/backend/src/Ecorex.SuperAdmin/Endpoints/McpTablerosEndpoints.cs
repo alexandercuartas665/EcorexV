@@ -47,7 +47,7 @@ public static class McpTablerosEndpoints
         "Contenedores de datos: crear_contenedor_datos abre el contenedor; agregale tablas con agregar_tabla y columnas " +
         "con agregar_columna (tipos texto/numero/decimal/fecha/booleano/submodelo); relaciona tablas con agregar_relacion. " +
         "Programa su importacion con guardar_programacion_importacion (manual/intervalo/cron, modo append/replace/upsert) y " +
-        "revisa listar_corridas_importacion. guardar_conector NO recibe el secreto (ponlo en la pantalla). publicar_contenedor " +
+        "revisa listar_corridas_importacion. Antes de editar un conector leelo con ver_conector; guardar_conector solo cambia lo que envies y NO recibe el secreto (ponlo en la pantalla). publicar_contenedor " +
         "saca una tabla al menu (privacidad por Roles y permisos). Confirma antes de borrar o despublicar. " +
         "Agentes de IA: crear_agente abre un agente (proveedor claude/gemini/chatgpt/deepseek, prompt de sistema); " +
         "nace apagado, enciendelo con encender_agente tras validarlo. Configuralo con editar_agente (herramientas on/off, " +

@@ -240,7 +240,7 @@ public sealed class RulesEngine : IRulesEngine
             .ToListAsync(cancellationToken);
 
         // Las reglas autonomas del nodo reciben los datos del formulario de la TAREA (el registro mas reciente
-        // cuyo Reference es el numero de la tarea o "T00007-1", "T00007-2"...). Asi un verbo que lee FormData
+        // cuyo Reference es el numero de la tarea o "T00007-1", "T00007-2"...; los ENVIADOS primero). Asi un verbo que lee FormData
         // (p.ej. GENERAR_REQUERIMIENTOS_DESDE_TABLA en el paso "Generar orden de compra") ve las filas que el
         // solicitante lleno, y el solicitante queda como quien envio el registro. Sin tarea o sin formulario
         // el FormData sigue vacio, como antes.
@@ -256,7 +256,8 @@ public sealed class RulesEngine : IRulesEngine
                 var prefix = number + "-";
                 var response = await _db.FormResponses.AsNoTracking()
                     .Where(r => !r.IsDeleted && r.Reference != null && (r.Reference == number || r.Reference.StartsWith(prefix)))
-                    .OrderByDescending(r => r.UpdatedAt ?? r.CreatedAt)
+                    .OrderByDescending(r => r.Status == FormResponseStatus.Submitted)
+                    .ThenByDescending(r => r.UpdatedAt ?? r.CreatedAt)
                     .Select(r => new { r.Id, r.Data, r.SubmittedByTenantUserId })
                     .FirstOrDefaultAsync(cancellationToken);
                 if (response is not null)

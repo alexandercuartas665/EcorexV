@@ -23,17 +23,21 @@ public interface ISavedFilterService
 public sealed class SavedFilterService : ISavedFilterService
 {
     private readonly IApplicationDbContext _db;
+    private readonly IApplicationDbContextFactory _dbFactory;
     private readonly ITenantContext _tenant;
 
-    public SavedFilterService(IApplicationDbContext db, ITenantContext tenant)
+    public SavedFilterService(IApplicationDbContext db, IApplicationDbContextFactory dbFactory, ITenantContext tenant)
     {
         _db = db;
+        _dbFactory = dbFactory;
         _tenant = tenant;
     }
 
     public async Task<IReadOnlyList<SavedFilterDto>> ListAsync(string module, CancellationToken ct = default)
     {
-        var rows = await _db.SavedFilters.AsNoTracking()
+        // Lectura en contexto efimero (ADR-0138): no compite con el DbContext del circuito.
+        await using var db = _dbFactory.Create();
+        var rows = await db.SavedFilters.AsNoTracking()
             .Where(x => x.Module == module)
             .OrderBy(x => x.Name)
             .ToListAsync(ct);

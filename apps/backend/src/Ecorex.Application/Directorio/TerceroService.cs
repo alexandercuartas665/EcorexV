@@ -109,6 +109,8 @@ public sealed class TerceroService : ITerceroService
                 t.FichasJson,
                 t.ImagenUrl,
                 t.EmpresaId,
+                t.Email,
+                t.Telefono,
                 // Nombre de la empresa a la que esta vinculada la persona (para el enlace del listado Modular).
                 EmpresaNombre = t.EmpresaId != null
                     ? db.Terceros.Where(e => e.Id == t.EmpresaId).Select(e => e.Nombre).FirstOrDefault()
@@ -124,7 +126,8 @@ public sealed class TerceroService : ITerceroService
         // Excluye campos de secciones del motor Modular (clave "mod_"): no aplican al listado Clasico (Capa 8).
         var filterDefs = await db.TerceroFieldDefinitions
             .AsNoTracking()
-            .Where(f => f.ShowInFilter && !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
+            .Where(f => (f.ShowInFilter || (filter.IncludeAllFields && f.FieldType != TerceroFieldType.Separator))
+                && !f.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix))
             .Select(f => new FilterFieldDef(f.FieldKey, f.FieldType, f.Options))
             .ToListAsync(cancellationToken);
         var filterKeys = filterDefs.Select(f => f.FieldKey).ToList();
@@ -168,7 +171,9 @@ public sealed class TerceroService : ITerceroService
             t.VendedorAsesorId is Guid aid && asesorNombres.TryGetValue(aid, out var an) ? an : null,
             t.ImagenUrl,
             t.EmpresaId,
-            t.EmpresaNombre)).ToList();
+            t.EmpresaNombre,
+            t.Email,
+            t.Telefono)).ToList();
     }
 
     /// <summary>

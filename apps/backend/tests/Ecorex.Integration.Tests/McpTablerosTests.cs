@@ -325,6 +325,68 @@ public abstract class McpTablerosTestsBase
     }
 
     /// <summary>
+    /// Grilla del Directorio (ADR-0207): con IncludeAllFields el listado trae TODOS los campos de ficha (no solo los
+    /// marcados como filtro, sin separadores) y los datos de contacto; sin la marca conserva el comportamiento de antes.
+    /// </summary>
+    [Fact]
+    public async Task DirectorioListado_IncludeAllFields_TraeTodosLosCamposDeFicha()
+    {
+        var seed = await SeedTenantAsync("Directorio Grilla");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenant = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        ctx.TerceroFieldDefinitions.Add(new TerceroFieldDefinition
+        {
+            TenantId = seed.TenantId,
+            FichaKey = "cliente",
+            FieldKey = "segmento",
+            Label = "Segmento",
+            FieldType = TerceroFieldType.Text,
+            ShowInFilter = true
+        });
+        ctx.TerceroFieldDefinitions.Add(new TerceroFieldDefinition
+        {
+            TenantId = seed.TenantId,
+            FichaKey = "cliente",
+            FieldKey = "subsector",
+            Label = "Subsector",
+            FieldType = TerceroFieldType.Text
+        });
+        ctx.TerceroFieldDefinitions.Add(new TerceroFieldDefinition
+        {
+            TenantId = seed.TenantId,
+            FichaKey = "cliente",
+            FieldKey = "sep",
+            Label = "Separador",
+            FieldType = TerceroFieldType.Separator
+        });
+        ctx.Terceros.Add(new Tercero
+        {
+            TenantId = seed.TenantId,
+            Nombre = "Grilla SAS",
+            Tipo = TerceroTipo.Empresa,
+            Perfiles = TerceroPerfil.Cliente,
+            IdValor = "900777",
+            Email = "ventas@grilla.test",
+            Telefono = "3001234567",
+            FichasJson = "{\"cliente\":{\"segmento\":\"Oro\",\"subsector\":\"Metalmecanica\",\"sep\":\"x\"}}"
+        });
+        await ctx.SaveChangesAsync();
+        var svc = new TerceroService(ctx, _fixture.CreateFactory(seed.TenantId), tenant, new DirectoryVariantService(ctx, tenant),
+            new DataLookupService(ctx, new DataContainerService(ctx, tenant)));
+
+        var clasico = Assert.Single(await svc.ListAsync(new TerceroListFilter()), r => r.Nombre == "Grilla SAS");
+        Assert.Equal("Oro", clasico.Filtrables!["segmento"]);
+        Assert.False(clasico.Filtrables.ContainsKey("subsector"));
+
+        var grilla = Assert.Single(await svc.ListAsync(new TerceroListFilter(IncludeAllFields: true)), r => r.Nombre == "Grilla SAS");
+        Assert.Equal("Oro", grilla.Filtrables!["segmento"]);
+        Assert.Equal("Metalmecanica", grilla.Filtrables["subsector"]);
+        Assert.False(grilla.Filtrables.ContainsKey("sep"));
+        Assert.Equal("ventas@grilla.test", grilla.Email);
+        Assert.Equal("3001234567", grilla.Telefono);
+    }
+
+    /// <summary>
     /// Gestion de contactos por la IA (addendum ADR-0159): edita solo lo pedido (campos fijos y configurables),
     /// no deja duplicar NIT ni telefono, liga personas a la empresa sin duplicarlas, deja rastro en la ficha y
     /// en la auditoria, y la baja es logica y reversible.

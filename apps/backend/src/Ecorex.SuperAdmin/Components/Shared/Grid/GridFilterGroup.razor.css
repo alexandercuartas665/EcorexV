@@ -1,0 +1,30 @@
+/* Editor recursivo de grupos del constructor de filtros de la grilla comun (ADR-0207). Mismo look que el
+   constructor del Conciliador DIAN; los estilos viven aqui por el aislamiento de CSS de Blazor. */
+.gf-in {
+    height: 34px; padding: 0 10px; border: 1px solid var(--line-2, #e5e7eb); border-radius: 8px;
+    background: var(--surface, #fff); font: inherit; font-size: 13px; color: var(--ink, #1f2937); outline: none;
+}
+.gf-in:focus { border-color: var(--ink-3, #6b7280); }
+.gf-del { height: 32px; width: 32px; font-size: 16px; line-height: 1; border: 1px solid var(--line-2, #e5e7eb); border-radius: 7px; background: var(--surface, #fff); color: var(--ink-3, #9ca3af); cursor: pointer; flex: none; }
+.gf-del:hover { color: #b91c1c; border-color: #fca5a5; }
+
+.gf-group { border: 1.5px solid var(--line-2, #e5e7eb); border-radius: 12px; background: var(--surface, #fff); padding: 10px 12px; }
+.gf-group .gf-group { background: var(--surface-2, #f8fafc); margin: 2px 0; }
+.gf-group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.gf-opsw { display: inline-flex; border: 1px solid var(--line-2, #e5e7eb); border-radius: 8px; overflow: hidden; }
+.gf-op { border: 0; background: var(--surface, #fff); color: var(--ink-2, #4b5563); font-size: 12px; font-weight: 700; padding: 5px 12px; cursor: pointer; }
+.gf-op + .gf-op { border-left: 1px solid var(--line-2, #e5e7eb); }
+.gf-op.on { background: var(--brand, #4f46e5); color: #fff; }
+.gf-group-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.gf-add {
+    border: 1px dashed var(--line-2, #cbd5e1); background: var(--surface, #fff); color: var(--brand, #4f46e5);
+    font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+}
+.gf-add:hover { border-color: var(--brand, #4f46e5); background: var(--brand-soft, #eef2ff); }
+.gf-empty { font-size: 12px; color: var(--ink-3, #9ca3af); padding: 6px 2px; }
+.gf-cond { display: flex; align-items: center; gap: 8px; padding: 6px 0; flex-wrap: wrap; }
+.gf-field { min-width: 200px; }
+.gf-op2 { min-width: 150px; }
+.gf-val { min-width: 150px; }
+.gf-and { font-size: 12px; color: var(--ink-3, #9ca3af); }
+.gf-conn { display: inline-block; font-size: 10.5px; font-weight: 800; color: var(--ink-3, #9ca3af); letter-spacing: .06em; margin: 2px 0 2px 4px; }

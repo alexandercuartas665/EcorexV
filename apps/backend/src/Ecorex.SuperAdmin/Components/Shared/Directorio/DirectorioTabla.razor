@@ -1,0 +1,267 @@
+@namespace Ecorex.SuperAdmin.Components.Shared.Directorio
+@using Ecorex.Application.Directorio
+@using Ecorex.Domain.Enums
+@using Ecorex.SuperAdmin.Components.Pages
+@using Ecorex.SuperAdmin.Components.Shared.Grid
+
+@* Tabla del Directorio General (000232) sobre la grilla comun (ADR-0207). La usan las dos variantes
+   (Ligero y Especializado). Columnas fijas del tercero + TODOS los campos de ficha (ocultos hasta que el
+   usuario los muestre), filtro Y/O, filtros guardados, agrupar con conteos, orden, columnas fijas y
+   exportar a Excel. La fila conserva su celda de cliente (avatar, insignias, perfiles) y al expandir
+   muestra los contactos asociados, como antes. *@
+
+<div class="dt-wrap">
+<EcxGrid TItem="TerceroListItemDto"
+         Items="Rows"
+         Columns="_columns"
+         TableKey="directorio-general"
+         FilterModule="DirectorioGeneral"
+         RowKey="r => r.Id"
+         RowDetail="KidsDetail"
+         IsExpanded="r => Expanded.Contains(r.Id)"
+         ExportName="Directorio"
+         EmptyText="No hay terceros que coincidan con los filtros."
+         Loading="Loading" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TerceroListItemDto> Rows { get; set; } = Array.Empty<TerceroListItemDto>();
+    [Parameter] public IReadOnlyList<TerceroFieldDto> Fields { get; set; } = Array.Empty<TerceroFieldDto>();
+    [Parameter] public IReadOnlyList<TerceroFichaDto> Fichas { get; set; } = Array.Empty<TerceroFichaDto>();
+    [Parameter] public ISet<Guid> Expanded { get; set; } = new HashSet<Guid>();
+    [Parameter] public IReadOnlyDictionary<Guid, IReadOnlyList<TerceroContactoDto>> Kids { get; set; } = new Dictionary<Guid, IReadOnlyList<TerceroContactoDto>>();
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public bool CanDelete { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool Loading { get; set; }
+
+    [Parameter] public EventCallback<TerceroListItemDto> OnToggleExpand { get; set; }
+    [Parameter] public EventCallback<Guid> OnEdit { get; set; }
+    [Parameter] public EventCallback<TerceroListItemDto> OnAssign { get; set; }
+    [Parameter] public EventCallback<TerceroListItemDto> OnDelete { get; set; }
+    /// <summary>Agregar contacto a la empresa (Id de la empresa).</summary>
+    [Parameter] public EventCallback<Guid> OnAddContact { get; set; }
+    /// <summary>Contacto ligero heredado: se promueve a tercero y se edita (contacto, empresa).</summary>
+    [Parameter] public EventCallback<(Guid Kid, Guid Parent)> OnPromoteKid { get; set; }
+    /// <summary>Quitar de la empresa un contacto que es tercero (empresa, contacto).</summary>
+    [Parameter] public EventCallback<(Guid Parent, Guid Kid)> OnUnassignKid { get; set; }
+    /// <summary>Eliminar un contacto ligero (empresa, contacto).</summary>
+    [Parameter] public EventCallback<(Guid Parent, Guid Kid)> OnDeleteKid { get; set; }
+
+    private const string FichaPrefix = "f:";
+    private IReadOnlyList<GridColumn<TerceroListItemDto>> _columns = Array.Empty<GridColumn<TerceroListItemDto>>();
+    private IReadOnlyList<TerceroFieldDto>? _lastFields;
+    private IReadOnlyList<TerceroFichaDto>? _lastFichas;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Fields, _lastFields) && ReferenceEquals(Fichas, _lastFichas)) { return; }
+        _lastFields = Fields;
+        _lastFichas = Fichas;
+        _columns = BuildColumns();
+    }
+
+    private List<GridColumn<TerceroListItemDto>> BuildColumns()
+    {
+        var cols = new List<GridColumn<TerceroListItemDto>>
+        {
+            new() { Key = "cliente", Label = "Cliente", Value = r => r.Nombre, Cell = NameCell, Groupable = false },
+            new() { Key = "naturaleza", Label = "Naturaleza", Value = r => r.EsEmpresa ? "Empresa" : "Persona", DefaultHidden = true },
+            new() { Key = "perfil", Label = "Perfiles", Value = r => PerfilText(r.Perfiles), DefaultHidden = true },
+            new() { Key = "identificacion", Label = "Identificacion", Value = r => r.Identificacion, CellClass = "dt-mono", Groupable = false },
+            new() { Key = "vendedor", Label = "Vendedor", Value = r => VendedorText(r) },
+            new() { Key = "estado", Label = "Estado", Value = r => DirectorioSharedBase.EstadoInfo(r.Estado).Label, Cell = EstadoCell },
+            new() { Key = "ciudad", Label = "Ciudad", Value = r => r.Ciudad, DefaultHidden = true },
+            new() { Key = "sector", Label = "Sector / Cargo", Value = r => r.Sub, DefaultHidden = true },
+            new() { Key = "email", Label = "Correo", Value = r => r.Email, DefaultHidden = true, Groupable = false },
+            new() { Key = "telefono", Label = "Telefono", Value = r => r.Telefono, DefaultHidden = true, Groupable = false },
+            new() { Key = "empresa", Label = "Empresa (de la persona)", Value = r => r.EmpresaNombre, DefaultHidden = true },
+            new() { Key = "contactos", Label = "Contactos", Type = GridColType.Number, Value = r => r.EsEmpresa ? r.ContadorContactos : null, Summable = true, Groupable = false, DefaultHidden = true },
+        };
+
+        // Campos de ficha (configurables por tenant). Los del motor Modular ("mod_") no aplican a esta vista.
+        var titles = Fichas.GroupBy(f => f.FichaKey).ToDictionary(g => g.Key, g => g.First().Title);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var f in Fields
+            .Where(f => f.FieldType != TerceroFieldType.Separator && !f.FichaKey.StartsWith("mod_", StringComparison.Ordinal))
+            .OrderBy(f => Fichas.FirstOrDefault(x => x.FichaKey == f.FichaKey)?.SortOrder ?? int.MaxValue)
+            .ThenBy(f => f.FichaKey).ThenBy(f => f.SortOrder))
+        {
+            if (!seen.Add(f.FieldKey)) { continue; }
+            var key = f.FieldKey;
+            var type = f.FieldType switch
+            {
+                TerceroFieldType.Number or TerceroFieldType.Currency => GridColType.Number,
+                TerceroFieldType.Date => GridColType.Date,
+                _ => GridColType.Text,
+            };
+            cols.Add(new GridColumn<TerceroListItemDto>
+            {
+                Key = FichaPrefix + key,
+                Label = f.Label,
+                Type = type,
+                Value = r => FichaValue(r, key, type),
+                Summable = f.FieldType == TerceroFieldType.Currency,
+                Groupable = f.FieldType is not (TerceroFieldType.TextArea or TerceroFieldType.Phone),
+                DefaultHidden = true,
+                Section = "Ficha: " + (titles.TryGetValue(f.FichaKey, out var t) ? t : f.FichaKey),
+            });
+        }
+
+        cols.Add(new GridColumn<TerceroListItemDto>
+        {
+            Key = "acciones", Label = "Acciones", Value = _ => null, Cell = ActionsCell,
+            Sortable = false, Groupable = false, Filterable = false, Exportable = false, CellClass = "dt-acts-td",
+        });
+        return cols;
+    }
+
+    private static object? FichaValue(TerceroListItemDto r, string key, GridColType type)
+    {
+        if (r.Filtrables is null || !r.Filtrables.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) { return null; }
+        return type switch
+        {
+            GridColType.Number => GridFormat.ParseDecimal(v),
+            GridColType.Date => GridFormat.ParseDate(v),
+            _ => v,
+        };
+    }
+
+    private static string PerfilText(TerceroPerfil p)
+        => string.Join(", ", DirectorioSharedBase.TipoTags(p).Select(t => t.Label));
+
+    private static string VendedorText(TerceroListItemDto r)
+        => !string.IsNullOrWhiteSpace(r.VendedorAsesorNombre) ? r.VendedorAsesorNombre! : (r.Vendedor ?? "");
+
+    private RenderFragment<TerceroListItemDto> NameCell => r =>
+    @<div class="dt-name">
+        <button class="dt-expand" title="Ver contactos" @onclick="() => OnToggleExpand.InvokeAsync(r)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(@(Expanded.Contains(r.Id) ? "90deg" : "0deg"))"><path d="m9 6 6 6-6 6" /></svg>
+        </button>
+        <span class="dt-av @(r.EsEmpresa ? "emp" : "per")" style="background:@DirectorioSharedBase.AvatarColor(r.Nombre)">
+            @DirectorioSharedBase.Initials(r.Nombre)
+            @if (!string.IsNullOrWhiteSpace(r.ImagenUrl))
+            {
+                <img class="dt-av-img" src="@r.ImagenUrl" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />
+            }
+        </span>
+        <div class="dt-name-main" @onclick="() => OnEdit.InvokeAsync(r.Id)">
+            <div class="dt-name-line">
+                <span class="dt-name-txt">@r.Nombre</span>
+                @if (r.EsEmpresa)
+                {
+                    <span class="dt-badge" style="background:var(--t-blue-bg);color:var(--t-blue)">EMPRESA &#183; @r.ContadorContactos</span>
+                }
+                else
+                {
+                    <span class="dt-badge" style="background:var(--t-amber-bg);color:var(--t-amber)">PERSONA</span>
+                }
+            </div>
+            @if (!string.IsNullOrWhiteSpace(r.Sub))
+            {
+                <div class="dt-name-sub">@r.Sub</div>
+            }
+            @{ var tags = DirectorioSharedBase.TipoTags(r.Perfiles); }
+            @if (tags.Count > 0)
+            {
+                <div class="dt-tags">
+                    @foreach (var tg in tags)
+                    {
+                        <span class="dt-tag" style="background:var(@tg.Bg);color:var(@tg.Color)">@tg.Label</span>
+                    }
+                </div>
+            }
+        </div>
+    </div>;
+
+    private RenderFragment<TerceroListItemDto> EstadoCell => r =>
+    {
+        var est = DirectorioSharedBase.EstadoInfo(r.Estado);
+        return @<span class="dt-estado" style="background:var(@est.Bg);color:var(@est.Color)">@est.Label</span>;
+    };
+
+    private RenderFragment<TerceroListItemDto> ActionsCell => r =>
+    @<div class="dt-acts">
+        @if (CanEdit)
+        {
+            <button class="dt-act edit" title="Editar tercero" @onclick="() => OnEdit.InvokeAsync(r.Id)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+            </button>
+        }
+        @if (r.EsPersona && CanEdit)
+        {
+            <button class="dt-act assign" title="Asignar a una empresa" @onclick="() => OnAssign.InvokeAsync(r)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M12 12h.01" /><path d="M9 21v-4h6v4" /></svg>
+            </button>
+        }
+        @if (CanDelete)
+        {
+            <button class="dt-act del" title="Eliminar" @onclick="() => OnDelete.InvokeAsync(r)" disabled="@Busy">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+            </button>
+        }
+    </div>;
+
+    private RenderFragment<TerceroListItemDto> KidsDetail => r =>
+    {
+        var kids = Kids.TryGetValue(r.Id, out var kl) ? kl : Array.Empty<TerceroContactoDto>();
+        return @<div class="dt-kids">
+            <div class="dt-kids-head">
+                <div class="dt-kids-lbl">CONTACTOS ASOCIADOS</div>
+                @if (CanEdit)
+                {
+                    <button class="dt-kids-add" @onclick="() => OnAddContact.InvokeAsync(r.Id)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                        Agregar contacto
+                    </button>
+                }
+            </div>
+            @if (kids.Count == 0)
+            {
+                <div class="dt-empty-note">Sin contactos asociados todavia.</div>
+            }
+            @foreach (var k in kids)
+            {
+                var kid = k;
+                <div class="dt-kid">
+                    <span class="dt-kid-av" style="background:@DirectorioSharedBase.AvatarColor(kid.Nombre)">@DirectorioSharedBase.Initials(kid.Nombre)</span>
+                    <div style="flex:1;min-width:0">
+                        <div class="dt-kid-name">@kid.Nombre</div>
+                        <div class="dt-kid-cargo">@(string.IsNullOrWhiteSpace(kid.Cargo) ? "Contacto" : kid.Cargo)</div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(kid.Email))
+                    {
+                        <span class="dt-kid-meta">@kid.Email</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(kid.Telefono))
+                    {
+                        <span class="dt-kid-meta">@kid.Telefono</span>
+                    }
+                    @if (CanEdit)
+                    {
+                        <div class="dt-kid-acts">
+                            @if (kid.EsTercero)
+                            {
+                                <button class="dt-act edit" title="Editar contacto" @onclick="() => OnEdit.InvokeAsync(kid.Id)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                </button>
+                                <button class="dt-act del" title="Quitar de la empresa" @onclick="() => OnUnassignKid.InvokeAsync((r.Id, kid.Id))" disabled="@Busy">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="dt-act edit" title="Editar contacto" @onclick="() => OnPromoteKid.InvokeAsync((kid.Id, r.Id))">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                                </button>
+                                <button class="dt-act del" title="Eliminar contacto" @onclick="() => OnDeleteKid.InvokeAsync((r.Id, kid.Id))" disabled="@Busy">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>;
+    };
+}

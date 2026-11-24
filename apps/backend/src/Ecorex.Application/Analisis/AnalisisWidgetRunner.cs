@@ -339,14 +339,17 @@ public sealed class AnalisisWidgetRunner : IAnalisisWidgetRunner
         AnalisisTipoWidget.Kpi or AnalisisTipoWidget.Velocimetro => WidgetShapes.ToEscalar(ds, widget.Titulo),
         AnalisisTipoWidget.Barras or AnalisisTipoWidget.Dona or AnalisisTipoWidget.Semaforo or AnalisisTipoWidget.Embudo
             or AnalisisTipoWidget.BarrasHorizontales or AnalisisTipoWidget.BarrasLinea =>
-            WidgetShapes.ToCategorias(ds, Top(widget.ConfigJson)),
+            WidgetShapes.ToCategorias(ds, Top(widget.ConfigJson), PorPeriodo(widget)),
         // Apiladas y mapa de arbol: con dos agrupaciones son series (pila / segundo nivel); con una, categorias.
         AnalisisTipoWidget.BarrasApiladas or AnalisisTipoWidget.Treemap =>
-            WidgetShapes.TieneDosGrupos(ds) ? WidgetShapes.ToSerie(ds) : WidgetShapes.ToCategorias(ds, Top(widget.ConfigJson)),
+            WidgetShapes.TieneDosGrupos(ds) ? WidgetShapes.ToSerie(ds) : WidgetShapes.ToCategorias(ds, Top(widget.ConfigJson), PorPeriodo(widget)),
         AnalisisTipoWidget.Linea or AnalisisTipoWidget.Area => WidgetShapes.ToSerie(ds),
         AnalisisTipoWidget.Heatmap => WidgetShapes.ToHeatmap(ds),
         _ => WidgetShapes.ToTabla(ds)
     };
+
+    /// <summary>Agrupado por PERIODO (ADR-0206): las categorias conservan el orden cronologico del dataset.</summary>
+    private static bool PorPeriodo(AnalisisWidgetDto widget) => AnalisisJson.DeserializeSpec(widget.SpecJson)?.GroupPeriod is not null;
 
     /// <summary>
     /// Forma -> lo que pide el tipo (p.ej. KPI sobre un curado de categorias = total) y tono del KPI

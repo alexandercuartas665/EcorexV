@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.
+- **Hallazgo** (validacion en vivo de v0.16.387 por ECOREX.mcp): agregar_indicador tipo barras con periodo=semana mostraba las semanas ordenadas por VALOR (W11, W04, W02...) en vez de cronologicas; crear_reporte si salia cronologico.
+- **Causa**: `WidgetShapes.ToCategorias` (barras, dona, embudo, semaforo, treemap de un nivel) ordena siempre por valor y agrupa el sobrante del top en "Otros".
+- **Hecho**: si el spec del widget agrupa por periodo, las categorias conservan el orden del dataset (cronologico) y no se recortan a "Otros"; sin periodo nada cambia.
+- **Pruebas**: build Release 0 errores, format ok, unitarias Application 1707 (+2 WidgetPeriodoOrdenTests); integracion dual AnalisisLibros|McpTableros 82/82.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/indicador-periodo-orden (762d8aad) como v0.16.388 sobre d18dc681 (trae la guia v4 de ECOREX.mcp). Despliegue solo con OK del usuario.
+
 ## 2026-11-24 - MCP de tableros: filas, reportes por periodo y archivar/editar reportes (ADR-0206) - v0.16.387 (rama feat/mcp-filas-periodo-reportes)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5), pedido de ECOREX.mcp por encargo del usuario (huecos de la prueba de humo de guia_ecorex). SIN migracion.

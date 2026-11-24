@@ -32,6 +32,8 @@ public class ActividadesToolsetTests
         public DbSet<ActividadSubcategoria> ActividadSubcategorias => Set<ActividadSubcategoria>();
         public DbSet<TaskItem> TaskItems => Set<TaskItem>();
         public DbSet<Conversation> Conversations => Set<Conversation>();
+        // Con conversacion, crear_actividad adjunta la media del chat: consulta Messages.
+        public DbSet<Message> Messages => Set<Message>();
         public DbSet<TaskBoard> TaskBoards => Set<TaskBoard>();
         // ADR-0128: el reparto (AgentAssigneePicker) consulta AiAgents y, en el fallback, Asesores.
         public DbSet<Asesor> Asesores => Set<Asesor>();
@@ -48,6 +50,7 @@ public class ActividadesToolsetTests
                 e.Ignore(x => x.Parent); e.Ignore(x => x.SourceTask);
             });
             b.Entity<Asesor>().Ignore(x => x.TenantUser);
+            b.Entity<Message>().Ignore(x => x.Conversation);
         }
     }
 
@@ -317,7 +320,7 @@ public class ActividadesToolsetTests
         public DbSet<EmailTemplate> EmailTemplates => throw new NotSupportedException();
         public DbSet<FollowUpTask> FollowUpTasks => throw new NotSupportedException();
         public DbSet<Conversation> Conversations => inner.Conversations;
-        public DbSet<Message> Messages => throw new NotSupportedException();
+        public DbSet<Message> Messages => inner.Messages;
         public DbSet<TenantBlockedNumber> TenantBlockedNumbers => throw new NotSupportedException();
         public DbSet<MessageTemplate> MessageTemplates => throw new NotSupportedException();
         public DbSet<QuoteTemplate> QuoteTemplates => throw new NotSupportedException();
@@ -653,6 +656,83 @@ public class ActividadesToolsetTests
 
         Assert.Equal(1, tasks.CreateCalls);
         Assert.Equal(r1.GetProperty("ticket").GetString(), r2.GetProperty("ticket").GetString());
+    }
+
+    // ---- Telefono REAL en el formulario (FRM-LEAD SOLDARCO: guardaba "Mismo WhatsApp") ----
+
+    private static FormDefinitionDetailDto DefConTelefono()
+        => Def(
+            Q("nombre", "Nombre Contacto", FormControlType.Text, required: true),
+            Q("telefono", "Movil / WhatsApp", FormControlType.Text, required: true));
+
+    private static async Task<(JsonElement R, FakeTasks Tasks, FakeForms Forms)> CrearConConversacionAsync(object datos, string? contactPhone)
+    {
+        var (ts, tasks, forms, inner) = NewToolsetWithDb(DefConTelefono());
+        Guid? conv = null;
+        if (contactPhone is not null)
+        {
+            var c = new Conversation { Id = Guid.NewGuid(), TenantId = Tenant, ContactPhone = contactPhone };
+            inner.Conversations.Add(c);
+            inner.SaveChanges();
+            conv = c.Id;
+        }
+        JsonElement r;
+        using (AiToolRunContext.Begin(conv, null, null, null, null, agentId: AgentId))
+        {
+            r = await RunAsync(ts, "crear_actividad", new { concepto = "LEAD-01", datos });
+        }
+        return (r, tasks, forms);
+    }
+
+    [Fact]
+    public async Task CrearActividad_telefono_MismoWhatsApp_guarda_el_numero_de_la_conversacion()
+    {
+        var (r, tasks, forms) = await CrearConConversacionAsync(new { nombre = "Juan", telefono = "Mismo WhatsApp" }, "573001110009");
+
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        Assert.Equal("573001110009", forms.LastData!["telefono"].Value);
+        Assert.Equal("573001110009", tasks.LastRequest!.RequesterPhone);
+    }
+
+    [Fact]
+    public async Task CrearActividad_sin_telefono_requerido_con_conversacion_no_falla_y_guarda_el_real()
+    {
+        var (r, _, forms) = await CrearConConversacionAsync(new { nombre = "Juan" }, "573001110009");
+
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        Assert.Equal("573001110009", forms.LastData!["telefono"].Value);
+    }
+
+    [Fact]
+    public async Task CrearActividad_telefono_con_numero_se_respeta()
+    {
+        // "Llamenme a otro numero": el numero que dicto el cliente (7+ digitos) se conserva en el formulario.
+        var (r, _, forms) = await CrearConConversacionAsync(new { nombre = "Juan", telefono = "3105551234" }, "573001110009");
+
+        Assert.True(r.GetProperty("ok").GetBoolean());
+        Assert.Equal("3105551234", forms.LastData!["telefono"].Value);
+    }
+
+    [Fact]
+    public async Task CrearActividad_sin_conversacion_el_telefono_requerido_sigue_fallando()
+    {
+        var (r, tasks, _) = await CrearConConversacionAsync(new { nombre = "Juan" }, contactPhone: null);
+
+        Assert.False(r.GetProperty("ok").GetBoolean());
+        Assert.True(r.GetProperty("campos").TryGetProperty("telefono", out _));
+        Assert.Equal(0, tasks.CreateCalls);
+    }
+
+    [Fact]
+    public void FindPhoneFieldCode_usa_la_definicion_y_solo_campos_de_texto()
+    {
+        Assert.Equal("movil_whatsapp", ActividadesToolset.FindPhoneFieldCode(new[]
+        {
+            Q("nombre", "Nombre", FormControlType.Text, required: true),
+            Q("telefono_fijo_sel", "Tipo", FormControlType.Select, required: false),
+            Q("movil_whatsapp", "Movil", FormControlType.Text, required: true),
+        }));
+        Assert.Null(ActividadesToolset.FindPhoneFieldCode(new[] { Q("nombre", "Nombre", FormControlType.Text, required: true) }));
     }
 
     private static TaskItem OpenActividad(Guid conv, string title, DateTimeOffset createdAt) => new()

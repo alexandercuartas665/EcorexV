@@ -2,6 +2,16 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Grilla comun en el Directorio (ADR-0207) + campos de ficha en native:tercero (ADR-0208) - v0.16.389 (ramas feat/grilla-comun y feat/tercero-report-fichas)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.
+- **Grilla comun (ADR-0207)**: componente `EcxGrid<TItem>` (Components/Shared/Grid) extraido del motor de tabla del Conciliador DIAN: filtro Y/O anidado, filtros guardados del equipo, ordenar, agrupar con conteo/subtotales y total general, columnas moviles/ocultables/redimensionables/fijas, paginacion, detalle por fila y Excel de la vista exacta; vista por usuario en UserTablePreference. Directorio General (Ligero y Especializado) via `DirectorioTabla`: mismas columnas visibles de antes + columnas opcionales (Naturaleza, Perfiles, Ciudad, Sector, Correo, Telefono, Empresa, Contactos) y TODOS los campos de ficha. `TerceroListFilter.IncludeAllFields` + Email/Telefono en el listado; lecturas de preferencias y filtros guardados en contexto efimero.
+- **Campos de ficha en reportes (ADR-0208, pedido de la sesion de reportes)**: `ITenantDescribedSource` (catalogo por tenant para fuentes nativas, lo usa ReportCatalog); `native:tercero` publica `ficha_{seccion}_{campo}` desde las definiciones (etiqueta/tipo) + claves con dato SIN definicion (cliente.direccion en AGRO); etiquetas repetidas desambiguadas con el titulo de la ficha; valor tolerante (escalar/{value}/lista); Lookup y lista del directorio a etiqueta; secciones Modular (mod_) solo si tienen datos. AGRO local: 68 campos, "Direccion (Ficha de cliente)" y "Tipo de Empresa / Subsector".
+- **Pruebas**: build Release 0 errores, format ok; unitarias Application 1723 (+3 TerceroFichaReportFieldsTests), SuperAdmin 323 (+9 EcxGridFilterTests), Domain 35; integracion dual McpTableros (+listado IncludeAllFields), Analisis*, Report* verdes (timeouts de SQL Server por carga repetidos aislados). ReportCardConfigTests puesto al dia con ADR-0206 (categorias sin reportes archivados; quedo desactualizado en v0.16.387).
+- **Validacion local**: preview 5236 (AGRO, dev-login dueno) y 5234 (BITCODE): filtro Empresa+Cali = 250 (cuadra con SQL), filtro guardado, Excel, columnas fijas y vista persistida, contactos al expandir; catalogo de reportes con los campos de ficha. Validado por el usuario en local.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/grilla-comun (9bbce835) y feat/tercero-report-fichas (62ce3bf0) como v0.16.389 sobre 0c6396d1.
+- **Siguiente**: pestana Prospectos del Cargador de contactos (000740) sobre la grilla; despues migrar Conciliador DIAN y Requerimientos de Compra al componente.
+
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.

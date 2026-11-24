@@ -10,8 +10,10 @@ namespace Ecorex.Application.Reporting.Sources;
 /// propio (<see cref="IApplicationDbContextFactory"/>, ADR-0138/0157) para no chocar con el DbContext
 /// del circuito Blazor cuando varios widgets cargan a la vez. Filtro/agrupacion en
 /// <see cref="InMemoryReportEngine"/> sobre filas con tope.
+/// Ademas de los campos FIJOS publica los campos de FICHA que configura cada tenant (ADR-0208,
+/// <see cref="TerceroFichaReportFields"/>): por eso el catalogo se describe por tenant (<see cref="DescribeAsync"/>).
 /// </summary>
-public sealed class TerceroReportSource : IReportableSource
+public sealed class TerceroReportSource : IReportableSource, ITenantDescribedSource
 {
     public const string SourceKey = "native:tercero";
     private const int MaterializeCap = 50_000;
@@ -47,7 +49,26 @@ public sealed class TerceroReportSource : IReportableSource
 
     public TerceroReportSource(IApplicationDbContextFactory factory) => _factory = factory;
 
+    /// <summary>Parte FIJA (sin BD). El catalogo publica la completa con <see cref="DescribeAsync"/>.</summary>
     public ReportSourceDescriptor Describe() => Descriptor;
+
+    public async Task<ReportSourceDescriptor> DescribeAsync(CancellationToken ct = default)
+    {
+        await using var db = _factory.Create();
+        // Las claves sin definicion salen de los datos: se lee solo la columna de fichas (mismo tope).
+        var jsons = await db.Terceros.AsNoTracking()
+            .Where(t => t.FichasJson != null)
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(MaterializeCap)
+            .Select(t => t.FichasJson)
+            .ToListAsync(ct);
+        return Compose(await TerceroFichaReportFields.LoadAsync(db, FieldSet, jsons, ct));
+    }
+
+    private static ReportSourceDescriptor Compose(IReadOnlyList<TerceroFichaReportFields.FichaField> fichas)
+        => fichas.Count == 0
+            ? Descriptor
+            : Descriptor with { Fields = FieldSet.Concat(fichas.Select(f => f.Field)).ToList() };
 
     public async Task<ReportDataSet> QueryAsync(ReportQuerySpec spec, ReportContext ctx, CancellationToken ct = default)
     {
@@ -72,6 +93,7 @@ public sealed class TerceroReportSource : IReportableSource
                 t.Telefono,
                 t.EmpresaId,
                 t.CreatedAt,
+                t.FichasJson,
                 Categorias = t.Categorias.Select(c => c.CategoriaKey).ToList()
             })
             .ToListAsync(ct);
@@ -92,7 +114,16 @@ public sealed class TerceroReportSource : IReportableSource
             }
         }
 
-        var rows = raw.Select(t => new object?[]
+        // Campos de ficha (definidos + claves presentes en los datos), con el MISMO criterio que DescribeAsync.
+        var fichas = await TerceroFichaReportFields.LoadAsync(db, FieldSet, raw.Select(t => t.FichasJson), ct);
+        var descriptor = Compose(fichas);
+
+        // Valores (texto crudo, listas ya resueltas a su etiqueta), convertidos al tipo de su campo.
+        var fichaVals = fichas.Count == 0
+            ? new Dictionary<Guid, string?[]>()
+            : await TerceroFichaReportFields.ExtractAsync(db, fichas, raw.Select(t => (t.Id, t.FichasJson)), names, ct);
+
+        var rows = raw.Select(t => Row(t.Id, new object?[]
         {
             t.Id.ToString(),
             t.Nombre,
@@ -115,9 +146,22 @@ public sealed class TerceroReportSource : IReportableSource
             t.CreatedAt,
             InMemoryReportEngine.MonthKey(t.CreatedAt, ctx.TenantZone),
             CategoriasTexto(t.Categorias, titulos)
-        }).ToList();
+        })).ToList();
 
-        return InMemoryReportEngine.Run(Descriptor, rows, spec);
+        return InMemoryReportEngine.Run(descriptor, rows, spec);
+
+        object?[] Row(Guid id, object?[] fijos)
+        {
+            if (fichas.Count == 0) { return fijos; }
+            var vals = fichaVals.TryGetValue(id, out var v) ? v : new string?[fichas.Count];
+            var row = new object?[fijos.Length + fichas.Count];
+            fijos.CopyTo(row, 0);
+            for (var i = 0; i < fichas.Count; i++)
+            {
+                row[fijos.Length + i] = ReportValueConverter.Convert(vals[i], fichas[i].Field.Type);
+            }
+            return row;
+        }
     }
 
     /// <summary>"Comercial, Fiscal" (ordenado, sin repetidos); null si el tercero no tiene categoria.</summary>

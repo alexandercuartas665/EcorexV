@@ -98,4 +98,36 @@ public sealed class MockupMarkdownTests
         Assert.StartsWith("<pre class=\"mb-props\">tags: [a]</pre>", html);
         Assert.Contains("<div class=\"mb-callout\"><div class=\"mb-callout-title\">Importante</div><p>detalle</p></div>", html);
     }
+
+    [Fact]
+    public void Tabla_DeObsidian_ConAlineacion_EnlacesConAlias_YCeldasFaltantes()
+    {
+        var html = MockupMarkdown.ToHtml(
+            "Antes\n| Carpeta | Contenido | N |\n|:---|:---:|---:|\n| 03. Hoja | [[HOJA DE RUTA\\|Hoja]] y **clave** | 1 |\n| `a|b` | x \\| y |\n\nDespues",
+            (kind, key) => key == "hoja de ruta");
+
+        Assert.Contains("<p>Antes</p><div class=\"mb-table-wrap\"><table class=\"mb-table\"><thead><tr>", html);
+        Assert.Contains("<th style=\"text-align:left\">Carpeta</th><th style=\"text-align:center\">Contenido</th><th style=\"text-align:right\">N</th>", html);
+        Assert.Contains("<td style=\"text-align:left\">03. Hoja</td>", html);
+        Assert.Contains("data-key=\"HOJA DE RUTA\"", html);
+        Assert.Contains(">Hoja</a> y <strong>clave</strong></td>", html);
+        // El '|' dentro de codigo y el "\|" escapado no parten la celda; la fila corta se completa con celdas vacias.
+        Assert.Contains("<td style=\"text-align:left\"><code>a|b</code></td><td style=\"text-align:center\">x | y</td><td style=\"text-align:right\"></td>", html);
+        Assert.Contains("</tbody></table></div><p>Despues</p>", html);
+        Assert.DoesNotContain("|---", html);
+    }
+
+    [Fact]
+    public void Tabla_NoPermiteHtml_YSinSeparadorNoEsTabla()
+    {
+        var html = MockupMarkdown.ToHtml("| <script>x</script> | b |\n|---|---|\n| <img src=x onerror=alert(1)> | [m](javascript:alert(1)) |");
+        Assert.Contains("<th>&lt;script&gt;x&lt;/script&gt;</th>", html);
+        Assert.DoesNotContain("<script", html);
+        Assert.DoesNotContain("<img", html);
+        Assert.DoesNotContain("href=\"javascript", html);
+
+        var plano = MockupMarkdown.ToHtml("a | b\nsin separador");
+        Assert.DoesNotContain("<table", plano);
+        Assert.Contains("<p>a | b<br>sin separador</p>", plano);
+    }
 }

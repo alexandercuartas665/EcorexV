@@ -562,6 +562,47 @@
     margin-bottom: 4px;
 }
 
+.mb-preview ::deep .mb-table-wrap {
+    margin: 0 0 12px;
+    overflow-x: auto;
+    border: 1px solid var(--line-2, #e5e7eb);
+    border-radius: 10px;
+}
+
+.mb-preview ::deep table.mb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.mb-preview ::deep table.mb-table th,
+.mb-preview ::deep table.mb-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line-2, #e5e7eb);
+    text-align: left;
+    vertical-align: top;
+}
+
+.mb-preview ::deep table.mb-table th {
+    font-weight: 650;
+    background: var(--surface-3, #f2f2f3);
+    white-space: nowrap;
+}
+
+.mb-preview ::deep table.mb-table th + th,
+.mb-preview ::deep table.mb-table td + td {
+    border-left: 1px solid var(--line-2, #e5e7eb);
+}
+
+.mb-preview ::deep table.mb-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.mb-preview ::deep table.mb-table tbody tr:hover td {
+    background: var(--surface-2, #f7f7f8);
+}
+
 .mb-preview ::deep code {
     font-size: 12.5px;
     padding: 1px 5px;

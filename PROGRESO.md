@@ -9,7 +9,7 @@ Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.
 - **Causa**: `WidgetShapes.ToCategorias` (barras, dona, embudo, semaforo, treemap de un nivel) ordena siempre por valor y agrupa el sobrante del top en "Otros".
 - **Hecho**: si el spec del widget agrupa por periodo, las categorias conservan el orden del dataset (cronologico) y no se recortan a "Otros"; sin periodo nada cambia.
 - **Pruebas**: build Release 0 errores, format ok, unitarias Application 1707 (+2 WidgetPeriodoOrdenTests); integracion dual AnalisisLibros|McpTableros 82/82.
-- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/indicador-periodo-orden (762d8aad) como v0.16.388 sobre d18dc681 (trae la guia v4 de ECOREX.mcp). Despliegue solo con OK del usuario.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/indicador-periodo-orden (762d8aad) como v0.16.388 sobre d18dc681 (trae la guia v4 de ECOREX.mcp). **DESPLEGADA en prod 2026-11-24 ~07:55 Bogota** con OK del usuario: footer /login v0.16.388, Restarts=0, 0 errores en log.
 
 ## 2026-11-24 - MCP de tableros: filas, reportes por periodo y archivar/editar reportes (ADR-0206) - v0.16.387 (rama feat/mcp-filas-periodo-reportes)
 

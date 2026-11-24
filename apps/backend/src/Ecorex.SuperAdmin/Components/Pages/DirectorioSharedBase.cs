@@ -104,6 +104,16 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         }
     }
 
+    /// <summary>Filas para la grilla comun (ADR-0207): ya acotadas por las pestanas y los filtros rapidos.</summary>
+    protected IReadOnlyList<TerceroListItemDto> GridRows => Displayed.ToList();
+
+    // Acciones invocadas desde la grilla (DirectorioTabla) sobre el editor compartido.
+    protected Task OpenEditFromGridAsync(Guid id) => _terceroModal?.OpenEditAsync(id) ?? Task.CompletedTask;
+    protected Task AddContactFromGridAsync(Guid empresaId) => _terceroModal?.OpenCreateContactAsync(empresaId) ?? Task.CompletedTask;
+    protected Task PromoteKidFromGridAsync((Guid Kid, Guid Parent) t) => _terceroModal?.PromoteAndEditContactoAsync(t.Kid, t.Parent) ?? Task.CompletedTask;
+    protected Task UnassignKidFromGridAsync((Guid Parent, Guid Kid) t) => UnassignContactoAsync(t.Parent, t.Kid);
+    protected Task DeleteKidFromGridAsync((Guid Parent, Guid Kid) t) => DeleteContactoAsync(t.Parent, t.Kid);
+
     // Paginacion de la parrilla (todo ya esta en memoria y filtrado; solo se corta la pagina visible).
     protected static readonly int[] PageSizes = { 25, 50, 100, 200 };
     protected int _pageSize = 50;
@@ -327,6 +337,8 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         // Las definiciones se cargan de entrada (no solo al abrir el configurador): la barra de
         // filtros necesita saber que campos estan marcados como filtrables.
         _cfgAllFields = (await FieldSvc.ListFieldsAsync()).ToList();
+        // Titulos de las fichas: secciones del menu de columnas de la grilla (ADR-0207).
+        _fichas = (await FichaSvc.ListAsync()).ToList();
         await ReloadAsync();
         _loading = false;
     }
@@ -386,7 +398,8 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         {
             // Se pide siempre naturaleza=Todos: los tabs de naturaleza filtran en cliente para
             // que los contadores (Todos/Empresas/Contactos) queden siempre visibles.
-            _allRows = await TerceroSvc.ListAsync(new TerceroListFilter(_tipo, TerceroTabNaturaleza.Todos, _search));
+            // IncludeAllFields: la grilla (ADR-0207) ofrece TODOS los campos de ficha como columnas.
+            _allRows = await TerceroSvc.ListAsync(new TerceroListFilter(_tipo, TerceroTabNaturaleza.Todos, _search, IncludeAllFields: true));
             _kpis = await TerceroSvc.GetKpisAsync();
             // Purga expansiones/contactos de filas ya no visibles.
             _expanded.RemoveWhere(id => _allRows.All(r => r.Id != id));
@@ -1365,9 +1378,9 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
     }
 
     // ---- Helpers de presentacion ----
-    protected sealed record TagInfo(string Label, string Color, string Bg);
+    public sealed record TagInfo(string Label, string Color, string Bg);
 
-    protected static List<TagInfo> TipoTags(TerceroPerfil perfiles)
+    public static List<TagInfo> TipoTags(TerceroPerfil perfiles)
     {
         var tags = new List<TagInfo>();
         if ((perfiles & TerceroPerfil.Cliente) == TerceroPerfil.Cliente) { tags.Add(new("Cliente", "--t-violet", "--t-violet-bg")); }
@@ -1377,7 +1390,7 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         return tags;
     }
 
-    protected static TagInfo EstadoInfo(TerceroEstado estado) => estado switch
+    public static TagInfo EstadoInfo(TerceroEstado estado) => estado switch
     {
         TerceroEstado.Activo => new("Activo", "--t-green", "--t-green-bg"),
         TerceroEstado.Prospecto => new("Prospecto", "--t-amber", "--t-amber-bg"),
@@ -1387,14 +1400,14 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
     protected static readonly string[] AvatarPalette =
         { "--t-violet", "--t-blue", "--t-amber", "--t-green", "--t-rose", "--t-slate" };
 
-    protected static string AvatarColor(string name)
+    public static string AvatarColor(string name)
     {
         var hash = 0;
         foreach (var ch in name) { hash = (hash * 31 + ch) & 0x7fffffff; }
         return $"var({AvatarPalette[hash % AvatarPalette.Length]})";
     }
 
-    protected static string Initials(string name)
+    public static string Initials(string name)
     {
         var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) { return "?"; }

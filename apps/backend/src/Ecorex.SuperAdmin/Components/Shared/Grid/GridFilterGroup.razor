@@ -1,0 +1,144 @@
+@namespace Ecorex.SuperAdmin.Components.Shared.Grid
+
+@* Editor recursivo de un grupo del constructor de filtros de la grilla comun (ADR-0207). Grupos Y/O
+   anidables; muta los GridFilterNode compartidos y avisa con OnChanged para que la grilla re-evalue.
+   Los campos de texto ofrecen sugerencias con los valores que existen de verdad (datalist). *@
+
+<div class="gf-group">
+    <div class="gf-group-head">
+        <div class="gf-opsw">
+            <button class="gf-op @(Group.Op == "and" ? "on" : "")" @onclick="@(() => SetOp("and"))">Y (todas)</button>
+            <button class="gf-op @(Group.Op == "or" ? "on" : "")" @onclick="@(() => SetOp("or"))">O (alguna)</button>
+        </div>
+        <div class="gf-group-actions">
+            <button class="gf-add" @onclick="AddCondition">+ Condici&oacute;n</button>
+            <button class="gf-add" @onclick="AddSubgroup">+ Grupo</button>
+            @if (Depth > 0)
+            {
+                <button class="gf-del" title="Quitar grupo" @onclick="RemoveSelf">&times;</button>
+            }
+        </div>
+    </div>
+
+    @if (Group.Children.Count == 0)
+    {
+        <div class="gf-empty">Grupo vac&iacute;o. Agrega una condici&oacute;n o un subgrupo.</div>
+    }
+
+    @for (int i = 0; i < Group.Children.Count; i++)
+    {
+        var child = Group.Children[i];
+        var idx = i;
+        if (i > 0)
+        {
+            <div class="gf-conn">@(Group.Op == "or" ? "O" : "Y")</div>
+        }
+        if (child.Kind == "group")
+        {
+            <GridFilterGroup Group="child" Depth="Depth + 1" Fields="Fields" Suggestions="Suggestions" OnChanged="OnChanged" OnRemove="@(() => RemoveChild(child))" />
+        }
+        else
+        {
+            var c = child;
+            var fld = Fields.FirstOrDefault(f => f.Key == c.Field);
+            var listId = $"gfdl-{_uid}-{idx}";
+            <div class="gf-cond">
+                <select class="gf-in gf-field" @onchange="e => ChangeField(c, e)">
+                    <option value="" selected="@string.IsNullOrEmpty(c.Field)">Campo&hellip;</option>
+                    @foreach (var sec in Fields.GroupBy(f => f.Section ?? ""))
+                    {
+                        @if (sec.Key.Length == 0)
+                        {
+                            @foreach (var f in sec)
+                            {
+                                <option value="@f.Key" selected="@(f.Key == c.Field)">@f.Label</option>
+                            }
+                        }
+                        else
+                        {
+                            <optgroup label="@sec.Key">
+                                @foreach (var f in sec)
+                                {
+                                    <option value="@f.Key" selected="@(f.Key == c.Field)">@f.Label</option>
+                                }
+                            </optgroup>
+                        }
+                    }
+                </select>
+                @if (fld is { } ff)
+                {
+                    <select class="gf-in gf-op2" @onchange="e => ChangeOperator(c, e)">
+                        <option value="" selected="@string.IsNullOrEmpty(c.Operator)">Operador&hellip;</option>
+                        @foreach (var op in GridFilter.OperatorsFor(ff.Type))
+                        {
+                            <option value="@op.Key" selected="@(op.Key == c.Operator)">@op.Label</option>
+                        }
+                    </select>
+                    @if (GridFilter.NeedsValue(c.Operator))
+                    {
+                        var isDate = ff.Type == GridColType.Date;
+                        var sugg = ff.Type == GridColType.Text && Suggestions is not null ? Suggestions(ff.Key) : null;
+                        <input type="@(isDate ? "date" : "text")" class="gf-in gf-val" placeholder="valor" value="@c.Value"
+                               list="@(sugg is { Count: > 0 } ? listId : null)" @onchange="e => ChangeValue(c, e)" />
+                        @if (sugg is { Count: > 0 })
+                        {
+                            <datalist id="@listId">
+                                @foreach (var s in sugg)
+                                {
+                                    <option value="@s"></option>
+                                }
+                            </datalist>
+                        }
+                        @if (GridFilter.NeedsValue2(c.Operator))
+                        {
+                            <span class="gf-and">y</span>
+                            <input type="@(isDate ? "date" : "text")" class="gf-in gf-val" placeholder="valor" value="@c.Value2" @onchange="e => ChangeValue2(c, e)" />
+                        }
+                    }
+                }
+                <button class="gf-del" title="Quitar condici&oacute;n" @onclick="@(() => RemoveChild(c))">&times;</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public GridFilterNode Group { get; set; } = default!;
+    [Parameter] public int Depth { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<GridFilterField> Fields { get; set; } = Array.Empty<GridFilterField>();
+    /// <summary>Valores existentes de un campo de texto (para sugerir al escribir). Opcional.</summary>
+    [Parameter] public Func<string, IReadOnlyList<string>>? Suggestions { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    /// <summary>Lo invoca el padre para quitar ESTE grupo de su lista (solo subgrupos, Depth &gt; 0).</summary>
+    [Parameter] public EventCallback OnRemove { get; set; }
+
+    private readonly string _uid = Guid.NewGuid().ToString("N")[..8];
+
+    private Task Changed() => OnChanged.InvokeAsync();
+
+    private Task SetOp(string op) { Group.Op = op; return Changed(); }
+    private Task AddCondition() { Group.Children.Add(GridFilterNode.NewCond()); return Changed(); }
+    private Task AddSubgroup() { Group.Children.Add(GridFilterNode.NewGroup("and")); return Changed(); }
+    private Task RemoveChild(GridFilterNode child) { Group.Children.Remove(child); return Changed(); }
+    private Task RemoveSelf() => OnRemove.InvokeAsync();
+
+    private Task ChangeField(GridFilterNode c, ChangeEventArgs e)
+    {
+        c.Field = e.Value?.ToString() ?? "";
+        // Al cambiar de campo el operador anterior puede no aplicar al nuevo tipo.
+        c.Operator = "";
+        c.Value = null; c.Value2 = null;
+        return Changed();
+    }
+
+    private Task ChangeOperator(GridFilterNode c, ChangeEventArgs e)
+    {
+        c.Operator = e.Value?.ToString() ?? "";
+        if (!GridFilter.NeedsValue(c.Operator)) { c.Value = null; }
+        if (!GridFilter.NeedsValue2(c.Operator)) { c.Value2 = null; }
+        return Changed();
+    }
+
+    private Task ChangeValue(GridFilterNode c, ChangeEventArgs e) { c.Value = e.Value?.ToString(); return Changed(); }
+    private Task ChangeValue2(GridFilterNode c, ChangeEventArgs e) { c.Value2 = e.Value?.ToString(); return Changed(); }
+}

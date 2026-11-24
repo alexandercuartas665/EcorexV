@@ -11,6 +11,7 @@
 @using Ecorex.Domain.Enums
 @using Ecorex.SuperAdmin.Auth
 @using Ecorex.Application.DataLookups
+@using Ecorex.SuperAdmin.Components.Shared.Directorio
 @inherits DirectorioSharedBase
 
 <PageTitle>Directorio Especializado - ECOREX.tareas</PageTitle>
@@ -130,188 +131,15 @@
         </div>
     </div>
 
-    @if (_loading)
+    @* ===== Tabla: grilla comun (ADR-0207) - filtros Y/O, guardados, agrupar, ordenar, columnas, Excel ===== *@
+    <DirectorioTabla Rows="GridRows" Fields="_cfgAllFields" Fichas="_fichas" Expanded="_expanded" Kids="_kids"
+                     CanEdit="_canEdit" CanDelete="_canDelete" Busy="_busy" Loading="_loading"
+                     OnToggleExpand="ToggleExpandAsync" OnEdit="OpenEditFromGridAsync" OnAssign="OpenAssign" OnDelete="DeleteAsync"
+                     OnAddContact="AddContactFromGridAsync" OnPromoteKid="PromoteKidFromGridAsync"
+                     OnUnassignKid="UnassignKidFromGridAsync" OnDeleteKid="DeleteKidFromGridAsync" />
+    @if (_pageError is not null)
     {
-        <div class="dg-table"><div class="dg-loading">Cargando directorio...</div></div>
-    }
-    else
-    {
-        <div class="dg-table">
-            <div class="dg-grid dg-thead">
-                <div class="dg-th">CLIENTE</div>
-                <div class="dg-th pad12">IDENTIFICACION</div>
-                <div class="dg-th pad12">VENDEDOR</div>
-                <div class="dg-th pad12">ESTADO</div>
-                <div class="dg-th pad12"></div>
-            </div>
-
-            @if (!Displayed.Any())
-            {
-                <div class="dg-rowwrap"><div class="dg-empty-note" style="padding:24px 18px">No hay terceros que coincidan con los filtros.</div></div>
-            }
-
-            @foreach (var r in DisplayedPage)
-            {
-                var est = EstadoInfo(r.Estado);
-                <div class="dg-rowwrap">
-                    <div class="dg-grid dg-row">
-                        <div class="dg-c-name">
-                            <button class="dg-expand" title="Ver contactos" @onclick="() => ToggleExpandAsync(r)">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(@(_expanded.Contains(r.Id) ? "90deg" : "0deg"))"><path d="m9 6 6 6-6 6" /></svg>
-                            </button>
-                            @* Iniciales de base + imagen superpuesta con onerror -> nunca icono roto. *@
-                            <span class="dg-av dg-av-wrap @(r.EsEmpresa ? "emp" : "per")" style="background:@AvatarColor(r.Nombre)">
-                                @Initials(r.Nombre)
-                                @if (!string.IsNullOrWhiteSpace(r.ImagenUrl))
-                                {
-                                    <img class="dg-av-img" src="@r.ImagenUrl" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />
-                                }
-                            </span>
-                            <div class="dg-name-main" @onclick="() => _terceroModal!.OpenEditAsync(r.Id)">
-                                <div class="dg-name-line">
-                                    <span class="dg-name-txt">@r.Nombre</span>
-                                    @if (r.EsEmpresa)
-                                    {
-                                        <span class="dg-badge" style="background:var(--t-blue-bg);color:var(--t-blue)">EMPRESA &#183; @r.ContadorContactos</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="dg-badge" style="background:var(--t-amber-bg);color:var(--t-amber)">PERSONA</span>
-                                    }
-                                </div>
-                                @if (!string.IsNullOrWhiteSpace(r.Sub))
-                                {
-                                    <div class="dg-name-sub">@r.Sub</div>
-                                }
-                                @{
-                                    var tags = TipoTags(r.Perfiles);
-                                }
-                                @if (tags.Count > 0)
-                                {
-                                    <div class="dg-tags">
-                                        @foreach (var tg in tags)
-                                        {
-                                            <span class="dg-tag" style="background:var(@tg.Bg);color:var(@tg.Color)">@tg.Label</span>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                        <div class="dg-c mono">@r.Identificacion</div>
-                        <div class="dg-c">@(!string.IsNullOrWhiteSpace(r.VendedorAsesorNombre) ? r.VendedorAsesorNombre : (string.IsNullOrWhiteSpace(r.Vendedor) ? "-" : r.Vendedor))</div>
-                        <div class="dg-c" style="padding:11px 12px"><span class="dg-estado" style="background:var(@est.Bg);color:var(@est.Color)">@est.Label</span></div>
-                        <div class="dg-c acts" style="padding:11px 12px">
-                            @if (_canEdit)
-                            {
-                                <button class="dg-act edit" title="Editar tercero" @onclick="() => _terceroModal!.OpenEditAsync(r.Id)">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                                </button>
-                            }
-                            @if (r.EsPersona && _canEdit)
-                            {
-                                <button class="dg-act assign" title="Asignar a una empresa" @onclick="() => OpenAssign(r)">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6 21V7l6-4 6 4v14M12 12h.01" /><path d="M9 21v-4h6v4" /></svg>
-                                </button>
-                            }
-                            @if (_canDelete)
-                            {
-                                <button class="dg-act del" title="Eliminar" @onclick="() => DeleteAsync(r)" disabled="@_busy">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
-                                </button>
-                            }
-                        </div>
-                    </div>
-
-                    @if (_expanded.Contains(r.Id))
-                    {
-                        <div class="dg-kids">
-                            @{
-                                var kids = _kids.TryGetValue(r.Id, out var kl) ? kl : Array.Empty<TerceroContactoDto>();
-                            }
-                            <div class="dg-kids-head">
-                                <div class="dg-kids-lbl">CONTACTOS ASOCIADOS</div>
-                                @if (_canEdit)
-                                {
-                                    <button class="dg-kids-add" @onclick="() => _terceroModal!.OpenCreateContactAsync(r.Id)">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                                        Agregar contacto
-                                    </button>
-                                }
-                            </div>
-                            @if (kids.Count > 0)
-                            {
-                                @foreach (var k in kids)
-                                {
-                                    <div class="dg-kid">
-                                        <span class="dg-kid-av" style="background:@AvatarColor(k.Nombre)">@Initials(k.Nombre)</span>
-                                        <div style="flex:1;min-width:0">
-                                            <div class="dg-kid-name">@k.Nombre</div>
-                                            <div class="dg-kid-cargo">@(string.IsNullOrWhiteSpace(k.Cargo) ? "Contacto" : k.Cargo)</div>
-                                        </div>
-                                        @if (!string.IsNullOrWhiteSpace(k.Email))
-                                        {
-                                            <span class="dg-kid-meta">@k.Email</span>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(k.Telefono))
-                                        {
-                                            <span class="dg-kid-meta">@k.Telefono</span>
-                                        }
-                                        @if (_canEdit)
-                                        {
-                                            <div class="dg-kid-acts">
-                                                @if (k.EsTercero)
-                                                {
-                                                    <button class="dg-act edit" title="Editar contacto" @onclick="() => _terceroModal!.OpenEditAsync(k.Id)">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                                                    </button>
-                                                    <button class="dg-act del" title="Quitar de la empresa" @onclick="() => UnassignContactoAsync(r.Id, k.Id)" disabled="@_busy">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                                                    </button>
-                                                }
-                                                else
-                                                {
-                                                    <button class="dg-act edit" title="Editar contacto" @onclick="() => _terceroModal!.PromoteAndEditContactoAsync(k.Id, r.Id)">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                                                    </button>
-                                                    <button class="dg-act del" title="Eliminar contacto" @onclick="() => DeleteContactoAsync(r.Id, k.Id)" disabled="@_busy">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
-                                                    </button>
-                                                }
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            }
-                            else
-                            {
-                                <div class="dg-empty-note">Sin contactos asociados todavia.</div>
-                            }
-                        </div>
-                    }
-                </div>
-            }
-        </div>
-        <div class="dg-pager">
-            <span class="dg-pager-info">@FilteredCount registro(s) &#183; pagina @(_page + 1) de @PageCount</span>
-            <div class="dg-pager-ctrl">
-                <label>Por pagina
-                    <select @onchange="OnPageSizeChanged">
-                        @foreach (var s in PageSizes)
-                        {
-                            <option value="@s" selected="@(s == _pageSize)">@s</option>
-                        }
-                    </select>
-                </label>
-                <button title="Primera" @onclick="() => GoPage(0)" disabled="@(_page == 0)">&laquo;</button>
-                <button title="Anterior" @onclick="() => GoPage(_page - 1)" disabled="@(_page == 0)">&lsaquo;</button>
-                <button title="Siguiente" @onclick="() => GoPage(_page + 1)" disabled="@(_page + 1 >= PageCount)">&rsaquo;</button>
-                <button title="Ultima" @onclick="() => GoPage(PageCount - 1)" disabled="@(_page + 1 >= PageCount)">&raquo;</button>
-            </div>
-        </div>
-        @if (_pageError is not null)
-        {
-            <div class="dg-page-error">@_pageError</div>
-        }
+        <div class="dg-page-error">@_pageError</div>
     }
 </div>
 

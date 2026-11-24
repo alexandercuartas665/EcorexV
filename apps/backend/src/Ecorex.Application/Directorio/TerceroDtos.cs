@@ -9,7 +9,8 @@ namespace Ecorex.Application.Directorio;
 /// </summary>
 /// <param name="Filtrables">
 /// Valores de los campos marcados "ofrecer como filtro" (ADR-0029), por FieldKey. Solo esos: el
-/// listado no necesita cargar toda la ficha para filtrar. Vacio si el tenant no marco ninguno.
+/// listado no necesita cargar toda la ficha para filtrar. Vacio si el tenant no marco ninguno. Con
+/// <see cref="TerceroListFilter.IncludeAllFields"/> trae TODOS los campos de ficha (grilla, ADR-0207).
 /// </param>
 public sealed record TerceroListItemDto(
     Guid Id,
@@ -34,7 +35,10 @@ public sealed record TerceroListItemDto(
     // Empresa a la que esta vinculada una persona (sub-contacto). El motor Modular muestra estas personas
     // tambien a nivel raiz con un enlace a su organizacion (como el prototipo); en Clasico van null.
     Guid? EmpresaId = null,
-    string? EmpresaNombre = null);
+    string? EmpresaNombre = null,
+    // Datos de contacto para las columnas de la grilla (ADR-0207).
+    string? Email = null,
+    string? Telefono = null);
 
 /// <summary>Detalle completo de un tercero: campos + fichas dinamicas + contactos.</summary>
 public sealed record TerceroDetailDto(
@@ -171,4 +175,7 @@ public sealed record TerceroListFilter(
     DirectoryEngine? Engine = null,
     // Incluir sub-contactos (personas con EmpresaId) como filas de nivel raiz. Clasico = false (los oculta);
     // el motor Modular = true, para mostrarlas con enlace a su organizacion, como el prototipo.
-    bool IncludeSubContacts = false);
+    bool IncludeSubContacts = false,
+    // Grilla del Directorio (ADR-0207): trae en Filtrables los valores de TODOS los campos de ficha (no solo
+    // los marcados "ofrecer como filtro") para mostrarlos como columnas, agrupar, filtrar y exportar.
+    bool IncludeAllFields = false);

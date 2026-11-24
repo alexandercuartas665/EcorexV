@@ -2,7 +2,7 @@
 tipo: referencia
 servidor: ecorex-tableros
 modulo: reportes
-herramientas: 9
+herramientas: 13
 fuente: catalogo vivo tools/list (generado)
 ---
 
@@ -28,14 +28,18 @@ Reglas:
 - Ordenar por una agregacion: `orden=[{campo:"conteo"|"suma"|"promedio"..., desc:true}]`.
 - Los `filtros` quedan FIJOS en el reporte (no son interactivos). Para "solo activos" crea una version filtrada.
 - `ver_reporte` re-ejecuta y da datos frescos (sirve para monitorear).
+- **Por periodo**: `consulta.periodo` = dia | semana | mes | trimestre | anio agrupa un campo FECHA (claves
+  2026-01-15 / 2026-W03 / 2026-01 / 2026-T1 / 2026, orden cronologico). Solo con `agrupar_por` de tipo fecha.
+- `editar_reporte` cambia solo lo que envies (si cambia grafico o consulta, la ejecuta antes de guardar);
+  `archivar_reporte` lo saca de la galeria (recuperable desde 'Archivados').
 
 Recetas: [[R07 - Crear reportes e indicadores]]
 
-## Herramientas (9)
+## Herramientas (13)
 
 - **Lectura:** `listar_fuentes_reporte`, `ver_fuente_reporte`, `listar_reportes`, `ver_reporte`, `listar_libros_indicadores`, `ver_libro_indicadores`
-- **Escritura:** `crear_reporte`, `crear_libro_indicadores`, `agregar_indicador`
-- **Destructivas:** _ninguna_
+- **Escritura:** `crear_reporte`, `crear_libro_indicadores`, `agregar_indicador`, `editar_reporte`
+- **Destructivas:** `archivar_reporte`, `eliminar_indicador`, `eliminar_libro_indicadores`
 
 ### `listar_fuentes_reporte`
 
@@ -138,6 +142,7 @@ Llamada minima (solo obligatorios):
 | `consulta.filtros[].valor` | string |  |  |
 | `consulta.filtros[].valores` | array de string |  |  |
 | `consulta.agrupar_por` | string |  | campo por el que se agrupa (un contenedor admite uno) |
+| `consulta.periodo` | string (dia / semana / mes / trimestre / anio) |  | si agrupar_por es un campo FECHA, agrupa por ese periodo (ventas por mes) en orden cronologico |
 | `consulta.agregaciones` | array de objetos |  |  |
 | `consulta.agregaciones[].funcion` | string (contar / sumar / promedio / minimo / maximo) | SI |  |
 | `consulta.agregaciones[].campo` | string |  | campo numerico (no hace falta para contar) |
@@ -272,6 +277,7 @@ Llamada minima (solo obligatorios):
 | `consulta.filtros[].valor` | string |  |  |
 | `consulta.filtros[].valores` | array de string |  |  |
 | `consulta.agrupar_por` | string |  | campo por el que se agrupa (un contenedor admite uno) |
+| `consulta.periodo` | string (dia / semana / mes / trimestre / anio) |  | si agrupar_por es un campo FECHA, agrupa por ese periodo (ventas por mes) en orden cronologico |
 | `consulta.agregaciones` | array de objetos |  |  |
 | `consulta.agregaciones[].funcion` | string (contar / sumar / promedio / minimo / maximo) | SI |  |
 | `consulta.agregaciones[].campo` | string |  | campo numerico (no hace falta para contar) |
@@ -323,6 +329,134 @@ Ejemplo real (valores genericos):
         }
       ]
     }
+  }
+}
+```
+
+### `editar_reporte`
+
+**Tipo:** Escritura
+
+> Edita un reporte tipo PANEL creado con crear_reporte. Cambio PARCIAL: solo lo que mandes (nombre, categoria, descripcion, grafico y/o consulta; la fuente solo si mandas consulta). Si cambias grafico o consulta se EJECUTA antes de guardar, igual que al crear. 'reporte' = id o nombre. Los imprimibles y los paneles disenados en pantalla se editan alli.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `reporte` | string | SI |  |
+| `nombre` | string |  |  |
+| `descripcion` | string |  |  |
+| `categoria` | string |  |  |
+| `grafico` | string (tabla / barras / torta / linea) |  |  |
+| `fuente` | string |  |  |
+| `contenedor` | string |  |  |
+| `tabla` | string |  |  |
+| `consulta` | object |  | consulta sobre la fuente, con NOMBRES de campo (ver_fuente_reporte) |
+| `consulta.campos` | array de string |  | modo tabla: campos a mostrar (vacio = todos) |
+| `consulta.filtros` | array de objetos |  |  |
+| `consulta.filtros[].campo` | string | SI |  |
+| `consulta.filtros[].operador` | string (igual / distinto / contiene / mayor / mayor_igual / menor / menor_igual / entre / en) |  |  |
+| `consulta.filtros[].valor` | string |  |  |
+| `consulta.filtros[].valores` | array de string |  |  |
+| `consulta.agrupar_por` | string |  | campo por el que se agrupa (un contenedor admite uno) |
+| `consulta.periodo` | string (dia / semana / mes / trimestre / anio) |  | si agrupar_por es un campo FECHA, agrupa por ese periodo (ventas por mes) en orden cronologico |
+| `consulta.agregaciones` | array de objetos |  |  |
+| `consulta.agregaciones[].funcion` | string (contar / sumar / promedio / minimo / maximo) | SI |  |
+| `consulta.agregaciones[].campo` | string |  | campo numerico (no hace falta para contar) |
+| `consulta.orden` | array de objetos |  |  |
+| `consulta.orden[].campo` | string | SI | un campo, o conteo/suma/promedio/minimo/maximo para ordenar por la agregacion |
+| `consulta.orden[].desc` | boolean |  |  |
+| `consulta.limite` | integer >=1 |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "editar_reporte",
+  "arguments": {
+    "reporte": "<reporte>"
+  }
+}
+```
+
+Ejemplo real (valores genericos):
+
+```json
+{
+  "name": "editar_reporte",
+  "arguments": {
+    "reporte": "Ventas por mes",
+    "consulta": {
+      "agrupar_por": "fecha",
+      "periodo": "trimestre",
+      "agregaciones": [
+        {
+          "funcion": "sumar",
+          "campo": "valor"
+        }
+      ]
+    }
+  }
+}
+```
+
+### `archivar_reporte`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> ARCHIVA un reporte (sale de la galeria; un administrador lo recupera desde 'Archivados'). Usala para quitar reportes de prueba o que quedaron sin fuente. 'reporte' = id o nombre.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `reporte` | string | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "archivar_reporte",
+  "arguments": {
+    "reporte": "<reporte>"
+  }
+}
+```
+
+### `eliminar_indicador`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Quita un indicador (widget) de su libro. 'indicador' = widget_id (ver_libro_indicadores). Solo el dueno del libro o un administrador.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `indicador` | string | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "eliminar_indicador",
+  "arguments": {
+    "indicador": "<indicador>"
+  }
+}
+```
+
+### `eliminar_libro_indicadores`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Elimina un libro de indicadores completo (con sus hojas). 'libro' = id o nombre. Solo el dueno o un administrador.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `libro` | string | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "eliminar_libro_indicadores",
+  "arguments": {
+    "libro": "<libro>"
   }
 }
 ```

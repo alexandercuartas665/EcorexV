@@ -13,6 +13,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `add_question` | [[T09 - Formularios dinamicos]] | Escritura |
 | `agente_lector_medios` | [[T06 - Agentes de IA]] | Escritura |
 | `agregar_columna` | [[T05 - Contenedores de datos]] | Escritura |
+| `agregar_filas` | [[T05 - Contenedores de datos]] | Escritura |
 | `agregar_indicador` | [[T08 - Reportes e indicadores]] | Escritura |
 | `agregar_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `agregar_paso` | [[T04 - Drones de extraccion web]] | Escritura |
@@ -22,6 +23,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `agregar_tabla` | [[T05 - Contenedores de datos]] | Escritura |
 | `apagar_agente` | [[T06 - Agentes de IA]] | Escritura |
 | `apply_form_spec` | [[T09 - Formularios dinamicos]] | Escritura |
+| `archivar_reporte` | [[T08 - Reportes e indicadores]] | DESTRUCTIVA |
 | `archive` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
 | `asignar_cargo_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `asignar_encargado_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
@@ -76,6 +78,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `editar_paso` | [[T04 - Drones de extraccion web]] | Escritura |
 | `editar_prompt_agente` | [[T06 - Agentes de IA]] | Escritura |
 | `editar_recurso_agente` | [[T06 - Agentes de IA]] | Escritura |
+| `editar_reporte` | [[T08 - Reportes e indicadores]] | Escritura |
 | `editar_tabla` | [[T05 - Contenedores de datos]] | Escritura |
 | `ejecutar_clasificacion_ahora` | [[T07 - Clasificacion y datos masivos con IA]] | Escritura |
 | `eliminar_agente` | [[T06 - Agentes de IA]] | DESTRUCTIVA |
@@ -84,6 +87,8 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `eliminar_conexion` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `eliminar_contenedor_datos` | [[T05 - Contenedores de datos]] | DESTRUCTIVA |
 | `eliminar_dron` | [[T04 - Drones de extraccion web]] | DESTRUCTIVA |
+| `eliminar_indicador` | [[T08 - Reportes e indicadores]] | DESTRUCTIVA |
+| `eliminar_libro_indicadores` | [[T08 - Reportes e indicadores]] | DESTRUCTIVA |
 | `eliminar_nodo` | [[T03 - Flujos de proceso (BPMN)]] | DESTRUCTIVA |
 | `eliminar_paso` | [[T04 - Drones de extraccion web]] | DESTRUCTIVA |
 | `eliminar_programacion` | [[T04 - Drones de extraccion web]] | DESTRUCTIVA |
@@ -201,6 +206,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `ver_contacto` | [[T02 - Directorio de contactos]] | Lectura |
 | `ver_contenedor_datos` | [[T05 - Contenedores de datos]] | Lectura |
 | `ver_dron` | [[T04 - Drones de extraccion web]] | Lectura |
+| `ver_filas` | [[T05 - Contenedores de datos]] | Lectura |
 | `ver_flujo` | [[T03 - Flujos de proceso (BPMN)]] | Lectura |
 | `ver_fuente_reporte` | [[T08 - Reportes e indicadores]] | Lectura |
 | `ver_grupo` | [[W01 - MCP WhatsApp por linea]] | Lectura |

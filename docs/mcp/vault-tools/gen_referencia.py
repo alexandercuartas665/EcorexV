@@ -104,12 +104,13 @@ Recetas: [[R08 - Crear un dron de extraccion]]"""),
      "eliminar_contenedor_datos agregar_tabla editar_tabla eliminar_tabla agregar_columna editar_columna "
      "eliminar_columna agregar_relacion eliminar_relacion listar_conectores ver_conector guardar_conector eliminar_conector "
      "listar_programaciones_importacion guardar_programacion_importacion eliminar_programacion_importacion "
-     "listar_corridas_importacion ver_publicacion_contenedor publicar_contenedor despublicar_contenedor",
+     "listar_corridas_importacion ver_publicacion_contenedor publicar_contenedor despublicar_contenedor agregar_filas ver_filas",
      """Un **contenedor de datos** es una mini base de datos del cliente (modelo ER): contenedor -> **tablas** ->
 **columnas** (texto, numero, decimal, fecha, booleano, submodelo) + **relaciones** (n1 / nn).
 
 Se llena por **conectores** (fuentes: excel, api REST, bd, tabla) + **programaciones de importacion** (manual,
-intervalo, cron; modo append / replace / upsert por `columna_clave`), por drones, o por agentes de IA.
+intervalo, cron; modo append / replace / upsert por `columna_clave`), por drones, por agentes de IA, o en poca
+cantidad directo por MCP con `agregar_filas` (max 100 por llamada). `ver_filas` lee filas para verificar.
 Cada tabla raiz puede **publicarse** como modulo del menu y es **fuente de reportes** (`container:{tabla_id}`).
 
 Reglas:
@@ -122,6 +123,9 @@ Reglas:
   sensibles salen como `***`). Leelo SIEMPRE antes de editar.
 - `guardar_conector` en EDICION cambia solo lo que envies; lo omitido (mapeo, destino, auth...) se conserva.
   No reenvies un endpoint con `***` (lo rechaza).
+- `agregar_filas` valida cada valor contra el tipo de su columna (decimal con punto y sin miles, fecha AAAA-MM-DD,
+  booleano true/false/si/no) y las obligatorias: UN error rechaza TODO el lote (la respuesta lista los errores).
+  Con `columna_clave` actualiza la fila existente (upsert). No sirve en tablas derivadas.
 
 Recetas: [[R05 - Crear un contenedor de datos]] - [[R06 - Conector API e importacion programada]]"""),
     ("06", "Agentes de IA", "agentes",
@@ -161,7 +165,8 @@ Todas consumen tokens de IA (salvo rellenar/limpiar): confirma con el usuario vo
 Recetas: [[R10 - Clasificar datos con IA]]"""),
     ("08", "Reportes e indicadores", "reportes",
      "listar_fuentes_reporte ver_fuente_reporte listar_reportes ver_reporte crear_reporte listar_libros_indicadores "
-     "ver_libro_indicadores crear_libro_indicadores agregar_indicador",
+     "ver_libro_indicadores crear_libro_indicadores agregar_indicador editar_reporte archivar_reporte eliminar_indicador "
+     "eliminar_libro_indicadores",
      """Dos formas de visualizar datos:
 1. **Galeria de reportes** (`crear_reporte`): un PANEL guardado (tabla, barras, torta, linea) que aparece en la
    pestana de su `categoria`.
@@ -178,6 +183,10 @@ Reglas:
 - Ordenar por una agregacion: `orden=[{campo:"conteo"|"suma"|"promedio"..., desc:true}]`.
 - Los `filtros` quedan FIJOS en el reporte (no son interactivos). Para "solo activos" crea una version filtrada.
 - `ver_reporte` re-ejecuta y da datos frescos (sirve para monitorear).
+- **Por periodo**: `consulta.periodo` = dia | semana | mes | trimestre | anio agrupa un campo FECHA (claves
+  2026-01-15 / 2026-W03 / 2026-01 / 2026-T1 / 2026, orden cronologico). Solo con `agrupar_por` de tipo fecha.
+- `editar_reporte` cambia solo lo que envies (si cambia grafico o consulta, la ejecuta antes de guardar);
+  `archivar_reporte` lo saca de la galeria (recuperable desde 'Archivados').
 
 Recetas: [[R07 - Crear reportes e indicadores]]"""),
     ("09", "Formularios dinamicos", "formularios",
@@ -316,6 +325,12 @@ CURATED = {
                          "mapeo_json": "{\"arrayPath\":\"data\",\"paging\":{\"mode\":\"Offset\",\"offsetParam\":\"offset\",\"limitParam\":\"limit\",\"pageSize\":500,\"maxPages\":20},\"fields\":[{\"column\":\"id_pedido\",\"path\":\"id\"},{\"column\":\"cliente\",\"path\":\"customer.name\"},{\"column\":\"valor\",\"path\":\"total\"}]}"},
     "ver_conector": {"contenedor": "Ventas", "conector": "API pedidos"},
     "guia_ecorex": {"buscar": "Tiempo de espera agotado"},
+    "agregar_filas": {"contenedor": "Ventas", "tabla": "Pedidos", "columna_clave": "id_pedido",
+                      "filas": [{"id_pedido": "P-001", "cliente": "Industrias Ejemplo", "fecha": "2026-01-10", "valor": 1250.5},
+                                {"id_pedido": "P-002", "cliente": "Comercial Demo", "fecha": "2026-02-03", "valor": 980}]},
+    "ver_filas": {"contenedor": "Ventas", "tabla": "Pedidos", "filtros": [{"columna": "cliente", "valor": "ejemplo"}], "limite": 10},
+    "editar_reporte": {"reporte": "Ventas por mes", "consulta": {"agrupar_por": "fecha", "periodo": "trimestre",
+                       "agregaciones": [{"funcion": "sumar", "campo": "valor"}]}},
     "guardar_programacion_importacion": {"contenedor": "Ventas", "nombre": "Pedidos diaria 5am", "tipo": "cron",
                                          "cron": "0 5 * * *", "modo": "upsert", "columna_clave": "id_pedido",
                                          "conector": "API pedidos", "activa": True},

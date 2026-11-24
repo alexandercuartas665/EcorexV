@@ -38,9 +38,9 @@ antes de construir ahorra horas y evita danos en datos.
     todo (lento); `$order=<fecha> DESC&$limit=N` es rapidisimo para "lo mas reciente". Un `$where` con fecha fija
     NO "rueda": la ventana se queda quieta. Socrata topa `$limit` en 50.000.
 12. **Campos anidados del JSON** se mapean con ruta de puntos: `{"column":"cliente","path":"customer.name"}`.
-13. **No hay herramienta MCP para LEER filas** ni para "importar ahora". Para ver datos: crea un reporte en modo
-    tabla (o usa `ver_reporte`), que devuelve una muestra. Para importar ya: el boton de la pantalla del
-    contenedor, o una programacion.
+13. **`ver_filas` y `agregar_filas` son para POCAS filas** (max 100 por llamada): verificar una carga o meter datos
+    chicos. No los uses en bucle para volumen (usa conector + programacion). Tampoco hay herramienta MCP para
+    "importar ahora": el boton de la pantalla del contenedor, o una programacion.
 14. **Lee el conector con `ver_conector` antes de tocarlo** (`listar_conectores` NO muestra endpoint ni mapeo).
     `guardar_conector` en edicion cambia SOLO lo que envias y conserva lo demas. Si envias `mapeo_json`, ese mapeo
     REEMPLAZA al anterior completo (campos + paginacion): parte del `mapeo_json` que devuelve `ver_conector`.
@@ -95,11 +95,9 @@ antes de construir ahorra horas y evita danos en datos.
     (`conteo`, `suma`, `promedio`, `minimo`, `maximo`), no el nombre de la columna.
 34. **Los filtros quedan fijos** en el reporte (no son interactivos). Para "solo activos" crea un reporte aparte
     con el filtro (`operador:"en"`, `valores:["Abierto","Publicado"]`).
-35. **Un contenedor admite un solo `agrupar_por`, y agrupa por el valor EXACTO del campo**: no hay agrupacion por
-    mes/anio de una fecha. Para "ventas por mes" la tabla necesita una columna de texto `mes` (`AAAA-MM`) que llene
-    quien importa los datos (mapeo del conector, script del dron o agente); `rellenar_columna` NO extrae el mes de
-    una fecha. Disena esa columna desde [[R05 - Crear un contenedor de datos]] si el usuario pedira reportes por
-    periodo.
+35. **Un contenedor admite un solo `agrupar_por`.** Para "por mes/semana/anio" NO inventes una columna de texto:
+    agrupa por la columna FECHA con `consulta.periodo` (dia | semana | mes | trimestre | anio). Por eso guarda las
+    fechas en columnas de tipo `fecha`, no `texto` ([[R05 - Crear un contenedor de datos]]).
 36. **Una tabla pre-filtrada sesga los porcentajes** (si solo entra lo de tecnologia, "todo es tecnologia"). Los %
     reales salen de la tabla universo.
 37. **El libro de indicadores nace privado del usuario** que lo crea (con la "Hoja 1"); los reportes de galeria

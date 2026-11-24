@@ -2,7 +2,7 @@
 tipo: referencia
 servidor: ecorex-tableros
 modulo: contenedores
-herramientas: 24
+herramientas: 26
 fuente: catalogo vivo tools/list (generado)
 ---
 
@@ -16,7 +16,8 @@ Un **contenedor de datos** es una mini base de datos del cliente (modelo ER): co
 **columnas** (texto, numero, decimal, fecha, booleano, submodelo) + **relaciones** (n1 / nn).
 
 Se llena por **conectores** (fuentes: excel, api REST, bd, tabla) + **programaciones de importacion** (manual,
-intervalo, cron; modo append / replace / upsert por `columna_clave`), por drones, o por agentes de IA.
+intervalo, cron; modo append / replace / upsert por `columna_clave`), por drones, por agentes de IA, o en poca
+cantidad directo por MCP con `agregar_filas` (max 100 por llamada). `ver_filas` lee filas para verificar.
 Cada tabla raiz puede **publicarse** como modulo del menu y es **fuente de reportes** (`container:{tabla_id}`).
 
 Reglas:
@@ -29,13 +30,16 @@ Reglas:
   sensibles salen como `***`). Leelo SIEMPRE antes de editar.
 - `guardar_conector` en EDICION cambia solo lo que envies; lo omitido (mapeo, destino, auth...) se conserva.
   No reenvies un endpoint con `***` (lo rechaza).
+- `agregar_filas` valida cada valor contra el tipo de su columna (decimal con punto y sin miles, fecha AAAA-MM-DD,
+  booleano true/false/si/no) y las obligatorias: UN error rechaza TODO el lote (la respuesta lista los errores).
+  Con `columna_clave` actualiza la fila existente (upsert). No sirve en tablas derivadas.
 
 Recetas: [[R05 - Crear un contenedor de datos]] - [[R06 - Conector API e importacion programada]]
 
-## Herramientas (24)
+## Herramientas (26)
 
-- **Lectura:** `listar_contenedores_datos`, `ver_contenedor_datos`, `listar_conectores`, `ver_conector`, `listar_programaciones_importacion`, `listar_corridas_importacion`, `ver_publicacion_contenedor`
-- **Escritura:** `crear_contenedor_datos`, `editar_contenedor_datos`, `agregar_tabla`, `editar_tabla`, `agregar_columna`, `editar_columna`, `agregar_relacion`, `guardar_conector`, `guardar_programacion_importacion`, `publicar_contenedor`
+- **Lectura:** `listar_contenedores_datos`, `ver_contenedor_datos`, `listar_conectores`, `ver_conector`, `listar_programaciones_importacion`, `listar_corridas_importacion`, `ver_publicacion_contenedor`, `ver_filas`
+- **Escritura:** `crear_contenedor_datos`, `editar_contenedor_datos`, `agregar_tabla`, `editar_tabla`, `agregar_columna`, `editar_columna`, `agregar_relacion`, `guardar_conector`, `guardar_programacion_importacion`, `publicar_contenedor`, `agregar_filas`
 - **Destructivas:** `eliminar_contenedor_datos`, `eliminar_tabla`, `eliminar_columna`, `eliminar_relacion`, `eliminar_conector`, `eliminar_programacion_importacion`, `despublicar_contenedor`
 
 ### `listar_contenedores_datos`
@@ -739,6 +743,105 @@ Llamada minima (solo obligatorios):
   "arguments": {
     "contenedor": "<contenedor>",
     "tabla": "<tabla>"
+  }
+}
+```
+
+### `agregar_filas`
+
+**Tipo:** Escritura
+
+> Inserta POCAS filas (maximo 100 por llamada) en una tabla de un contenedor: para pruebas y cargas chicas (para volumen usa un conector + programacion de importacion). 'filas' = lista de objetos columna->valor con los NOMBRES de columna (ver_contenedor_datos). Cada valor se valida contra el tipo de la columna (numero entero, decimal con punto, fecha AAAA-MM-DD, booleano true/false) y las columnas obligatorias; una columna desconocida o un valor invalido rechaza TODO el lote sin guardar nada. Con 'columna_clave' hace upsert: actualiza la fila que tenga esa clave (solo las columnas enviadas) o la crea si no existe.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `contenedor` | string | SI | id o nombre del contenedor |
+| `tabla` | string |  | id o nombre de la tabla (opcional si el contenedor tiene una sola) |
+| `filas` | array de objetos | SI |  |
+| `columna_clave` | string |  | opcional: columna para upsert |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "agregar_filas",
+  "arguments": {
+    "contenedor": "<contenedor>",
+    "filas": [
+      {}
+    ]
+  }
+}
+```
+
+Ejemplo real (valores genericos):
+
+```json
+{
+  "name": "agregar_filas",
+  "arguments": {
+    "contenedor": "Ventas",
+    "tabla": "Pedidos",
+    "columna_clave": "id_pedido",
+    "filas": [
+      {
+        "id_pedido": "P-001",
+        "cliente": "Industrias Ejemplo",
+        "fecha": "2026-01-10",
+        "valor": 1250.5
+      },
+      {
+        "id_pedido": "P-002",
+        "cliente": "Comercial Demo",
+        "fecha": "2026-02-03",
+        "valor": 980
+      }
+    ]
+  }
+}
+```
+
+### `ver_filas`
+
+**Tipo:** Lectura
+
+> Lee filas de una tabla de un contenedor para verificar una carga: las mas recientes primero, con 'filtros' opcionales (columna + texto que contiene, sin distinguir mayusculas) y 'limite' (20 por defecto, maximo 100). Devuelve el total que cumple los filtros y las filas como columna->valor.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `contenedor` | string | SI |  |
+| `tabla` | string |  |  |
+| `filtros` | array de objetos |  |  |
+| `filtros[].columna` | string | SI |  |
+| `filtros[].valor` | string | SI |  |
+| `limite` | integer >=1 <=100 |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "ver_filas",
+  "arguments": {
+    "contenedor": "<contenedor>"
+  }
+}
+```
+
+Ejemplo real (valores genericos):
+
+```json
+{
+  "name": "ver_filas",
+  "arguments": {
+    "contenedor": "Ventas",
+    "tabla": "Pedidos",
+    "filtros": [
+      {
+        "columna": "cliente",
+        "valor": "ejemplo"
+      }
+    ],
+    "limite": 10
   }
 }
 ```

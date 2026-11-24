@@ -118,12 +118,19 @@ Listado (sirve tambien para "ver los datos" de una tabla):
 | Monto por categoria (solo activos) | tabla de contenedor | filtro `estado en [...]`, agrupar, `sumar` |
 | Top 20 clientes por monto | tabla de contenedor | agrupar por cliente, `sumar`, orden `suma` desc, `limite` 20 |
 | Avance de una clasificacion IA | tabla de contenedor | agrupar por la columna de salida, `contar` (el grupo `null` = pendientes) |
-| Ventas por mes | tabla de contenedor con columna `mes` (`AAAA-MM`) | agrupar por `mes`, `sumar` valor, orden `mes` ascendente, grafico `linea` o `barras` |
+| Ventas por mes | tabla de contenedor con columna `fecha` | `agrupar_por` la fecha + `periodo:"mes"`, `sumar` valor, grafico `linea` o `barras` |
 
-**Por mes / por anio:** `agrupar_por` usa el valor exacto del campo; no agrupa una fecha por periodo. La tabla debe
-traer una columna de periodo (texto `AAAA-MM`) llenada al importar (ver trampa 35 en [[04 - Trampas conocidas]]).
-Una tabla recien creada esta VACIA y el MCP no inserta filas ([[R05 - Crear un contenedor de datos]]): el reporte se
-guarda igual (0 filas) y muestra datos cuando entren por conector, dron, agente o pantalla. Dilo al usuario.
+**Por dia / semana / mes / trimestre / anio:** agrega `periodo` a la consulta y agrupa por un campo de tipo FECHA.
+Las claves salen cronologicas (`2026-01-15`, `2026-W03`, `2026-01`, `2026-T1`, `2026`) y la columna se llama
+"Mes de fecha" (o el periodo que elijas). Con un campo que no es fecha, el servidor lo rechaza.
+
+```json
+{"name":"crear_reporte","arguments":{"nombre":"Ventas por mes","categoria":"Comercial","grafico":"linea","contenedor":"Ventas","tabla":"Pedidos","consulta":{"agrupar_por":"fecha","periodo":"mes","agregaciones":[{"funcion":"sumar","campo":"valor"}]}}}
+```
+
+Una tabla recien creada esta VACIA: el reporte se guarda igual (0 filas). Para probarlo carga unas filas con
+`agregar_filas` ([[R05 - Crear un contenedor de datos]]) o espera a que entren por conector, dron o agente; dilo al
+usuario.
 
 Los nombres exactos de campos de las fuentes nativas salen de `ver_fuente_reporte`: no los adivines.
 
@@ -131,3 +138,12 @@ Los nombres exactos de campos de las fuentes nativas salen de `ver_fuente_report
 
 - `listar_reportes` / `ver_reporte` (re-ejecuta y da datos frescos: sirve para seguir un proceso).
 - Patron "version filtrada": conserva el reporte total y crea uno "ACTIVOS" con el filtro, en la misma categoria.
+- `editar_reporte` cambia solo lo que envies (nombre, categoria, grafico, consulta...); si cambias grafico o
+  consulta la ejecuta antes de guardar. Solo aplica a paneles creados con `crear_reporte`.
+- `archivar_reporte` lo saca de la galeria (un administrador lo recupera desde "Archivados");
+  `eliminar_indicador` (por `widget_id`) y `eliminar_libro_indicadores` borran indicadores y libros. Son
+  destructivas: confirma con el usuario.
+
+```json
+{"name":"editar_reporte","arguments":{"reporte":"Ventas por mes","consulta":{"agrupar_por":"fecha","periodo":"trimestre","agregaciones":[{"funcion":"sumar","campo":"valor"}]}}}
+```

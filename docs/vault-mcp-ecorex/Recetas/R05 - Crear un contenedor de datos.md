@@ -66,9 +66,23 @@ Sub-tabla anidada: columna tipo `submodelo` con `hijo` = id de la tabla hija.
 Muestra tablas (con `tabla_id`), columnas (con tipo) y relaciones. Guarda el `tabla_id`: los reportes lo usan
 (`container:{tabla_id}`).
 
-## Paso 5 - Como se llena (el MCP no inserta filas directo)
+## Paso 5 - Como se llena
 
-El MCP personal **no tiene herramienta para insertar ni leer filas**. Los datos entran por:
+Pocas filas (pruebas, catalogos chicos, datos que el usuario te dicta): **directo por MCP** con `agregar_filas`
+(maximo 100 por llamada; usa los NOMBRES de columna de `ver_contenedor_datos`):
+
+```json
+{"name":"agregar_filas","arguments":{"contenedor":"Ventas","tabla":"Pedidos","filas":[{"id_pedido":"P-001","cliente":"Industrias Ejemplo","fecha":"2026-01-10","valor":1250.5},{"id_pedido":"P-002","cliente":"Comercial Demo","fecha":"2026-02-03","valor":980}]}}
+{"name":"ver_filas","arguments":{"contenedor":"Ventas","tabla":"Pedidos","limite":10}}
+```
+
+- Formatos: decimal con punto y sin miles (`1250.5`), fecha `AAAA-MM-DD` (o ISO con hora), booleano
+  `true/false/si/no`. Un solo valor invalido o una columna que no existe rechaza TODO el lote: corrige y reenvia.
+- Con `columna_clave` (p.ej. `"id_pedido"`) actualiza las filas que ya existen en vez de duplicarlas (upsert).
+- `ver_filas` verifica la carga (las mas recientes primero; `filtros` por texto que contiene).
+- Si el usuario pide **datos de ejemplo**, marcalos como tales y avisale (son datos reales en su sistema).
+
+Volumen o carga recurrente: NO uses `agregar_filas` en bucle; usa una de estas vias:
 
 | Via | Cuando | Como |
 |---|---|---|
@@ -78,8 +92,8 @@ El MCP personal **no tiene herramienta para insertar ni leer filas**. Los datos 
 | Agente de IA | La IA genera o extrae los datos (ej. lee PDFs) | Herramienta del agente `agregar_filas_a_contenedor` ([[R09 - Crear y configurar un agente de IA]]) |
 | Pantalla | Captura manual | Grilla de la tabla en la app (o publicada como modulo) |
 
-Para **ver** datos: crea un reporte en modo tabla (`crear_reporte` con `grafico:"tabla"` y `consulta.campos`), la
-respuesta trae una muestra; `ver_reporte` lo re-ejecuta.
+Para **ver** datos: `ver_filas` (hasta 100 filas), o un reporte en modo tabla (`crear_reporte` con
+`grafico:"tabla"` y `consulta.campos`) si el usuario lo quiere guardado.
 
 ## Paso 6 - Publicar como modulo del menu (opcional)
 

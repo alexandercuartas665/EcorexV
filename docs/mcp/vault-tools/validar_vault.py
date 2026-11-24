@@ -109,6 +109,8 @@ for f in files:
                     sub = (p, [v])
                 elif p.get("type") == "array" and (p.get("items") or {}).get("type") == "object" and isinstance(v, list):
                     sub = (p["items"], v)
+                if sub and not (sub[0].get("properties") or {}):
+                    sub = None   # objeto libre (p.ej. filas columna->valor): no se validan sus llaves
                 if sub:
                     sp, items = sub
                     for it in items:

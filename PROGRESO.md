@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Bitacora del agente: filtro por dia y buscador (pedido sesion EPRING) - v0.16.390 (rama fix/bitacora-agente-fecha)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.
+- **Por que**: en /bitacora-agente (Atencion del agente) el cliente EPRING no veia las bitacoras del 22-11: los datos estaban sanos en prod (~30 conversaciones, 0 errores), pero la pagina solo listaba los 50 contactos mas recientes, sin fecha ni buscador.
+- **Hecho**: `ListAttendedContactsAsync(take, day, search, zone)` (retrocompatible; `ListAttendedConversationsAsync` del API/MCP intacta): ventana [00:00, 24:00) del dia en la zona del tenant (Tenant.TimeZoneId, fallback America/Bogota) sobre OccurredAt en WhatsApp y voz; buscador por nombre o telefono (tambien solo digitos). Pagina: dia (hoy por defecto), anterior/siguiente, "Todas las fechas", buscador con debounce, tope 500 con filtro, recarga solo el riel, estado vacio "No hubo atenciones el {fecha}"; todas las horas de la pagina en la zona del tenant (antes ToLocalTime del servidor = UTC en prod, corridas 5h).
+- **Pruebas**: build Release 0 errores, format ok; unitarias Application 1725 (+2: DayWindowUtc y filtro dia/busqueda, incluido 22-11 23:30 Bogota = 23-11 UTC), SuperAdmin 323.
+- **Validacion local** (preview 5236, AGRO): 11-11 = 2 contactos (cuadra con SQL), horas 18:59/20:07 = hora Bogota en BD, "Todas las fechas" = vista reciente, busqueda por telefono y nombre.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/bitacora-agente-fecha (4a31937c) como v0.16.390 sobre v0.16.389 (no desplegada: el deploy fallo por disco lleno en el host; pendiente OK de limpieza de imagenes).
+
 ## 2026-11-24 - Grilla comun en el Directorio (ADR-0207) + campos de ficha en native:tercero (ADR-0208) - v0.16.389 (ramas feat/grilla-comun y feat/tercero-report-fichas)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.

@@ -69,8 +69,12 @@ public interface IAiAgentLineService
     Task<IReadOnlyList<AgentRunLogEntryDto>> GetConversationLogAsync(Guid conversationId, CancellationToken cancellationToken = default);
 
     /// <summary>Ola 4 (ADR-0190, opcion A): riel de la bitacora agrupado por CONTACTO (telefono), uniendo las
-    /// entradas de WhatsApp (por conversacion) y las de VOZ (por llamada). Mas recientes primero. Tenant-scoped.</summary>
-    Task<IReadOnlyList<AgentContactDto>> ListAttendedContactsAsync(int take = 50, CancellationToken cancellationToken = default);
+    /// entradas de WhatsApp (por conversacion) y las de VOZ (por llamada). Mas recientes primero. Tenant-scoped.
+    /// Filtros opcionales (pagina de la bitacora): <paramref name="day"/> = solo actividad de ese dia en la zona del tenant
+    /// (<paramref name="zone"/>; si es null se lee Tenant.TimeZoneId, fallback America/Bogota) y <paramref name="search"/> =
+    /// nombre o telefono del contacto. Con filtro la pagina pasa un <paramref name="take"/> holgado.</summary>
+    Task<IReadOnlyList<AgentContactDto>> ListAttendedContactsAsync(int take = 50, DateOnly? day = null, string? search = null,
+        TimeZoneInfo? zone = null, CancellationToken cancellationToken = default);
 
     /// <summary>Ola 4: bitacora COMPLETA de un contacto (por su clave de telefono), intercalando WhatsApp y voz,
     /// ordenada cronologicamente. Tenant-scoped.</summary>
@@ -232,15 +236,34 @@ public sealed class AiAgentLineService : IAiAgentLineService
         return digits.Length > 10 ? digits[^10..] : digits;
     }
 
-    public async Task<IReadOnlyList<AgentContactDto>> ListAttendedContactsAsync(int take = 50, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AgentContactDto>> ListAttendedContactsAsync(int take = 50, DateOnly? day = null, string? search = null,
+        TimeZoneInfo? zone = null, CancellationToken cancellationToken = default)
     {
+        // Dia del TENANT (regla 9): [00:00, 24:00) de su zona convertido a UTC. Asi Events/Last reflejan solo ese dia y
+        // solo aparecen los contactos con actividad ese dia.
+        IQueryable<AiAgentRunLog> logs = _db.AiAgentRunLogs.AsNoTracking();
+        if (day is DateOnly d)
+        {
+            if (zone is null)
+            {
+                string? tzId = null;
+                if (_tenant.TenantId is Guid tid)
+                {
+                    tzId = await _db.Tenants.AsNoTracking().Where(t => t.Id == tid).Select(t => t.TimeZoneId).FirstOrDefaultAsync(cancellationToken);
+                }
+                zone = Scheduling.ScheduledJobRecurrence.ResolveTimeZone(tzId);
+            }
+            var (startUtc, endUtc) = DayWindowUtc(d, zone);
+            logs = logs.Where(l => l.OccurredAt >= startUtc && l.OccurredAt < endUtc);
+        }
+
         // Agregados de bitacora por los DOS origenes: WhatsApp (por conversacion) y voz (por llamada).
-        var waGroups = await _db.AiAgentRunLogs.AsNoTracking()
+        var waGroups = await logs
             .Where(l => l.ConversationId != null)
             .GroupBy(l => l.ConversationId!.Value)
             .Select(g => new { Id = g.Key, Last = g.Max(x => x.OccurredAt), Events = g.Count() })
             .ToListAsync(cancellationToken);
-        var voiceGroups = await _db.AiAgentRunLogs.AsNoTracking()
+        var voiceGroups = await logs
             .Where(l => l.VoiceCallId != null)
             .GroupBy(l => l.VoiceCallId!.Value)
             .Select(g => new { Id = g.Key, Last = g.Max(x => x.OccurredAt), Events = g.Count() })
@@ -300,9 +323,32 @@ public sealed class AiAgentLineService : IAiAgentLineService
             .Select(kv => new AgentContactDto(
                 kv.Key, kv.Value.Name, kv.Value.Phone ?? kv.Key, kv.Value.ConversationId, kv.Value.LineLabel,
                 kv.Value.Last, kv.Value.Events, kv.Value.HasVoice))
-            .OrderByDescending(d => d.LastActivityAt)
+            .Where(c => MatchesContact(c, search))
+            .OrderByDescending(c => c.LastActivityAt)
             .Take(take)
             .ToList();
+    }
+
+    /// <summary>Ventana UTC [inicio, fin) del dia <paramref name="day"/> en la zona <paramref name="zone"/>.</summary>
+    public static (DateTimeOffset StartUtc, DateTimeOffset EndUtc) DayWindowUtc(DateOnly day, TimeZoneInfo zone)
+    {
+        static DateTimeOffset Utc(DateOnly d, TimeZoneInfo z)
+            => new(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(d.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified), z), TimeSpan.Zero);
+        return (Utc(day, zone), Utc(day.AddDays(1), zone));
+    }
+
+    /// <summary>Buscador del riel: el texto en el nombre o el telefono del contacto (sin mayusculas); si trae digitos,
+    /// tambien compara solo digitos (encuentra "300 123" en "+573001234567").</summary>
+    public static bool MatchesContact(AgentContactDto c, string? search)
+    {
+        var term = (search ?? string.Empty).Trim();
+        if (term.Length == 0) { return true; }
+        if ((c.ContactName ?? string.Empty).Contains(term, StringComparison.OrdinalIgnoreCase)) { return true; }
+        if ((c.ContactPhone ?? string.Empty).Contains(term, StringComparison.OrdinalIgnoreCase)) { return true; }
+        var digits = new string(term.Where(char.IsDigit).ToArray());
+        if (digits.Length == 0) { return false; }
+        var phoneDigits = new string((c.ContactPhone ?? string.Empty).Where(char.IsDigit).ToArray());
+        return phoneDigits.Contains(digits, StringComparison.Ordinal);
     }
 
     private sealed class AgentContactAccum

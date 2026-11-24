@@ -496,7 +496,10 @@
                 }
                 catch { /* el resumen ya viaja en la descripcion */ }
             }
+            // Factura -> tarea: es el MISMO mapa que pinta el conciliador DIAN, asi el numero aparece tambien alla.
             await Cfg.SetSolicitadaAsync(_sel.Id, num);
+            // La asignacion de la factura queda con el usuario de la tarea ("Solo mis documentos" + historial).
+            try { await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel); } catch { /* la tarea ya quedo asignada */ }
             // Desde ya el panel trabaja sobre el formulario DE LA TAREA (lleva los datos copiados arriba).
             var (tform, thidden) = await CargarFormTareaAsync(num);
             _solicitada = num;
@@ -691,7 +694,8 @@
 
         _sel = r;
         _okMsg = null; _errMsg = null;
-        _asignadoSel = asignado;
+        // Sin asignado guardado, por defecto el usuario actual (quien gestiona la factura se la asigna a si mismo).
+        _asignadoSel = asignado ?? _miTenantUserId;
         _solicitada = solicitada;
         _taskForm = taskForm;
         _hiddenSecsTarea = hiddenTarea;

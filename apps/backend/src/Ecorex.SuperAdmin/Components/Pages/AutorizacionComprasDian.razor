@@ -14,6 +14,8 @@
 @inject ITenantUserService Users
 @inject ITaskItemService Tasks
 @inject IFormResponseService FormResponses
+@inject Ecorex.Application.Preferences.IUserTablePrefsService Prefs
+@implements IAsyncDisposable
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 
@@ -53,8 +55,8 @@
         </div>
     </div>
 
-    @* ---- Galeria de 3 columnas ---- *@
-    <div class="ac-gallery">
+    @* ---- Galeria: lista | visor | (formulario, si el usuario eligio la vista "columna") ---- *@
+    <div class="ac-gallery @(ColumnaActiva ? "con-panel" : "")" id="acGallery" style="@(ColumnaActiva ? $"--ac-panel-w:{_panelW}px" : null)">
         @* Lista de facturas por autorizar *@
         <div class="ac-col-list">
             <div class="ac-list-head">
@@ -91,11 +93,15 @@
                             {
                                 <div class="ac-dato">Actividad: <span class="ac-act" title="Actividad con la que quedo asignada esta factura">@actNum</span></div>
                             }
-                            <button class="ac-card-btn" @onclick="() => AbrirPanelAsync(r)" @onclick:stopPropagation="true"
-                                    title="Ver detalle de la factura y el formulario de autorizacion">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
-                                Detalle y formulario
-                            </button>
+                            @if (!ColumnaActiva)
+                            {
+                                @* En vista "columna" el formulario ya esta a la derecha: basta con seleccionar la tarjeta. *@
+                                <button class="ac-card-btn" @onclick="() => AbrirPanelAsync(r)" @onclick:stopPropagation="true"
+                                        title="Ver detalle de la factura y el formulario de autorizacion">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
+                                    Detalle y formulario
+                                </button>
+                            }
                         </div>
                     }
                 }
@@ -144,20 +150,59 @@
             </div>
         </div>
 
+        @* Vista "columna": el formulario fijo a la derecha, con ancho ajustable (tirador) que se recuerda por usuario. *@
+        @if (ColumnaActiva)
+        {
+            <div class="ac-col-form">
+                <div class="ac-rz" id="acPanelRz" title="Arrastra para cambiar el ancho (doble clic: ancho por defecto)"></div>
+                <div class="ac-col-form-head">
+                    @if (_sel is null)
+                    {
+                        <h3>Formulario de autorizacion</h3>
+                    }
+                    else
+                    {
+                        <h3 title="@_sel.NombreProveedor">@Txt(_sel.NombreProveedor) &middot; @Txt(_sel.NumFacturaProveedor)</h3>
+                    }
+                    @VistaToggle
+                </div>
+                <div class="ac-col-form-body">
+                    @if (_sel is null)
+                    {
+                        <div class="ac-muted" style="padding:14px 4px;">Selecciona una factura de la lista para llenar su formulario.</div>
+                    }
+                    else
+                    {
+                        @FormPanel
+                    }
+                </div>
+            </div>
+        }
+
     </div>
 
-    @* Detalle de la factura + formulario del concepto, en MODAL (se abre con el boton de cada tarjeta;
-       antes era la 3ra columna fija). Deja mas espacio a la lista y al visor. *@
-    @if (_panelOpen && _sel is not null)
+    @* Vista "modal": formulario del concepto en ventana (se abre con el boton de cada tarjeta). El detalle de la
+       factura ya se ve en la tarjeta y en el visor, asi que el modal va directo al formulario. *@
+    @if (!ColumnaActiva && _panelOpen && _sel is not null)
     {
         <div class="ac-modal-backdrop" @onclick="CerrarPanel"></div>
         <div class="ac-modal ac-detail-modal" @onclick:stopPropagation="true">
             <div class="ac-modal-head">
                 <h3>@Txt(_sel.NombreProveedor) &middot; @Txt(_sel.NumFacturaProveedor)</h3>
+                @VistaToggle
                 <button class="ac-modal-close" @onclick="CerrarPanel">&times;</button>
             </div>
             <div class="ac-modal-body">
-            @* El detalle de la factura ya se ve en la tarjeta y en el visor: el modal va directo al formulario. *@
+                @FormPanel
+            </div>
+        </div>
+    }
+
+</div>
+
+@code {
+    // Formulario de autorizacion + acciones: el MISMO fragmento se pinta en el modal o en la columna derecha.
+    private RenderFragment FormPanel => @<text>
             @if (_sel is not null)
             {
                 <div class="ac-panel ac-form-panel">
@@ -212,11 +257,23 @@
                     </div>
                 </div>
             }
-            </div>
-        </div>
-    }
+        </text>;
 
-</div>
+    // Selector de vista (modal | columna derecha). En pantalla angosta la columna no cabe y se usa el modal.
+    private RenderFragment VistaToggle => @<div class="ac-vista" role="group" aria-label="Como ver el formulario">
+            <button type="button" class="@(_vista == VistaModal ? "on" : "")" title="Ver el formulario en una ventana (modal)"
+                    @onclick="() => CambiarVistaAsync(VistaModal)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="7" y="8" width="10" height="8" rx="1"/></svg>
+                Modal
+            </button>
+            <button type="button" class="@(_vista == VistaColumna ? "on" : "")" disabled="@_angosta"
+                    title="@(_angosta ? "La pantalla es muy angosta para la columna" : "Ver el formulario como columna a la derecha")"
+                    @onclick="() => CambiarVistaAsync(VistaColumna)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+                Columna
+            </button>
+        </div>;
+}
 
 @code {
     private string _texto = string.Empty;
@@ -226,7 +283,24 @@
 
     private List<ConciliacionDianRenglonDto> _items = new();
     private ConciliacionDianRenglonDto? _sel;
-    private bool _panelOpen;   // el detalle+formulario se muestra en modal (boton de la tarjeta), no como columna fija
+    private bool _panelOpen;   // vista "modal": el formulario esta abierto en la ventana
+
+    // ---- Vista del formulario: modal o columna derecha (preferencia POR USUARIO en BD, sin migracion:
+    // reusa UserTablePreference con su propia clave). Por defecto modal. ----
+    private const string PrefsKey = "autorizacion-compras-dian";
+    private const string VistaModal = "modal";
+    private const string VistaColumna = "columna";
+    private const int PanelWDefault = 420;
+    private const int PanelWMin = 340;
+    private const int PanelWMax = 900;
+    private const int AnchoMinColumna = 930;    // ancho minimo de la GALERIA (lista 260 + visor 300 + columna 340 + gaps); menos -> modal
+    private string _vista = VistaModal;
+    private int _panelW = PanelWDefault;
+    private bool _angosta;                       // lo informa el navegador (window.innerWidth)
+    private bool _refitPdf;                      // re-ajustar el PDF al ancho tras cambiar la distribucion
+    private DotNetObjectReference<AutorizacionComprasDian>? _selfRef;
+    private bool ColumnaActiva => _vista == VistaColumna && !_angosta;
+    private sealed record VistaPrefs(string? Vista, int? PanelW);
 
     // "Solo mis documentos": filtra las facturas a las asignadas al usuario actual (desde el conciliador). Por
     // defecto ON al abrir el modulo. _miTenantUserId = TenantUser del usuario logueado (mapeo por PlatformUserId).
@@ -416,7 +490,78 @@
         var actor = await ActorAsync();
         _miTenantUserId = _usuarios.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
         _soloMios = _miTenantUserId is not null;   // por defecto filtra a mis documentos si se pudo resolver
+        await CargarVistaAsync();                  // antes de montar el formulario (mismo DbContext, en serie)
         await CargarAsync();
+    }
+
+    private async Task CargarVistaAsync()
+    {
+        try
+        {
+            var raw = await Prefs.GetAsync(PrefsKey);
+            if (string.IsNullOrWhiteSpace(raw)) { return; }
+            var p = System.Text.Json.JsonSerializer.Deserialize<VistaPrefs>(raw);
+            _vista = p?.Vista == VistaColumna ? VistaColumna : VistaModal;
+            if (p?.PanelW is int w) { _panelW = Math.Clamp(w, PanelWMin, PanelWMax); }
+        }
+        catch { /* preferencia ilegible: se queda la vista por defecto */ }
+    }
+
+    private async Task GuardarVistaAsync()
+    {
+        try { await Prefs.SaveAsync(PrefsKey, System.Text.Json.JsonSerializer.Serialize(new VistaPrefs(_vista, _panelW))); }
+        catch { /* no guardar la preferencia nunca debe romper la pantalla */ }
+    }
+
+    // Persiste el borrador del formulario MONTADO (modal abierto o columna visible). Con la barra Enviar oculta
+    // (HonorHideSubmitBar) no hay autosave: sin esto, cambiar de factura o de vista perdia lo escrito.
+    private async Task FlushFormAsync()
+    {
+        if (_formRenderer is null || _sel is null || !(ColumnaActiva || _panelOpen)) { return; }
+        try { await _formRenderer.FlushDraftAsync(); } catch { /* no bloquear el cambio por el guardado */ }
+    }
+
+    private async Task CambiarVistaAsync(string vista)
+    {
+        if (vista == _vista || (vista == VistaColumna && _angosta)) { return; }
+        await FlushFormAsync();
+        _vista = vista;
+        // Pasar a modal deja el formulario abierto en la ventana (el usuario no pierde el hilo); a columna, se cierra el modal.
+        _panelOpen = vista == VistaModal && _sel is not null;
+        _refitPdf = true;
+        await GuardarVistaAsync();
+    }
+
+    // El navegador avisa si la ventana cruza el ancho minimo de la columna.
+    [JSInvokable]
+    public async Task OnViewportChanged(bool angosta)
+    {
+        if (angosta == _angosta) { return; }
+        await InvokeAsync(async () =>
+        {
+            if (angosta) { await FlushFormAsync(); }
+            _angosta = angosta;
+            _refitPdf = true;
+            StateHasChanged();
+        });
+    }
+
+    // Fin del arrastre del tirador de la columna: se recuerda el ancho del usuario.
+    [JSInvokable]
+    public async Task OnPanelResized(int ancho)
+    {
+        await InvokeAsync(async () =>
+        {
+            _panelW = Math.Clamp(ancho, PanelWMin, PanelWMax);
+            await GuardarVistaAsync();
+            StateHasChanged();
+        });
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("ecorexAutVisor.disposeLayout"); } catch { /* circuito cerrado */ }
+        _selfRef?.Dispose();
     }
 
     private ConciliacionDianFiltro Filtro()
@@ -465,6 +610,8 @@
         // en el MISMO contexto mientras estas lecturas siguen en vuelo -> "A second operation was started
         // on this context instance" y el circuito muere (la UI, y el responsable, se quedan pegados).
         // Serializando (leer primero, publicar _sel + render al final) no hay dos operaciones a la vez.
+        // Vista columna: al saltar a otra factura se guarda primero el borrador de la actual (tambien en serie).
+        if (_sel is not null && _sel.Id != r.Id) { await FlushFormAsync(); }
         var asignado = await Cfg.GetAsignadoAsync(r.Id);
         var solicitada = await Cfg.GetSolicitadaAsync(r.Id);
         List<StoredFileDto> viewFiles = new();
@@ -514,6 +661,22 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+        {
+            // Avisos del navegador: ventana angosta (la columna no cabe) y fin del arrastre del ancho de la columna.
+            _selfRef = DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("ecorexAutVisor.initLayout", _selfRef, AnchoMinColumna); } catch { }
+        }
+        if (ColumnaActiva)
+        {
+            // El tirador se crea con la columna: engancharlo (idempotente por elemento).
+            try { await JS.InvokeVoidAsync("ecorexAutVisor.wireResize", PanelWMin, PanelWMax, PanelWDefault); } catch { }
+        }
+        if (_refitPdf)
+        {
+            _refitPdf = false;
+            try { await JS.InvokeVoidAsync("ecorexAutVisor.ajustar"); } catch { }
+        }
         if (_viewUrl is { } u && u != _loadedUrl)
         {
             _loadedUrl = u;

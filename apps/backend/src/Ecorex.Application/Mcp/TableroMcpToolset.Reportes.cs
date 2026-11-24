@@ -50,12 +50,13 @@ public sealed partial class TableroMcpToolset
 
     private static readonly HashSet<string> ReportToolNames = new(StringComparer.Ordinal)
     {
-        "listar_reportes", "ver_reporte", "crear_reporte"
+        "listar_reportes", "ver_reporte", "crear_reporte", "editar_reporte", "archivar_reporte"
     };
 
     private static readonly HashSet<string> IndicatorToolNames = new(StringComparer.Ordinal)
     {
-        "listar_libros_indicadores", "ver_libro_indicadores", "crear_libro_indicadores", "agregar_indicador"
+        "listar_libros_indicadores", "ver_libro_indicadores", "crear_libro_indicadores", "agregar_indicador",
+        "eliminar_indicador", "eliminar_libro_indicadores"
     };
 
     private static readonly HashSet<string> ReportingReadOnly = new(StringComparer.Ordinal)
@@ -64,12 +65,18 @@ public sealed partial class TableroMcpToolset
         "listar_libros_indicadores", "ver_libro_indicadores"
     };
 
+    /// <summary>Quitan algo (ADR-0206): archivar un reporte (recuperable desde la galeria) y borrar indicadores/libros.</summary>
+    private static readonly HashSet<string> ReportingDestructive = new(StringComparer.Ordinal)
+    {
+        "archivar_reporte", "eliminar_indicador", "eliminar_libro_indicadores"
+    };
+
     private const string FuenteDoc =
         "La fuente se indica con 'fuente' (clave del catalogo, p.ej. container:{id}, o su nombre) o con " +
         "'contenedor' + 'tabla' (id o nombre): cada tabla de un contenedor es una fuente.";
 
     private const string ConsultaSchema =
-        """{"type":"object","description":"consulta sobre la fuente, con NOMBRES de campo (ver_fuente_reporte)","properties":{"campos":{"type":"array","items":{"type":"string"},"description":"modo tabla: campos a mostrar (vacio = todos)"},"filtros":{"type":"array","items":{"type":"object","properties":{"campo":{"type":"string"},"operador":{"type":"string","enum":["igual","distinto","contiene","mayor","mayor_igual","menor","menor_igual","entre","en"]},"valor":{"type":"string"},"valores":{"type":"array","items":{"type":"string"}}},"required":["campo"]}},"agrupar_por":{"type":"string","description":"campo por el que se agrupa (un contenedor admite uno)"},"agregaciones":{"type":"array","items":{"type":"object","properties":{"funcion":{"type":"string","enum":["contar","sumar","promedio","minimo","maximo"]},"campo":{"type":"string","description":"campo numerico (no hace falta para contar)"}},"required":["funcion"]}},"orden":{"type":"array","items":{"type":"object","properties":{"campo":{"type":"string","description":"un campo, o conteo/suma/promedio/minimo/maximo para ordenar por la agregacion"},"desc":{"type":"boolean"}},"required":["campo"]}},"limite":{"type":"integer","minimum":1}},"additionalProperties":false}""";
+        """{"type":"object","description":"consulta sobre la fuente, con NOMBRES de campo (ver_fuente_reporte)","properties":{"campos":{"type":"array","items":{"type":"string"},"description":"modo tabla: campos a mostrar (vacio = todos)"},"filtros":{"type":"array","items":{"type":"object","properties":{"campo":{"type":"string"},"operador":{"type":"string","enum":["igual","distinto","contiene","mayor","mayor_igual","menor","menor_igual","entre","en"]},"valor":{"type":"string"},"valores":{"type":"array","items":{"type":"string"}}},"required":["campo"]}},"agrupar_por":{"type":"string","description":"campo por el que se agrupa (un contenedor admite uno)"},"periodo":{"type":"string","enum":["dia","semana","mes","trimestre","anio"],"description":"si agrupar_por es un campo FECHA, agrupa por ese periodo (ventas por mes) en orden cronologico"},"agregaciones":{"type":"array","items":{"type":"object","properties":{"funcion":{"type":"string","enum":["contar","sumar","promedio","minimo","maximo"]},"campo":{"type":"string","description":"campo numerico (no hace falta para contar)"}},"required":["funcion"]}},"orden":{"type":"array","items":{"type":"object","properties":{"campo":{"type":"string","description":"un campo, o conteo/suma/promedio/minimo/maximo para ordenar por la agregacion"},"desc":{"type":"boolean"}},"required":["campo"]}},"limite":{"type":"integer","minimum":1}},"additionalProperties":false}""";
 
     private static readonly AiToolSpec[] ReportSourceSpecs =
     {
@@ -100,6 +107,16 @@ public sealed partial class TableroMcpToolset
             "nada y explica por que. Devuelve 'reporte_id', el total de filas y una muestra. " + FuenteDoc +
             " Los imprimibles se disenian en pantalla.",
             $$"""{"type":"object","properties":{"nombre":{"type":"string"},"descripcion":{"type":"string"},"categoria":{"type":"string"},"grafico":{"type":"string","enum":["tabla","barras","torta","linea"]},"fuente":{"type":"string"},"contenedor":{"type":"string"},"tabla":{"type":"string"},"consulta":{{ConsultaSchema}}},"required":["nombre","consulta"],"additionalProperties":false}"""),
+        new("editar_reporte",
+            "Edita un reporte tipo PANEL creado con crear_reporte. Cambio PARCIAL: solo lo que mandes (nombre, " +
+            "categoria, descripcion, grafico y/o consulta; la fuente solo si mandas consulta). Si cambias grafico o " +
+            "consulta se EJECUTA antes de guardar, igual que al crear. 'reporte' = id o nombre. Los imprimibles y los " +
+            "paneles disenados en pantalla se editan alli.",
+            $$"""{"type":"object","properties":{"reporte":{"type":"string"},"nombre":{"type":"string"},"descripcion":{"type":"string"},"categoria":{"type":"string"},"grafico":{"type":"string","enum":["tabla","barras","torta","linea"]},"fuente":{"type":"string"},"contenedor":{"type":"string"},"tabla":{"type":"string"},"consulta":{{ConsultaSchema}}},"required":["reporte"],"additionalProperties":false}"""),
+        new("archivar_reporte",
+            "ARCHIVA un reporte (sale de la galeria; un administrador lo recupera desde 'Archivados'). Usala para " +
+            "quitar reportes de prueba o que quedaron sin fuente. 'reporte' = id o nombre.",
+            """{"type":"object","properties":{"reporte":{"type":"string"}},"required":["reporte"],"additionalProperties":false}"""),
     };
 
     private static readonly AiToolSpec[] IndicatorSpecs =
@@ -121,12 +138,22 @@ public sealed partial class TableroMcpToolset
             "guardar EJECUTA el widget: si no corre, no guarda nada y explica por que. Devuelve 'widget_id' y una " +
             "muestra del resultado. " + FuenteDoc,
             $$"""{"type":"object","properties":{"libro":{"type":"string"},"hoja":{"type":"string"},"titulo":{"type":"string"},"tipo":{"type":"string","enum":["kpi","barras","barras_horizontales","dona","embudo","treemap","linea","area","tabla"]},"ancho":{"type":"integer","minimum":1,"maximum":4},"fuente":{"type":"string"},"contenedor":{"type":"string"},"tabla":{"type":"string"},"consulta":{{ConsultaSchema}}},"required":["libro","titulo","tipo","consulta"],"additionalProperties":false}"""),
+        new("eliminar_indicador",
+            "Quita un indicador (widget) de su libro. 'indicador' = widget_id (ver_libro_indicadores). Solo el dueno del " +
+            "libro o un administrador.",
+            """{"type":"object","properties":{"indicador":{"type":"string"}},"required":["indicador"],"additionalProperties":false}"""),
+        new("eliminar_libro_indicadores",
+            "Elimina un libro de indicadores completo (con sus hojas). 'libro' = id o nombre. Solo el dueno o un administrador.",
+            """{"type":"object","properties":{"libro":{"type":"string"}},"required":["libro"],"additionalProperties":false}"""),
     };
 
     private IEnumerable<string> ReportingReadOnlyExposed() =>
         ReportingReadOnly.Where(t => (HasReportSources && ReportSourceToolNames.Contains(t))
             || (HasReports && ReportToolNames.Contains(t))
             || (HasIndicators && IndicatorToolNames.Contains(t)));
+
+    private IEnumerable<string> ReportingDestructiveExposed() =>
+        ReportingDestructive.Where(t => (HasReports && ReportToolNames.Contains(t)) || (HasIndicators && IndicatorToolNames.Contains(t)));
 
     private IEnumerable<AiToolSpec> ReportingSpecsExposed()
     {
@@ -154,9 +181,9 @@ public sealed partial class TableroMcpToolset
                     ? null : "Tu usuario no tiene permiso para consultar reportes ni indicadores.",
             "listar_reportes" or "ver_reporte"
                 => perms.Can(ReportGalleryModule, PermissionAction.View) ? null : "Tu usuario no tiene permiso para ver reportes.",
-            "crear_reporte"
+            "crear_reporte" or "editar_reporte" or "archivar_reporte"
                 => perms.Can(ReportAuthorModule, PermissionAction.Create) || perms.Can(ReportAdminModule, PermissionAction.View)
-                    ? null : "Tu usuario no tiene permiso para crear reportes.",
+                    ? null : "Tu usuario no tiene permiso para crear ni cambiar reportes.",
             "listar_libros_indicadores" or "ver_libro_indicadores"
                 => perms.Can(AnalisisModule, PermissionAction.View) ? null : "Tu usuario no tiene permiso para ver libros de indicadores.",
             _ => canAuthorIndicators ? null : "Tu usuario no tiene permiso para crear indicadores."
@@ -177,6 +204,10 @@ public sealed partial class TableroMcpToolset
                 "ver_libro_indicadores" => await ViewBookAsync(args, analisisActor, ct),
                 "crear_libro_indicadores" => await CreateBookAsync(args, analisisActor, ct),
                 "agregar_indicador" => await AddIndicatorAsync(args, actor, analisisActor, ct),
+                "editar_reporte" => await EditReportAsync(args, actor, perms, ct),
+                "archivar_reporte" => await ArchiveReportAsync(args, perms, ct),
+                "eliminar_indicador" => await DeleteIndicatorAsync(args, analisisActor, ct),
+                "eliminar_libro_indicadores" => await DeleteBookAsync(args, analisisActor, ct),
                 _ => Err($"Herramienta desconocida: {tool}")
             };
         }
@@ -253,14 +284,8 @@ public sealed partial class TableroMcpToolset
 
     private async Task<McpToolResult> ViewReportAsync(JsonElement args, EffectivePermissions perms, CancellationToken ct)
     {
-        var key = Str(args, "reporte");
-        if (key is null) { return Err("Indica el reporte (id o nombre)."); }
-        var visible = await VisibleReportsAsync(perms, ct);
-        var hit = Guid.TryParse(key, out var g)
-            ? visible.FirstOrDefault(r => r.Id == g)
-            : visible.FirstOrDefault(r => string.Equals(r.Name, key, StringComparison.OrdinalIgnoreCase))
-              ?? SingleOrNull(visible.Where(r => r.Name.Contains(key, StringComparison.OrdinalIgnoreCase)));
-        if (hit is null) { return Err($"No encontre un reporte visible llamado '{key}' (usa listar_reportes)."); }
+        var (hit, findError) = await FindReportAsync(Str(args, "reporte"), perms, ct);
+        if (hit is null) { return Err(findError!); }
 
         var run = Reporting.Panels.PanelSpecSource.Is(hit.SourceKey) ? null : await _reportDefs!.RunAsync(hit.Id, ct);
         if (run is null)
@@ -306,7 +331,8 @@ public sealed partial class TableroMcpToolset
             GroupBy = query.GroupBy.ToList(),
             Aggregates = query.Aggregates.Select(a => new ReportAggregateSpec { Field = a.FieldKey, Function = a.Function }).ToList(),
             Sort = query.Sort.Select(s => new ReportSortSpec { Field = s.FieldKey, Desc = s.Descending }).ToList(),
-            Top = query.Top
+            Top = query.Top,
+            GroupPeriod = query.GroupPeriod
         };
         var id = await _reportDefs!.SaveAsync(spec, Str(args, "descripcion"), ct);
         if (Str(args, "categoria") is string categoria)
@@ -326,7 +352,177 @@ public sealed partial class TableroMcpToolset
         });
     }
 
+    /// <summary>Reporte visible por id, nombre exacto o nombre parcial unico.</summary>
+    private async Task<(ReportDefinitionSummary? report, string? error)> FindReportAsync(string? key, EffectivePermissions perms, CancellationToken ct)
+    {
+        if (key is null) { return (null, "Indica el reporte (id o nombre)."); }
+        var visible = await VisibleReportsAsync(perms, ct);
+        var hit = Guid.TryParse(key, out var g)
+            ? visible.FirstOrDefault(r => r.Id == g)
+            : visible.FirstOrDefault(r => string.Equals(r.Name, key, StringComparison.OrdinalIgnoreCase))
+              ?? SingleOrNull(visible.Where(r => r.Name.Contains(key, StringComparison.OrdinalIgnoreCase)));
+        return hit is null ? (null, $"No encontre un reporte visible llamado '{key}' (usa listar_reportes).") : (hit, null);
+    }
+
+    private static ReportChartKind? ParseChart(string? s) => (s ?? "tabla").ToLowerInvariant() switch
+    {
+        "tabla" => ReportChartKind.Table,
+        "barras" => ReportChartKind.Bar,
+        "torta" or "dona" => ReportChartKind.Pie,
+        "linea" => ReportChartKind.Line,
+        _ => null
+    };
+
+    private static string ChartEs(ReportChartKind c) => c switch
+    {
+        ReportChartKind.Bar => "barras",
+        ReportChartKind.Pie => "torta",
+        ReportChartKind.Line => "linea",
+        _ => "tabla"
+    };
+
+    private static ReportSpec ToReportSpec(string title, ReportChartKind chart, ReportQuerySpec query) => new()
+    {
+        Title = title,
+        SourceKey = query.SourceKey,
+        Chart = chart,
+        Fields = query.Fields.ToList(),
+        Filters = query.Filters.Select(f => new ReportFilterSpec { Field = f.FieldKey, Op = f.Operator, Values = f.Values.ToList() }).ToList(),
+        GroupBy = query.GroupBy.ToList(),
+        Aggregates = query.Aggregates.Select(a => new ReportAggregateSpec { Field = a.FieldKey, Function = a.Function }).ToList(),
+        Sort = query.Sort.Select(s => new ReportSortSpec { Field = s.FieldKey, Desc = s.Descending }).ToList(),
+        Top = query.Top,
+        GroupPeriod = query.GroupPeriod
+    };
+
+    /// <summary>
+    /// editar_reporte (ADR-0206): cambio PARCIAL de un panel creado con crear_reporte. Tarjeta (nombre, categoria,
+    /// descripcion) por UpdateCardAsync; grafico/consulta se validan EJECUTANDO antes de guardar (como al crear).
+    /// </summary>
+    private async Task<McpToolResult> EditReportAsync(JsonElement args, McpActor actor, EffectivePermissions perms, CancellationToken ct)
+    {
+        var (hit, findError) = await FindReportAsync(Str(args, "reporte"), perms, ct);
+        if (hit is null) { return Err(findError!); }
+
+        var hasQuery = args.TryGetProperty("consulta", out var cq) && cq.ValueKind == JsonValueKind.Object;
+        var hasChart = Str(args, "grafico") is not null;
+        var hasCard = ArgPresent(args, "nombre") || ArgPresent(args, "categoria") || ArgPresent(args, "descripcion");
+        if (!hasQuery && !hasChart && !hasCard)
+        {
+            return Err("No indicaste cambios: manda nombre, categoria, descripcion, grafico o consulta.");
+        }
+        if (!hasQuery && (Str(args, "fuente") is not null || Str(args, "contenedor") is not null))
+        {
+            return Err("Para cambiar la fuente manda tambien la 'consulta' completa (los campos cambian con la fuente).");
+        }
+
+        var nombre = Str(args, "nombre") ?? hit.Name;
+        var cambios = new List<string>();
+        ReportDataSet? ds = null;
+
+        if (hasQuery || hasChart)
+        {
+            var detail = hit.Kind == ReportDefinitionKind.Dashboard && !Reporting.Panels.PanelSpecSource.Is(hit.SourceKey)
+                ? await _reportDefs!.GetAsync(hit.Id, ct) : null;
+            if (detail is null)
+            {
+                return Err("Este reporte no es un panel de consulta simple (es un imprimible o un panel disenado en pantalla): editalo en la galeria.");
+            }
+            var current = detail.Spec;
+            if ((hasChart ? ParseChart(Str(args, "grafico")) : current.Chart) is not ReportChartKind chart)
+            {
+                return Err("'grafico' debe ser tabla, barras, torta o linea.");
+            }
+
+            ReportQuerySpec query;
+            ReportSourceDescriptor? source;
+            if (hasQuery)
+            {
+                if (Str(args, "fuente") is null && Str(args, "contenedor") is null)
+                {
+                    source = await _reportCatalog!.GetSourceAsync(current.SourceKey, ct);
+                    if (source is null) { return Err("La fuente actual del reporte ya no existe: indica 'fuente' o 'contenedor' + 'tabla' junto con la consulta."); }
+                }
+                else
+                {
+                    var (resolved, srcError) = await ResolveReportSourceAsync(args, ct);
+                    if (srcError is not null) { return Err(srcError); }
+                    source = resolved;
+                }
+                var (built, qError) = BuildReportQuery(source!, args);
+                if (qError is not null) { return Err(qError); }
+                query = built!;
+                cambios.Add("consulta");
+            }
+            else
+            {
+                query = current.ToQuerySpec();
+                source = await _reportCatalog!.GetSourceAsync(current.SourceKey, ct);
+                if (source is null) { return Err("La fuente del reporte ya no existe: no se puede cambiar el grafico. Archivalo o manda una consulta nueva."); }
+            }
+            if (chart != ReportChartKind.Table && query.GroupBy.Count == 0)
+            {
+                return Err("Un grafico de barras, torta o linea necesita 'agrupar_por' en la consulta.");
+            }
+            if (hasChart) { cambios.Add("grafico"); }
+
+            ds = await _reportData!.QueryAsync(query, new ReportContext(actor.TenantId, actor.PlatformUserId), ct);
+            await _reportDefs!.UpdateSpecAsync(hit.Id, ToReportSpec(nombre, chart, query), ct);
+        }
+
+        if (hasCard)
+        {
+            var categoria = ArgPresent(args, "categoria") ? Str(args, "categoria") : hit.Category;
+            var descripcion = ArgPresent(args, "descripcion") ? Str(args, "descripcion") : hit.Description;
+            await _reportDefs!.UpdateCardAsync(hit.Id, nombre, categoria, descripcion, ct);
+            if (ArgPresent(args, "nombre")) { cambios.Add("nombre"); }
+            if (ArgPresent(args, "categoria")) { cambios.Add("categoria"); }
+            if (ArgPresent(args, "descripcion")) { cambios.Add("descripcion"); }
+        }
+
+        return Ok(new
+        {
+            ok = true,
+            reporte_id = hit.Id,
+            nombre,
+            cambios,
+            resultado = ds is null ? null : Preview(ds)
+        });
+    }
+
+    private async Task<McpToolResult> ArchiveReportAsync(JsonElement args, EffectivePermissions perms, CancellationToken ct)
+    {
+        var (hit, findError) = await FindReportAsync(Str(args, "reporte"), perms, ct);
+        if (hit is null) { return Err(findError!); }
+        await _reportDefs!.ArchiveAsync(hit.Id, ct);
+        return Ok(new
+        {
+            ok = true,
+            reporte_id = hit.Id,
+            nombre = hit.Name,
+            aviso = "Archivado: ya no sale en la galeria. Un administrador lo recupera desde 'Archivados'."
+        });
+    }
+
     // ===================== Indicadores =====================
+
+    private async Task<McpToolResult> DeleteIndicatorAsync(JsonElement args, AnalisisActor actor, CancellationToken ct)
+    {
+        if (!Guid.TryParse(Str(args, "indicador"), out var widgetId))
+        {
+            return Err("Indica 'indicador' = widget_id (lo ves con ver_libro_indicadores).");
+        }
+        var r = await _analisis!.EliminarWidgetAsync(widgetId, actor, ct);
+        return r.Ok ? Ok(new { ok = true, indicador = widgetId }) : Err(r.Error ?? "No se pudo quitar el indicador.");
+    }
+
+    private async Task<McpToolResult> DeleteBookAsync(JsonElement args, AnalisisActor actor, CancellationToken ct)
+    {
+        var (libro, error) = await ResolveBookAsync(Str(args, "libro"), actor, ct);
+        if (error is not null) { return Err(error); }
+        var r = await _analisis!.EliminarLibroAsync(libro!.Id, actor, ct);
+        return r.Ok ? Ok(new { ok = true, libro_id = libro.Id, nombre = libro.Nombre }) : Err(r.Error ?? "No se pudo eliminar el libro.");
+    }
 
     private async Task<McpToolResult> ListBooksAsync(AnalisisActor actor, CancellationToken ct)
     {
@@ -638,6 +834,20 @@ public sealed partial class TableroMcpToolset
             }
         }
 
+        // Periodo (ADR-0206): agrupa el campo FECHA de agrupar_por por dia/semana/mes/trimestre/anio.
+        ReportDatePeriod? periodo = null;
+        if (Str(c, "periodo") is string ps)
+        {
+            periodo = ParsePeriod(ps);
+            if (periodo is null) { return (null, "'periodo' debe ser dia, semana, mes, trimestre o anio."); }
+            if (groupBy.Count != 1) { return (null, "'periodo' necesita 'agrupar_por' con el campo fecha."); }
+            var gf = source.FindField(groupBy[0])!;
+            if (gf.Type != ReportFieldType.Date)
+            {
+                return (null, $"'periodo' solo aplica a un campo fecha: '{gf.DisplayName}' es de tipo {FieldTypeEs(gf.Type)}.");
+            }
+        }
+
         var limite = Int(c, "limite");
         return (new ReportQuerySpec
         {
@@ -647,9 +857,20 @@ public sealed partial class TableroMcpToolset
             GroupBy = groupBy,
             Aggregates = aggregates,
             Sort = sort,
-            Top = limite is > 0 ? limite : null
+            Top = limite is > 0 ? limite : null,
+            GroupPeriod = periodo
         }, null);
     }
+
+    private static ReportDatePeriod? ParsePeriod(string? s) => (s ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        "dia" or "day" => ReportDatePeriod.Day,
+        "semana" or "week" => ReportDatePeriod.Week,
+        "mes" or "month" => ReportDatePeriod.Month,
+        "trimestre" or "quarter" => ReportDatePeriod.Quarter,
+        "anio" or "ano" or "year" => ReportDatePeriod.Year,
+        _ => null
+    };
 
     private static ReportFilterOperator? ParseOperator(string? s) => (s ?? "igual").ToLowerInvariant() switch
     {

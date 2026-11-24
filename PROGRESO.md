@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - MCP de tableros: filas, reportes por periodo y archivar/editar reportes (ADR-0206) - v0.16.387 (rama feat/mcp-filas-periodo-reportes)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5), pedido de ECOREX.mcp por encargo del usuario (huecos de la prueba de humo de guia_ecorex). SIN migracion.
+- **Hecho**: (1) `consulta.periodo` (dia/semana/mes/trimestre/anio) sobre un campo fecha: `ReportQuerySpec.GroupPeriod` + `ReportPeriodGrouping` en el despachador (un solo punto, toda fuente, dual), persistido en reportes y widgets; (2) `editar_reporte` (parcial, valida ejecutando), `archivar_reporte`, `eliminar_indicador`, `eliminar_libro_indicadores` (destructivas); sugerencias de categoria solo de reportes activos; (3) `agregar_filas` (tope 100, validacion por tipo y obligatorias, todo o nada, upsert con columna_clave) y `ver_filas` (lectura acotada). Catalogo 158 -> 164. INVENTARIO-MCP al dia.
+- **Pruebas**: build Release 0 errores, format ok, unitarias 1705/314/35 (+7 ReportPeriodGroupingTests); integracion dual McpTableros|ReportAuthoring|ReportDataSource|AnalisisLibros|DataContainerModule 116/116 (nueva Filas_PeriodoMes_EditarArchivar_EliminarIndicador_ADR0206).
+- **Siguiente**: ECOREX.mcp regenera y republica la guia (docs/mcp/vault-tools) y archiva el reporte huerfano "PRUEBA IA Ventas por mes" con archivar_reporte. Pendiente opcional: correr_importacion por MCP.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/mcp-filas-periodo-reportes (7cd6b4ed) como v0.16.387 sobre 69adda83. Despliegue solo con OK del usuario.
+
 ## 2026-11-24 - Administrador de Menu: renombrar vistas, cargar menu estandar y catalogo de permisos completo (ADR-0205) - v0.16.386 (rama fix/menu-renombrar-estandar-permisos)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.

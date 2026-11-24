@@ -53,6 +53,9 @@ public sealed class ReportSpec
     public List<ReportSortSpec> Sort { get; set; } = new();
     public int? Top { get; set; }
 
+    /// <summary>Periodo de calendario para agrupar el campo fecha (ADR-0206); null = valor exacto.</summary>
+    public ReportDatePeriod? GroupPeriod { get; set; }
+
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -83,6 +86,7 @@ public sealed class ReportSpec
         GroupBy = GroupBy.ToArray(),
         Aggregates = Aggregates.Select(a => new ReportAggregate(a.Field, a.Function)).ToArray(),
         Sort = Sort.Select(s => new ReportSort(s.Field, s.Desc)).ToArray(),
-        Top = Top
+        Top = Top,
+        GroupPeriod = GroupPeriod
     };
 }

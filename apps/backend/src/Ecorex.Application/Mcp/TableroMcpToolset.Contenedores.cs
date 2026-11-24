@@ -32,7 +32,8 @@ public sealed partial class TableroMcpToolset
     private static readonly HashSet<string> ContainerReadOnly = new(StringComparer.Ordinal)
     {
         "listar_contenedores_datos", "ver_contenedor_datos", "listar_conectores", "ver_conector",
-        "listar_programaciones_importacion", "listar_corridas_importacion", "ver_publicacion_contenedor"
+        "listar_programaciones_importacion", "listar_corridas_importacion", "ver_publicacion_contenedor",
+        "ver_filas"
     };
 
     private static readonly HashSet<string> ContainerDestructive = new(StringComparer.Ordinal)
@@ -51,7 +52,8 @@ public sealed partial class TableroMcpToolset
         "listar_conectores", "ver_conector", "guardar_conector", "eliminar_conector",
         "listar_programaciones_importacion", "guardar_programacion_importacion", "eliminar_programacion_importacion",
         "listar_corridas_importacion",
-        "ver_publicacion_contenedor", "publicar_contenedor", "despublicar_contenedor"
+        "ver_publicacion_contenedor", "publicar_contenedor", "despublicar_contenedor",
+        "agregar_filas", "ver_filas"
     };
 
     private const string TiposColumnaDoc =
@@ -187,6 +189,7 @@ public sealed partial class TableroMcpToolset
         {
             "listar_contenedores_datos" or "ver_contenedor_datos" or "listar_conectores" or "ver_conector"
                 or "listar_programaciones_importacion" or "listar_corridas_importacion" or "ver_publicacion_contenedor"
+                or "ver_filas"
                 => NeedContainer(perms, PermissionAction.View, "consultar contenedores de datos"),
             "crear_contenedor_datos" => NeedContainer(perms, PermissionAction.Create, "crear contenedores de datos"),
             "eliminar_contenedor_datos" or "eliminar_tabla" or "eliminar_columna" or "eliminar_relacion"
@@ -224,6 +227,8 @@ public sealed partial class TableroMcpToolset
                 "ver_publicacion_contenedor" => await ViewPublicationAsync(args, ct),
                 "publicar_contenedor" => await PublishAsync(args, ct),
                 "despublicar_contenedor" => await UnpublishAsync(args, ct),
+                "agregar_filas" => await AddRowsAsync(args, actor, ct),
+                "ver_filas" => await ViewRowsAsync(args, ct),
                 _ => Err($"Herramienta desconocida: {tool}")
             };
         }

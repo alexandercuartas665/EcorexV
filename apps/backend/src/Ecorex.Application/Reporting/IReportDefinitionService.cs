@@ -498,7 +498,7 @@ public sealed class ReportDefinitionService : IReportDefinitionService
     public async Task<IReadOnlyList<string>> ListCategoriesAsync(CancellationToken ct = default)
     {
         var cats = await _db.ReportDefinitions.AsNoTracking()
-            .Where(d => d.Category != null && d.Category != "")
+            .Where(d => d.Status == ReportDefinitionStatus.Active && d.Category != null && d.Category != "")
             .Select(d => d.Category!)
             .Distinct()
             .ToListAsync(ct);

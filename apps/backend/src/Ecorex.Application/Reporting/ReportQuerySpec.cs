@@ -61,6 +61,12 @@ public sealed record ReportQuerySpec
     /// ignoran por completo.</summary>
     public IReadOnlyDictionary<string, string?>? Inputs { get; init; }
 
+    /// <summary>
+    /// Periodo de calendario (ADR-0206) que se aplica al UNICO campo de <see cref="GroupBy"/> cuando es una FECHA:
+    /// agrupa por dia/semana/mes/trimestre/anio en vez del valor exacto ("ventas por mes"). Null = valor exacto.
+    /// </summary>
+    public ReportDatePeriod? GroupPeriod { get; init; }
+
     public bool IsAggregated => GroupBy.Count > 0 || Aggregates.Count > 0;
 }
 

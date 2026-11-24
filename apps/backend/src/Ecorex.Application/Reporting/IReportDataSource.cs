@@ -65,6 +65,20 @@ public sealed class ReportDataSource : IReportDataSource
 
         ValidateAgainstCatalog(spec, descriptor);
 
+        // Agrupar por PERIODO (ADR-0206): la fuente entrega la consulta tabular (fecha + medidos) y se agrupa aqui,
+        // igual para toda fuente y motor. ValidateAgainstCatalog ya exigio un solo campo de agrupacion tipo fecha.
+        if (spec.GroupPeriod is ReportDatePeriod period && spec.GroupBy.Count == 1)
+        {
+            var tabular = await DispatchAsync(descriptor, ReportPeriodGrouping.TabularFor(spec), effectiveCtx, tenantId, ct);
+            return ReportPeriodGrouping.Aggregate(tabular, spec, descriptor.FindField(spec.GroupBy[0])!, period, effectiveCtx.TenantZone);
+        }
+
+        return await DispatchAsync(descriptor, spec, effectiveCtx, tenantId, ct);
+    }
+
+    private async Task<ReportDataSet> DispatchAsync(
+        ReportSourceDescriptor descriptor, ReportQuerySpec spec, ReportContext effectiveCtx, Guid tenantId, CancellationToken ct)
+    {
         if (descriptor.Kind == ReportSourceKind.Container)
         {
             return await _containers.QueryAsync(descriptor, spec, effectiveCtx, ct);
@@ -129,6 +143,25 @@ public sealed class ReportDataSource : IReportDataSource
             if (!field.CanGroup)
             {
                 throw new ReportValidationException($"El campo '{field.DisplayName}' no admite agrupacion.");
+            }
+        }
+
+        // Sin agrupacion el periodo no aplica (p.ej. el detalle tabular que pide un widget): se ignora.
+        if (spec.GroupPeriod is not null && spec.GroupBy.Count > 0)
+        {
+            if (spec.GroupBy.Count != 1)
+            {
+                throw new ReportValidationException("Agrupar por periodo necesita exactamente un campo de agrupacion (la fecha).");
+            }
+            var dateField = Require(spec.GroupBy[0]);
+            if (dateField.Type != ReportFieldType.Date)
+            {
+                throw new ReportValidationException(
+                    $"El campo '{dateField.DisplayName}' no es una fecha: el periodo solo aplica a campos de tipo fecha.");
+            }
+            if (descriptor.Kind == ReportSourceKind.External)
+            {
+                throw new ReportValidationException("Las fuentes externas no admiten agrupar por periodo.");
             }
         }
 

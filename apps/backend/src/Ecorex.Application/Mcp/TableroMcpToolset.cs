@@ -177,6 +177,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         if (_agents is not null) { set.UnionWith(AgentDestructive); }
         set.UnionWith(FormDestructive.Where(FormToolNames.Contains));
         if (HasClassify) { set.UnionWith(ClassifyDestructive); }
+        set.UnionWith(ReportingDestructiveExposed());
         return set;
     }
 
@@ -186,7 +187,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         all.AddRange(DirectorySpecs);
         if (_flowDesign is not null) { all.AddRange(FlowSpecs); }
         if (_scrape is not null) { all.AddRange(ExtractionSpecs); }
-        if (_dataModel is not null) { all.AddRange(ContainerSpecs); }
+        if (_dataModel is not null) { all.AddRange(ContainerSpecs); all.AddRange(ContainerRowSpecs); }
         if (_agents is not null) { all.AddRange(AgentSpecs); }
         if (HasClassify) { all.AddRange(ClassifySpecs); }
         if (HasClassifyStep) { all.AddRange(ClassifyStepSpecs); }

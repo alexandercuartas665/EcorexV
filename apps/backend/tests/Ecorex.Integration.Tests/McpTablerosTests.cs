@@ -960,7 +960,7 @@ public abstract class McpTablerosTestsBase
         Assert.Contains("listar_fuentes_reporte", toolset.ReadOnlyTools);
         Assert.DoesNotContain("crear_reporte", toolset.ReadOnlyTools);
         Assert.DoesNotContain("agregar_indicador", toolset.ReadOnlyTools);
-        Assert.Equal(sinReportes.GetSpecs().Count + 9, toolset.GetSpecs().Count);
+        Assert.Equal(sinReportes.GetSpecs().Count + 13, toolset.GetSpecs().Count); // ADR-0206: + editar/archivar reporte, eliminar indicador/libro
         Assert.All(toolset.ReadOnlyTools, n => Assert.Contains(n, names));
         foreach (var spec in toolset.GetSpecs().Where(s => s.Name.Contains("reporte") || s.Name.Contains("indicador")))
         {
@@ -1129,6 +1129,188 @@ public abstract class McpTablerosTestsBase
         Assert.Contains(libros.GetProperty("libros").EnumerateArray(), l => l.GetProperty("libro_id").GetString() == libroId.ToString());
     }
 
+    // ===================== ADR-0206: filas por MCP + reportes por periodo + editar/archivar =====================
+
+    [Fact]
+    public async Task Filas_PeriodoMes_EditarArchivar_EliminarIndicador_ADR0206()
+    {
+        var seed = await SeedTenantAsync("Mcp Ventas Mes");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var owner = Actor(seed, owner: true);
+        var (_, _, toolset) = Build(ctx, tenantCtx, withContainers: true, withReports: true);
+
+        Assert.Contains("ver_filas", toolset.ReadOnlyTools);
+        Assert.DoesNotContain("agregar_filas", toolset.ReadOnlyTools);
+        Assert.Contains("archivar_reporte", toolset.DestructiveTools);
+        Assert.Contains("eliminar_indicador", toolset.DestructiveTools);
+        Assert.DoesNotContain("editar_reporte", toolset.ReadOnlyTools);
+
+        // Contenedor "Pedidos" con una tabla: fecha + total (decimal) + cliente (obligatorio) + unidades (numero).
+        var model = new DataModel { TenantId = seed.TenantId, Name = "Pedidos Mcp" };
+        ctx.DataModels.Add(model);
+        var tabla = new DataContainer { TenantId = seed.TenantId, Name = "Pedidos", ModelId = model.Id };
+        ctx.DataContainers.Add(tabla);
+        ctx.DataContainerColumns.AddRange(
+            new DataContainerColumn { TenantId = seed.TenantId, ContainerId = tabla.Id, Name = "pedido", Type = DataContainerColumnType.Text, SortOrder = 0 },
+            new DataContainerColumn { TenantId = seed.TenantId, ContainerId = tabla.Id, Name = "fecha", Type = DataContainerColumnType.Date, SortOrder = 1 },
+            new DataContainerColumn { TenantId = seed.TenantId, ContainerId = tabla.Id, Name = "total", Type = DataContainerColumnType.Decimal, SortOrder = 2 },
+            new DataContainerColumn { TenantId = seed.TenantId, ContainerId = tabla.Id, Name = "cliente", Type = DataContainerColumnType.Text, SortOrder = 3, IsRequired = true },
+            new DataContainerColumn { TenantId = seed.TenantId, ContainerId = tabla.Id, Name = "unidades", Type = DataContainerColumnType.Number, SortOrder = 4 });
+        await ctx.SaveChangesAsync();
+
+        // agregar_filas: un lote con UN error no guarda nada (todo o nada).
+        var malo = await toolset.ExecuteAsync("agregar_filas", Args(new
+        {
+            contenedor = "Pedidos Mcp",
+            filas = new object[]
+            {
+                new { pedido = "A1", fecha = "2026-01-05", total = "100.50", cliente = "Ana", unidades = "2" },
+                new { pedido = "A2", fecha = "05/01/2026", total = "1.234,5", cliente = "Beto", unidades = "x", color = "rojo" }
+            }
+        }), owner);
+        Assert.True(malo.IsError);
+        Assert.Contains("no es una fecha", ErrorText(malo));
+        Assert.Contains("no es un decimal", ErrorText(malo));
+        Assert.Contains("'color' no existe", ErrorText(malo));
+        Assert.Equal(0, await ctx.DataContainerRows.CountAsync(r => r.ContainerId == tabla.Id));
+        // Falta una obligatoria.
+        Assert.True((await toolset.ExecuteAsync("agregar_filas", Args(new
+        {
+            contenedor = "Pedidos Mcp",
+            filas = new[] { new { pedido = "A0", fecha = "2026-01-01", total = "1" } }
+        }), owner)).IsError);
+
+        var ok = Payload(await toolset.ExecuteAsync("agregar_filas", Args(new
+        {
+            contenedor = "Pedidos Mcp",
+            tabla = "Pedidos",
+            filas = new object[]
+            {
+                new { pedido = "A1", fecha = "2026-01-05", total = 100.5, cliente = "Ana", unidades = 2 },
+                new { pedido = "A2", fecha = "2026-01-31", total = 50, cliente = "Beto", unidades = 1 },
+                new { pedido = "A3", fecha = "2026-02-01", total = 25.25, cliente = "Ana", unidades = 3 },
+                new { pedido = "A4", fecha = "2026-03-15", total = 10, cliente = "Caro", unidades = 1 }
+            }
+        }), owner));
+        Assert.Equal(4, ok.GetProperty("creadas").GetInt32());
+
+        // Upsert por clave: A4 se actualiza, A5 se crea.
+        var up = Payload(await toolset.ExecuteAsync("agregar_filas", Args(new
+        {
+            contenedor = "Pedidos Mcp",
+            columna_clave = "pedido",
+            filas = new object[] { new { pedido = "A4", total = 12 }, new { pedido = "A5", fecha = "2026-03-20", total = 8, cliente = "Dani" } }
+        }), owner));
+        Assert.Equal(1, up.GetProperty("actualizadas").GetInt32());
+        Assert.Equal(1, up.GetProperty("creadas").GetInt32());
+
+        // ver_filas: filtro por texto + limite.
+        var filas = Payload(await toolset.ExecuteAsync("ver_filas", Args(new
+        {
+            contenedor = "Pedidos Mcp",
+            filtros = new[] { new { columna = "cliente", valor = "ana" } },
+            limite = 10
+        }), owner));
+        Assert.Equal(2, filas.GetProperty("total").GetInt32());
+        Assert.All(filas.GetProperty("filas").EnumerateArray(), f => Assert.Equal("Ana", f.GetProperty("cliente").GetString()));
+        var a4 = Payload(await toolset.ExecuteAsync("ver_filas", Args(new { contenedor = "Pedidos Mcp", filtros = new[] { new { columna = "pedido", valor = "A4" } } }), owner));
+        Assert.Equal("12", a4.GetProperty("filas")[0].GetProperty("total").GetString());
+
+        // Reporte "Ventas por mes": suma de total agrupada por MES de la fecha, en orden cronologico.
+        var rep = Payload(await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "Ventas por mes",
+            categoria = "PRUEBA IA Comercial",
+            grafico = "barras",
+            contenedor = "Pedidos Mcp",
+            consulta = new { agrupar_por = "fecha", periodo = "mes", agregaciones = new[] { new { funcion = "sumar", campo = "total" } } }
+        }), owner));
+        var reporteId = Guid.Parse(rep.GetProperty("reporte_id").GetString()!);
+        var muestra = rep.GetProperty("resultado").GetProperty("muestra").EnumerateArray().ToList();
+        Assert.Equal(new[] { "2026-01", "2026-02", "2026-03" }, muestra.Select(r => r[0].GetString()).ToArray());
+        Assert.Equal(150.5m, muestra[0][1].GetDecimal());
+        Assert.Equal(20m, muestra[2][1].GetDecimal()); // 12 + 8
+
+        // El reporte guardado conserva el periodo al correr desde la galeria.
+        var run = await new Ecorex.Application.Reporting.ReportDefinitionService(ctx, tenantCtx,
+            ReportServices(ctx, tenantCtx).Data!).RunAsync(reporteId);
+        Assert.Equal(3, run!.DataSet.RowCount);
+        Assert.Equal("2026-01", run.DataSet.Rows[0][0]);
+
+        // Periodo sobre un campo que no es fecha: error claro y no guarda.
+        var antes = await ctx.ReportDefinitions.CountAsync();
+        var noFecha = await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "x",
+            contenedor = "Pedidos Mcp",
+            consulta = new { agrupar_por = "cliente", periodo = "mes" }
+        }), owner);
+        Assert.True(noFecha.IsError);
+        Assert.Contains("solo aplica a un campo fecha", ErrorText(noFecha));
+        Assert.Equal(antes, await ctx.ReportDefinitions.CountAsync());
+
+        // Trimestre y anio tambien.
+        var tri = Payload(await toolset.ExecuteAsync("crear_reporte", Args(new
+        {
+            nombre = "Pedidos por trimestre",
+            contenedor = "Pedidos Mcp",
+            consulta = new { agrupar_por = "fecha", periodo = "trimestre" }
+        }), owner));
+        Assert.Equal("2026-T1", tri.GetProperty("resultado").GetProperty("muestra")[0][0].GetString());
+        Assert.Equal(5L, tri.GetProperty("resultado").GetProperty("muestra")[0][1].GetInt64());
+
+        // editar_reporte PARCIAL: solo el nombre (la consulta y la categoria quedan).
+        var ed = Payload(await toolset.ExecuteAsync("editar_reporte", Args(new { reporte = reporteId.ToString(), nombre = "Ventas mensuales" }), owner));
+        Assert.Equal(new[] { "nombre" }, ed.GetProperty("cambios").EnumerateArray().Select(c => c.GetString()).ToArray());
+        var def = await ctx.ReportDefinitions.AsNoTracking().SingleAsync(d => d.Id == reporteId);
+        Assert.Equal("Ventas mensuales", def.Name);
+        Assert.Equal("PRUEBA IA Comercial", def.Category);
+        Assert.Contains("Month", def.SpecJson);
+
+        // editar_reporte: grafico + consulta por ANIO (se ejecuta antes de guardar).
+        var ed2 = Payload(await toolset.ExecuteAsync("editar_reporte", Args(new
+        {
+            reporte = "Ventas mensuales",
+            grafico = "linea",
+            consulta = new { agrupar_por = "fecha", periodo = "anio", agregaciones = new[] { new { funcion = "sumar", campo = "total" } } }
+        }), owner));
+        Assert.Equal(1, ed2.GetProperty("resultado").GetProperty("filas").GetInt32());
+        Assert.True((await toolset.ExecuteAsync("editar_reporte", Args(new { reporte = "Ventas mensuales" }), owner)).IsError); // sin cambios
+        Assert.True((await toolset.ExecuteAsync("editar_reporte", Args(new
+        {
+            reporte = "Ventas mensuales",
+            consulta = new { agrupar_por = "no_existe" }
+        }), owner)).IsError);
+        Assert.Contains("Year", (await ctx.ReportDefinitions.AsNoTracking().SingleAsync(d => d.Id == reporteId)).SpecJson);
+
+        // archivar_reporte: sale de la galeria; si era el ultimo de su categoria, la categoria no queda visible.
+        var arch = Payload(await toolset.ExecuteAsync("archivar_reporte", Args(new { reporte = "Ventas mensuales" }), owner));
+        Assert.True(arch.GetProperty("ok").GetBoolean());
+        var listado = Payload(await toolset.ExecuteAsync("listar_reportes", "{}", owner));
+        Assert.DoesNotContain(listado.GetProperty("reportes").EnumerateArray(), r => r.GetProperty("reporte_id").GetString() == reporteId.ToString());
+        Assert.DoesNotContain(listado.GetProperty("reportes").EnumerateArray(), r => r.TryGetProperty("categoria", out var c) && c.GetString() == "PRUEBA IA Comercial");
+        Assert.Equal(Ecorex.Domain.Enums.ReportDefinitionStatus.Archived,
+            (await ctx.ReportDefinitions.AsNoTracking().SingleAsync(d => d.Id == reporteId)).Status);
+
+        // Indicador por mes + eliminar_indicador + eliminar_libro_indicadores.
+        Payload(await toolset.ExecuteAsync("crear_libro_indicadores", Args(new { nombre = "Ventas libro" }), owner));
+        var w = Payload(await toolset.ExecuteAsync("agregar_indicador", Args(new
+        {
+            libro = "Ventas libro",
+            titulo = "Ventas por mes",
+            tipo = "linea",
+            contenedor = "Pedidos Mcp",
+            consulta = new { agrupar_por = "fecha", periodo = "mes", agregaciones = new[] { new { funcion = "sumar", campo = "total" } } }
+        }), owner));
+        var widgetId = w.GetProperty("widget_id").GetString()!;
+        Payload(await toolset.ExecuteAsync("eliminar_indicador", Args(new { indicador = widgetId }), owner));
+        var libro = Payload(await toolset.ExecuteAsync("ver_libro_indicadores", Args(new { libro = "Ventas libro" }), owner));
+        Assert.Equal(0, libro.GetProperty("hojas").EnumerateArray().Sum(h => h.GetProperty("widgets").GetArrayLength()));
+        Payload(await toolset.ExecuteAsync("eliminar_libro_indicadores", Args(new { libro = "Ventas libro" }), owner));
+        Assert.True((await toolset.ExecuteAsync("ver_libro_indicadores", Args(new { libro = "Ventas libro" }), owner)).IsError);
+    }
+
     /// <summary>Contenedor "SECOP Mcp" con tablas Procesos y Tecnologia; Tecnologia con 4 procesos (3 tech).</summary>
     private static async Task<(Guid Tecnologia, Guid Procesos)> SeedSecopAsync(EcorexDbContext ctx, Guid tenantId)
     {
@@ -1265,6 +1447,14 @@ public abstract class McpTablerosTestsBase
         => await ctx.TaskBoardColumns.AsNoTracking().Where(c => c.BoardId == boardId).OrderBy(c => c.SortOrder).Select(c => c.Id).FirstAsync();
 
     private static string Args(object o) => JsonSerializer.Serialize(o);
+
+    /// <summary>Texto del error de una herramienta (sin escapes JSON).</summary>
+    private static string ErrorText(McpToolResult r)
+    {
+        Assert.True(r.IsError, r.Json);
+        using var doc = JsonDocument.Parse(r.Json);
+        return doc.RootElement.GetProperty("error").GetString() ?? string.Empty;
+    }
 
     private static JsonElement Payload(McpToolResult r)
     {
@@ -1408,9 +1598,9 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 24, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
+        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 26, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
 
-        // Las 24 de contenedores estan expuestas; 7 de lectura y 7 destructivas, sin solape.
+        // Las 26 de contenedores estan expuestas (ADR-0206: + agregar_filas, ver_filas); 8 de lectura y 7 destructivas, sin solape.
         foreach (var n in new[] { "listar_contenedores_datos", "crear_contenedor_datos", "agregar_tabla",
             "agregar_columna", "agregar_relacion", "guardar_conector", "guardar_programacion_importacion",
             "publicar_contenedor", "eliminar_contenedor_datos" })
@@ -1634,7 +1824,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 24 + 17, specs.Count); // ... + AGENTES
+        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 26 + 17, specs.Count); // ... + AGENTES
 
         // Las 17 de agentes estan expuestas; 3 de lectura y 3 destructivas, sin solape.
         foreach (var n in new[] { "listar_agentes", "ver_agente", "crear_agente", "editar_agente",

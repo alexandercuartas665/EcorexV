@@ -95,7 +95,11 @@ antes de construir ahorra horas y evita danos en datos.
     (`conteo`, `suma`, `promedio`, `minimo`, `maximo`), no el nombre de la columna.
 34. **Los filtros quedan fijos** en el reporte (no son interactivos). Para "solo activos" crea un reporte aparte
     con el filtro (`operador:"en"`, `valores:["Abierto","Publicado"]`).
-35. **Un contenedor admite un solo `agrupar_por`.**
+35. **Un contenedor admite un solo `agrupar_por`, y agrupa por el valor EXACTO del campo**: no hay agrupacion por
+    mes/anio de una fecha. Para "ventas por mes" la tabla necesita una columna de texto `mes` (`AAAA-MM`) que llene
+    quien importa los datos (mapeo del conector, script del dron o agente); `rellenar_columna` NO extrae el mes de
+    una fecha. Disena esa columna desde [[R05 - Crear un contenedor de datos]] si el usuario pedira reportes por
+    periodo.
 36. **Una tabla pre-filtrada sesga los porcentajes** (si solo entra lo de tecnologia, "todo es tecnologia"). Los %
     reales salen de la tabla universo.
 37. **El libro de indicadores nace privado del usuario** que lo crea (con la "Hoja 1"); los reportes de galeria

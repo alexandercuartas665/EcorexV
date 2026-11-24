@@ -118,6 +118,7 @@ else
                 </div>
                 <div class="mc-card-actions">
                     <button class="btn btn-sm btn-primary" @onclick="@(() => OpenEditorAsync(v.Id))">Editar</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => OpenRenameView(v))" disabled="@_busy">Renombrar</button>
                     <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => DuplicateAsync(v))" disabled="@_busy">Duplicar</button>
                     @if (!v.IsDefault)
                     {
@@ -148,6 +149,21 @@ else
                     <label class="form-label">Descripcion</label>
                     <textarea class="form-control" rows="2" maxlength="400" @bind="_viewFormDesc"></textarea>
                 </div>
+                @if (_viewFormId is null)
+                {
+                    <div class="field">
+                        <label class="form-label">Contenido inicial</label>
+                        <select class="form-control" @bind="_viewFormSeed">
+                            <option value="@SeedStandard">Menu estandar del sistema (todas las secciones)</option>
+                            <option value="@SeedEmpty">Vacia (la armo a mano)</option>
+                            @foreach (var src in _views)
+                            {
+                                <option value="@src.Id.ToString()">Copia de "@src.Name"</option>
+                            }
+                        </select>
+                        <small style="display:block;color:var(--muted-foreground);">Despues la ajustas en el editor: ocultar, mover, renombrar o agregar elementos.</small>
+                    </div>
+                }
                 @if (_viewFormError is not null)
                 {
                     <div class="tk-field-error">@_viewFormError</div>
@@ -169,11 +185,33 @@ else
             <div class="mc-editor-head">
                 <div class="mc-editor-title">
                     <span class="mc-editor-eyebrow">Editando vista</span>
-                    <h2>@_tree.ViewName</h2>
+                    @if (_renamingTitle)
+                    {
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input class="form-control" style="max-width:320px;" maxlength="150" @bind="_titleDraft" @bind:event="oninput" />
+                            <button class="btn btn-sm btn-primary" @onclick="SaveTitleAsync" disabled="@_busy">Guardar nombre</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => _renamingTitle = false)">Cancelar</button>
+                        </div>
+                        @if (_titleError is not null)
+                        {
+                            <div class="tk-field-error">@_titleError</div>
+                        }
+                    }
+                    else
+                    {
+                        <h2>@_tree.ViewName</h2>
+                    }
                 </div>
                 <div class="mc-editor-head-actions">
+                    @if (!_renamingTitle)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="StartRenameTitle" disabled="@_busy">Renombrar</button>
+                    }
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="LoadStandardAsync" disabled="@_busy"
+                            title="Agrega las secciones y modulos del menu estandar que le falten a esta vista (no borra ni cambia lo que ya tiene).">Cargar menu estandar</button>
                     <button class="btn btn-sm btn-outline-secondary" @onclick="ExportAsync" disabled="@_busy">Exportar</button>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ReloadTreeAsync())" disabled="@_busy">Restablecer</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ReloadTreeAsync())" disabled="@_busy"
+                            title="Descarta lo editado en el panel de propiedades sin aplicar y vuelve a leer la vista guardada.">Descartar cambios</button>
                     <button class="btn btn-sm btn-primary" @onclick="SaveEditorAsync" disabled="@_busy">Guardar</button>
                     <button class="modal-close" @onclick="CloseEditor">&times;</button>
                 </div>
@@ -468,6 +506,15 @@ else
     private string _viewFormName = "";
     private string? _viewFormDesc;
     private string? _viewFormError;
+    // Contenido inicial de una vista NUEVA: menu estandar, vacia, o el id (texto) de una vista a copiar.
+    private const string SeedStandard = "estandar";
+    private const string SeedEmpty = "vacia";
+    private string _viewFormSeed = SeedStandard;
+
+    // ---- Renombrar la vista desde el encabezado del editor ----
+    private bool _renamingTitle;
+    private string _titleDraft = "";
+    private string? _titleError;
 
     // ---- Editor ----
     private bool _showEditor;
@@ -532,6 +579,17 @@ else
         _viewFormName = "";
         _viewFormDesc = null;
         _viewFormError = null;
+        _viewFormSeed = SeedStandard;
+        _showViewForm = true;
+    }
+
+    /// <summary>Abre el modal para cambiar el nombre y la descripcion de una vista existente.</summary>
+    private void OpenRenameView(MenuViewDto v)
+    {
+        _viewFormId = v.Id;
+        _viewFormName = v.Name;
+        _viewFormDesc = v.Description;
+        _viewFormError = null;
         _showViewForm = true;
     }
 
@@ -544,14 +602,36 @@ else
             {
                 var res = await MenuSvc.UpdateViewAsync(id, _viewFormName, _viewFormDesc);
                 if (!res.IsOk) { _viewFormError = res.Error; return; }
+                Flash("Vista guardada.", true);
+            }
+            else if (Guid.TryParse(_viewFormSeed, out var sourceId))
+            {
+                // Copia de otra vista con el nombre elegido (la descripcion escrita reemplaza la de origen).
+                var res = await MenuSvc.CloneViewAsync(sourceId, _viewFormName);
+                if (!res.IsOk || res.Value is null) { _viewFormError = res.Error; return; }
+                if (!string.IsNullOrWhiteSpace(_viewFormDesc))
+                {
+                    await MenuSvc.UpdateViewAsync(res.Value.Id, res.Value.Name, _viewFormDesc);
+                }
+                Flash($"Vista creada como copia ({res.Value.NodeCount} elementos).", true);
             }
             else
             {
                 var res = await MenuSvc.CreateViewAsync(_viewFormName, _viewFormDesc);
-                if (!res.IsOk) { _viewFormError = res.Error; return; }
+                if (!res.IsOk || res.Value is null) { _viewFormError = res.Error; return; }
+                if (_viewFormSeed == SeedStandard)
+                {
+                    var load = await MenuSvc.LoadStandardMenuAsync(res.Value.Id);
+                    Flash(load.IsOk
+                        ? $"Vista creada con el menu estandar ({load.Value} elementos)."
+                        : $"Vista creada, pero no se pudo cargar el menu estandar: {load.Error}", load.IsOk);
+                }
+                else
+                {
+                    Flash("Vista creada vacia.", true);
+                }
             }
             _showViewForm = false;
-            Flash("Vista guardada.", true);
             await LoadIndexAsync();
         }
         finally { _busy = false; }
@@ -562,9 +642,67 @@ else
         _busy = true;
         try
         {
-            var res = await MenuSvc.CloneViewAsync(v.Id, $"{v.Name} (copia)");
-            Flash(res.IsOk ? "Vista duplicada." : (res.Error ?? "No se pudo duplicar."), res.IsOk);
-            if (res.IsOk) { await LoadIndexAsync(); }
+            var name = UniqueCopyName(v.Name);
+            var res = await MenuSvc.CloneViewAsync(v.Id, name);
+            Flash(res.IsOk ? "Vista duplicada. Ponle el nombre que quieras." : (res.Error ?? "No se pudo duplicar."), res.IsOk);
+            if (res.IsOk && res.Value is not null)
+            {
+                await LoadIndexAsync();
+                // La copia nace con "(copia)": se abre de una el modal para renombrarla.
+                OpenRenameView(res.Value);
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>"X (copia)", "X (copia 2)"... el primero que no exista (antes duplicar dos veces fallaba).</summary>
+    private string UniqueCopyName(string baseName)
+    {
+        var names = new HashSet<string>(_views.Select(x => x.Name), StringComparer.OrdinalIgnoreCase);
+        var candidate = $"{baseName} (copia)";
+        for (var i = 2; names.Contains(candidate) && i < 100; i++)
+        {
+            candidate = $"{baseName} (copia {i})";
+        }
+        return candidate.Length > 150 ? candidate[..150] : candidate;
+    }
+
+    private void StartRenameTitle()
+    {
+        _titleDraft = _tree?.ViewName ?? "";
+        _titleError = null;
+        _renamingTitle = true;
+    }
+
+    private async Task SaveTitleAsync()
+    {
+        _busy = true; _titleError = null;
+        try
+        {
+            var desc = _views.FirstOrDefault(x => x.Id == _editingViewId)?.Description;
+            var res = await MenuSvc.UpdateViewAsync(_editingViewId, _titleDraft, desc);
+            if (!res.IsOk) { _titleError = res.Error; return; }
+            _renamingTitle = false;
+            await ReloadTreeAsync();
+            await LoadIndexAsync();
+            Flash("Nombre de la vista actualizado.", true);
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>Agrega a la vista en edicion lo que le falte del menu estandar del sistema.</summary>
+    private async Task LoadStandardAsync()
+    {
+        _busy = true;
+        try
+        {
+            var res = await MenuSvc.LoadStandardMenuAsync(_editingViewId);
+            if (!res.IsOk) { Flash(res.Error ?? "No se pudo cargar el menu estandar.", false); return; }
+            await ReloadTreeAsync();
+            await LoadIndexAsync();
+            Flash(res.Value == 0
+                ? "La vista ya tiene todo el menu estandar."
+                : $"Se agregaron {res.Value} elementos del menu estandar. Ocultalos o muevelos si no los quieres.", true);
         }
         finally { _busy = false; }
     }
@@ -609,6 +747,7 @@ else
     private void CloseEditor()
     {
         _showEditor = false;
+        _renamingTitle = false;
         _tree = null;
         _selected = null;
     }

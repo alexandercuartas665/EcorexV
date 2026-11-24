@@ -29,6 +29,14 @@ public interface IMenuConfigService
     Task<MenuConfigResult<MenuViewDto>> CloneViewAsync(
         Guid sourceViewId, string newName, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Carga el MENU ESTANDAR del sistema (<see cref="MenuCanonicalTree"/>) en una vista. En una vista
+    /// vacia la deja igual al menu "Completo"; en una con contenido solo AGREGA lo que falta (secciones
+    /// por slug o nombre, elementos por ruta) sin tocar lo existente (nombres, orden, ocultos).
+    /// Idempotente, en transaccion. Devuelve cuantos nodos agrego.
+    /// </summary>
+    Task<MenuConfigResult<int>> LoadStandardMenuAsync(Guid viewId, CancellationToken cancellationToken = default);
+
     // ===== Ola 2: edicion de vistas y nodos (editor "Administrador de Menu") =====
 
     /// <summary>Renombra / redescribe una vista.</summary>

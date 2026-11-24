@@ -285,6 +285,39 @@ public abstract class RolesTestsBase
         Assert.DoesNotContain(catalog, m => m.Key == "modulo/stub");
     }
 
+    [Fact]
+    public async Task ModuleCatalog_IncludesOtherViewsAndStandardModules()
+    {
+        // Caso reportado: un cliente con la vista predeterminada RECORTADA no veia en la matriz los
+        // modulos que solo estan en otra vista ni los modulos nuevos del producto que su menu no trae.
+        var tenantId = await NewTenantAsync("Roles Catalogo Completo");
+
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            var main = new MenuView { TenantId = tenantId, Name = "Basica", IsDefault = true, SortOrder = 0 };
+            var other = new MenuView { TenantId = tenantId, Name = "Gerencia", IsDefault = false, SortOrder = 1 };
+            ctx.MenuViews.AddRange(main, other);
+            var s1 = new MenuNode { TenantId = tenantId, MenuViewId = main.Id, Kind = MenuNodeKind.Section, Name = "Operacion", Route = "op", SortOrder = 0 };
+            var s2 = new MenuNode { TenantId = tenantId, MenuViewId = other.Id, Kind = MenuNodeKind.Section, Name = "Gerencia", Route = "ger", SortOrder = 0 };
+            ctx.MenuNodes.AddRange(s1, s2);
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = main.Id, ParentId = s1.Id, Kind = MenuNodeKind.Item, Name = "Tablero", Route = "tableros", State = MenuNodeState.Ready, SortOrder = 0 });
+            ctx.MenuNodes.Add(new MenuNode { TenantId = tenantId, MenuViewId = other.Id, ParentId = s2.Id, Kind = MenuNodeKind.Item, Name = "Mi panel", Route = "panel-gerencia", State = MenuNodeState.Ready, SortOrder = 0 });
+            await ctx.SaveChangesAsync();
+        }
+
+        var catalog = await RunAsync(tenantId, s => s.GetModuleCatalogAsync());
+        // De la predeterminada: con su nombre y grupo (gana sobre el estandar).
+        Assert.Contains(catalog, m => m.Key == "tableros" && m.Label == "Tablero" && m.Grupo == "Operacion");
+        // De otra vista del tenant.
+        Assert.Contains(catalog, m => m.Key == "panel-gerencia" && m.Grupo == "Gerencia");
+        // Del menu estandar aunque no este en ningun menu del tenant.
+        Assert.Contains(catalog, m => m.Key == "cerebros");
+        Assert.Contains(catalog, m => m.Key == "roles-permisos");
+        // Sin duplicados ni stubs.
+        Assert.Equal(catalog.Count, catalog.Select(m => m.Key).Distinct(StringComparer.Ordinal).Count());
+        Assert.DoesNotContain(catalog, m => m.Key.StartsWith("modulo/", StringComparison.Ordinal));
+    }
+
     // ---- Ola B2 (ADR-0033): menu filtrado por "Ver" ----
 
     [Fact]

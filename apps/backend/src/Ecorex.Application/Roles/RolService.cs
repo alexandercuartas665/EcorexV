@@ -215,23 +215,19 @@ public sealed class RolService : IRolService
 
     public async Task<IReadOnlyList<ModuloInfo>> GetModuleCatalogAsync(CancellationToken cancellationToken = default)
     {
-        // Vista IsDefault del tenant (o la primera si ninguna esta marcada).
-        var defaultView = await _db.MenuViews.AsNoTracking()
-            .Where(v => v.IsDefault)
-            .OrderBy(v => v.SortOrder).ThenBy(v => v.Name)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? await _db.MenuViews.AsNoTracking()
-                .OrderBy(v => v.SortOrder).ThenBy(v => v.Name)
-                .FirstOrDefaultAsync(cancellationToken);
-
-        if (defaultView is null)
-        {
-            return WithSubPermisos(ModuleCatalogFallback.Modules);
-        }
+        // Fuente: los ITEMS Ready de TODAS las vistas de menu del tenant (la predeterminada primero: da el
+        // nombre y el grupo) + los del MENU ESTANDAR (MenuCanonicalTree). Antes solo se miraba la vista
+        // predeterminada, y un tenant con menu recortado o sembrado antes de un modulo nuevo no podia dar
+        // permisos sobre ese modulo (no aparecia en la matriz).
+        var viewRank = (await _db.MenuViews.AsNoTracking()
+                .OrderByDescending(v => v.IsDefault).ThenBy(v => v.SortOrder).ThenBy(v => v.Name)
+                .Select(v => v.Id)
+                .ToListAsync(cancellationToken))
+            .Select((id, i) => (id, i))
+            .ToDictionary(x => x.id, x => x.i);
 
         var nodes = await _db.MenuNodes.AsNoTracking()
-            .Where(n => n.MenuViewId == defaultView.Id)
-            .Select(n => new { n.Id, n.ParentId, n.Kind, n.Name, n.Route, n.State, n.SortOrder })
+            .Select(n => new { n.Id, n.MenuViewId, n.ParentId, n.Kind, n.Name, n.Route, n.State, n.SortOrder })
             .ToListAsync(cancellationToken);
 
         var byId = nodes.ToDictionary(n => n.Id);
@@ -253,21 +249,28 @@ public sealed class RolService : IRolService
         }
 
         var catalog = nodes
-            .Where(n => n.Kind == MenuNodeKind.Item
+            .Where(n => viewRank.ContainsKey(n.MenuViewId)
+                && n.Kind == MenuNodeKind.Item
                 && n.State == MenuNodeState.Ready
                 && !string.IsNullOrWhiteSpace(n.Route))
-            // Un modulo real = un Route unico (varios items pueden reusar la misma pagina;
-            // gana el primero por orden de aparicion en el menu).
+            // Un modulo real = un Route unico (varios items pueden reusar la misma pagina; gana el de la
+            // vista predeterminada y, dentro de ella, el primero por orden de aparicion).
             .GroupBy(n => n.Route!, StringComparer.Ordinal)
             .Select(g =>
             {
-                var first = g.OrderBy(x => x.SortOrder).First();
+                var first = g.OrderBy(x => viewRank[x.MenuViewId]).ThenBy(x => x.SortOrder).First();
                 return new ModuloInfo(first.Route!, first.Name, GroupNameFor(first.ParentId));
             })
-            .OrderBy(m => m.Grupo, StringComparer.Ordinal).ThenBy(m => m.Label, StringComparer.Ordinal)
             .ToList();
 
-        return WithSubPermisos(catalog.Count > 0 ? catalog : ModuleCatalogFallback.Modules);
+        var present = new HashSet<string>(catalog.Select(m => m.Key), StringComparer.Ordinal);
+        catalog.AddRange(MenuConfig.MenuCanonicalTree.AllItems()
+            .Where(i => MenuConfig.MenuCanonicalTree.StateFor(i.Route) == MenuNodeState.Ready && present.Add(i.Route))
+            .Select(i => new ModuloInfo(i.Route, i.Name, i.SectionName)));
+
+        return WithSubPermisos(catalog
+            .OrderBy(m => m.Grupo, StringComparer.Ordinal).ThenBy(m => m.Label, StringComparer.Ordinal)
+            .ToList());
     }
 
     /// <summary>
@@ -354,8 +357,8 @@ public sealed class RolService : IRolService
 }
 
 /// <summary>
-/// Catalogo minimo de modulos usado solo cuando el tenant aun no tiene menu configurado
-/// (defensa: la matriz nunca queda vacia). En operacion normal el catalogo sale del menu real.
+/// Catalogo minimo de modulos (historico). Ya no se usa en la matriz: el catalogo sale del menu del
+/// tenant + el menu estandar (MenuCanonicalTree), que nunca esta vacio.
 /// </summary>
 public static class ModuleCatalogFallback
 {

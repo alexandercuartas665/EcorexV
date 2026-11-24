@@ -88,8 +88,12 @@ public static class WidgetShapes
         return new EscalarShape(values.Count == 0 ? null : values.Sum(), etiqueta);
     }
 
-    /// <summary>Barras/dona: primera columna = etiqueta, medida = valor. Etiquetas repetidas se suman.</summary>
-    public static CategoriasShape ToCategorias(ReportDataSet ds, int? top = null)
+    /// <summary>
+    /// Barras/dona: primera columna = etiqueta, medida = valor. Etiquetas repetidas se suman. Por defecto se ordena
+    /// por valor (mayor primero) y lo que no cabe en el top va a "Otros"; con <paramref name="ordenDelDato"/> (agrupado
+    /// por PERIODO, ADR-0206) se respeta el orden del dataset (cronologico) y no se recorta.
+    /// </summary>
+    public static CategoriasShape ToCategorias(ReportDataSet ds, int? top = null, bool ordenDelDato = false)
     {
         var m = MeasureIndex(ds);
         if (m < 0 || ds.Columns.Count < 2)
@@ -97,13 +101,12 @@ public static class WidgetShapes
             return new CategoriasShape(Array.Empty<CategoriaItem>());
         }
 
-        var items = ds.Rows
+        var grouped = ds.Rows
             .GroupBy(r => Label(r[0]))
-            .Select(g => new CategoriaItem(g.Key, g.Sum(r => InMemoryReportEngine.ToDecimal(r[m]) ?? 0m)))
-            .OrderByDescending(i => i.Valor)
-            .ToList();
+            .Select(g => new CategoriaItem(g.Key, g.Sum(r => InMemoryReportEngine.ToDecimal(r[m]) ?? 0m)));
+        var items = (ordenDelDato ? grouped : grouped.OrderByDescending(i => i.Valor)).ToList();
 
-        if (top is int t && t > 0 && items.Count > t)
+        if (!ordenDelDato && top is int t && t > 0 && items.Count > t)
         {
             // Lo que no cabe en el top se agrupa en "Otros" para no perder el total.
             var otros = items.Skip(t).Sum(i => i.Valor);

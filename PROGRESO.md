@@ -15,7 +15,7 @@ Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (
   marca Principal y modal grande. Vault de VISAL re-importado con "Sobrescribir" (zip fresco sin notas de credenciales y
   con secretos redactados): 56 nuevas, 307 actualizadas, 1311 enlaces; alias `[[Nota\|alias]]` correctos.
 - **Pendiente**: `/cerebros-plantilla` (sesion Super Admin) y MCP en vivo (token integ:maqueta).
-- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/maquetas-cerebro (d3102f29) como v0.16.385 sobre b852e632. Despliegue solo con OK del usuario. Validacion tras desplegar: PROYECTOS -> /cerebros -> Cerebro de VISAL -> nota "Inicio": "Navegacion del vault" debe verse como tabla.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/maquetas-cerebro (d3102f29) como v0.16.385 sobre b852e632. Gates: build Release 0 errores, format ok, unitarias 1696/314/35; integracion dual 796/836 en corrida completa con 40 timeouts de SQL Server por carga de la maquina (8 clases _SqlServer) que repetidas aisladas dan 47/47. **DESPLEGADA en prod 2026-11-23 ~23:30 Bogota** con OK del usuario: footer /login v0.16.385, Restarts=0, 0 errores en log. Validacion tras desplegar: PROYECTOS -> /cerebros -> Cerebro de VISAL -> nota "Inicio": "Navegacion del vault" debe verse como tabla.
 
 ## 2026-11-23 - Guia de los MCP lista para publicar como cerebro (guia_ecorex, ADR-0204) - SOLO DOCS, sin deploy
 

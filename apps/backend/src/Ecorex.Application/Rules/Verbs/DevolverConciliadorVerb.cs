@@ -109,7 +109,11 @@ public sealed class DevolverConciliadorVerb : IRuleVerb
             return RuleVerbResult.Fail("El formulario no esta ligado a una tarea (sin referencia).");
         }
 
-        var renglonId = await _cfg.ResolveRenglonByReferenceAsync(reference!, cancellationToken);
+        var renglonId = await _cfg.ResolveRenglonByReferenceAsync(reference!, cancellationToken)
+            // Respuesta adicional de la tarea ("T00016-2"): la factura esta ligada al numero base.
+            ?? (TaskReference.SinSufijo(reference) is { } baseNum
+                ? await _cfg.ResolveRenglonByReferenceAsync(baseNum, cancellationToken)
+                : null);
         if (renglonId is not Guid rid)
         {
             return RuleVerbResult.Fail($"No se encontro la factura del conciliador para la referencia {reference}.");

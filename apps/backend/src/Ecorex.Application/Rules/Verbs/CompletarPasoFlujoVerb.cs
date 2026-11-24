@@ -99,10 +99,8 @@ public sealed class CompletarPasoFlujoVerb : IRuleVerb
             return RuleVerbResult.Fail("El formulario no esta ligado a una tarea (sin referencia).");
         }
 
-        var taskId = context.TaskItemId ?? await _db.TaskItems.AsNoTracking()
-            .Where(t => t.Number == reference)
-            .Select(t => (Guid?)t.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+        // Exacta y, si no, sin el sufijo "-n" de respuestas adicionales ("T00016-2" -> T00016).
+        var taskId = context.TaskItemId ?? await TaskReference.ResolveTaskIdAsync(_db, reference, cancellationToken);
         if (taskId is not Guid tid)
         {
             return RuleVerbResult.Fail($"No se encontro la tarea {reference} para cerrar su paso.");

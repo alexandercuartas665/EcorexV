@@ -206,7 +206,20 @@
             @if (_sel is not null)
             {
                 <div class="ac-panel ac-form-panel">
-                    @if (_cfg.FormDefinitionId is Guid fid)
+                    @if (_taskForm is { } tf)
+                    {
+                        @* La factura YA tiene tarea: se llena el formulario DE LA TAREA (respuesta anclada a su numero,
+                           la misma del detalle de la tarea), asi sus botones operan el flujo de esa tarea. *@
+                        <div class="ac-form-head">
+                            <h4>@tf.Titulo</h4>
+                            <span class="ac-form-tag">Actividad @tf.Reference</span>
+                        </div>
+                        <DynamicFormRenderer @ref="_formRenderer" DefinitionId="tf.DefinitionId" ResponseId="tf.ResponseId" Reference="@tf.Reference"
+                                             Mode="@(tf.SoloLectura ? FormRenderMode.ReadOnly : FormRenderMode.Fill)" ShowHeader="false"
+                                             HiddenContainerIds="_hiddenSecsTarea" HonorHideSubmitBar="true" TaskTokens="@BuildFormTokens()"
+                                             SubmittedByTenantUserId="_miTenantUserId" @key="tf.Key" />
+                    }
+                    else if (_cfg.FormDefinitionId is Guid fid)
                     {
                         <div class="ac-form-head">
                             <h4>@(string.IsNullOrWhiteSpace(_cfg.FormTitle) ? "Datos de la autorizacion" : _cfg.FormTitle)</h4>
@@ -226,16 +239,20 @@
 
                     @* ---- Acciones de autorizacion (la de solicitar aun no se codea) ---- *@
                     <div class="ac-acciones">
-                        <div class="ac-f">
-                            <label class="ac-f-lbl">Asignar a</label>
-                            <select class="ac-in" style="width:100%" @bind="AsignadoStr">
-                                <option value="">&mdash; Sin asignar &mdash;</option>
-                                @foreach (var u in _usuarios)
-                                {
-                                    <option value="@u.Id">@UserLabel(u)</option>
-                                }
-                            </select>
-                        </div>
+                        @if (_solicitada is null)
+                        {
+                            @* Con tarea creada ya hay asignado (el de la tarea / su flujo): no se ofrece reasignar aqui. *@
+                            <div class="ac-f">
+                                <label class="ac-f-lbl">Asignar a</label>
+                                <select class="ac-in" style="width:100%" @bind="AsignadoStr">
+                                    <option value="">&mdash; Sin asignar &mdash;</option>
+                                    @foreach (var u in _usuarios)
+                                    {
+                                        <option value="@u.Id">@UserLabel(u)</option>
+                                    }
+                                </select>
+                            </div>
+                        }
                         @if (_errMsg is { Length: > 0 })
                         {
                             <div class="ac-err">@_errMsg</div>
@@ -362,7 +379,8 @@
         {
             // La barra Enviar del form esta oculta aqui (autosave apagado): persiste el borrador a mano.
             if (_formRenderer is not null) { await _formRenderer.FlushDraftAsync(); }
-            await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel);
+            // Con tarea creada el asignado ya no se edita aqui (el selector esta oculto): solo se guarda el formulario.
+            if (_solicitada is null) { await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel); }
             _okMsg = "Cambios guardados.";
         }
         finally { _guardando = false; }
@@ -373,6 +391,35 @@
     private string? _solicitada;   // numero de actividad ya solicitada para la factura
     private Dictionary<Guid, string> _solicitadas = new();   // renglon -> actividad (para las tarjetas)
     private bool _solicitando;
+
+    // Formulario de la TAREA ya creada para la factura: el mismo que muestra el detalle de la tarea (respuesta
+    // anclada a su numero). Sus botones de regla (Redireccionar / Aprobar / Rechazar) resuelven la tarea por esa
+    // referencia, por eso deben ver el numero de tarea y no el Id de la factura. null = factura sin tarea.
+    private sealed record TaskFormRef(Guid DefinitionId, Guid? ResponseId, string Reference, string Titulo, bool SoloLectura)
+    {
+        public object Key => (object?)ResponseId ?? Reference;
+    }
+    private TaskFormRef? _taskForm;
+    private IReadOnlyList<Guid> _hiddenSecsTarea = Array.Empty<Guid>();
+
+    // Solo LECTURAS (sin tocar el estado): se llama en serie antes de publicar la seleccion (DbContext compartido).
+    private async Task<(TaskFormRef? Form, IReadOnlyList<Guid> Hidden)> CargarFormTareaAsync(string? numero)
+    {
+        if (string.IsNullOrWhiteSpace(numero)) { return (null, Array.Empty<Guid>()); }
+        try
+        {
+            if (await Cfg.ResolveTaskIdByNumberAsync(numero) is not Guid taskId) { return (null, Array.Empty<Guid>()); }
+            var g = await FormResponses.GetTaskConceptFormsAsync(taskId);
+            if (g is null) { return (null, Array.Empty<Guid>()); }
+            // El activo efectivo; si la tarea aun no tiene respuesta, el renderer crea el borrador anclado a su numero.
+            var it = g.Items.FirstOrDefault(x => x.IsActive) ?? g.Items.FirstOrDefault();
+            var hidden = await Cfg.GetHiddenContainerIdsForFormAsync(g.DefinitionId);
+            var form = new TaskFormRef(g.DefinitionId, it?.ResponseId, it?.Reference ?? numero, g.FormTitle,
+                SoloLectura: it?.Status == Ecorex.Domain.Enums.FormResponseStatus.Submitted);
+            return (form, hidden);
+        }
+        catch { return (null, Array.Empty<Guid>()); }
+    }
 
     private async Task SolicitarAutorizacionAsync()
     {
@@ -438,8 +485,12 @@
                 catch { /* el resumen ya viaja en la descripcion */ }
             }
             await Cfg.SetSolicitadaAsync(_sel.Id, num);
+            // Desde ya el panel trabaja sobre el formulario DE LA TAREA (lleva los datos copiados arriba).
+            var (tform, thidden) = await CargarFormTareaAsync(num);
             _solicitada = num;
             _solicitadas[_sel.Id] = num;   // la tarjeta muestra la actividad sin recargar
+            _taskForm = tform;
+            _hiddenSecsTarea = thidden;
             _okMsg = $"Actividad {num} de autorizacion creada" + (userLabel is { } ul ? $" (asignada a {ul})." : ".");
         }
         catch (Exception ex) { _errMsg = "Error al crear la actividad: " + ex.Message; }
@@ -614,6 +665,7 @@
         if (_sel is not null && _sel.Id != r.Id) { await FlushFormAsync(); }
         var asignado = await Cfg.GetAsignadoAsync(r.Id);
         var solicitada = await Cfg.GetSolicitadaAsync(r.Id);
+        var (taskForm, hiddenTarea) = await CargarFormTareaAsync(solicitada);
         List<StoredFileDto> viewFiles = new();
         try
         {
@@ -629,6 +681,8 @@
         _okMsg = null; _errMsg = null;
         _asignadoSel = asignado;
         _solicitada = solicitada;
+        _taskForm = taskForm;
+        _hiddenSecsTarea = hiddenTarea;
         _viewFiles = viewFiles;
         _viewFile = viewFiles.FirstOrDefault();
         _viewUrl = _viewFile?.Url;

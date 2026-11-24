@@ -96,10 +96,12 @@
                             @if (!ColumnaActiva)
                             {
                                 @* En vista "columna" el formulario ya esta a la derecha: basta con seleccionar la tarjeta. *@
+                                @* Con tarea abre su formulario; sin tarea, la asignacion de usuario. *@
+                                var conTarea = _solicitadas.ContainsKey(r.Id);
                                 <button class="ac-card-btn" @onclick="() => AbrirPanelAsync(r)" @onclick:stopPropagation="true"
-                                        title="Ver detalle de la factura y el formulario de autorizacion">
+                                        title="@(conTarea ? "Abrir el formulario de la actividad" : "Asignar usuario y solicitar la autorizacion")">
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
-                                    Detalle y formulario
+                                    @(conTarea ? "Formulario" : "Asignar usuario")
                                 </button>
                             }
                         </div>
@@ -206,42 +208,54 @@
             @if (_sel is not null)
             {
                 <div class="ac-panel ac-form-panel">
-                    @if (_taskForm is { } tf)
+                    @if (_solicitada is { } snum)
                     {
-                        @* La factura YA tiene tarea: se llena el formulario DE LA TAREA (respuesta anclada a su numero,
-                           la misma del detalle de la tarea), asi sus botones operan el flujo de esa tarea. *@
-                        <div class="ac-form-head">
-                            <h4>@tf.Titulo</h4>
-                            <span class="ac-form-tag">Actividad @tf.Reference</span>
+                        @* CON tarea: SOLO el formulario DE LA TAREA (respuesta anclada a su numero, la misma del detalle de
+                           la tarea), asi sus botones operan el flujo de esa tarea. Ya esta asignada: no se ofrece asignar. *@
+                        @if (_taskForm is { } tf)
+                        {
+                            <div class="ac-form-head">
+                                <h4>@tf.Titulo</h4>
+                                <span class="ac-form-tag">Actividad @tf.Reference</span>
+                            </div>
+                            <DynamicFormRenderer @ref="_formRenderer" DefinitionId="tf.DefinitionId" ResponseId="tf.ResponseId" Reference="@tf.Reference"
+                                                 Mode="@(tf.SoloLectura ? FormRenderMode.ReadOnly : FormRenderMode.Fill)" ShowHeader="false"
+                                                 HiddenContainerIds="_hiddenSecsTarea" HonorHideSubmitBar="true" TaskTokens="@BuildFormTokens()"
+                                                 SubmittedByTenantUserId="_miTenantUserId" @key="tf.Key" />
+                        }
+                        else
+                        {
+                            <div class="ac-muted" style="padding:12px 2px;">
+                                La factura tiene la actividad <b>@snum</b>, pero no se encontro su formulario (la actividad no existe o su concepto no tiene formulario activo).
+                            </div>
+                        }
+                        <div class="ac-acciones">
+                            @if (_errMsg is { Length: > 0 })
+                            {
+                                <div class="ac-err">@_errMsg</div>
+                            }
+                            @if (_okMsg is { Length: > 0 })
+                            {
+                                <div class="ac-ok">@_okMsg</div>
+                            }
+                            @if (_taskForm is { SoloLectura: false })
+                            {
+                                <button class="ac-btn" style="width:100%" @onclick="GuardarCambiosAsync" disabled="@_guardando">Guardar cambios</button>
+                            }
                         </div>
-                        <DynamicFormRenderer @ref="_formRenderer" DefinitionId="tf.DefinitionId" ResponseId="tf.ResponseId" Reference="@tf.Reference"
-                                             Mode="@(tf.SoloLectura ? FormRenderMode.ReadOnly : FormRenderMode.Fill)" ShowHeader="false"
-                                             HiddenContainerIds="_hiddenSecsTarea" HonorHideSubmitBar="true" TaskTokens="@BuildFormTokens()"
-                                             SubmittedByTenantUserId="_miTenantUserId" @key="tf.Key" />
                     }
-                    else if (_cfg.FormDefinitionId is Guid fid)
+                    else
                     {
+                        @* SIN tarea: SOLO la herramienta de asignar usuario (y solicitar la autorizacion, que crea la tarea).
+                           El formulario aparece cuando la factura ya tiene su tarea. *@
                         <div class="ac-form-head">
-                            <h4>@(string.IsNullOrWhiteSpace(_cfg.FormTitle) ? "Datos de la autorizacion" : _cfg.FormTitle)</h4>
+                            <h4>Asignar usuario</h4>
                             @if (!string.IsNullOrWhiteSpace(_cfg.Subcategoria))
                             {
                                 <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
                             }
                         </div>
-                        <DynamicFormRenderer @ref="_formRenderer" DefinitionId="fid" Mode="FormRenderMode.Fill" Reference="@_sel.Id.ToString()" ShowHeader="false" HiddenContainerIds="_hiddenSecs" HonorHideSubmitBar="true" TaskTokens="@BuildFormTokens()" @key="_sel.Id" />
-                    }
-                    else
-                    {
-                        <div class="ac-muted" style="padding:12px 2px;">
-                            Sin formulario configurado. Define el concepto de actividad y el formulario en <b>Conciliacion DIAN Compras &rsaquo; Configuracion de tarea</b> (es el modulo administrativo); aqui se usa esa misma configuracion.
-                        </div>
-                    }
-
-                    @* ---- Acciones de autorizacion (la de solicitar aun no se codea) ---- *@
-                    <div class="ac-acciones">
-                        @if (_solicitada is null)
-                        {
-                            @* Con tarea creada ya hay asignado (el de la tarea / su flujo): no se ofrece reasignar aqui. *@
+                        <div class="ac-acciones ac-acciones-solo">
                             <div class="ac-f">
                                 <label class="ac-f-lbl">Asignar a</label>
                                 <select class="ac-in" style="width:100%" @bind="AsignadoStr">
@@ -252,26 +266,22 @@
                                     }
                                 </select>
                             </div>
-                        }
-                        @if (_errMsg is { Length: > 0 })
-                        {
-                            <div class="ac-err">@_errMsg</div>
-                        }
-                        @if (_okMsg is { Length: > 0 })
-                        {
-                            <div class="ac-ok">@_okMsg</div>
-                        }
-                        @if (_solicitada is { } snum)
-                        {
-                            <div class="ac-solic">Autorizacion ya solicitada: <b>@snum</b></div>
-                        }
-                        <button class="ac-btn" style="width:100%" @onclick="GuardarCambiosAsync" disabled="@_guardando">Guardar cambios</button>
-                        <button class="ac-btn ac-btn-ok" style="width:100%" @onclick="SolicitarAutorizacionAsync"
-                                disabled="@(_solicitando || _solicitada is not null || _cfg.SubcategoriaId is null)"
-                                title="@(_cfg.SubcategoriaId is null ? "Configura primero el concepto de actividad" : "Crea la actividad de autorizacion con el resumen")">
-                            @(_solicitando ? "Creando..." : "Solicitar autorizacion")
-                        </button>
-                    </div>
+                            @if (_errMsg is { Length: > 0 })
+                            {
+                                <div class="ac-err">@_errMsg</div>
+                            }
+                            @if (_okMsg is { Length: > 0 })
+                            {
+                                <div class="ac-ok">@_okMsg</div>
+                            }
+                            <button class="ac-btn" style="width:100%" @onclick="GuardarCambiosAsync" disabled="@_guardando">Guardar asignacion</button>
+                            <button class="ac-btn ac-btn-ok" style="width:100%" @onclick="SolicitarAutorizacionAsync"
+                                    disabled="@(_solicitando || _cfg.SubcategoriaId is null)"
+                                    title="@(_cfg.SubcategoriaId is null ? "Configura primero el concepto de actividad" : "Crea la actividad de autorizacion asignada al usuario elegido")">
+                                @(_solicitando ? "Creando..." : "Solicitar autorizacion")
+                            </button>
+                        </div>
+                    }
                 </div>
             }
         </text>;
@@ -337,8 +347,6 @@
     // (/conciliacion-dian -> "Configuracion de tarea", modulo administrativo); aqui solo se LEE (_cfg)
     // para renderizar el formulario en el panel y crear la actividad. ----
     private AutorizacionModConfigDto _cfg = new(null, null, null, null, null);
-    // Secciones del formulario a OCULTAR aqui (configuradas en la salida del conciliador). Se pasan al renderer.
-    private IReadOnlyList<Guid> _hiddenSecs = Array.Empty<Guid>();
     // Ref al renderer: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar) el autosave esta apagado, asi que
     // persistimos el borrador a mano (FlushDraftAsync) al Guardar cambios / Solicitar autorizacion.
     private DynamicFormRenderer? _formRenderer;
@@ -377,11 +385,18 @@
         _guardando = true; _okMsg = null; _errMsg = null;
         try
         {
-            // La barra Enviar del form esta oculta aqui (autosave apagado): persiste el borrador a mano.
-            if (_formRenderer is not null) { await _formRenderer.FlushDraftAsync(); }
-            // Con tarea creada el asignado ya no se edita aqui (el selector esta oculto): solo se guarda el formulario.
-            if (_solicitada is null) { await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel); }
-            _okMsg = "Cambios guardados.";
+            if (_solicitada is null)
+            {
+                // Sin tarea el panel es solo la asignacion de la factura.
+                await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel);
+                _okMsg = "Asignacion guardada.";
+            }
+            else
+            {
+                // Con tarea: solo el formulario de la tarea (barra Enviar oculta = sin autosave, se persiste a mano).
+                await FlushFormAsync();
+                _okMsg = "Cambios guardados.";
+            }
         }
         finally { _guardando = false; }
     }
@@ -433,10 +448,7 @@
         _solicitando = true;
         try
         {
-            // La barra Enviar del form esta oculta aqui (autosave apagado): persiste el borrador ANTES de
-            // leerlo, para que el resumen y los datos copiados a la tarea incluyan lo ultimo escrito.
-            if (_formRenderer is not null) { await _formRenderer.FlushDraftAsync(); }
-
+            // Sin tarea el panel no muestra formulario (solo la asignacion): no hay borrador montado que persistir.
             var actor = await ActorAsync();
             var actorName = await ActorNameAsync();
 
@@ -535,7 +547,6 @@
     protected override async Task OnInitializedAsync()
     {
         _cfg = await Cfg.GetAsync();
-        if (_cfg.FormDefinitionId is Guid fid) { _hiddenSecs = await Cfg.GetHiddenContainerIdsForFormAsync(fid); }
         _usuarios = (await Users.ListAsync()).ToList();
         // Resolver el TenantUser del usuario actual (por PlatformUserId) para el filtro "solo mis documentos".
         var actor = await ActorAsync();
@@ -568,7 +579,8 @@
     // (HonorHideSubmitBar) no hay autosave: sin esto, cambiar de factura o de vista perdia lo escrito.
     private async Task FlushFormAsync()
     {
-        if (_formRenderer is null || _sel is null || !(ColumnaActiva || _panelOpen)) { return; }
+        // Solo hay formulario montado cuando la factura tiene tarea (sin tarea el panel es solo la asignacion).
+        if (_formRenderer is null || _sel is null || _solicitada is null || _taskForm is null || !(ColumnaActiva || _panelOpen)) { return; }
         try { await _formRenderer.FlushDraftAsync(); } catch { /* no bloquear el cambio por el guardado */ }
     }
 
@@ -703,10 +715,7 @@
     // (x / fondo) sin pulsar "Guardar cambios". FlushDraftAsync es no-op si no hay borrador o no hubo cambios.
     private async Task CerrarPanel()
     {
-        if (_formRenderer is not null)
-        {
-            try { await _formRenderer.FlushDraftAsync(); } catch { /* cerrar nunca debe fallar por el guardado */ }
-        }
+        await FlushFormAsync();   // no-op si la factura no tiene tarea (no hay formulario montado)
         _panelOpen = false;
     }
 

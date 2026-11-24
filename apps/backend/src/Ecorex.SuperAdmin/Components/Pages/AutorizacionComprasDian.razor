@@ -11,6 +11,7 @@
 @inject IConciliacionDianService Svc
 @inject IFileStorageService Files
 @inject IAutorizacionComprasConfigService Cfg
+@inject IConciliacionTareaService TareaSvc
 @inject ITenantUserService Users
 @inject ITaskItemService Tasks
 @inject IFormResponseService FormResponses
@@ -101,7 +102,7 @@
                                 <button class="ac-card-btn" @onclick="() => AbrirPanelAsync(r)" @onclick:stopPropagation="true"
                                         title="@(conTarea ? "Abrir el formulario de la actividad" : "Asignar usuario y solicitar la autorizacion")">
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
-                                    @(conTarea ? "Formulario" : "Asignar usuario")
+                                    @(conTarea ? "Formulario" : "Crear tarea")
                                 </button>
                             }
                         </div>
@@ -246,13 +247,14 @@
                     }
                     else
                     {
-                        @* SIN tarea: SOLO la herramienta de asignar usuario (y solicitar la autorizacion, que crea la tarea).
-                           El formulario aparece cuando la factura ya tiene su tarea. *@
+                        @* SIN tarea: SOLO asignar el usuario y crear la tarea (un solo boton). Es la MISMA tarea que crea
+                           el conciliador DIAN (IConciliacionTareaService). El formulario aparece cuando ya existe la tarea. *@
+                        var salida = SalidaSel;
                         <div class="ac-form-head">
-                            <h4>Asignar usuario</h4>
-                            @if (!string.IsNullOrWhiteSpace(_cfg.Subcategoria))
+                            <h4>Asignar y crear tarea</h4>
+                            @if (salida is not null && !string.IsNullOrWhiteSpace(salida.Subcategoria))
                             {
-                                <span class="ac-form-tag">@_cfg.Categoria @(string.IsNullOrWhiteSpace(_cfg.Categoria) ? "" : "›") @_cfg.Subcategoria</span>
+                                <span class="ac-form-tag">@if (!string.IsNullOrWhiteSpace(salida.Categoria)) { <text>@salida.Categoria &rsaquo; </text> }@salida.Subcategoria</span>
                             }
                         </div>
                         <div class="ac-acciones ac-acciones-solo">
@@ -266,6 +268,18 @@
                                     }
                                 </select>
                             </div>
+                            @if (_salidasRun.Count > 1)
+                            {
+                                <div class="ac-f">
+                                    <label class="ac-f-lbl">Tipo de tarea</label>
+                                    <select class="ac-in" style="width:100%" @bind="SalidaStr">
+                                        @foreach (var so in _salidasRun)
+                                        {
+                                            <option value="@so.Id">@so.Nombre</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
                             @if (_errMsg is { Length: > 0 })
                             {
                                 <div class="ac-err">@_errMsg</div>
@@ -274,11 +288,10 @@
                             {
                                 <div class="ac-ok">@_okMsg</div>
                             }
-                            <button class="ac-btn" style="width:100%" @onclick="GuardarCambiosAsync" disabled="@_guardando">Guardar asignacion</button>
-                            <button class="ac-btn ac-btn-ok" style="width:100%" @onclick="SolicitarAutorizacionAsync"
-                                    disabled="@(_solicitando || _cfg.SubcategoriaId is null)"
-                                    title="@(_cfg.SubcategoriaId is null ? "Configura primero el concepto de actividad" : "Crea la actividad de autorizacion asignada al usuario elegido")">
-                                @(_solicitando ? "Creando..." : "Solicitar autorizacion")
+                            <button class="ac-btn ac-btn-ok" style="width:100%" @onclick="CrearTareaAsync"
+                                    disabled="@(_solicitando || salida is null || _asignadoSel is null)"
+                                    title="@CrearTareaTitle(salida)">
+                                @(_solicitando ? "Creando..." : "Crear tarea")
                             </button>
                         </div>
                     }
@@ -348,7 +361,7 @@
     // para renderizar el formulario en el panel y crear la actividad. ----
     private AutorizacionModConfigDto _cfg = new(null, null, null, null, null);
     // Ref al renderer: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar) el autosave esta apagado, asi que
-    // persistimos el borrador a mano (FlushDraftAsync) al Guardar cambios / Solicitar autorizacion.
+    // persistimos el borrador a mano (FlushDraftAsync) al Guardar cambios y al cambiar de factura o de vista.
     private DynamicFormRenderer? _formRenderer;
 
     // ---- Acciones: usuarios del sistema + asignacion por factura ----
@@ -385,23 +398,14 @@
         _guardando = true; _okMsg = null; _errMsg = null;
         try
         {
-            if (_solicitada is null)
-            {
-                // Sin tarea el panel es solo la asignacion de la factura.
-                await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel);
-                _okMsg = "Asignacion guardada.";
-            }
-            else
-            {
-                // Con tarea: solo el formulario de la tarea (barra Enviar oculta = sin autosave, se persiste a mano).
-                await FlushFormAsync();
-                _okMsg = "Cambios guardados.";
-            }
+            // Solo existe con tarea: el formulario de la tarea (barra Enviar oculta = sin autosave, se persiste a mano).
+            await FlushFormAsync();
+            _okMsg = "Cambios guardados.";
         }
         finally { _guardando = false; }
     }
 
-    // ---- Solicitar autorizacion: crea la actividad con el concepto configurado + resumen ----
+    // ---- Tarea de la factura (creada aqui o en el conciliador DIAN) ----
     private string? _errMsg;
     private string? _solicitada;   // numero de actividad ya solicitada para la factura
     private Dictionary<Guid, string> _solicitadas = new();   // renglon -> actividad (para las tarjetas)
@@ -436,104 +440,54 @@
         catch { return (null, Array.Empty<Guid>()); }
     }
 
-    private async Task SolicitarAutorizacionAsync()
+    // Salidas al flujo (concepto + formulario) configuradas en el conciliador: las MISMAS que usa su "+ Tarea".
+    private List<SalidaFlujoDto> _salidasRun = new();
+    private Guid? _salidaSelId;
+    private SalidaFlujoDto? SalidaSel => _salidasRun.FirstOrDefault(x => x.Id == _salidaSelId) ?? _salidasRun.FirstOrDefault();
+    private string SalidaStr
+    {
+        get => SalidaSel?.Id.ToString() ?? string.Empty;
+        set { _salidaSelId = Guid.TryParse(value, out var g) ? g : null; _okMsg = null; }
+    }
+
+    private string CrearTareaTitle(SalidaFlujoDto? salida)
+        => salida is null ? "Configura primero una salida (concepto) en el conciliador DIAN"
+        : _asignadoSel is null ? "Elige el usuario"
+        : "Asigna la factura al usuario y crea su tarea (la misma del conciliador DIAN)";
+
+    // Un solo boton: asigna la factura (columna del conciliador, con su historial) y crea la tarea con la misma
+    // logica del conciliador DIAN (IConciliacionTareaService): mismo titulo/resumen, formulario prellenado, PDFs
+    // como documentos y vinculo factura->tarea. Luego el panel pasa al formulario de la tarea.
+    private async Task CrearTareaAsync()
     {
         if (_sel is null || _solicitando) { return; }
         _errMsg = null; _okMsg = null;
-        if (_cfg.SubcategoriaId is not Guid subId)
-        {
-            _errMsg = "Configura primero el concepto de actividad en Configuracion.";
-            return;
-        }
+        var salida = SalidaSel;
+        if (salida is null) { _errMsg = "Configura primero una salida (concepto) en el conciliador DIAN."; return; }
+        if (_asignadoSel is not Guid assignee) { _errMsg = "Elige el usuario al que se asigna la tarea."; return; }
+        if (_solicitadas.ContainsKey(_sel.Id)) { return; }   // ya tiene tarea
         _solicitando = true;
         try
         {
-            // Sin tarea el panel no muestra formulario (solo la asignacion): no hay borrador montado que persistir.
-            var actor = await ActorAsync();
-            var actorName = await ActorNameAsync();
+            var sel = _sel;
+            await Svc.SetAssigneeAsync(sel.Id, assignee);
+            var asignada = sel with { AssignedTenantUserId = assignee };
+            var i = _items.FindIndex(x => x.Id == sel.Id);
+            if (i >= 0) { _items[i] = asignada; }
+            _sel = asignada;
 
-            // Valores del formulario (borrador por factura) para el resumen + para copiarlos a la tarea.
-            string? cConcepto = null, cCentro = null, cOrden = null;
-            IReadOnlyDictionary<string, Ecorex.Application.Forms.FormFieldValue>? moduleData = null;
-            if (_cfg.FormDefinitionId is Guid fid)
-            {
-                var dr = await FormResponses.GetOrCreateDraftAsync(fid, _sel.Id.ToString());
-                if (dr.IsOk && dr.Value is { } resp)
-                {
-                    moduleData = resp.Data;
-                    cConcepto = Campo(resp.Data, "concepto_compra");
-                    cCentro = Campo(resp.Data, "centro_costos");
-                    cOrden = Campo(resp.Data, "orden_compra");
-                }
-            }
-            var userLabel = _asignadoSel is Guid uid ? _usuarios.FirstOrDefault(u => u.Id == uid) is { } u ? UserLabel(u) : null : null;
-            var resumen = BuildResumen(_sel, cConcepto, cCentro, cOrden, userLabel);
-
-            var req = new CreateTaskItemRequest(
-                Title: "Autorizacion de compra",
-                ActivityTypeId: null,
-                Description: resumen,
-                AssigneeTenantUserId: _asignadoSel,
-                SubcategoriaId: subId,
-                RequesterName: _sel.NombreProveedor,
-                RequesterDocument: _sel.NitProveedor);
-
-            var result = await Tasks.CreateAsync(req, actor, actorName);
-            if (!result.IsOk || result.Value is null)
-            {
-                _errMsg = result.Error ?? "No se pudo crear la actividad.";
-                return;
-            }
-            var num = result.Value.Item.Number;
-            // Copiar los valores del formulario a un borrador keyed por el NUMERO de tarea, para que la
-            // actividad muestre el formulario (de la subcategoria) ya diligenciado.
-            if (_cfg.FormDefinitionId is Guid fid2 && moduleData is { Count: > 0 })
-            {
-                try
-                {
-                    var td = await FormResponses.GetOrCreateDraftAsync(fid2, num);
-                    if (td.IsOk && td.Value is { } tdr) { await FormResponses.SaveAsync(tdr.Id, moduleData, false); }
-                }
-                catch { /* el resumen ya viaja en la descripcion */ }
-            }
-            // Factura -> tarea: es el MISMO mapa que pinta el conciliador DIAN, asi el numero aparece tambien alla.
-            await Cfg.SetSolicitadaAsync(_sel.Id, num);
-            // La asignacion de la factura queda con el usuario de la tarea ("Solo mis documentos" + historial).
-            try { await Cfg.SetAsignadoAsync(_sel.Id, _asignadoSel); } catch { /* la tarea ya quedo asignada */ }
-            // Desde ya el panel trabaja sobre el formulario DE LA TAREA (lleva los datos copiados arriba).
-            var (tform, thidden) = await CargarFormTareaAsync(num);
-            _solicitada = num;
-            _solicitadas[_sel.Id] = num;   // la tarjeta muestra la actividad sin recargar
+            var (ok, res) = await TareaSvc.CrearTareaAsync(asignada, salida, assignee, await ActorAsync(), await ActorNameAsync());
+            if (!ok) { _errMsg = res; return; }
+            var (tform, thidden) = await CargarFormTareaAsync(res);
+            _solicitada = res;
+            _solicitadas[sel.Id] = res;   // la tarjeta muestra la actividad sin recargar
             _taskForm = tform;
             _hiddenSecsTarea = thidden;
-            _okMsg = $"Actividad {num} de autorizacion creada" + (userLabel is { } ul ? $" (asignada a {ul})." : ".");
+            var userLabel = _usuarios.FirstOrDefault(u => u.Id == assignee) is { } u ? UserLabel(u) : null;
+            _okMsg = $"Tarea {res} creada" + (userLabel is { } ul ? $" y asignada a {ul}." : ".");
         }
-        catch (Exception ex) { _errMsg = "Error al crear la actividad: " + ex.Message; }
+        catch (Exception ex) { _errMsg = "Error al crear la tarea: " + ex.Message; }
         finally { _solicitando = false; }
-    }
-
-    private static string? Campo(IReadOnlyDictionary<string, Ecorex.Application.Forms.FormFieldValue> data, string code)
-        => data.TryGetValue(code, out var v) && !string.IsNullOrWhiteSpace(v.Value) ? v.Value : null;
-
-    private string BuildResumen(ConciliacionDianRenglonDto r, string? concepto, string? centro, string? orden, string? userLabel)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Solicitud de autorizacion de factura de compra DIAN.");
-        sb.AppendLine($"Proveedor: {r.NombreProveedor} (NIT {r.NitProveedor})");
-        sb.AppendLine($"Factura: {r.NumFacturaProveedor}");
-        sb.AppendLine($"Fecha de emision: {Fecha(r.FechaEmision)}");
-        sb.AppendLine($"Total: {Moneda(r.TotalFactura)}");
-        sb.AppendLine($"CUFE: {r.Cufe}");
-        if (concepto is not null || centro is not null || orden is not null)
-        {
-            sb.AppendLine("---");
-            if (concepto is not null) { sb.AppendLine($"Concepto de compra: {concepto}"); }
-            if (centro is not null) { sb.AppendLine($"Centro de costos: {centro}"); }
-            if (orden is not null) { sb.AppendLine($"Orden de compra: {orden}"); }
-        }
-        if (userLabel is not null) { sb.AppendLine("---"); sb.AppendLine($"Asignado a: {userLabel}"); }
-        sb.AppendLine($"Referencia conciliacion (REG): {r.Id}");
-        return sb.ToString().TrimEnd();
     }
 
     private async Task<Guid> ActorAsync()
@@ -550,6 +504,10 @@
     protected override async Task OnInitializedAsync()
     {
         _cfg = await Cfg.GetAsync();
+        try { _salidasRun = (await Cfg.ListSalidasAsync()).Where(x => x.SubcategoriaId is not null).ToList(); }
+        catch { _salidasRun = new(); }
+        // Por defecto la salida del concepto configurado en el modulo; si no, la primera.
+        _salidaSelId = _salidasRun.FirstOrDefault(x => x.SubcategoriaId == _cfg.SubcategoriaId)?.Id ?? _salidasRun.FirstOrDefault()?.Id;
         _usuarios = (await Users.ListAsync()).ToList();
         // Resolver el TenantUser del usuario actual (por PlatformUserId) para el filtro "solo mis documentos".
         var actor = await ActorAsync();
@@ -678,7 +636,7 @@
         // Serializando (leer primero, publicar _sel + render al final) no hay dos operaciones a la vez.
         // Vista columna: al saltar a otra factura se guarda primero el borrador de la actual (tambien en serie).
         if (_sel is not null && _sel.Id != r.Id) { await FlushFormAsync(); }
-        var asignado = await Cfg.GetAsignadoAsync(r.Id);
+        var asignado = r.AssignedTenantUserId ?? await Cfg.GetAsignadoAsync(r.Id);
         var solicitada = await Cfg.GetSolicitadaAsync(r.Id);
         var (taskForm, hiddenTarea) = await CargarFormTareaAsync(solicitada);
         List<StoredFileDto> viewFiles = new();

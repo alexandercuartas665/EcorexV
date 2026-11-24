@@ -27,6 +27,7 @@
 @inject IFileStorageService Files
 @inject ITenantUserService Users
 @inject IAutorizacionComprasConfigService TaskCfg
+@inject IConciliacionTareaService TareaSvc
 @inject IConciliacionAsignacionHistorialService Hist
 @inject Ecorex.SuperAdmin.Agents.IBrowserRunService BrowserRun
 @inject Ecorex.SuperAdmin.Agents.IFlowSequenceRunner Sequences
@@ -2582,142 +2583,13 @@ else
 
     // Crea la tarea (sin los guards de UI): la usan el boton por fila y el analisis masivo con IA. Devuelve
     // (true, numero) o (false, mensaje de error). NO toca _creandoTarea ni _msg (los maneja quien la llama).
+    // La creacion vive en IConciliacionTareaService (titulo, resumen, prellenado grilla->form, PDFs y vinculo
+    // factura->tarea), la MISMA que usa el modulo de autorizacion: asi ambos producen el mismo tipo de tarea.
     private async Task<(bool Ok, string Result)> CrearTareaCoreAsync(ConciliacionDianRenglonDto r, SalidaFlujoDto salida, Guid assignee)
     {
-        // Candado: una fila fantasma (solo en NEWTON, no en la DIAN) nunca produce tarea, venga del boton o de la IA.
-        if (r.Origen == OrigenRenglonConciliacionDian.Newton) { return (false, "Documento solo en NEWTON (no esta en la DIAN): no puede generar tarea."); }
-        if (salida.SubcategoriaId is not Guid subId) { return (false, "La salida no tiene concepto configurado."); }
-        try
-        {
-            var titulo = $"Compra {r.NumFacturaProveedor} - {r.NombreProveedor}".Trim();
-            if (titulo.Length > 120) { titulo = titulo[..120]; }
-            var req = new CreateTaskItemRequest(
-                Title: titulo,
-                ActivityTypeId: null,
-                Description: BuildTareaResumen(r),
-                AssigneeTenantUserId: assignee,
-                RequesterName: r.NombreProveedor,
-                RequesterDocument: r.NitProveedor,
-                SubcategoriaId: subId);
-            var result = await Tasks.CreateAsync(req, _actorId, _userName ?? "Usuario");
-            if (!result.IsOk || result.Value is null) { return (false, result.Error ?? "No se pudo crear la tarea."); }
-            var num = result.Value.Item.Number;
-            // El formulario configurado "cae" en la tarea (via ActividadSubcategoria.FormDefinitionId). Aqui
-            // lo prellenamos con los datos de la factura del conciliador, en un borrador keyed por el NUMERO de
-            // tarea. OJO: solo se prellenan los campos que SIGUEN siendo texto/numero/fecha PLANOS (SourceKind=
-            // Options). Si el usuario repurposo un codigo (p. ej. "fecha_compra" ahora es un selector de usuario,
-            // "proveedor"/"nit" son lookups del Contenedor) NO se pisa con el dato crudo de la factura.
-            if (salida.FormDefinitionId is Guid fid)
-            {
-                try
-                {
-                    var td = await FormResponses.GetOrCreateDraftAsync(fid, num);
-                    if (td.IsOk && td.Value is { } tdr)
-                    {
-                        var candidatos = new Dictionary<string, FormFieldValue>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            ["proveedor"] = new FormFieldValue(r.NombreProveedor ?? string.Empty, "Text"),
-                            ["nit"] = new FormFieldValue(r.NitProveedor ?? string.Empty, "Text"),
-                            ["rut"] = new FormFieldValue(r.RutEscaneado ?? string.Empty, "Text"),
-                            ["fecha_compra"] = new FormFieldValue(r.FechaEmision.ToString("yyyy-MM-dd"), "Date"),
-                            ["num_factura"] = new FormFieldValue(r.NumFacturaProveedor ?? string.Empty, "Text"),
-                        };
-                        var planos = await TaskCfg.GetPlainTextFieldCodesAsync(fid);
-                        var data = candidatos.Where(kv => planos.Contains(kv.Key))
-                            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
-                        // Mapeo configurado (el MISMO de "Direccionar compra") aplicado en REVERSA grilla->form:
-                        // por cada (FormField <- Target) toma el valor del renglon para la columna Target y lo
-                        // escribe en el campo del formulario, con su tipo de control real. Prevalece sobre el
-                        // prellenado generico de arriba. Asi, al crear la tarea, los datos de la grilla caen en el form.
-                        foreach (var kv in await BuildMappingPrefillAsync(r, salida, assignee, fid)) { data[kv.Key] = kv.Value; }
-                        if (data.Count > 0) { await FormResponses.SaveAsync(tdr.Id, data, false); }
-                    }
-                }
-                catch { /* el resumen ya viaja en la descripcion */ }
-            }
-
-            // Adjuntar los PDF del conciliador (por CUFE) como enlaces en la pestana Documentos de la tarea,
-            // asi el usuario consulta los documentos de la factura desde la tarea (StoredFileDto.Url = /archivo/{id}).
-            if (!string.IsNullOrWhiteSpace(r.Cufe))
-            {
-                try
-                {
-                    var docs = (await Files.ListAsync("ConciliacionDian", r.Cufe))
-                        .Where(f => (f.ContentType ?? string.Empty).Contains("pdf", StringComparison.OrdinalIgnoreCase)
-                                 || (f.FileName ?? string.Empty).EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-                    foreach (var f in docs)
-                    {
-                        // Nombre amigable: los archivos del conciliador vienen como {cufe}_dian.pdf / {cufe}_newton.pdf.
-                        var fn = f.FileName ?? string.Empty;
-                        var nombre = fn.Contains("_newton", StringComparison.OrdinalIgnoreCase) ? "Representacion grafica (NEWTON).pdf"
-                            : fn.Contains("_dian", StringComparison.OrdinalIgnoreCase) ? "Factura electronica (DIAN).pdf"
-                            : fn;
-                        await Tasks.AddAttachmentAsync(
-                            new AddTaskAttachmentRequest(result.Value.Item.Id, nombre, f.Url, f.ContentType, f.SizeBytes),
-                            _actorId, _userName ?? "Usuario");
-                    }
-                }
-                catch { /* best-effort: los documentos siguen disponibles en el conciliador */ }
-            }
-
-            await TaskCfg.SetSolicitadaAsync(r.Id, num);
-            _tareaDeRenglon[r.Id] = num;
-            return (true, num);
-        }
-        catch (Exception ex) { return (false, "Error al crear la tarea: " + ex.Message); }
-    }
-
-    // Prellenado grilla->form al crear la tarea: aplica el mapeo configurado (DireccionarMaps) en REVERSA.
-    // Por cada (FormField <- Target) resuelve el valor del renglon para la columna Target (oc | numsol |
-    // asignado | dyn:{fieldKey}) y lo escribe en el campo del formulario con su tipo de control real. Es la
-    // contraparte de creacion del verbo DIRECCIONAR_CONCILIADOR (que corre form->grilla al "Direccionar compra").
-    private async Task<Dictionary<string, FormFieldValue>> BuildMappingPrefillAsync(
-        ConciliacionDianRenglonDto r, SalidaFlujoDto salida, Guid assignee, Guid fid)
-    {
-        var result = new Dictionary<string, FormFieldValue>(StringComparer.OrdinalIgnoreCase);
-        if (!salida.DireccionarEnabled || salida.DireccionarMaps is not { Count: > 0 } maps) { return result; }
-        var ctrlTypes = await TaskCfg.GetFieldControlTypesAsync(fid);
-        IReadOnlyDictionary<Guid, Dictionary<Guid, string?>>? dynVals = null;
-        foreach (var m in maps)
-        {
-            if (string.IsNullOrWhiteSpace(m.FormField) || string.IsNullOrWhiteSpace(m.Target)) { continue; }
-            if (!ctrlTypes.TryGetValue(m.FormField, out var ctrl)) { continue; }  // el campo ya no existe en el form
-            var t = m.Target;
-            string? raw;
-            if (string.Equals(t, "oc", StringComparison.OrdinalIgnoreCase)) { raw = r.OrdenCompraSoldarco; }
-            else if (string.Equals(t, "numsol", StringComparison.OrdinalIgnoreCase)) { raw = r.NumFacturaSoldarco; }
-            else if (string.Equals(t, "asignado", StringComparison.OrdinalIgnoreCase)) { raw = assignee.ToString(); }
-            else if (t.StartsWith("dyn:", StringComparison.Ordinal) && _dynByKey.TryGetValue(t, out var def))
-            {
-                dynVals ??= await Fields.GetValuesAsync(new[] { r.Id });
-                raw = dynVals.TryGetValue(r.Id, out var dd) && dd.TryGetValue(def.Id, out var vv) ? vv : null;
-            }
-            else { continue; }   // target desconocido o columna dinamica no cargada
-            if (string.IsNullOrWhiteSpace(raw)) { continue; }   // sin dato: no escribir (no pisar con vacio)
-            var coerced = CoerceForControl(ctrl, raw!);
-            if (coerced is null) { continue; }
-            result[m.FormField] = new FormFieldValue(coerced, ctrl);
-        }
-        return result;
-    }
-
-    // Lleva el valor crudo del renglon al formato interno que espera el renderer segun el tipo de control:
-    //  Toggle -> "true"/"false"; Date -> yyyy-MM-dd; el resto (Text/Number/Select/Radio/SystemUser) tal cual.
-    private static string? CoerceForControl(string ctrl, string raw)
-    {
-        raw = raw.Trim();
-        switch (ctrl)
-        {
-            case "Toggle":
-                var on = raw is "1" or "true" or "True" or "si" or "Si" or "SI"
-                    or "yes" or "Yes" or "on" or "On" or "x" or "X";
-                return on ? "true" : "false";
-            case "Date":
-                return DateTime.TryParse(raw, out var dt) ? dt.ToString("yyyy-MM-dd") : raw;
-            default:
-                return raw;
-        }
+        var (ok, res) = await TareaSvc.CrearTareaAsync(r, salida, assignee, _actorId, _userName ?? "Usuario");
+        if (ok) { _tareaDeRenglon[r.Id] = res; }
+        return (ok, res);
     }
 
     // ===== Asistente de IA: analisis masivo del documento (propone salida+usuario por factura; se confirma) =====
@@ -3053,21 +2925,6 @@ else
         }
         catch (Exception ex) { _iaMsg = "Error al aplicar: " + ex.Message; }
         finally { _iaBusy = false; _busy = false; }
-    }
-
-    private string BuildTareaResumen(ConciliacionDianRenglonDto r)
-    {
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("Factura de compra DIAN (desde el conciliador).");
-        sb.AppendLine($"Proveedor: {r.NombreProveedor} (NIT {r.NitProveedor})");
-        sb.AppendLine($"Factura: {r.NumFacturaProveedor}");
-        sb.AppendLine($"Fecha de emision: {r.FechaEmision:dd/MM/yyyy}");
-        sb.AppendLine($"Total: {Fmt(r.TotalFactura)}");
-        if (!string.IsNullOrWhiteSpace(r.NumFacturaSoldarco)) { sb.AppendLine($"Documento SISTEMA: {r.NumFacturaSoldarco}"); }
-        if (!string.IsNullOrWhiteSpace(r.OrdenCompraSoldarco)) { sb.AppendLine($"Orden de compra: {r.OrdenCompraSoldarco}"); }
-        if (!string.IsNullOrWhiteSpace(r.Cufe)) { sb.AppendLine($"CUFE: {r.Cufe}"); }
-        sb.Append($"Referencia conciliacion (REG): {r.Id}");
-        return sb.ToString();
     }
 
     // Abre el detalle de la tarea (modal reutilizado de los tableros) desde el badge con el numero.

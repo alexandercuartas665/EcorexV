@@ -18,6 +18,17 @@ public interface IReportableSource
 }
 
 /// <summary>
+/// Fuente nativa cuyo catalogo de campos depende del TENANT activo (p.ej. el Directorio suma los campos de
+/// ficha que cada tenant configura, ADR-0208). <see cref="IReportableSource.Describe"/> sigue dando la parte
+/// FIJA (clave y campos base, sin BD); el catalogo usa <see cref="DescribeAsync"/> para publicar la completa.
+/// </summary>
+public interface ITenantDescribedSource
+{
+    /// <summary>Descriptor completo (campos fijos + los del tenant activo).</summary>
+    Task<ReportSourceDescriptor> DescribeAsync(CancellationToken ct = default);
+}
+
+/// <summary>
 /// Conversion de un valor de celda/parametro (texto) al tipo logico del campo. Espeja la regla del
 /// EAV de contenedores: el valor SIEMPRE se persiste como string y se convierte al leer segun el tipo
 /// de la columna. Cultura invariante para que PG y SQL Server coincidan.

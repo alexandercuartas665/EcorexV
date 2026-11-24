@@ -56,7 +56,8 @@ public abstract class ReportCardConfigTestsBase
         }
 
         var cats = await Svc(t).ListCategoriesAsync();
-        Assert.Equal(new[] { "Operaciones", "Ventas comerciales" }, cats);   // distintas, ordenadas, sin la de otro tenant
+        // Distintas, ordenadas, sin la de otro tenant ni la del reporte ARCHIVADO ("Operaciones", ADR-0206).
+        Assert.Equal(new[] { "Ventas comerciales" }, cats);
 
         var summary = Assert.Single(await Svc(t).ListAsync(seeAll: true, rolId: null), r => r.Id == tablero);
         Assert.Equal("Ventas comerciales", summary.Category);

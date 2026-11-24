@@ -52,7 +52,8 @@ public sealed class ReportCatalog : IReportCatalog
 
         foreach (var s in _nativeSources)
         {
-            result.Add(s.Describe());
+            // Fuentes con catalogo por tenant (ADR-0208): campos fijos + los configurados por el tenant activo.
+            result.Add(s is ITenantDescribedSource dyn ? await dyn.DescribeAsync(ct) : s.Describe());
         }
 
         // Contenedores RAIZ del tenant activo (el filtro global limita a lo suyo).
@@ -92,11 +93,10 @@ public sealed class ReportCatalog : IReportCatalog
         }
 
         var native = _nativeSources
-            .Select(s => s.Describe())
-            .FirstOrDefault(d => string.Equals(d.Key, sourceKey, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(s => string.Equals(s.Describe().Key, sourceKey, StringComparison.OrdinalIgnoreCase));
         if (native is not null)
         {
-            return native;
+            return native is ITenantDescribedSource dyn ? await dyn.DescribeAsync(ct) : native.Describe();
         }
 
         if (ContainerReportReader.Handles(sourceKey) && ContainerReportReader.ParseId(sourceKey) is Guid id)

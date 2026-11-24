@@ -264,6 +264,83 @@ public abstract class MenuConfigEditorTestsBase
         Assert.Equal(MenuConfigStatus.NotFound, delFromB.Status);
     }
 
+    // ---- Menu estandar (MenuCanonicalTree): cargar en vista nueva / completar una existente ----
+
+    [Fact]
+    public async Task LoadStandard_EmptyView_GetsCanonicalTree_AndIsIdempotent()
+    {
+        var tenantId = await NewTenantAsync("Std Vacia");
+        var viewId = await NewViewAsync(tenantId, "Nueva", isDefault: false);
+
+        var first = await RunAsync(tenantId, s => s.LoadStandardMenuAsync(viewId));
+        Assert.True(first.IsOk, first.Error);
+        var expected = MenuCanonicalTree.BuildNodes(tenantId, viewId).Count;
+        Assert.Equal(expected, first.Value);
+
+        var tree = await RunAsync(tenantId, s => s.GetViewTreeAsync(viewId));
+        Assert.True(tree.IsOk);
+        Assert.Contains(tree.Value!.Roots, r => r.Kind == MenuNodeKind.Section && r.Name == "Sistema \u00b7 Actividades"
+            && r.Children.Any(c => c.Route == "cerebros"));
+
+        // Segunda vez no agrega nada (no duplica).
+        var second = await RunAsync(tenantId, s => s.LoadStandardMenuAsync(viewId));
+        Assert.True(second.IsOk, second.Error);
+        Assert.Equal(0, second.Value);
+    }
+
+    [Fact]
+    public async Task LoadStandard_PartialView_AddsOnlyMissing_KeepsRenamedAndHidden()
+    {
+        var tenantId = await NewTenantAsync("Std Parcial");
+        var viewId = await NewViewAsync(tenantId, "Recortada", isDefault: true);
+        // Seccion "act" renombrada por el cliente, con "Tableros" renombrado y OCULTO.
+        var act = await RunAsync(tenantId, s => s.CreateNodeAsync(viewId, null, MenuNodeKind.Section, "Mis tableros", route: "act"));
+        var tab = await RunAsync(tenantId, s => s.CreateNodeAsync(viewId, act.Value!.Id, MenuNodeKind.Item, "Kanban", route: "tableros"));
+        await RunAsync(tenantId, s => s.ToggleNodeVisibilityAsync(tab.Value!.Id));
+
+        var res = await RunAsync(tenantId, s => s.LoadStandardMenuAsync(viewId));
+        Assert.True(res.IsOk, res.Error);
+        Assert.True(res.Value > 0);
+
+        var tree = (await RunAsync(tenantId, s => s.GetViewTreeAsync(viewId))).Value!;
+        // No se crea otra seccion "Sistema - Actividades": los faltantes caen en la existente (por slug).
+        var sec = Assert.Single(tree.Roots, r => r.Kind == MenuNodeKind.Section && r.Route == "act");
+        Assert.Equal("Mis tableros", sec.Name);
+        var kanban = Assert.Single(sec.Children, c => c.Route == "tableros");
+        Assert.Equal("Kanban", kanban.Name);
+        Assert.False(kanban.IsVisible);
+        Assert.Contains(sec.Children, c => c.Route == "cerebros");
+        // Las demas secciones del estandar se agregan.
+        Assert.Contains(tree.Roots, r => r.Kind == MenuNodeKind.Section && r.Route == "gen");
+    }
+
+    [Fact]
+    public async Task ResolvedMenu_EmptyDefaultView_FallsBackToRichestView()
+    {
+        var tenantId = await NewTenantAsync("Std Default Vacia");
+        var full = await NewViewAsync(tenantId, "Completo", isDefault: false);
+        await NewViewAsync(tenantId, "Nueva vacia", isDefault: true);
+        await RunAsync(tenantId, s => s.LoadStandardMenuAsync(full));
+
+        var resolved = await RunAsync(tenantId, s => s.GetMenuForTenantUserAsync(tenantId, null));
+        Assert.NotNull(resolved);
+        Assert.Equal(full, resolved!.MenuViewId);
+    }
+
+    [Fact]
+    public async Task ModuleCatalog_IncludesStandardModulesMissingFromTenantMenus()
+    {
+        var tenantId = await NewTenantAsync("Std Catalogo");
+        var viewId = await NewViewAsync(tenantId, "Minima", isDefault: true);
+        var sec = await RunAsync(tenantId, s => s.CreateNodeAsync(viewId, null, MenuNodeKind.Section, "S"));
+        await RunAsync(tenantId, s => s.CreateNodeAsync(viewId, sec.Value!.Id, MenuNodeKind.Item, "Propio", route: "mi-ruta-propia"));
+
+        var catalog = await RunAsync(tenantId, s => s.ListModuleCatalogAsync());
+        Assert.Contains(catalog, c => c.Route == "mi-ruta-propia");
+        Assert.Contains(catalog, c => c.Route == "cerebros");
+        Assert.DoesNotContain(catalog, c => c.Route.StartsWith("modulo/", StringComparison.Ordinal));
+    }
+
     // ---- Helpers ----
 
     private async Task<Guid> NewTenantAsync(string name)

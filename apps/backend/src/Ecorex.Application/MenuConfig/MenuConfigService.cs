@@ -46,14 +46,24 @@ public sealed class MenuConfigService : IMenuConfigService
             var defaultView = await _db.MenuViews.AsNoTracking()
                 .Where(v => v.IsDefault)
                 .OrderBy(v => v.SortOrder).ThenBy(v => v.Name)
-                .FirstOrDefaultAsync(cancellationToken)
-                ?? await _db.MenuViews.AsNoTracking()
-                    .OrderByDescending(v => _db.MenuNodes.Count(n => n.MenuViewId == v.Id && n.IsVisible))
-                    .ThenBy(v => v.SortOrder).ThenBy(v => v.Name)
-                    .FirstOrDefaultAsync(cancellationToken);
+                .FirstOrDefaultAsync(cancellationToken);
             if (defaultView is not null)
             {
                 resolved = await BuildResolvedAsync(defaultView, cancellationToken);
+            }
+
+            // La predeterminada esta VACIA (ej. una vista nueva marcada "Predeterminada" antes de llenarla):
+            // tambien cae a la vista mas rica, para que nadie se quede sin menu.
+            if (resolved is null)
+            {
+                var richest = await _db.MenuViews.AsNoTracking()
+                    .OrderByDescending(v => _db.MenuNodes.Count(n => n.MenuViewId == v.Id && n.IsVisible))
+                    .ThenBy(v => v.SortOrder).ThenBy(v => v.Name)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (richest is not null && richest.Id != defaultView?.Id && richest.Id != view?.Id)
+                {
+                    resolved = await BuildResolvedAsync(richest, cancellationToken);
+                }
             }
         }
 
@@ -206,6 +216,130 @@ public sealed class MenuConfigService : IMenuConfigService
 
         return MenuConfigResult<MenuViewDto>.Ok(new MenuViewDto(
             clone.Id, clone.Name, clone.Description, clone.IsDefault, clone.SortOrder, cloneNodes.Count));
+    }
+
+    public async Task<MenuConfigResult<int>> LoadStandardMenuAsync(Guid viewId, CancellationToken cancellationToken = default)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+        {
+            return MenuConfigResult<int>.Invalid("No hay tenant activo.");
+        }
+        if (!await _db.MenuViews.AnyAsync(v => v.Id == viewId, cancellationToken))
+        {
+            return MenuConfigResult<int>.NotFound("La vista no existe.");
+        }
+
+        var existing = await _db.MenuNodes.AsNoTracking()
+            .Where(n => n.MenuViewId == viewId)
+            .ToListAsync(cancellationToken);
+
+        var toAdd = existing.Count == 0
+            ? MenuCanonicalTree.BuildNodes(tenantId, viewId)
+            : MissingStandardNodes(existing, tenantId, viewId);
+        if (toAdd.Count == 0)
+        {
+            return MenuConfigResult<int>.Ok(0);
+        }
+
+        var joinTx = _db.HasActiveTransaction;
+        var tx = joinTx ? null : await _db.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            _db.MenuNodes.AddRange(toAdd);
+            await _db.SaveChangesAsync(cancellationToken);
+            if (tx is not null) { await tx.CommitAsync(cancellationToken); }
+        }
+        catch
+        {
+            if (tx is not null) { await tx.RollbackAsync(cancellationToken); }
+            throw;
+        }
+        finally
+        {
+            if (tx is not null) { await tx.DisposeAsync(); }
+        }
+        return MenuConfigResult<int>.Ok(toAdd.Count);
+    }
+
+    private static string NormRoute(string? route) => (route ?? string.Empty).Trim().Trim('/');
+
+    /// <summary>
+    /// Nodos del menu estandar que le FALTAN a una vista con contenido: enlaces rapidos por ruta, elementos
+    /// por ruta (en cualquier parte de la vista) y, si hace falta alojarlos, la seccion (buscada por slug y
+    /// luego por nombre; si no existe se crea al final). Lo existente no se toca.
+    /// </summary>
+    private static List<MenuNode> MissingStandardNodes(List<MenuNode> existing, Guid tenantId, Guid viewId)
+    {
+        var added = new List<MenuNode>();
+        var itemRoutes = new HashSet<string>(
+            existing.Where(n => n.Kind == MenuNodeKind.Item && !string.IsNullOrWhiteSpace(n.Route)).Select(n => NormRoute(n.Route)),
+            StringComparer.OrdinalIgnoreCase);
+        var quickRoutes = new HashSet<string>(
+            existing.Where(n => n.Kind == MenuNodeKind.QuickLink && !string.IsNullOrWhiteSpace(n.Route)).Select(n => NormRoute(n.Route)),
+            StringComparer.OrdinalIgnoreCase);
+        var rootOrder = existing.Where(n => n.ParentId is null).Select(n => n.SortOrder).DefaultIfEmpty(-1).Max();
+
+        MenuNode New(CanonicalMenuEntry e, Guid? parentId, int sortOrder)
+        {
+            var node = new MenuNode
+            {
+                TenantId = tenantId,
+                MenuViewId = viewId,
+                ParentId = parentId,
+                Kind = e.Kind,
+                Name = e.Name,
+                IconKey = e.IconKey,
+                LegacyCode = e.LegacyCode,
+                Route = e.Route,
+                State = e.Kind == MenuNodeKind.Item ? MenuCanonicalTree.StateFor(e.Route) : MenuNodeState.Ready,
+                IsVisible = true,
+                SortOrder = sortOrder
+            };
+            added.Add(node);
+            return node;
+        }
+
+        foreach (var root in MenuCanonicalTree.Roots)
+        {
+            if (root.Kind == MenuNodeKind.QuickLink)
+            {
+                if (quickRoutes.Add(NormRoute(root.Route)))
+                {
+                    New(root, null, ++rootOrder);
+                }
+                continue;
+            }
+            if (root.Kind != MenuNodeKind.Section)
+            {
+                continue;
+            }
+
+            var missing = root.Items
+                .Where(i => i.Kind == MenuNodeKind.Item && !string.IsNullOrWhiteSpace(i.Route) && !itemRoutes.Contains(NormRoute(i.Route)))
+                .ToList();
+            if (missing.Count == 0)
+            {
+                continue;
+            }
+
+            var section = existing.FirstOrDefault(n => n.ParentId is null && n.Kind == MenuNodeKind.Section
+                              && string.Equals(NormRoute(n.Route), NormRoute(root.Route), StringComparison.OrdinalIgnoreCase))
+                          ?? existing.FirstOrDefault(n => n.ParentId is null && n.Kind == MenuNodeKind.Section
+                              && string.Equals(n.Name.Trim(), root.Name, StringComparison.OrdinalIgnoreCase))
+                          ?? New(root, null, ++rootOrder);
+
+            var childOrder = existing.Concat(added)
+                .Where(n => n.ParentId == section.Id)
+                .Select(n => n.SortOrder)
+                .DefaultIfEmpty(-1)
+                .Max();
+            foreach (var item in missing)
+            {
+                New(item, section.Id, ++childOrder);
+                itemRoutes.Add(NormRoute(item.Route));
+            }
+        }
+        return added;
     }
 
     // ================= Ola 2: edicion de vistas =================
@@ -485,6 +619,14 @@ public sealed class MenuConfigService : IMenuConfigService
             .Where(n => n.Kind == MenuNodeKind.Item && n.Route != null && n.Route != "")
             .Select(n => new { n.Route, n.Name, n.LegacyCode })
             .ToListAsync(cancellationToken);
+
+        // + los modulos del MENU ESTANDAR (MenuCanonicalTree) que el tenant aun no tiene en ningun menu
+        // (ej. un modulo nuevo del producto en un tenant sembrado antes): asi se pueden agregar a mano.
+        // Los stubs modulo/... (InDevelopment) no se ofrecen.
+        var present = new HashSet<string>(items.Select(i => i.Route!), StringComparer.OrdinalIgnoreCase);
+        items.AddRange(MenuCanonicalTree.AllItems()
+            .Where(i => MenuCanonicalTree.StateFor(i.Route) == MenuNodeState.Ready && !present.Contains(i.Route))
+            .Select(i => new { Route = (string?)i.Route, i.Name, i.LegacyCode }));
 
         return items
             .GroupBy(x => x.Route!, StringComparer.OrdinalIgnoreCase)

@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Administrador de Menu: renombrar vistas, cargar menu estandar y catalogo de permisos completo (ADR-0205) - rama fix/menu-renombrar-estandar-permisos
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.
+- **Reporte del usuario**: (1) al duplicar un menu no habia donde cambiarle el nombre; (2) al crear uno nuevo, cargar el menu por defecto no funcionaba; (3) en algunos tenants cliente la matriz de Roles y permisos no listaba todos los modulos.
+- **Causas**: (1) el modal de editar vista existia pero ningun boton lo abria; (2) no existia la operacion: el arbol canonico vivia solo en DatabaseSeeder y "Restablecer" solo recargaba; (3) el catalogo de permisos salia solo de la vista PREDETERMINADA del tenant.
+- **Hecho**: `MenuCanonicalTree` (fuente unica del menu estandar; el seeder la usa sin cambio de datos); `LoadStandardMenuAsync` (vista vacia = estandar; con contenido solo agrega lo que falta, sin tocar renombrados/ocultos); UI: Renombrar en tarjeta y editor, Nueva vista con contenido inicial (estandar/vacia/copia), Cargar menu estandar, Descartar cambios, duplicar con nombre libre + modal de renombrar; catalogo de permisos = todas las vistas + estandar; predeterminada vacia cae a la vista mas rica; el selector Agregar elemento ofrece los modulos estandar faltantes.
+- **Pruebas**: build Release 0 errores, format ok, unitarias 1698/314/35; integracion dual MenuConfig|RolesTests|TenantIsolation|DataContainerModule 92/92. Validado en preview local 5234 (BITCODE, BD copia): vista nueva con estandar = 73 elementos, renombrar OK, cargar estandar idempotente, Roles y permisos 85 modulos (incluye Calendario operativo, que no esta en el menu de BITCODE). Vista de prueba borrada.
+
 ## 2026-11-23 - Cerebros: tablas markdown en el render de notas + validacion en prod - v0.16.385 (rama feat/maquetas-cerebro)
 
 Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.384). SIN migracion.

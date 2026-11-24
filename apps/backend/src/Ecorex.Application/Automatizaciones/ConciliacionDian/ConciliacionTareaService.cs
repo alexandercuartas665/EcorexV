@@ -77,7 +77,8 @@ public sealed class ConciliacionTareaService : IConciliacionTareaService
                             ["num_factura"] = new FormFieldValue(r.NumFacturaProveedor ?? string.Empty, "Text"),
                         };
                         var planos = await _cfg.GetPlainTextFieldCodesAsync(fid, ct);
-                        var data = candidatos.Where(kv => planos.Contains(kv.Key))
+                        // Sin dato no se escribe (antes quedaba p. ej. "rut" = "" en el borrador).
+                        var data = candidatos.Where(kv => planos.Contains(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value.Value))
                             .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
                         // Mapeo configurado (el MISMO de "Direccionar compra") en REVERSA grilla->form; prevalece.
                         foreach (var kv in await BuildMappingPrefillAsync(r, salida, assignee, fid, ct)) { data[kv.Key] = kv.Value; }

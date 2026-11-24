@@ -434,6 +434,11 @@ else
     /// Default false: los demas hosts conservan el comportamiento estandar (solo el wizard oculta la barra).</summary>
     [Parameter] public bool HonorHideSubmitBar { get; set; }
 
+    /// <summary>Con la barra oculta (HideSubmitChrome) mantiene el autosave, cada 3 s y solo si hubo cambios, en
+    /// vez de apagarlo. Lo usa el panel de /autorizacion-compras-dian: el formulario de la tarea se opera con sus
+    /// propios botones de regla y no hay boton "Guardar", asi que lo escrito debe persistir solo.</summary>
+    [Parameter] public bool AutosaveWhenHidden { get; set; }
+
     /// <summary>Ids de SECCIONES (contenedores) a NO pintar en esta vista, decididas por quien renderiza el form
     /// (p.ej. el modulo de autorizacion pasa las secciones que la salida del conciliador marco para ocultar).
     /// El mismo formulario se reusa en varios lados y cada uno oculta lo que no aplica. Null/vacio = muestra todo.</summary>
@@ -721,11 +726,13 @@ else
         // esta oculta (wizard + HideSubmitBar): ahi el guardado lo hace el "Listo" del wizard (FlushDraftAsync).
         _autosaveTimer?.Dispose();
         _autosaveTimer = null;
-        if (Mode == FormRenderMode.Fill && _response is not null && !IsLocked && !HideSubmitChrome)
+        if (Mode == FormRenderMode.Fill && _response is not null && !IsLocked && (!HideSubmitChrome || AutosaveWhenHidden))
         {
+            // Sin barra visible no hay boton de guardar ni indicador: el intervalo es corto para no perder nada.
+            var every = HideSubmitChrome ? TimeSpan.FromSeconds(3) : TimeSpan.FromSeconds(30);
             _autosaveTimer = new System.Threading.Timer(
                 _ => _ = InvokeAsync(AutosaveTickAsync),
-                null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+                null, every, every);
         }
 
         // Avisa al contenedor (p.ej. la wizard de tareas) el borrador recien creado/cargado, para que

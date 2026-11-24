@@ -221,7 +221,7 @@
                             </div>
                             <DynamicFormRenderer @ref="_formRenderer" DefinitionId="tf.DefinitionId" ResponseId="tf.ResponseId" Reference="@tf.Reference"
                                                  Mode="@(tf.SoloLectura ? FormRenderMode.ReadOnly : FormRenderMode.Fill)" ShowHeader="false"
-                                                 HiddenContainerIds="_hiddenSecsTarea" HonorHideSubmitBar="true" TaskTokens="@BuildFormTokens()"
+                                                 HiddenContainerIds="_hiddenSecsTarea" HonorHideSubmitBar="true" AutosaveWhenHidden="true" TaskTokens="@BuildFormTokens()"
                                                  SubmittedByTenantUserId="_miTenantUserId" @key="tf.Key" />
                         }
                         else
@@ -238,10 +238,6 @@
                             @if (_okMsg is { Length: > 0 })
                             {
                                 <div class="ac-ok">@_okMsg</div>
-                            }
-                            @if (_taskForm is { SoloLectura: false })
-                            {
-                                <button class="ac-btn" style="width:100%" @onclick="GuardarCambiosAsync" disabled="@_guardando">Guardar cambios</button>
                             }
                         </div>
                     }
@@ -360,15 +356,14 @@
     // (/conciliacion-dian -> "Configuracion de tarea", modulo administrativo); aqui solo se LEE (_cfg)
     // para renderizar el formulario en el panel y crear la actividad. ----
     private AutorizacionModConfigDto _cfg = new(null, null, null, null, null);
-    // Ref al renderer: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar) el autosave esta apagado, asi que
-    // persistimos el borrador a mano (FlushDraftAsync) al Guardar cambios y al cambiar de factura o de vista.
+    // Ref al renderer: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar) no hay boton de guardar;
+    // el renderer guarda solo (AutosaveWhenHidden, cada 3 s si hubo cambios) y ademas se fuerza FlushDraftAsync al cambiar de factura o de vista.
     private DynamicFormRenderer? _formRenderer;
 
     // ---- Acciones: usuarios del sistema + asignacion por factura ----
     private List<TenantUserDto> _usuarios = new();
     private Guid? _asignadoSel;
     private string? _okMsg;
-    private bool _guardando;
 
     private static string UserLabel(TenantUserDto u)
         => !string.IsNullOrWhiteSpace(u.DisplayName) ? u.DisplayName!
@@ -390,19 +385,6 @@
     {
         get => _asignadoSel?.ToString() ?? string.Empty;
         set { _asignadoSel = Guid.TryParse(value, out var g) ? g : null; _okMsg = null; }
-    }
-
-    private async Task GuardarCambiosAsync()
-    {
-        if (_sel is null) { return; }
-        _guardando = true; _okMsg = null; _errMsg = null;
-        try
-        {
-            // Solo existe con tarea: el formulario de la tarea (barra Enviar oculta = sin autosave, se persiste a mano).
-            await FlushFormAsync();
-            _okMsg = "Cambios guardados.";
-        }
-        finally { _guardando = false; }
     }
 
     // ---- Tarea de la factura (creada aqui o en el conciliador DIAN) ----
@@ -672,9 +654,8 @@
         await SelectAsync(r);
         _panelOpen = true;
     }
-    // Al cerrar el modal se PERSISTE el borrador: con la barra Enviar/Imprimir oculta (HonorHideSubmitBar)
-    // el autosave periodico esta apagado, asi que sin este flush lo escrito se perdia si el usuario cerraba
-    // (x / fondo) sin pulsar "Guardar cambios". FlushDraftAsync es no-op si no hay borrador o no hubo cambios.
+    // Al cerrar el modal se PERSISTE el borrador: el autosave corre cada 3 s, asi que sin este flush se
+    // perderia lo escrito si el usuario cierra (x / fondo) antes del siguiente tick. FlushDraftAsync es no-op si no hay borrador o no hubo cambios.
     private async Task CerrarPanel()
     {
         await FlushFormAsync();   // no-op si la factura no tiene tarea (no hay formulario montado)

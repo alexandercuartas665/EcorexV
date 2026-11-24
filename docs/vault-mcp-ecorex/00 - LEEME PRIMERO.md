@@ -5,7 +5,7 @@ audiencia: sesion de IA (Claude, Gemini, ChatGPT...) conectada al MCP de ECOREX
 
 # ECOREX por MCP - LEEME PRIMERO
 
-Este vault ensena a una sesion de IA **que nunca ha visto ECOREX** a operar y construir el sistema del cliente
+Esta guia ensena a una sesion de IA **que nunca ha visto ECOREX** a operar y construir el sistema del cliente
 a traves de sus servidores MCP: tareas, tableros, flujos, formularios, contactos, contenedores de datos,
 conectores e importaciones, drones de extraccion web, agentes de IA, clasificacion con IA, reportes e
 indicadores, maquetas y WhatsApp.
@@ -13,6 +13,21 @@ indicadores, maquetas y WhatsApp.
 > Si eres una IA: lee esta nota completa, luego [[02 - Modelo mental del sistema]] y [[03 - Reglas de oro]].
 > Antes de construir algo, abre la **receta** correspondiente (tabla de abajo). Antes de llamar una herramienta
 > que no conoces, revisa su ficha en la **Referencia**. No adivines nombres de parametros.
+
+## Como leer esta guia por MCP
+
+Si la recibiste con la herramienta `guia_ecorex` (MCP de tableros), cada `[[Titulo]]` de estas notas es el titulo
+de otra nota: abrela pasando ese titulo en `nota`. Ante un error, busca su texto con `buscar` ANTES de reintentar
+(casi todos los errores ya vividos estan en las trampas y en las recetas).
+
+```json
+{"name": "guia_ecorex", "arguments": {"nota": "R05 - Crear un contenedor de datos"}}
+{"name": "guia_ecorex", "arguments": {"buscar": "Tiempo de espera agotado"}}
+```
+
+Lee solo lo que necesites para la tarea: las notas de **Referencia** son largas (una por modulo); para una sola
+herramienta, `buscar` con su nombre suele bastar. La misma guia esta en el modulo **Cerebros** de ECOREX
+("Guia de uso de ECOREX por IA", solo lectura) y puede abrirse como vault de Obsidian.
 
 ## Que es ECOREX en una linea
 
@@ -24,8 +39,8 @@ permisos**.
 
 | Servidor | Ruta | Para que | Token |
 |---|---|---|---|
-| **Tableros** (el principal, 157 herramientas) | `/api/mcp/tableros` | Todo el sistema: tareas, flujos, formularios, contactos, contenedores, drones, agentes, IA, reportes | Token personal de `/conectar-ia` |
-| **Maquetas** (16) | `/api/mcp/maquetas` | Ajustar maquetas HTML desde solicitudes anotadas | Token de maquetas |
+| **Tableros** (el principal, 158 herramientas) | `/api/mcp/tableros` | Todo el sistema: tareas, flujos, formularios, contactos, contenedores, drones, agentes, IA, reportes | Token personal de `/conectar-ia` |
+| **Maquetas** (17) | `/api/mcp/maquetas` | Ajustar maquetas HTML desde solicitudes anotadas y leer/escribir cerebros | Token de maquetas |
 | **WhatsApp por linea** (36) | `/api/mcp/whatsapp/{lineId}` | Leer y escribir por una linea de WhatsApp | Token de `/lineas` |
 
 Como conectarlos: [[01 - Conectar los MCP]].
@@ -62,7 +77,7 @@ Como conectarlos: [[01 - Conectar los MCP]].
 5. **Verifica** con una lectura (`ver_*`, `ver_reporte`, `listar_corridas*`, `verify_form`).
 6. **Reporta** al usuario que quedo hecho, con nombres y donde verlo en pantalla, y que quedo pendiente.
 
-## Contenido del vault
+## Contenido de la guia
 
 **Fundamentos**
 - [[01 - Conectar los MCP]] - tokens, configuracion de Claude Code/Desktop, Gemini, Codex, prueba de conexion.
@@ -71,21 +86,21 @@ Como conectarlos: [[01 - Conectar los MCP]].
 - [[04 - Trampas conocidas]] - errores reales ya vividos y como evitarlos. **Leelo: ahorra horas.**
 - [[05 - Solucion de problemas]] - mensajes de error y que hacer.
 
-**Recetas paso a paso** (carpeta `Recetas/`): R01 a R11 (tabla de arriba).
+**Recetas paso a paso**: R01 a R11 (tabla de arriba).
 
-**Referencia completa** (carpeta `Referencia/`, generada del catalogo real del servidor):
+**Referencia completa** (generada del catalogo real del servidor):
 - [[T01 - Tableros y tareas]] - [[T02 - Directorio de contactos]] - [[T03 - Flujos de proceso (BPMN)]]
 - [[T04 - Drones de extraccion web]] - [[T05 - Contenedores de datos]] - [[T06 - Agentes de IA]]
 - [[T07 - Clasificacion y datos masivos con IA]] - [[T08 - Reportes e indicadores]] - [[T09 - Formularios dinamicos]]
 - [[M01 - MCP Maquetas]] - [[W01 - MCP WhatsApp por linea]]
-- [[Indice de herramientas (A-Z)]] - las 209 herramientas con su modulo.
+- [[Indice de herramientas (A-Z)]] - las 211 herramientas con su modulo.
 
-**Para el cliente**: [[Plantilla CLAUDE.md para el cliente]] - bloque para pegar en el proyecto de la IA del
-cliente para que use este vault automaticamente.
+**Para el cliente (opcional)**: [[Plantilla CLAUDE.md para el cliente]] - bloque para el CLAUDE.md de la IA del
+cliente que refuerza el habito de consultar esta guia.
 
 ## Si la herramienta que buscas no esta
 
 El catalogo crece con cada version. La fuente de verdad SIEMPRE es lo que devuelve el servidor (`tools/list`):
-si ves una herramienta que este vault no documenta, lee su descripcion y esquema; si este vault documenta una
+si ves una herramienta que esta guia no documenta, lee su descripcion y esquema; si esta guia documenta una
 que el servidor ya no expone, el servidor manda. Si el usuario necesita algo que ninguna herramienta permite,
 dilo claramente (y que puede hacerse en pantalla) en vez de improvisar.

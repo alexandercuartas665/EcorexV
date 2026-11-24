@@ -17,6 +17,7 @@ Volver a [[00 - LEEME PRIMERO]]. Busca el mensaje (o sintoma) y aplica la salida
 | "sin permiso" / "no autorizado" en una herramienta | El usuario del token no tiene ese permiso en Roles y permisos | Pide al administrador el permiso; no intentes rodearlo |
 | No aparece un tablero/tarea que el usuario dice que existe | Visibilidad del usuario (tablero restringido, alcance) | Confirma con el usuario; usa `buscar_tareas` y `listar_tableros` |
 | Un parametro "no existe" | Nombre mal escrito / no adivinar | Revisa la ficha de la herramienta en la Referencia |
+| `guia_ecorex`: "La guia de los MCP aun no esta publicada" | La plataforma no ha publicado la guia todavia | Sigue con las descripciones de `tools/list` y avisa al usuario |
 
 ## Tareas y flujos
 

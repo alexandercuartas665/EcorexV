@@ -1,7 +1,7 @@
 ---
 tipo: referencia
 servidor: ecorex-maquetas
-herramientas: 16
+herramientas: 17
 fuente: specs en codigo (generado)
 ---
 
@@ -22,7 +22,7 @@ Flujo: `listar_proyectos` -> `listar_solicitudes` -> `ver_solicitud` (trae la ca
 `comentar_solicitud` -> (con OK del usuario) publicar con el comando de `como_publicar_version` ->
 `resolver_solicitud`. La maqueta es HTML puro: no agregues scripts de ECOREX. Nunca escribas el token en archivos.
 
-## Herramientas (16)
+## Herramientas (17)
 
 ### `listar_proyectos`
 
@@ -194,14 +194,34 @@ Llamada minima (solo obligatorios):
 }
 ```
 
+### `listar_cerebros`
+
+**Tipo:** Lectura
+
+> Lista los CEREBROS de la empresa (bases de notas tipo Obsidian): slug, nombre, categoria, cuantas notas tiene, si es de SOLO LECTURA (sembrado por la plataforma) y a que maquetas esta vinculado (y si es su principal). Pasa su slug como 'cerebro' en las demas herramientas de notas.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `texto` | string |  | Filtra por nombre, descripcion o categoria |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "listar_cerebros",
+  "arguments": {}
+}
+```
+
 ### `listar_notas`
 
 **Tipo:** Lectura
 
-> Lista las notas del CEREBRO DIGITAL del proyecto (notas tipo Obsidian sobre lo que se esta construyendo en la maqueta): titulo, resumen, enlaces salientes y cuantas notas la enlazan. Mas recientes primero.
+> Lista las notas de un CEREBRO (notas tipo Obsidian: decisiones, conocimiento, lo que se construye en una maqueta): titulo, resumen, enlaces salientes y cuantas notas la enlazan. Mas recientes primero.
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 
 Llamada minima (solo obligatorios):
@@ -221,6 +241,7 @@ Llamada minima (solo obligatorios):
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 | `texto` | string | SI |  |
 
@@ -243,6 +264,7 @@ Llamada minima (solo obligatorios):
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 | `titulo` | string | SI |  |
 
@@ -261,10 +283,11 @@ Llamada minima (solo obligatorios):
 
 **Tipo:** Escritura
 
-> Crea una nota en el cerebro digital del proyecto. Sintaxis de enlaces: `[[Titulo de nota]]`, `[[Titulo|texto]]`, `[[pantalla.html]]` (pantalla de la maqueta), `[[T00046]]` (solicitud) y #etiqueta. Un enlace a una nota que no existe queda como nodo pendiente. Usala para guardar conclusiones, decisiones y preguntas abiertas.
+> Crea una nota en el cerebro (no se puede en uno de solo lectura). Sintaxis de enlaces: `[[Titulo de nota]]`, `[[Titulo|texto]]`, `[[pantalla.html]]` (pantalla de la maqueta), `[[T00046]]` (solicitud) y #etiqueta. Un enlace a una nota que no existe queda como nodo pendiente. Usala para guardar conclusiones, decisiones y preguntas abiertas.
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 | `titulo` | string | SI | Max 200, sin [ ] / # ^ |
 | `contenido` | string | SI | Markdown |
@@ -289,6 +312,7 @@ Llamada minima (solo obligatorios):
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 | `titulo` | string | SI |  |
 | `contenido` | string |  |  |
@@ -315,6 +339,7 @@ Llamada minima (solo obligatorios):
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 
 Llamada minima (solo obligatorios):
@@ -334,6 +359,7 @@ Llamada minima (solo obligatorios):
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 
 Llamada minima (solo obligatorios):
@@ -353,6 +379,7 @@ Llamada minima (solo obligatorios):
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `cerebro` | string |  | Slug del cerebro (ver listar_cerebros). Tiene prioridad sobre proyecto. |
 | `proyecto` | string |  |  |
 | `nombre` | string | SI | Nombre del adjunto, ej. boceto.png |
 

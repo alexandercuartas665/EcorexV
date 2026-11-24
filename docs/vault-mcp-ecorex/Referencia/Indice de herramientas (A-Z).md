@@ -113,6 +113,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `guardar_contacto` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `guardar_programacion` | [[T04 - Drones de extraccion web]] | Escritura |
 | `guardar_programacion_importacion` | [[T05 - Contenedores de datos]] | Escritura |
+| `guia_ecorex` | [[T01 - Tableros y tareas]] | Lectura |
 | `historial_prompts_agente` | [[T06 - Agentes de IA]] | Lectura |
 | `import_form` | [[T09 - Formularios dinamicos]] | Escritura |
 | `importar_bpmn` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
@@ -129,6 +130,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `listar_adjuntos` | [[M01 - MCP Maquetas]] | Lectura |
 | `listar_agentes` | [[T06 - Agentes de IA]] | Lectura |
 | `listar_campos_contacto` | [[T02 - Directorio de contactos]] | Lectura |
+| `listar_cerebros` | [[M01 - MCP Maquetas]] | Lectura |
 | `listar_chats` | [[W01 - MCP WhatsApp por linea]] | Lectura |
 | `listar_conceptos` | [[T01 - Tableros y tareas]] | Lectura |
 | `listar_conectores` | [[T05 - Contenedores de datos]] | Lectura |

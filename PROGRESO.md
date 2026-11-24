@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Guia de los MCP lista para publicar como cerebro (guia_ecorex, ADR-0204) - SOLO DOCS, sin deploy
+
+Agente: ECOREX.mcp (Claude Opus 5.5). Sin codigo de producto, sin migracion.
+- **Verificado en prod (v0.16.384)**: `tools/list` del MCP de tableros = 158 con `guia_ecorex` (solo lectura); `initialize` trae la frase nueva al inicio de `instructions`; `guia_ecorex` sin guia publicada responde "La guia de los MCP aun no esta publicada...".
+- **Vault ajustado para leerse por MCP** (`docs/vault-mcp-ecorex/`): la nota `00 - LEEME PRIMERO` (titulo intacto: es la entrada de `guia_ecorex`) explica como abrir notas con `nota` y buscar errores con `buscar`; conteos 158 / 17 / 36 = 211; la plantilla CLAUDE.md pasa a OPCIONAL y apunta a `guia_ecorex`; Referencia regenerada (T01 con `guia_ecorex`, M01 con `listar_cerebros`).
+- **Herramientas al repo** (`docs/mcp/vault-tools/`, no `tools/` porque esta ignorado por git): `bajar_catalogo.ps1` (token y URL por variables de entorno), `gen_referencia.py`, `validar_vault.py` (patrones privados en `patrones-privados.local`, ignorado) y `empaquetar_vault.py` (titulos unicos, nota de entrada, ASCII, tope 200k). Validacion: 339 llamadas de ejemplo OK, 0 enlaces rotos, 0 no-ASCII, 0 datos privados.
+- **Siguiente (Super Admin)**: `/cerebros-plantilla` -> crear "Guia de uso de ECOREX por IA" (categoria Plataforma, bloqueada, todas las empresas) -> importar `docs/mcp/vault-tools/salida.local/guia-ecorex-vault.zip` -> marcar "Es la guia de los MCP" -> Publicar. Luego ECOREX.mcp valida en vivo (spec seccion 5).
+
 ## 2026-11-23 - Guia de los MCP como cerebro de plataforma: tool guia_ecorex (ADR-0204) - v0.16.384 (rama feat/guia-mcp-cerebro)
 
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/guia-mcp-cerebro (a31e6c5b, incluye la spec e1ae212f) como v0.16.384 sobre 0601fdf7. Gates en la rama (identica al tronco + la rama). **DESPLEGADA en prod 2026-11-23 ~20:15 Bogota** con OK del usuario (deploy-prod-fast via GHCR): footer /login v0.16.384, Restarts=0, 0 errores en log, migracion 20261123231854_AddBrainTemplateMcpGuide aplicada (columna brain_templates.is_mcp_guide). Siguiente: ECOREX.mcp arma el ZIP, Super Admin crea la plantilla guia, importa, marca 'Es la guia de los MCP' y publica; luego validacion en vivo.

@@ -2,7 +2,7 @@
 tipo: referencia
 servidor: ecorex-tableros
 modulo: tableros-tareas
-herramientas: 16
+herramientas: 17
 fuente: catalogo vivo tools/list (generado)
 ---
 
@@ -21,12 +21,14 @@ Conceptos clave:
 - Un **concepto** (tipo de actividad, ver `listar_conceptos`) clasifica la tarea; si el concepto tiene flujo
   enganchado, `crear_tarea` con ese concepto ARRANCA el flujo.
 - Empieza siempre por `listar_tableros` o `mis_pasos_pendientes`.
+- `guia_ecorex` es ESTA guia servida por el MCP: sin argumentos da la nota de entrada; `nota` abre una nota por
+  titulo; `buscar` encuentra notas por texto (por ejemplo, el texto de un error).
 
 Recetas: [[R01 - Operar tareas y tableros]]
 
-## Herramientas (16)
+## Herramientas (17)
 
-- **Lectura:** `listar_tableros`, `ver_tablero`, `buscar_tareas`, `ver_tarea`, `mis_pasos_pendientes`, `listar_conceptos`, `listar_usuarios`
+- **Lectura:** `listar_tableros`, `ver_tablero`, `buscar_tareas`, `ver_tarea`, `mis_pasos_pendientes`, `listar_conceptos`, `listar_usuarios`, `guia_ecorex`
 - **Escritura:** `crear_tarea`, `mover_tarea`, `terminar_tarea`, `comentar`, `asignar_tarea`, `checklist`, `registrar_tiempo`, `tomar_paso`, `completar_paso`
 - **Destructivas:** _ninguna_
 
@@ -411,6 +413,37 @@ Ejemplo real (valores genericos):
     "numero": "T00123",
     "opcion": "Aprobado",
     "comentario": "Revisado con el cliente"
+  }
+}
+```
+
+### `guia_ecorex`
+
+**Tipo:** Lectura
+
+> Manual de uso de este MCP: protocolo, reglas, trampas conocidas y recetas paso a paso (contenedores, conectores, reportes, flujos, formularios, drones, agentes, clasificacion IA). Llamala antes de construir algo nuevo. Sin argumentos devuelve la nota de entrada y los titulos de todas las notas; 'nota' = una nota completa por titulo; 'buscar' = notas que contienen el texto (por ejemplo, el texto de un error), maximo 20.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `nota` | string |  | Titulo de la nota (ver la lista sin argumentos) |
+| `buscar` | string |  | Texto a buscar en titulos y contenido |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "guia_ecorex",
+  "arguments": {}
+}
+```
+
+Ejemplo real (valores genericos):
+
+```json
+{
+  "name": "guia_ecorex",
+  "arguments": {
+    "buscar": "Tiempo de espera agotado"
   }
 }
 ```

@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataLookups;
+using Ecorex.Application.Directorio;
 using Ecorex.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -43,6 +44,20 @@ public static class TerceroFichaReportFields
         var titulo = fichas.GroupBy(f => f.FichaKey).ToDictionary(g => g.Key, g => g.First().Title, StringComparer.Ordinal);
         var orden = fichas.GroupBy(f => f.FichaKey).ToDictionary(g => g.Key, g => g.First().SortOrder, StringComparer.Ordinal);
 
+        // Claves con algun valor en los datos (una sola pasada por las fichas).
+        var conDato = new HashSet<(string Seccion, string Campo)>();
+        foreach (var json in fichasJsons)
+        {
+            if (Parse(json) is not { } doc) { continue; }
+            foreach (var (seccion, campos) in doc)
+            {
+                foreach (var (campo, valor) in campos)
+                {
+                    if (Scalar(valor) is not null) { conDato.Add((seccion, campo)); }
+                }
+            }
+        }
+
         var candidatos = new List<(string Seccion, string Campo, string Label, TerceroFieldType Type, string? Options)>();
         var definidos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var d in defs
@@ -53,22 +68,15 @@ public static class TerceroFichaReportFields
             // Separadores y tablas no se publican, pero tampoco vuelven como "clave sin definicion".
             definidos.Add(KeyFor(d.FichaKey, d.FieldKey));
             if (d.FieldType is TerceroFieldType.Separator or TerceroFieldType.Table) { continue; }
+            // Secciones del motor Modular ("mod_", Capa 8): en un tenant Clasico existen definidas pero vacias y solo
+            // duplicarian etiquetas; se publican cuando algun tercero tiene dato en ellas.
+            if (d.FichaKey.StartsWith(DirectorioModularDefaults.SeccionPrefix, StringComparison.Ordinal)
+                && !conDato.Contains((d.FichaKey, d.FieldKey))) { continue; }
             candidatos.Add((d.FichaKey, d.FieldKey, string.IsNullOrWhiteSpace(d.Label) ? Legible(d.FieldKey) : d.Label.Trim(), d.FieldType, d.Options));
         }
 
-        // Claves presentes en los datos sin definicion (solo si alguna fila trae valor).
-        var extra = new HashSet<(string Seccion, string Campo)>();
-        foreach (var json in fichasJsons)
-        {
-            if (Parse(json) is not { } doc) { continue; }
-            foreach (var (seccion, campos) in doc)
-            {
-                foreach (var (campo, valor) in campos)
-                {
-                    if (!definidos.Contains(KeyFor(seccion, campo)) && Scalar(valor) is not null) { extra.Add((seccion, campo)); }
-                }
-            }
-        }
+        // Claves con dato SIN definicion.
+        var extra = conDato.Where(c => !definidos.Contains(KeyFor(c.Seccion, c.Campo))).ToList();
         foreach (var (seccion, campo) in extra
             .OrderBy(e => orden.TryGetValue(e.Seccion, out var o) ? o : int.MaxValue)
             .ThenBy(e => e.Seccion, StringComparer.Ordinal)

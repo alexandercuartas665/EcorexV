@@ -75,6 +75,7 @@ public abstract class AnalisisSourcesTestsBase
                 new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "general", FieldKey = "direccion", Label = "Direccion", FieldType = TerceroFieldType.Text },
                 new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "general", FieldKey = "tipo_de_empresa_subsector", Label = "Subsector", FieldType = TerceroFieldType.Select },
                 new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "cliente", FieldKey = "cupo", Label = "Cupo", FieldType = TerceroFieldType.Currency },
+                new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "mod_publica", FieldKey = "razon", Label = "Razon", FieldType = TerceroFieldType.Text },
                 new TerceroFieldDefinition
                 {
                     TenantId = s.TenantId,
@@ -97,6 +98,7 @@ public abstract class AnalisisSourcesTestsBase
         Assert.Equal("Direccion (General)", catalogo.FindField("ficha_general_direccion")!.DisplayName);
         Assert.True(catalogo.FindField("ficha_cliente_cupo")!.CanAggregate);
         Assert.Null(catalogo.FindField("ficha_cliente_sep"));
+        Assert.Null(catalogo.FindField("ficha_mod_publica_razon")); // seccion Modular sin datos: no se publica
         Assert.NotNull(catalogo.FindField("Sector")); // el fijo no se pisa
 
         var grupos = await QueryAsync(s.TenantId, new ReportQuerySpec

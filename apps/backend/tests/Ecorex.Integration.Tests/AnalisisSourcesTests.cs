@@ -46,6 +46,90 @@ public abstract class AnalisisSourcesTestsBase
         Assert.Equal("Cliente, Proveedor", nit.Rows[0][2]);
     }
 
+    /// <summary>
+    /// ADR-0208: native:tercero publica los campos de FICHA del tenant (clave ficha_{seccion}_{campo}, etiqueta de
+    /// la definicion, etiquetas repetidas desambiguadas) y tambien las claves con dato SIN definicion (cliente.direccion,
+    /// como en AGRO); lee el valor escalar o envuelto { value }, convierte los
+    /// numericos y resuelve la lista de contenedor a su etiqueta. Otro tenant no ve esos campos.
+    /// </summary>
+    [Fact]
+    public async Task Tercero_CamposDeFicha_EnCatalogoFiltroYAgrupacion()
+    {
+        var s = await SeedAsync("Analisis Fichas");
+        var otro = await SeedAsync("Analisis Fichas B", "Beta Comercial");
+        await using (var ctx = _fixture.CreateContext(s.TenantId))
+        {
+            var model = new DataModel { TenantId = s.TenantId, Name = "Catalogos" };
+            ctx.DataModels.Add(model);
+            var tabla = new DataContainer { TenantId = s.TenantId, Name = "Zonas", ModelId = model.Id };
+            ctx.DataContainers.Add(tabla);
+            var col = new DataContainerColumn { TenantId = s.TenantId, ContainerId = tabla.Id, Name = "zona", Type = DataContainerColumnType.Text };
+            ctx.DataContainerColumns.Add(col);
+            var fila = new DataContainerRow { TenantId = s.TenantId, ContainerId = tabla.Id };
+            ctx.DataContainerRows.Add(fila);
+            ctx.DataContainerCells.Add(new DataContainerCell { TenantId = s.TenantId, RowId = fila.Id, ColumnId = col.Id, Value = "Pacifico" });
+
+            ctx.TerceroFichaDefinitions.Add(new TerceroFichaDefinition { TenantId = s.TenantId, FichaKey = "cliente", Title = "Cliente", SortOrder = 1 });
+            ctx.TerceroFichaDefinitions.Add(new TerceroFichaDefinition { TenantId = s.TenantId, FichaKey = "general", Title = "General", SortOrder = 2 });
+            ctx.TerceroFieldDefinitions.AddRange(
+                new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "general", FieldKey = "direccion", Label = "Direccion", FieldType = TerceroFieldType.Text },
+                new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "general", FieldKey = "tipo_de_empresa_subsector", Label = "Subsector", FieldType = TerceroFieldType.Select },
+                new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "cliente", FieldKey = "cupo", Label = "Cupo", FieldType = TerceroFieldType.Currency },
+                new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "mod_publica", FieldKey = "razon", Label = "Razon", FieldType = TerceroFieldType.Text },
+                new TerceroFieldDefinition
+                {
+                    TenantId = s.TenantId,
+                    FichaKey = "cliente",
+                    FieldKey = "zona",
+                    Label = "Zona",
+                    FieldType = TerceroFieldType.Lookup,
+                    Options = "{\"tableId\":\"" + tabla.Id + "\",\"displayColumnId\":\"" + col.Id + "\"}"
+                },
+                new TerceroFieldDefinition { TenantId = s.TenantId, FichaKey = "cliente", FieldKey = "sep", Label = "Sep", FieldType = TerceroFieldType.Separator });
+            var acme = ctx.Terceros.Single(t => t.Nombre == "ACME Industrial");
+            acme.FichasJson = "{\"cliente\":{\"direccion\":\"Calle 5\",\"cupo\":\"1500000.50\",\"zona\":\"" + fila.Id + "\"},"
+                + "\"general\":{\"tipo_de_empresa_subsector\":{\"type\":\"select\",\"value\":\"Metalmecanica\"}}}";
+            await ctx.SaveChangesAsync();
+        }
+
+        var catalogo = await new TerceroReportSource(new ApplicationDbContextFactory(() => _fixture.CreateContext(s.TenantId))).DescribeAsync();
+        Assert.Equal("Subsector", catalogo.FindField("ficha_general_tipo_de_empresa_subsector")!.DisplayName);
+        Assert.Equal("Direccion (Cliente)", catalogo.FindField("ficha_cliente_direccion")!.DisplayName);
+        Assert.Equal("Direccion (General)", catalogo.FindField("ficha_general_direccion")!.DisplayName);
+        Assert.True(catalogo.FindField("ficha_cliente_cupo")!.CanAggregate);
+        Assert.Null(catalogo.FindField("ficha_cliente_sep"));
+        Assert.Null(catalogo.FindField("ficha_mod_publica_razon")); // seccion Modular sin datos: no se publica
+        Assert.NotNull(catalogo.FindField("Sector")); // el fijo no se pisa
+
+        var grupos = await QueryAsync(s.TenantId, new ReportQuerySpec
+        {
+            SourceKey = TerceroReportSource.SourceKey,
+            GroupBy = new[] { "ficha_general_tipo_de_empresa_subsector" },
+            Aggregates = new[] { new ReportAggregate(string.Empty, ReportAggregateFunction.Count) }
+        });
+        Assert.Contains(grupos.Rows, r => Equals(r[0], "Metalmecanica") && Convert.ToInt64(r[1]) == 1);
+
+        var fila1 = await QueryAsync(s.TenantId, new ReportQuerySpec
+        {
+            SourceKey = TerceroReportSource.SourceKey,
+            Fields = new[] { "Nombre", "ficha_cliente_direccion", "ficha_cliente_cupo", "ficha_cliente_zona" },
+            Filters = new[] { ReportFilter.Eq("ficha_general_tipo_de_empresa_subsector", "Metalmecanica") }
+        });
+        var r1 = Assert.Single(fila1.Rows);
+        Assert.Equal("ACME Industrial", r1[0]);
+        Assert.Equal("Calle 5", r1[1]);
+        Assert.Equal(1500000.50m, Convert.ToDecimal(r1[2]));
+        Assert.Equal("Pacifico", r1[3]);
+
+        // El otro tenant no tiene esas fichas: su catalogo no las publica y no puede consultarlas.
+        var ajeno = await RunAsync(otro.TenantId, ds => ds.QueryAsync(new ReportQuerySpec
+        {
+            SourceKey = TerceroReportSource.SourceKey,
+            Fields = new[] { "ficha_general_tipo_de_empresa_subsector" }
+        }, new ReportContext(otro.TenantId)).ContinueWith(t => t.Exception?.InnerException));
+        Assert.IsType<ReportValidationException>(ajeno);
+    }
+
     [Fact]
     public async Task TerceroNota_SumsValorByAccion()
     {

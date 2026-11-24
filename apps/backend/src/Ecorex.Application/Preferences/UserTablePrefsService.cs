@@ -18,18 +18,23 @@ public interface IUserTablePrefsService
 public sealed class UserTablePrefsService : IUserTablePrefsService
 {
     private readonly IApplicationDbContext _db;
+    private readonly IApplicationDbContextFactory _dbFactory;
     private readonly ITenantContext _tenant;
 
-    public UserTablePrefsService(IApplicationDbContext db, ITenantContext tenant)
+    public UserTablePrefsService(IApplicationDbContext db, IApplicationDbContextFactory dbFactory, ITenantContext tenant)
     {
         _db = db;
+        _dbFactory = dbFactory;
         _tenant = tenant;
     }
 
     public async Task<string?> GetAsync(string tableKey, CancellationToken ct = default)
     {
         if (_tenant.UserId is not Guid uid) { return null; }
-        var p = await _db.UserTablePreferences.AsNoTracking()
+        // Lectura en contexto efimero (ADR-0138): la grilla comun (ADR-0207) la pide al abrir la pagina, en
+        // paralelo con las cargas de la propia pagina, y no debe chocar con el DbContext del circuito.
+        await using var db = _dbFactory.Create();
+        var p = await db.UserTablePreferences.AsNoTracking()
             .FirstOrDefaultAsync(x => x.UserId == uid && x.TableKey == tableKey, ct);
         return p?.PreferencesJson;
     }

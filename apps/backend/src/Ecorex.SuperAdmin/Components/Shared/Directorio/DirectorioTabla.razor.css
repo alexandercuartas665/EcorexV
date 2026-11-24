@@ -1,0 +1,48 @@
+/* Celdas del Directorio dentro de la grilla comun (ADR-0207). Mismos tokens que la lista anterior
+   (dg-*) del prototipo ECOREX.dc.html; viven aqui porque las celdas las renderiza este componente. */
+.dt-name { display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 340px; }
+.dt-expand { width: 24px; height: 24px; flex: none; border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); padding: 0; }
+.dt-expand:hover { background: var(--surface-3, var(--surface-2)); }
+.dt-expand svg { width: 13px; height: 13px; transition: transform .16s; }
+.dt-av { flex: none; display: grid; place-items: center; color: #fff; font-weight: 700; position: relative; overflow: hidden; width: 34px; height: 34px; font-size: 11px; }
+.dt-av.emp { border-radius: 11px; }
+.dt-av.per { border-radius: 50%; }
+.dt-av-img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; border-radius: inherit; }
+.dt-name-main { min-width: 0; cursor: pointer; }
+.dt-name-line { display: flex; align-items: center; gap: 7px; }
+.dt-name-txt { font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-name-sub { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-badge { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+.dt-tags { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.dt-tag { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 5px; }
+.dt-estado { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 6px; }
+.dt-acts { display: flex; gap: 4px; justify-content: flex-end; }
+.dt-act { width: 28px; height: 28px; border: 1px solid var(--line-2); background: var(--surface); border-radius: 7px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); padding: 0; }
+.dt-act svg { width: 14px; height: 14px; }
+.dt-act.edit:hover { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+.dt-act.assign { color: var(--t-blue); }
+.dt-act.assign:hover { background: var(--t-blue-bg); border-color: var(--t-blue); }
+.dt-act.del { border: none; background: none; color: var(--ink-3); }
+.dt-act.del:hover { background: var(--t-rose-bg); color: var(--danger); }
+
+/* Detalle: contactos asociados (fila expandida) */
+/* Pegado a la izquierda del area visible: la fila de detalle ocupa todo el ancho de la tabla (que puede
+   desbordar) y sin esto los datos del contacto quedarian fuera de la vista. */
+.dt-kids { position: sticky; left: 0; box-sizing: border-box; width: min(960px, calc(100cqw - 18px)); padding: 6px 18px 10px 66px; }
+.dt-kids-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dt-kids-lbl { font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--ink-3); padding: 8px 0 6px; }
+.dt-kids-add { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.dt-kids-add:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+.dt-kids-add svg { width: 13px; height: 13px; }
+.dt-kid { display: flex; align-items: center; gap: 11px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
+.dt-kid-av { width: 30px; height: 30px; flex: none; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 10px; }
+.dt-kid-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dt-kid-cargo { font-size: 11px; color: var(--ink-3); }
+.dt-kid-meta { font-size: 11px; color: var(--ink-3); font-family: monospace; }
+.dt-kid-acts { display: flex; gap: 4px; flex: none; }
+.dt-empty-note { font-size: 12px; color: var(--ink-3); padding: 10px 0; }
+
+/* Clases de celda que se aplican al <td> de la grilla (otro componente): via ::deep bajo el envoltorio. */
+.dt-wrap { display: block; }
+.dt-wrap ::deep td.dt-mono { font-family: monospace; }
+.dt-wrap ::deep td.dt-acts-td { width: 1%; }

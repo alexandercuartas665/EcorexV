@@ -1,0 +1,391 @@
+@namespace Ecorex.SuperAdmin.Components.Shared.Grid
+@typeparam TItem
+@using Ecorex.Application.Preferences
+
+@* Grilla comun (ADR-0207): barra Filtros | Guardados | Ordenar | Agrupar | Columnas | Columnas fijas |
+   Exportar Excel, tabla con encabezado fijo, columnas arrastrables/redimensionables/fijas, grupos con
+   subtotales y total general, detalle por fila y paginacion. Look del motor de tabla del Conciliador DIAN. *@
+
+<div class="eg-root" @ref="_root">
+    @if (!_ready || Loading)
+    {
+        <div class="eg-loading">Cargando...</div>
+    }
+    else
+    {
+        <div class="eg-toolbar">
+            <button class="eg-tbtn @(FilterCount > 0 ? "on" : "")" @onclick="OpenFilterBuilder" title="Construye un filtro con condiciones Y/O anidadas">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" /></svg>
+                <span>Filtros@(FilterCount > 0 ? $" ({FilterCount})" : "")</span>
+            </button>
+
+            @if (FilterModule is not null)
+            {
+                <div class="eg-dd">
+                    <button class="eg-tbtn" @onclick="@(() => ToggleMenu("saved"))" title="Filtros guardados del equipo">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" /></svg>
+                        <span>Guardados@(_savedFilters.Count > 0 ? $" ({_savedFilters.Count})" : "")</span>
+                    </button>
+                    @if (_openMenu == "saved")
+                    {
+                        <div class="eg-dd-overlay" @onclick="CloseMenu"></div>
+                        <div class="eg-dd-panel">
+                            <div class="eg-dd-title">Filtros del equipo</div>
+                            @if (_savedFilters.Count == 0)
+                            {
+                                <div class="eg-dd-empty">No hay filtros guardados. Arma uno en "Filtros" y usa "Guardar".</div>
+                            }
+                            @foreach (var sf in _savedFilters)
+                            {
+                                var sfx = sf;
+                                <div class="eg-dd-row">
+                                    <button class="eg-saved-apply" @onclick="() => ApplySaved(sfx)" title="@($"Aplicar - Autor: {sfx.CreatedByName ?? "-"}")">@sfx.Name</button>
+                                    <button class="eg-saved-ico" @onclick="() => EditSaved(sfx)" title="Editar">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>
+                                    </button>
+                                    <button class="eg-saved-ico eg-saved-del" @onclick="() => DeleteSavedAsync(sfx)" title="Eliminar">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /></svg>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            @* Ordenar (multi-criterio) *@
+            <div class="eg-dd">
+                <button class="eg-tbtn @(_sorts.Count > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("sort"))" title="Ordenar por una o varias columnas">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h11M3 12h7M3 18h4M18 5v14M18 19l3-3M18 19l-3-3" /></svg>
+                    <span>Ordenar@(_sorts.Count > 0 ? $" ({_sorts.Count})" : "")</span>
+                </button>
+                @if (_openMenu == "sort")
+                {
+                    <div class="eg-dd-overlay" @onclick="CloseMenu"></div>
+                    <div class="eg-dd-panel">
+                        <div class="eg-dd-title">Ordenar por</div>
+                        @if (_sorts.Count == 0) { <div class="eg-dd-empty">Sin orden aplicado.</div> }
+                        @foreach (var s in _sorts.ToList())
+                        {
+                            var sc = s;
+                            <div class="eg-dd-row">
+                                <select class="eg-in" style="flex:1" @onchange="e => ChangeSortField(sc, e)">
+                                    @ColOptions(Columns.Where(x => x.Sortable), sc.K)
+                                </select>
+                                <button class="eg-dd-dir" @onclick="() => ToggleSortDir(sc)" title="Cambiar direccion">@(sc.Dir >= 0 ? "A\u2192Z" : "Z\u2192A")</button>
+                                <button class="eg-dd-del" @onclick="() => RemoveSort(sc)" title="Quitar">&times;</button>
+                            </div>
+                        }
+                        <button class="eg-dd-add" @onclick="AddSort">+ Agregar orden</button>
+                    </div>
+                }
+            </div>
+
+            @* Agrupar (apilable): subtotales + cantidad por grupo *@
+            <div class="eg-dd">
+                <button class="eg-tbtn @(_groups.Count > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("group"))" title="Agrupar (genera subtotales y cantidad de registros)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+                    <span>Agrupar@(_groups.Count > 0 ? $" ({_groups.Count})" : "")</span>
+                </button>
+                @if (_openMenu == "group")
+                {
+                    <div class="eg-dd-overlay" @onclick="CloseMenu"></div>
+                    <div class="eg-dd-panel">
+                        <div class="eg-dd-title">Agrupar por</div>
+                        @if (_groups.Count == 0) { <div class="eg-dd-empty">Sin agrupacion. Al agrupar se muestran la cantidad y los subtotales por grupo.</div> }
+                        @for (int gi = 0; gi < _groups.Count; gi++)
+                        {
+                            var idx = gi;
+                            <div class="eg-dd-row">
+                                <select class="eg-in" style="flex:1" @onchange="e => ChangeGroupField(idx, e)">
+                                    @ColOptions(Columns.Where(x => x.Groupable), _groups[idx])
+                                </select>
+                                <button class="eg-dd-del" @onclick="() => RemoveGroup(idx)" title="Quitar">&times;</button>
+                            </div>
+                        }
+                        @if (_groups.Count < Columns.Count(x => x.Groupable))
+                        {
+                            <button class="eg-dd-add" @onclick="AddGroup">+ Agregar agrupacion</button>
+                        }
+                    </div>
+                }
+            </div>
+
+            @* Columnas: mover, mostrar/ocultar, restablecer *@
+            <div class="eg-dd">
+                <button class="eg-tbtn" @onclick="@(() => ToggleMenu("cols"))" title="Mover, mostrar u ocultar columnas">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16" /></svg>
+                    <span>Columnas (@VisibleCols().Count()/@_order.Count)</span>
+                </button>
+                @if (_openMenu == "cols")
+                {
+                    <div class="eg-dd-overlay" @onclick="CloseMenu"></div>
+                    <div class="eg-dd-panel eg-dd-cols">
+                        <div class="eg-dd-title">Columnas (tambien puedes arrastrar el encabezado)</div>
+                        <div class="eg-collist">
+                            @{ string? lastSection = null; }
+                            @for (int ci = 0; ci < _order.Count; ci++)
+                            {
+                                var idx = ci;
+                                var col = ColByKey(_order[idx]);
+                                if (col is null) { continue; }
+                                if (col.Section is { } sec && sec != lastSection)
+                                {
+                                    lastSection = sec;
+                                    <div class="eg-col-sec">@sec</div>
+                                }
+                                <div class="eg-colit">
+                                    <button class="eg-col-mv" disabled="@(idx == 0)" @onclick="() => MoveCol(idx, -1)">&#9650;</button>
+                                    <button class="eg-col-mv" disabled="@(idx == _order.Count - 1)" @onclick="() => MoveCol(idx, 1)">&#9660;</button>
+                                    <span class="eg-col-name">@col.Label</span>
+                                    <button class="eg-col-eye @(_hidden.Contains(col.Key) ? "" : "on")" @onclick="() => ToggleHidden(col.Key)">
+                                        @(_hidden.Contains(col.Key) ? "oculta" : "visible")
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                        <div class="eg-col-acts">
+                            <button class="eg-col-mass" @onclick="ShowAllCols">Mostrar todas</button>
+                            <button class="eg-col-mass" @onclick="ResetCols">Restablecer</button>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* Columnas fijas (freeze) *@
+            <div class="eg-dd">
+                <button class="eg-tbtn @(_frozen > 0 ? "on" : "")" @onclick="@(() => ToggleMenu("freeze"))" title="Fijar columnas a la izquierda al desplazar en horizontal">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v6H4zM4 10v10M9 10v10" /></svg>
+                    <span>Columnas fijas@(_frozen > 0 ? $" ({_frozen})" : "")</span>
+                </button>
+                @if (_openMenu == "freeze")
+                {
+                    <div class="eg-dd-overlay" @onclick="CloseMenu"></div>
+                    <div class="eg-dd-panel">
+                        <div class="eg-dd-title">Fijar desde la 1.a hasta...</div>
+                        <button class="eg-dd-item @(_frozen == 0 ? "on" : "")" @onclick="() => SetFrozenAsync(0)">Ninguna (quitar fijas)</button>
+                        @{ var visF = VisibleCols().ToList(); }
+                        @for (int fi = 0; fi < visF.Count; fi++)
+                        {
+                            var n = fi + 1;
+                            <button class="eg-dd-item @(_frozen == n ? "on" : "")" @onclick="() => SetFrozenAsync(n)">@visF[fi].Label</button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <button class="eg-tbtn" @onclick="ExportExcelAsync" disabled="@_exporting" title="Exporta a Excel lo que estas viendo: filtro, columnas, orden y agrupacion (con subtotales y total general)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M7 10l5 5 5-5" /><path d="M12 15V3" /></svg>
+                <span>@(_exporting ? "Exportando..." : "Exportar Excel")</span>
+            </button>
+
+            @if (FilterCount > 0)
+            {
+                <span class="eg-filter-active">@FilterCount condici@(FilterCount == 1 ? "\u00f3n" : "ones")@(_activeFilterName is { } nm ? $" - {nm}" : "")</span>
+                <button class="eg-link" @onclick="ClearFilter">Limpiar</button>
+            }
+
+            <div class="eg-spacer"></div>
+            @if (_groups.Count > 0)
+            {
+                <span class="eg-hint">Agrupado por @string.Join(" > ", _groups.Select(LabelOf))</span>
+            }
+            @ToolbarExtra
+        </div>
+
+        @if (_msg is not null)
+        {
+            <div class="eg-msg">@_msg</div>
+        }
+
+        <div class="eg-hscroll-top" aria-hidden="true"><div class="eg-hscroll-spacer"></div></div>
+        <div class="eg-grid-wrap">
+            <table class="eg-grid">
+                <thead>
+                    <tr>
+                        @foreach (var col in VisibleCols())
+                        {
+                            var c = col;
+                            var sort = _sorts.FirstOrDefault(s => s.K == c.Key);
+                            var arrow = sort is null ? "" : (sort.Dir >= 0 ? " \u25b2" : " \u25bc");
+                            <th class="eg-th @(c.Type == GridColType.Number ? "num" : "")" draggable="true" data-col="@c.Key"
+                                style="@(_widths.TryGetValue(c.Key, out var w) ? $"width:{w}px;min-width:{w}px" : "")"
+                                @ondragstart="() => _dragCol = c.Key"
+                                @ondragover:preventDefault="true"
+                                @ondrop="() => OnDropCol(c.Key)">
+                                <span class="eg-th-lbl" title="Clic: ordenar" @onclick="() => QuickSort(c.Key)">@c.Label@arrow</span>
+                                <button class="eg-th-caret" @onclick="e => OpenColMenu(c, e)" @onclick:stopPropagation="true" title="Opciones de la columna">&#9662;</button>
+                                <span class="eg-rz" title="Arrastra para ajustar el ancho (doble clic: auto)"></span>
+                            </th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_gridItems.Count == 0)
+                    {
+                        <tr><td colspan="@ColSpanAll" class="eg-empty-row">@(Items.Count == 0 ? EmptyText : "Ningun registro cumple el filtro.")</td></tr>
+                    }
+                    @foreach (var it in PageItems)
+                    {
+                        @if (it.Kind == GKind.Group)
+                        {
+                            <tr @key="@($"g{it.Seq}")" class="eg-grp @(it.Level > 0 ? "eg-grp2" : "")">
+                                <td colspan="@ColSpanAll">
+                                    <span class="eg-grp-lbl" style="padding-left:@(it.Level * 18)px">@it.Label</span>
+                                    <span class="eg-grp-n">@it.Count reg.</span>
+                                </td>
+                            </tr>
+                        }
+                        else if (it.Kind == GKind.Subtotal)
+                        {
+                            @SubtotalRow(it)
+                        }
+                        else if (it.Row is { } row)
+                        {
+                            var r = row;
+                            var rk = RowKey is not null ? RowKey(r) : (object)$"d{it.Seq}";
+                            <tr @key="rk" class="eg-row @(RowClass?.Invoke(r))">
+                                @foreach (var col in VisibleCols())
+                                {
+                                    var c = col;
+                                    <td class="@(c.Type == GridColType.Number ? "num" : null) @c.CellClass">
+                                        @if (c.Cell is not null)
+                                        {
+                                            @c.Cell(r)
+                                        }
+                                        else
+                                        {
+                                            @c.TextOf(r)
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                            @if (RowDetail is not null && IsExpanded?.Invoke(r) == true)
+                            {
+                                <tr @key="@($"x{rk}")" class="eg-detail">
+                                    <td colspan="@ColSpanAll">@RowDetail(r)</td>
+                                </tr>
+                            }
+                        }
+                    }
+                    @if (_grand is not null && _page == PageCount - 1)
+                    {
+                        @SubtotalRow(_grand)
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="eg-pager">
+            <span class="eg-pager-info">@_filteredCount registro(s)@(_filteredCount != Items.Count ? $" de {Items.Count}" : "") &#183; pagina @(_page + 1) de @PageCount</span>
+            <div class="eg-pager-ctrl">
+                <label>Por pagina
+                    <select @onchange="OnPageSizeChanged">
+                        @foreach (var s in PageSizes)
+                        {
+                            <option value="@s" selected="@(s == _pageSize)">@s</option>
+                        }
+                    </select>
+                </label>
+                <button title="Primera" @onclick="() => GoPage(0)" disabled="@(_page == 0)">&laquo;</button>
+                <button title="Anterior" @onclick="() => GoPage(_page - 1)" disabled="@(_page == 0)">&lsaquo;</button>
+                <button title="Siguiente" @onclick="() => GoPage(_page + 1)" disabled="@(_page + 1 >= PageCount)">&rsaquo;</button>
+                <button title="Ultima" @onclick="() => GoPage(PageCount - 1)" disabled="@(_page + 1 >= PageCount)">&raquo;</button>
+            </div>
+        </div>
+
+        @if (_colMenuKey is { } cmk && ColByKey(cmk) is { } cm)
+        {
+            <div class="eg-dd-overlay" @onclick="CloseMenu"></div>
+            <div class="eg-colmenu" style="left:@(_colMenuX.ToString(System.Globalization.CultureInfo.InvariantCulture))px;top:@(_colMenuY.ToString(System.Globalization.CultureInfo.InvariantCulture))px">
+                <div class="eg-dd-title">@cm.Label</div>
+                @if (cm.Sortable)
+                {
+                    <button class="eg-dd-item" @onclick="() => ColMenuSort(1)">Ordenar A&#8594;Z</button>
+                    <button class="eg-dd-item" @onclick="() => ColMenuSort(-1)">Ordenar Z&#8594;A</button>
+                }
+                @if (cm.Groupable && !_groups.Contains(cm.Key))
+                {
+                    <button class="eg-dd-item" @onclick="ColMenuGroup">Agrupar por este campo</button>
+                }
+                <button class="eg-dd-item" @onclick="ColMenuFreeze">Fijar hasta aqui</button>
+                <button class="eg-dd-item" @onclick="ColMenuHide">Ocultar columna</button>
+            </div>
+        }
+
+        @if (_filterOpen)
+        {
+            <div class="eg-modal-backdrop" @onclick="CloseFilterBuilder"></div>
+            <div class="eg-fb-modal" @onclick:stopPropagation="true">
+                <div class="eg-fb-head">
+                    <div class="eg-fb-title">
+                        <div class="eg-fb-title-main">Constructor de filtros</div>
+                        <div class="eg-fb-title-sub">Combina condiciones con Y / O. Puedes anidar grupos. Se aplica en vivo.</div>
+                    </div>
+                    <button class="eg-fb-close" title="Cerrar" @onclick="CloseFilterBuilder">&times;</button>
+                </div>
+                <div class="eg-fb-body">
+                    <GridFilterGroup Group="_filterRoot" Depth="0" Fields="_filterFields" Suggestions="Suggestions" OnChanged="OnFilterChanged" />
+                </div>
+                <div class="eg-fb-foot">
+                    <button class="eg-link" @onclick="ClearFilterTree" title="Quita todas las condiciones">Vaciar</button>
+                    <span class="eg-fb-count">@_filteredCount de @Items.Count registro(s)</span>
+                    <div class="eg-spacer"></div>
+                    @if (FilterModule is not null)
+                    {
+                        <input class="eg-in" style="width:200px;" placeholder="Nombre para guardar" @bind="_saveName" />
+                        <button class="eg-btn" @onclick="SaveFilterAsync" disabled="@(string.IsNullOrWhiteSpace(_saveName) || FilterCount == 0)" title="Guarda este filtro para todo el equipo">Guardar</button>
+                    }
+                    <button class="eg-btn primary" @onclick="CloseFilterBuilder">Aplicar y cerrar</button>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    // Opciones de columna agrupadas por seccion (las de ficha pueden repetir etiqueta con las fijas).
+    private RenderFragment ColOptions(IEnumerable<GridColumn<TItem>> cols, string selected) => __builder =>
+    {
+        foreach (var sec in cols.GroupBy(c => c.Section ?? ""))
+        {
+            if (sec.Key.Length == 0)
+            {
+                foreach (var col in sec)
+                {
+                    <option value="@col.Key" selected="@(col.Key == selected)">@col.Label</option>
+                }
+            }
+            else
+            {
+                <optgroup label="@sec.Key">
+                    @foreach (var col in sec)
+                    {
+                        <option value="@col.Key" selected="@(col.Key == selected)">@col.Label</option>
+                    }
+                </optgroup>
+            }
+        }
+    };
+
+    private RenderFragment SubtotalRow(GItem it) => __builder =>
+    {
+        var labelPut = false;
+        <tr @key="@($"s{it.Seq}")" class="eg-sub @(it.Grand ? "eg-sub-grand" : "")">
+            @foreach (var c in VisibleCols())
+            {
+                <td class="@(c.Type == GridColType.Number ? "num" : null)">
+                    @if (c.Summable && it.Sums is { } s && s.TryGetValue(c.Key, out var sv))
+                    {
+                        <strong>@FmtSum(sv)</strong>
+                    }
+                    else if (!c.Summable && !labelPut)
+                    {
+                        labelPut = true;
+                        <span class="eg-sub-lbl">@(it.Grand ? "TOTAL GENERAL" : "Subtotal") &#183; @it.Count reg.</span>
+                    }
+                </td>
+            }
+        </tr>
+    };
+}

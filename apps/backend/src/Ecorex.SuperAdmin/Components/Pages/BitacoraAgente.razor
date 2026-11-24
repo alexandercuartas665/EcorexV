@@ -5,6 +5,7 @@
 @using Ecorex.Domain.Enums
 @inject IAiAgentLineService AgentLinesSvc
 @inject IJSRuntime JS
+@inject Ecorex.Application.Analisis.IAnalisisZonaHoraria Zona
 
 <PageTitle>Bitacora del agente - ECOREX.tareas</PageTitle>
 
@@ -71,9 +72,20 @@ else if (_tab == "atencion")
 {
     <div style="display:grid;grid-template-columns:minmax(300px,400px) 1fr;gap:22px;align-items:start;">
         <div class="card" style="padding:14px;">
+            @* Filtros del riel: un DIA (zona del tenant) y buscador por nombre o telefono. Sin filtro se ven los 50 mas
+               recientes; con filtro, hasta 500 (un dia completo). *@
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+                <button class="btn btn-sm btn-outline-secondary" title="Dia anterior" @onclick="() => ShiftDayAsync(-1)" disabled="@_busy">&lsaquo;</button>
+                <input type="date" class="form-control form-control-sm" style="width:150px;" @bind="_day" @bind:after="ReloadContactsAsync" title="Ver los contactos atendidos ese dia" />
+                <button class="btn btn-sm btn-outline-secondary" title="Dia siguiente" @onclick="() => ShiftDayAsync(1)" disabled="@(_busy || _day is null || _day >= Today)">&rsaquo;</button>
+                <button class="btn btn-sm @(_day is null ? "btn-secondary" : "btn-outline-secondary")" @onclick="AllDatesAsync" disabled="@_busy">Todas las fechas</button>
+            </div>
+            <DebouncedInput Value="@_search" ValueChanged="OnSearchChanged" DelayMs="350" class="form-control form-control-sm"
+                            placeholder="Buscar por nombre o telefono" style="margin-bottom:8px;" />
+            <div class="text-muted" style="font-size:11px;margin-bottom:6px;">@ContactsSummary</div>
             @if (_contacts.Count == 0)
             {
-                <p class="text-muted" style="padding:8px 2px;">Aun no hay atenciones registradas. Cuando un agente atienda una linea (WhatsApp o voz), apareceran aqui.</p>
+                <p class="text-muted" style="padding:8px 2px;">@EmptyText</p>
             }
             else
             {
@@ -92,7 +104,7 @@ else if (_tab == "atencion")
                                     <span class="badge" style="background:var(--gradient-violet);color:#fff;" title="Incluye llamadas de voz">voz</span>
                                 }
                                 <span class="badge bg-secondary">@c.Events</span>
-                                <div class="text-muted" style="font-size:10.5px;">@(c.LastActivityAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "")</div>
+                                <div class="text-muted" style="font-size:10.5px;">@(c.LastActivityAt is DateTimeOffset la ? Local(la).ToString("dd MMM HH:mm") : "")</div>
                             </div>
                         </div>
                     }
@@ -130,7 +142,7 @@ else if (_tab == "atencion")
                         <div style="border-left:3px solid @KindColor(e.Kind);padding:6px 0 6px 14px;">
                             <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;">
                                 <strong style="font-size:13.5px;"><span class="badge @KindBadge(e.Kind)" style="margin-right:6px;">@KindLabel(e.Kind)</span>@e.Title</strong>
-                                <span class="text-muted" style="font-size:11.5px;">@e.OccurredAt.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")</span>
+                                <span class="text-muted" style="font-size:11.5px;">@Local(e.OccurredAt).ToString("dd-MM-yyyy HH:mm:ss")</span>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(e.Content))
                             {
@@ -177,7 +189,7 @@ else if (_tab == "fallos")
                                 @(string.IsNullOrWhiteSpace(f.ContactName) ? f.ContactPhone : f.ContactName)
                                 <span class="text-muted" style="font-weight:600;font-size:11.5px;">@f.ContactPhone @(f.LineLabel is null ? "" : $"- linea {f.LineLabel}")</span>
                             </strong>
-                            <span class="text-muted" style="font-size:11.5px;">@f.SentAt.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")</span>
+                            <span class="text-muted" style="font-size:11.5px;">@Local(f.SentAt).ToString("dd-MM-yyyy HH:mm:ss")</span>
                         </div>
                         <div style="margin-top:4px;font-size:12.5px;color:var(--destructive);font-weight:700;">
                             Motivo: @(string.IsNullOrWhiteSpace(f.DeliveryError) ? "sin detalle de Meta" : f.DeliveryError)
@@ -219,7 +231,7 @@ else if (_tab == "entregados")
                             </strong>
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <span class="badge @DeliveryBadge(d.DeliveryStatus)">@DeliveryLabel(d.DeliveryStatus)</span>
-                                <span class="text-muted" style="font-size:11.5px;">@d.SentAt.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")</span>
+                                <span class="text-muted" style="font-size:11.5px;">@Local(d.SentAt).ToString("dd-MM-yyyy HH:mm:ss")</span>
                             </div>
                         </div>
                         @if (!string.IsNullOrWhiteSpace(d.Body))
@@ -258,7 +270,7 @@ else if (_tab == "flujo")
                         </div>
                         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                             <span class="text-muted">
-                                Tarea <strong>@h.TaskNumber</strong> @h.TaskTitle - paso "@h.NodeName"@(h.HeldUntil is null ? "" : $" - en espera hasta {h.HeldUntil.Value.ToLocalTime():dd MMM HH:mm}")
+                                Tarea <strong>@h.TaskNumber</strong> @h.TaskTitle - paso "@h.NodeName"@(h.HeldUntil is null ? "" : $" - en espera hasta {Local(h.HeldUntil.Value):dd MMM HH:mm}")
                             </span>
                             <button class="btn btn-sm btn-outline-danger" @onclick="() => ReleaseHoldAsync(h.ConversationId)" disabled="@_busy"
                                     title="Libera esta linea del flujo: el paso vuelve a atencion humana y el agente de la linea (SARA) retoma la conversacion.">
@@ -296,7 +308,7 @@ else
                                 <span class="text-muted" style="font-weight:600;font-size:11.5px;">@(string.IsNullOrWhiteSpace(r.Objetivo) ? "" : $"- {r.Objetivo}")</span>
                             </strong>
                             <span class="text-muted" style="font-size:11.5px;">
-                                @r.At.ToLocalTime().ToString("dd-MM-yyyy HH:mm:ss")@(r.DurationSeconds is int d ? $" - {FormatDuration(d)}" : "") - @r.Status
+                                @Local(r.At).ToString("dd-MM-yyyy HH:mm:ss")@(r.DurationSeconds is int d ? $" - {FormatDuration(d)}" : "") - @r.Status
                             </span>
                         </div>
                         <audio controls preload="none" src="@r.RecordingUrl" style="width:100%;margin-top:8px;"></audio>
@@ -320,6 +332,10 @@ else
     private List<AgentRunLogEntryDto> _log = new();
     // Pestana activa: "atencion" (bitacora), "entregados"/"fallos" (WhatsApp), "flujo" (lineas tomadas) o "grabaciones" (audio de voz).
     private string _tab = "atencion";
+    // Filtros del riel (pestana Atencion): dia en la zona del tenant (null = todas las fechas) y buscador.
+    private DateOnly? _day;
+    private string? _search;
+    private TimeZoneInfo _zone = TimeZoneInfo.Utc;
     private List<AgentDeliveryFailureDto> _failures = new();
     private List<AgentDeliveryDto> _deliveries = new();
     private List<VoiceRecordingDto> _recordings = new();
@@ -385,19 +401,69 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // Regla 9: dias y horas en la zona del TENANT (no la del servidor, que en prod corre en UTC).
+        _zone = await Zona.ObtenerAsync();
+        _day = Today;
         await ReloadAsync();
         _loading = false;
     }
 
     private async Task ReloadAsync()
     {
-        _contacts = (await AgentLinesSvc.ListAttendedContactsAsync()).ToList();
+        await ReloadContactsAsync();
         _held = (await AgentLinesSvc.ListFlowHeldConversationsAsync()).ToList();
         _failures = (await AgentLinesSvc.ListDeliveryFailuresAsync()).ToList();
         _deliveries = (await AgentLinesSvc.ListDeliveriesAsync()).ToList();
         _recordings = (await AgentLinesSvc.ListVoiceRecordingsAsync()).ToList();
+    }
+
+    /// <summary>Recarga SOLO el riel de contactos (al cambiar dia o busqueda no se recargan fallos/entregas/grabaciones).</summary>
+    private async Task ReloadContactsAsync()
+    {
+        var filtrado = _day is not null || !string.IsNullOrWhiteSpace(_search);
+        _contacts = (await AgentLinesSvc.ListAttendedContactsAsync(filtrado ? 500 : 50, _day, _search, _zone)).ToList();
         if (_selectedKey is string key && _contacts.All(c => c.ContactKey != key)) { _selectedKey = null; _selectedConvId = null; _log = new(); }
     }
+
+    private DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, _zone).DateTime);
+
+    private DateTimeOffset Local(DateTimeOffset t) => TimeZoneInfo.ConvertTime(t, _zone);
+
+    private async Task ShiftDayAsync(int delta)
+    {
+        _day = (_day ?? Today).AddDays(delta);
+        await ReloadContactsAsync();
+    }
+
+    private async Task AllDatesAsync()
+    {
+        _day = null;
+        await ReloadContactsAsync();
+    }
+
+    private async Task OnSearchChanged(string? value)
+    {
+        _search = value;
+        await ReloadContactsAsync();
+    }
+
+    private string ContactsSummary
+    {
+        get
+        {
+            var n = _contacts.Count;
+            var cuando = _day is DateOnly d ? $" el {d:dd-MM-yyyy}" : (string.IsNullOrWhiteSpace(_search) ? " (los mas recientes)" : "");
+            var busca = string.IsNullOrWhiteSpace(_search) ? "" : $" que coinciden con \"{_search!.Trim()}\"";
+            return $"{n} contacto(s){cuando}{busca}";
+        }
+    }
+
+    private string EmptyText
+        => _day is DateOnly d
+            ? $"No hubo atenciones el {d:dd-MM-yyyy}{(string.IsNullOrWhiteSpace(_search) ? "" : " que coincidan con la busqueda")}."
+            : !string.IsNullOrWhiteSpace(_search)
+                ? "Ningun contacto coincide con la busqueda."
+                : "Aun no hay atenciones registradas. Cuando un agente atienda una linea (WhatsApp o voz), apareceran aqui.";
 
     /// <summary>Cambia a la pestana "Fallos de envio" y refresca (para ver el estado mas reciente).</summary>
     private async Task SwitchToFallosAsync()

@@ -87,6 +87,10 @@
                             <div class="ac-dato">Fecha: <span>@Fecha(r.FechaEmision)</span></div>
                             <div class="ac-dato">NIT: <span>@Txt(r.NitProveedor)</span></div>
                             <div class="ac-dato">Total: <span class="ac-total">@Moneda(r.TotalFactura)</span></div>
+                            @if (_solicitadas.TryGetValue(r.Id, out var actNum))
+                            {
+                                <div class="ac-dato">Actividad: <span class="ac-act" title="Actividad con la que quedo asignada esta factura">@actNum</span></div>
+                            }
                             <button class="ac-card-btn" @onclick="() => AbrirPanelAsync(r)" @onclick:stopPropagation="true"
                                     title="Ver detalle de la factura y el formulario de autorizacion">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>
@@ -153,24 +157,7 @@
                 <button class="ac-modal-close" @onclick="CerrarPanel">&times;</button>
             </div>
             <div class="ac-modal-body">
-                <div class="ac-panel">
-                    <h4>Detalle de la factura</h4>
-                @if (_sel is { } s)
-                {
-                    <div class="ac-res">Proveedor<span>@Txt(s.NombreProveedor)</span></div>
-                    <div class="ac-res">NIT<span>@Txt(s.NitProveedor)</span></div>
-                    <div class="ac-res">Factura<span>@Txt(s.NumFacturaProveedor)</span></div>
-                    <div class="ac-res">Tipo doc<span>@Txt(s.TipoDocDian)</span></div>
-                    <div class="ac-res">Fecha emision<span>@Fecha(s.FechaEmision)</span></div>
-                    <div class="ac-res ac-res-total">Total<span>@Moneda(s.TotalFactura)</span></div>
-                    <div class="ac-res">CUFE<span class="ac-cufe" title="@s.Cufe">@(s.Cufe.Length > 22 ? s.Cufe[..22] + "…" : s.Cufe)</span></div>
-                }
-                else
-                {
-                    <div class="ac-muted" style="padding:14px 2px;">Selecciona una factura para ver su detalle.</div>
-                }
-            </div>
-
+            @* El detalle de la factura ya se ve en la tarjeta y en el visor: el modal va directo al formulario. *@
             @if (_sel is not null)
             {
                 <div class="ac-panel ac-form-panel">
@@ -310,6 +297,7 @@
     // ---- Solicitar autorizacion: crea la actividad con el concepto configurado + resumen ----
     private string? _errMsg;
     private string? _solicitada;   // numero de actividad ya solicitada para la factura
+    private Dictionary<Guid, string> _solicitadas = new();   // renglon -> actividad (para las tarjetas)
     private bool _solicitando;
 
     private async Task SolicitarAutorizacionAsync()
@@ -377,6 +365,7 @@
             }
             await Cfg.SetSolicitadaAsync(_sel.Id, num);
             _solicitada = num;
+            _solicitadas[_sel.Id] = num;   // la tarjeta muestra la actividad sin recargar
             _okMsg = $"Actividad {num} de autorizacion creada" + (userLabel is { } ul ? $" (asignada a {ul})." : ".");
         }
         catch (Exception ex) { _errMsg = "Error al crear la actividad: " + ex.Message; }
@@ -443,6 +432,9 @@
         try
         {
             _items = (await Svc.ListPorAutorizarAsync(Filtro())).ToList();
+            // Actividad ya creada por factura (renglon -> numero), una sola lectura para pintar las tarjetas.
+            try { _solicitadas = new Dictionary<Guid, string>(await Cfg.GetSolicitadasMapAsync()); }
+            catch { _solicitadas = new(); }
             // Si la seleccion ya no esta en la lista MOSTRADA (respeta "solo mios"), se limpia; si no hay, se abre la primera.
             var vis = ItemsMostrados;
             if (_sel is not null && vis.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }

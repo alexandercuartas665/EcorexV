@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Autorizacion facturas DIAN: la tarjeta muestra su actividad y el modal va directo al formulario (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes (Claude Opus 5.5), pedido del usuario. SIN migracion, SIN deploy.
+- **Hecho**: en /autorizacion-compras-dian cada tarjeta muestra "Actividad: T000xx" cuando la factura ya tiene la actividad con la que quedo asignada (mapa renglon->actividad `GetSolicitadasMapAsync`, una lectura al cargar; se actualiza al solicitar). El modal "Detalle y formulario" ya no repite el bloque "Detalle de la factura" (proveedor y factura siguen en el titulo; el resto esta en la tarjeta y el visor).
+- **Pruebas**: build 0 errores; validado en local 5263 (SOLDARCO): tarjetas con T00016/T00051 y sin actividad la que no tiene; el modal abre directo en "Autorizacion de compra".
+- **Siguiente**: dev principal une con version libre y despliega con OK.
+
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.

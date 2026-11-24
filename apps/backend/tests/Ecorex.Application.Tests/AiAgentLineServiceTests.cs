@@ -21,6 +21,9 @@ public class AiAgentLineServiceTests
     {
         public DbSet<Conversation> Conversations => Set<Conversation>();
         public DbSet<Message> Messages => Set<Message>();
+        public DbSet<AiAgentRunLog> AiAgentRunLogs => Set<AiAgentRunLog>();
+        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => Set<Ecorex.Domain.Entities.VoiceCall>();
+        public DbSet<WhatsAppLine> WhatsAppLines => Set<WhatsAppLine>();
         protected override void OnModelCreating(ModelBuilder b)
             => b.Entity<Message>(e => e.Ignore(x => x.Conversation));
     }
@@ -64,7 +67,7 @@ public class AiAgentLineServiceTests
         public DbSet<TenantEmailConfig> TenantEmailConfigs => throw new NotSupportedException();
         public DbSet<TenantTelegramConfig> TenantTelegramConfigs => throw new NotSupportedException();
         public DbSet<Ecorex.Domain.Entities.RetellVoiceLine> RetellVoiceLines => throw new NotSupportedException();
-        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => throw new NotSupportedException();
+        public DbSet<Ecorex.Domain.Entities.VoiceCall> VoiceCalls => inner.VoiceCalls;
         public DbSet<Ecorex.Domain.Entities.RetellAgentMap> RetellAgentMaps => throw new NotSupportedException();
         public DbSet<StorageConfig> StorageConfigs => throw new NotSupportedException();
         public DbSet<Asesor> Asesores => throw new NotSupportedException();
@@ -116,7 +119,7 @@ public class AiAgentLineServiceTests
         public DbSet<DocumentTemplateGroup> DocumentTemplateGroups => throw new NotSupportedException();
         public DbSet<DocumentTemplate> DocumentTemplates => throw new NotSupportedException();
         public DbSet<TenantEvolutionConfig> TenantEvolutionConfigs => throw new NotSupportedException();
-        public DbSet<WhatsAppLine> WhatsAppLines => throw new NotSupportedException();
+        public DbSet<WhatsAppLine> WhatsAppLines => inner.WhatsAppLines;
         public DbSet<PipelineStage> PipelineStages => throw new NotSupportedException();
         public DbSet<PipelineFieldDefinition> PipelineFieldDefinitions => throw new NotSupportedException();
         public DbSet<BusinessUnit> BusinessUnits => throw new NotSupportedException();
@@ -139,7 +142,7 @@ public class AiAgentLineServiceTests
         public DbSet<AiAgentCacheField> AiAgentCacheFields => throw new NotSupportedException();
         public DbSet<AiAgentCacheValue> AiAgentCacheValues => throw new NotSupportedException();
         public DbSet<AiAgentLineBinding> AiAgentLineBindings => throw new NotSupportedException();
-        public DbSet<AiAgentRunLog> AiAgentRunLogs => throw new NotSupportedException();
+        public DbSet<AiAgentRunLog> AiAgentRunLogs => inner.AiAgentRunLogs;
         public DbSet<AiUsageLog> AiUsageLogs => throw new NotSupportedException();
         public DbSet<AutomationRule> AutomationRules => throw new NotSupportedException();
         public DbSet<TaskBoard> TaskBoards => throw new NotSupportedException();
@@ -397,4 +400,56 @@ public class AiAgentLineServiceTests
         var (svc, inner, _) = NewService();
         Assert.False(await svc.ResetConversationAgentContextAsync(Guid.NewGuid()));
     }
+
+    // ---- Bitacora: filtro por dia (zona del tenant) y buscador del riel ----
+
+    private static readonly TimeZoneInfo Bogota = TimeZoneInfo.CreateCustomTimeZone("bog", TimeSpan.FromHours(-5), "bog", "bog");
+
+    [Fact]
+    public void DayWindowUtc_usa_la_zona_del_tenant()
+    {
+        var (start, end) = AiAgentLineService.DayWindowUtc(new DateOnly(2026, 11, 22), Bogota);
+        Assert.Equal(new DateTimeOffset(2026, 11, 22, 5, 0, 0, TimeSpan.Zero), start);
+        Assert.Equal(new DateTimeOffset(2026, 11, 23, 5, 0, 0, TimeSpan.Zero), end);
+    }
+
+    [Fact]
+    public async Task ListAttendedContacts_filtra_por_dia_del_tenant_y_por_busqueda()
+    {
+        var (svc, inner, _) = NewService();
+        var arley = new Conversation { Id = Guid.NewGuid(), TenantId = Tenant, ContactName = "Arley Gomez", ContactPhone = "+573001234567" };
+        var otro = new Conversation { Id = Guid.NewGuid(), TenantId = Tenant, ContactName = "Maria", ContactPhone = "573109998877" };
+        inner.Conversations.AddRange(arley, otro);
+        // 22-11 a las 23:30 Bogota = 23-11 04:30 UTC: es del dia 22 para el tenant.
+        Log(inner, arley.Id, new DateTimeOffset(2026, 11, 23, 4, 30, 0, TimeSpan.Zero));
+        Log(inner, arley.Id, new DateTimeOffset(2026, 11, 22, 15, 0, 0, TimeSpan.Zero));
+        // 23-11 06:00 UTC = 23-11 01:00 Bogota: es del 23.
+        Log(inner, otro.Id, new DateTimeOffset(2026, 11, 23, 6, 0, 0, TimeSpan.Zero));
+        inner.SaveChanges();
+
+        var dia22 = await svc.ListAttendedContactsAsync(500, new DateOnly(2026, 11, 22), null, Bogota);
+        var c = Assert.Single(dia22);
+        Assert.Equal("Arley Gomez", c.ContactName);
+        Assert.Equal(2, c.Events);                                         // solo eventos de ese dia
+
+        var dia23 = await svc.ListAttendedContactsAsync(500, new DateOnly(2026, 11, 23), null, Bogota);
+        Assert.Equal("Maria", Assert.Single(dia23).ContactName);
+
+        Assert.Empty(await svc.ListAttendedContactsAsync(500, new DateOnly(2026, 11, 21), null, Bogota));
+
+        Assert.Equal("Arley Gomez", Assert.Single(await svc.ListAttendedContactsAsync(500, null, "arley")).ContactName);
+        Assert.Equal("Maria", Assert.Single(await svc.ListAttendedContactsAsync(500, null, "310 999")).ContactName);
+        Assert.Equal(2, (await svc.ListAttendedContactsAsync()).Count);   // sin filtros: la vista reciente de siempre
+    }
+
+    private static void Log(InnerDb inner, Guid conversationId, DateTimeOffset at)
+        => inner.AiAgentRunLogs.Add(new AiAgentRunLog
+        {
+            TenantId = Tenant,
+            ConversationId = conversationId,
+            AgentId = Guid.NewGuid(),
+            OccurredAt = at,
+            Kind = default,
+            Title = "evento",
+        });
 }

@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Usuarios: un solo rol por usuario (Administrador o rol de permisos) - v0.16.392 (rama fix/usuarios-rol-unico)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario (incluye v0.16.391, telefono real en crear_actividad).
+- **Pedido**: en Usuarios habia DOS selectores (rol de tenant Usuario/Administrador + rol de permisos) y confundia. Se deja UNO.
+- **Hecho** (`AdmUsuarios.razor`, `RolesPermisos.razor`): columna "Rol" unica con "Administrador (acceso total)" + los roles de permisos + "Sin rol (ve todo)". Administrador -> TenantRole Admin; un rol -> Advisor + RolId; Owner se muestra "Propietario (acceso total)" y no se edita; el propio usuario admin no se degrada a si mismo. El modal "Asignar rol" de Roles y permisos usa el mismo selector. Sin cambios de modelo ni de reglas de permisos.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/usuarios-rol-unico (d07e9faa) como v0.16.392.
+
 ## 2026-11-24 - crear_actividad guarda el telefono REAL en el formulario (hand-off SOLDARCO/ANA) - v0.16.391 (rama fix/crear-actividad-telefono-real)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. NO desplegada (a senal del usuario).

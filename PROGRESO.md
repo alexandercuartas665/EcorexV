@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - crear_actividad guarda el telefono REAL en el formulario (hand-off SOLDARCO/ANA) - v0.16.391 (rama fix/crear-actividad-telefono-real)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. NO desplegada (a senal del usuario).
+- **Sintoma**: en FRM-LEAD (SOLDARCO, agente ANA) el campo `telefono` ("Movil / WhatsApp", requerido) guardaba "Mismo WhatsApp" (ej. T00099-1, T00101-1); la TAREA si tenia el numero (RequesterPhone). Causa: el modelo no recibe el numero (el prompt le pide "Mismo WhatsApp" para que no lo invente) y el ContactPhone de la conversacion (ADR-0101 rev.2) solo se aplicaba a RequesterPhone, no a `datos`.
+- **Hecho** (`ActividadesToolset.CrearActividad`): el telefono real de la conversacion se resuelve ANTES de la pre-validacion; `FindPhoneFieldCode` localiza el campo de telefono en la DEFINICION (texto/numero con movil/whatsapp/telefono/celular/phone en el field_code); `ApplyRealPhone` lo pone si viene vacio o con menos de 7 digitos (el requerido pasa) y RESPETA un numero de 7+ digitos ("llamenme a otro numero"). Sin conversacion: igual que antes. El prompt de ANA no cambia.
+- **Pruebas**: build Release 0 errores, format ok; unitarias Application 1730 (+5: "Mismo WhatsApp" -> real, requerido ausente -> real, numero propio respetado, sin conversacion sigue fallando, FindPhoneFieldCode). El doble de BD de ActividadesToolsetTests ahora soporta Messages (con conversacion la adjuncion de media lanzaba; una prueba vieja no revisaba ok).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/crear-actividad-telefono-real (7e746459) como v0.16.391.
+- **Siguiente (tras desplegar)**: la sesion data-ops corrige por SQL (con backup) las respuestas viejas de SOLDARCO con telefono = "Mismo WhatsApp", copiando el requester_phone de su tarea.
+
 ## 2026-11-24 - Bitacora del agente: filtro por dia y buscador (pedido sesion EPRING) - v0.16.390 (rama fix/bitacora-agente-fecha)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.

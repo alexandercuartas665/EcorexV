@@ -62,8 +62,49 @@ public static partial class MockupMarkdown
     [GeneratedRegex(@"==(?=\S)(.+?)(?<=\S)==")]
     private static partial Regex Highlight();
 
+    [GeneratedRegex(@"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")]
+    private static partial Regex TableSeparator();
+
     [GeneratedRegex("\u0001(\\d+)\u0002")]
     private static partial Regex Placeholder();
+
+    /// <summary>Celdas de una fila de tabla. Separa por '|' pero NO por el "\|" escapado ni por un '|' dentro de
+    /// <c>[[...]]</c> o de <c>`codigo`</c>; el "\|" queda como '|' literal (SplitAlias lo entiende como alias).</summary>
+    private static List<string> SplitRow(string line)
+    {
+        var s = line.Trim();
+        if (s.StartsWith('|')) { s = s[1..]; }
+        if (s.EndsWith('|') && !s.EndsWith("\\|", StringComparison.Ordinal)) { s = s[..^1]; }
+        var cells = new List<string>();
+        var cell = new StringBuilder();
+        var inLink = false;
+        var inCode = false;
+        for (var k = 0; k < s.Length; k++)
+        {
+            var ch = s[k];
+            if (ch == '\\' && k + 1 < s.Length && s[k + 1] == '|') { cell.Append('|'); k++; continue; }
+            if (ch == '`') { inCode = !inCode; }
+            else if (!inCode && ch == '[' && k + 1 < s.Length && s[k + 1] == '[') { inLink = true; }
+            else if (!inCode && ch == ']' && k + 1 < s.Length && s[k + 1] == ']') { inLink = false; }
+            else if (ch == '|' && !inLink && !inCode)
+            {
+                cells.Add(cell.ToString().Trim());
+                cell.Clear();
+                continue;
+            }
+            cell.Append(ch);
+        }
+        cells.Add(cell.ToString().Trim());
+        return cells;
+    }
+
+    /// <summary>Alineacion de una columna segun su separador (valores fijos, nunca texto del usuario).</summary>
+    private static string? Align(string separator)
+    {
+        var left = separator.StartsWith(':');
+        var right = separator.EndsWith(':');
+        return left && right ? "center" : right ? "right" : left ? "left" : null;
+    }
 
     public static string ToHtml(string? markdown, LinkExists? exists = null, AssetUrl? assets = null)
     {
@@ -106,6 +147,13 @@ public static partial class MockupMarkdown
             listTag = tag;
         }
 
+        void AppendCell(string tag, string cell, string? align)
+        {
+            html.Append('<').Append(tag);
+            if (align is not null) { html.Append(" style=\"text-align:").Append(align).Append('"'); }
+            html.Append('>').Append(Inline(cell, exists, assets)).Append("</").Append(tag).Append('>');
+        }
+
         for (; i < lines.Length; i++)
         {
             var line = lines[i];
@@ -145,6 +193,34 @@ public static partial class MockupMarkdown
                 var level = h.Groups[1].Value.Length;
                 html.Append("<h").Append(level).Append('>').Append(Inline(h.Groups[2].Value, exists, assets)).Append("</h").Append(level).Append('>');
                 continue;
+            }
+
+            // Tabla (GFM / Obsidian): fila de encabezado con '|' seguida de la fila separadora |---|:--:|.
+            if (line.Contains('|') && i + 1 < lines.Length && lines[i + 1].Contains('|') && TableSeparator().IsMatch(lines[i + 1]))
+            {
+                var header = SplitRow(line);
+                var aligns = SplitRow(lines[i + 1]).Select(Align).ToList();
+                if (header.Count == aligns.Count)
+                {
+                    FlushPara();
+                    CloseList();
+                    html.Append("<div class=\"mb-table-wrap\"><table class=\"mb-table\"><thead><tr>");
+                    for (var c = 0; c < header.Count; c++) { AppendCell("th", header[c], aligns[c]); }
+                    html.Append("</tr></thead>");
+                    var body = false;
+                    for (i += 2; i < lines.Length && lines[i].Trim().Length > 0 && lines[i].Contains('|'); i++)
+                    {
+                        if (!body) { html.Append("<tbody>"); body = true; }
+                        var cells = SplitRow(lines[i]);
+                        html.Append("<tr>");
+                        for (var c = 0; c < header.Count; c++) { AppendCell("td", c < cells.Count ? cells[c] : string.Empty, aligns[c]); }
+                        html.Append("</tr>");
+                    }
+                    i--;
+                    if (body) { html.Append("</tbody>"); }
+                    html.Append("</table></div>");
+                    continue;
+                }
             }
 
             if (trimmed.StartsWith('>'))

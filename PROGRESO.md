@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-23 - Cerebros: tablas markdown en el render de notas + validacion en prod - v0.16.385 (rama feat/maquetas-cerebro)
+
+Agente: sesion ECOREX.maquetas (Claude Opus 5.5), rama `feat/maquetas-cerebro` (sobre v0.16.384). SIN migracion.
+- **Hecho**: `MockupMarkdown` pinta tablas GFM/Obsidian (`| a | b |` + separador `|:---|:---:|---:|`): alineacion por
+  columna (valores fijos), `\|` escapado y '|' dentro de `[[...]]` o de codigo no parten la celda, filas cortas se
+  completan; el texto de cada celda pasa por `Inline` (misma sanitizacion). Estilos `.mb-table` en
+  `MaquetaCerebro.razor.css` (scroll horizontal, encabezado gris, bordes). Antes salian como texto con pipes.
+- **Pruebas**: SuperAdmin.Tests `MockupMarkdown` 8/8 (2 nuevas: tabla con alineacion/alias/celdas faltantes y tabla
+  sin HTML + texto con '|' sin separador no es tabla). Preview local 5285 (BD copia `ecorex_cerebros`) OK.
+- **Validado en prod (PROYECTOS, v0.16.381+)**: galeria `/cerebros`, pestana "Cerebros (1)" de la maqueta VISAL con
+  marca Principal y modal grande. Vault de VISAL re-importado con "Sobrescribir" (zip fresco sin notas de credenciales y
+  con secretos redactados): 56 nuevas, 307 actualizadas, 1311 enlaces; alias `[[Nota\|alias]]` correctos.
+- **Pendiente**: `/cerebros-plantilla` (sesion Super Admin) y MCP en vivo (token integ:maqueta).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/maquetas-cerebro (d3102f29) como v0.16.385 sobre b852e632. Despliegue solo con OK del usuario. Validacion tras desplegar: PROYECTOS -> /cerebros -> Cerebro de VISAL -> nota "Inicio": "Navegacion del vault" debe verse como tabla.
+
 ## 2026-11-23 - Guia de los MCP lista para publicar como cerebro (guia_ecorex, ADR-0204) - SOLO DOCS, sin deploy
 
 Agente: ECOREX.mcp (Claude Opus 5.5). Sin codigo de producto, sin migracion.

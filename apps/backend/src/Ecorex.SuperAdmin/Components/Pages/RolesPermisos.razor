@@ -213,17 +213,17 @@ else
     <div class="modal-overlay" @onclick="CloseAssign">
         <div class="modal-dialog" style="max-width:640px;" @onclick:stopPropagation="true">
             <div class="modal-head">
-                <h3>Asignar rol de permisos</h3>
+                <h3>Asignar rol</h3>
                 <button class="modal-close" @onclick="CloseAssign">&times;</button>
             </div>
             <div class="modal-body">
                 <p style="color:var(--muted-foreground);font-size:13px;margin-bottom:12px;">
-                    Elige el rol de permisos de cada usuario. Owner/Admin mandan por su rol organico
-                    aunque no tengan rol de permisos (el enforcement se activa en la Ola B2).
+                    Elige el rol de cada usuario: "Administrador (acceso total)" o un rol de permisos, que limita lo que
+                    ve y puede hacer. El propietario de la empresa siempre tiene acceso total.
                 </p>
                 <table class="table" style="margin:0;">
                     <thead>
-                        <tr><th>Usuario</th><th>Email</th><th>Rol de permisos</th></tr>
+                        <tr><th>Usuario</th><th>Email</th><th>Rol</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var u in _users)
@@ -232,14 +232,26 @@ else
                                 <td><strong>@(string.IsNullOrWhiteSpace(u.DisplayName) ? "-" : u.DisplayName)</strong></td>
                                 <td><span style="font-family:ui-monospace,monospace;font-size:12px;">@u.Email</span></td>
                                 <td>
-                                    <select class="form-control" value="@ChosenRolFor(u.Id)"
-                                            @onchange="@(e => OnAssignChange(u.Id, e.Value?.ToString()))">
-                                        <option value="">Sin rol</option>
-                                        @foreach (var r in _roles)
-                                        {
-                                            <option value="@r.Id">@r.Name</option>
-                                        }
-                                    </select>
+                                    @if (u.TenantRole == TenantRole.Owner)
+                                    {
+                                        <span style="font-size:12.5px;color:var(--muted-foreground);">Propietario (acceso total)</span>
+                                    }
+                                    else if (u.PlatformUserId == _selfPlatformUserId && TenantRoleKind.IsAdmin(u.TenantRole))
+                                    {
+                                        <span style="font-size:12.5px;color:var(--muted-foreground);" title="No puedes quitarte tu propio acceso de administrador">Administrador (acceso total)</span>
+                                    }
+                                    else
+                                    {
+                                        <select class="form-control" value="@(TenantRoleKind.IsAdmin(u.TenantRole) ? KindAdmin : ChosenRolFor(u.Id))"
+                                                @onchange="@(e => OnAssignChange(u, e.Value?.ToString()))" disabled="@_busy">
+                                            <option value="@KindAdmin">Administrador (acceso total)</option>
+                                            @foreach (var r in _roles)
+                                            {
+                                                <option value="@r.Id">@r.Name</option>
+                                            }
+                                            <option value="">Sin rol (ve todo)</option>
+                                        </select>
+                                    }
                                 </td>
                             </tr>
                         }
@@ -509,23 +521,40 @@ else
             // del usuario (via detalle no expuesto): usamos ResolveEffectivePermissions.RolId.
             _assignedRol[u.Id] = eff.RolId;
         }
+        _selfPlatformUserId = await ResolveSelfIdAsync();
         _assignOpen = true;
     }
 
     private void CloseAssign() { _assignOpen = false; }
 
+    // Rol unico (2026-11-24): "Administrador (acceso total)" o un rol de permisos, igual que en Usuarios.
+    private const string KindAdmin = "admin";
+    private Guid _selfPlatformUserId;
+
     private string ChosenRolFor(Guid tenantUserId) =>
         _assignedRol.TryGetValue(tenantUserId, out var rid) && rid is Guid g ? g.ToString() : "";
 
-    private async Task OnAssignChange(Guid tenantUserId, string? value)
+    private async Task OnAssignChange(TenantUserDto u, string? value)
     {
-        Guid? rolId = Guid.TryParse(value, out var g) ? g : null;
-        _assignedRol[tenantUserId] = rolId;
+        if (u.TenantRole == TenantRole.Owner) { return; }
         _busy = true;
         try
         {
             var actor = await ResolveSelfIdAsync();
-            var res = await RolesSvc.AssignRoleToUserAsync(tenantUserId, rolId, actor);
+            if (value == KindAdmin)
+            {
+                if (!TenantRoleKind.IsAdmin(u.TenantRole)) { await UsersSvc.ChangeRoleAsync(u.Id, TenantRole.Admin, actor); }
+                _users = (await UsersSvc.ListAsync()).ToList();
+                ShowToast("Rol asignado.", true);
+                return;
+            }
+
+            var newRole = TenantRoleKind.Resolve(u.TenantRole, admin: false);
+            if (newRole != u.TenantRole) { await UsersSvc.ChangeRoleAsync(u.Id, newRole, actor); }
+            Guid? rolId = Guid.TryParse(value, out var g) ? g : null;
+            _assignedRol[u.Id] = rolId;
+            var res = await RolesSvc.AssignRoleToUserAsync(u.Id, rolId, actor);
+            _users = (await UsersSvc.ListAsync()).ToList();
             if (res.IsOk)
             {
                 await ReloadRolesAsync();

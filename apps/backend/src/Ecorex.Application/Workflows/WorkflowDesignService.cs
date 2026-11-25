@@ -301,6 +301,10 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
         }
 
         // Agentes por nodo (WorkflowNodeAgent): mismo criterio, para no perder los pasos automaticos.
+        // Se copian TODOS los campos de configuracion del agente (no solo agente+autonomia): de lo
+        // contrario, al publicar->editar, la version borrador/publicada perdia los recursos por nodo
+        // (Colmena, voz, WhatsApp, prompt extra, correo) y herramientas como 'buscar_web' (ADR-0091)
+        // quedaban deshabilitadas porque ColmenaClientId llegaba nulo.
         var sourceAgents = await _db.WorkflowNodeAgents
             .AsNoTracking().Where(a => sourceNodeIds.Contains(a.NodeId)).ToListAsync(cancellationToken);
         foreach (var agent in sourceAgents)
@@ -312,7 +316,15 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
                     TenantId = draft.TenantId,
                     NodeId = draftNode.Id,
                     AiAgentId = agent.AiAgentId,
-                    Autonomy = agent.Autonomy
+                    Autonomy = agent.Autonomy,
+                    ColmenaClientId = agent.ColmenaClientId,
+                    ColmenaSessionKey = agent.ColmenaSessionKey,
+                    VoiceAiAgentId = agent.VoiceAiAgentId,
+                    WhatsAppLineId = agent.WhatsAppLineId,
+                    WhatsAppTemplateName = agent.WhatsAppTemplateName,
+                    WhatsAppTemplateLang = agent.WhatsAppTemplateLang,
+                    ExtraPrompt = agent.ExtraPrompt,
+                    CanSendEmail = agent.CanSendEmail
                 });
             }
         }

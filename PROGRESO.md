@@ -2,6 +2,24 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-09-09 - fix: publicar->editar un flujo perdia la config Colmena/recursos del agente del nodo
+
+- Bug (reproducido con FLW-005 en BITCODE local): al editar un flujo publicado se deriva una version
+  borrador (EnsureDraftAsync) copiando nodos, formularios, reglas, policies y agentes por nodo. El clon
+  de WorkflowNodeAgent copiaba SOLO AiAgentId + Autonomy, perdiendo colmena_client_id y el resto de
+  recursos por nodo. Efecto: en la version derivada/publicada el agente quedaba sin Colmena ->
+  canSearchWeb = (ColmenaClientId is not null) = false -> la herramienta buscar_web (ADR-0091) quedaba
+  deshabilitada aunque el borrador si la tenia. Se venia restaurando a mano por SQL.
+- Fix (WorkflowDesignService.cs, clon de agentes en EnsureDraftAsync): copiar TODOS los campos de
+  configuracion del agente: ColmenaClientId, ColmenaSessionKey, VoiceAiAgentId, WhatsAppLineId,
+  WhatsAppTemplateName, WhatsAppTemplateLang, ExtraPrompt, CanSendEmail (ademas de AiAgentId/Autonomy).
+  Es el UNICO sitio de clonado de WorkflowNodeAgent (PublishAsync solo cambia el flag IsPublished).
+- Test: WorkflowDesignServiceTests EnsureDraft_ClonesNodeAgent_PreservesAllResourceFields (matriz dual
+  PG + SQL Server): asigna agente + recursos a un nodo Task de una publicada, EnsureDraft, y verifica
+  que el clon conserva los 8 campos. Verde en ambos motores.
+- Sin migraciones (no hay cambio de esquema). Build de la solucion verde.
+- Siguiente: push/deploy a senal del usuario.
+
 ## 2026-09-08 - v0.16.26: mapeo de COLUMNAS de grilla en CONVERTIR_A_FORMULARIO (ADR-0078)
 
 - Bug: al convertir un registro a otro formulario, las grillas (GridDetail) se copiaban por jsonb completo

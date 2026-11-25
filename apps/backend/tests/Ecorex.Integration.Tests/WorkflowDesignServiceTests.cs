@@ -267,6 +267,64 @@ public abstract class WorkflowDesignServiceTestsBase
         Assert.True(published!.IsPublished);
     }
 
+    // ---- (5c) EnsureDraft conserva TODA la config del agente del nodo (recursos ADR-0091/92/93) ----
+
+    [Fact]
+    public async Task EnsureDraft_ClonesNodeAgent_PreservesAllResourceFields()
+    {
+        var tenantId = await SeedTenantAsync("Design Agente Recursos");
+        await using var ctx = _fixture.CreateContext(tenantId);
+        var (engine, design) = BuildServices(ctx, tenantId);
+
+        var v1 = (await engine.ImportBpmnAsync(new ImportBpmnRequest("AGR-01", "Flujo con agente", LinearXml))).Value!;
+        Assert.True((await engine.PublishAsync(v1.Id)).IsOk);
+
+        // Nodo Task del flujo publicado al que se le asigna el agente + sus recursos por nodo.
+        var v1Canvas = (await design.GetCanvasAsync(v1.Id))!;
+        var taskNode = v1Canvas.Nodes.First(n => n.NodeType == WorkflowNodeType.Task);
+        var taskElementId = taskNode.BpmnElementId;
+
+        // Recursos del tenant que referencian los campos por nodo (FKs restrict): agente, agente de
+        // voz, cliente Colmena y linea WhatsApp.
+        var agent = new AiAgent { TenantId = tenantId, Name = "Cotizador", Role = "Comercial", SystemPrompt = "Cotiza.", IsActive = true };
+        var voiceAgent = new AiAgent { TenantId = tenantId, Name = "Voz", Role = "Llamadas", SystemPrompt = "Llama.", IsActive = true };
+        ctx.AiAgents.AddRange(agent, voiceAgent);
+        var colmena = new DataClient { TenantId = tenantId, Name = "Colmena Local", ClientId = "colmena-local", IsActive = true };
+        ctx.DataClients.Add(colmena);
+        var line = new WhatsAppLine { TenantId = tenantId, InstanceName = "Linea Comercial", PhoneNumber = "573001112233" };
+        ctx.WhatsAppLines.Add(line);
+        await ctx.SaveChangesAsync();
+
+        Assert.True((await design.SetNodeAgentAsync(taskNode.Id, agent.Id, WorkflowAgentAutonomy.Autonomous)).IsOk);
+        var resources = new FlowNodeAgentResourcesInput(
+            ColmenaClientId: colmena.Id, ColmenaSessionKey: "linkedin", VoiceAiAgentId: voiceAgent.Id,
+            WhatsAppLineId: line.Id, WhatsAppTemplateName: "primer_contacto", WhatsAppTemplateLang: "es",
+            ExtraPrompt: "Abrir la web del cliente y extraer el NIT.", CanSendEmail: true);
+        Assert.True((await design.SetNodeAgentResourcesAsync(taskNode.Id, resources)).IsOk);
+
+        // Derivar el borrador (publicada -> borrador): el clon del agente debe copiar TODOS los campos.
+        var draft = (await design.EnsureDraftAsync(v1.Id)).Value!;
+        var draftTaskNode = draft.Nodes.Single(n => n.BpmnElementId == taskElementId);
+
+        // Releer desde OTRA conexion para confirmar la persistencia real.
+        await using var ctx2 = _fixture.CreateContext(tenantId);
+        var (_, design2) = BuildServices(ctx2, tenantId);
+        var cloned = await design2.GetNodeAgentAsync(draftTaskNode.Id);
+        Assert.NotNull(cloned);
+        Assert.Equal(agent.Id, cloned!.AiAgentId);
+        Assert.Equal(WorkflowAgentAutonomy.Autonomous, cloned.Autonomy);
+        // El bug historico: ColmenaClientId (y el resto de recursos) se perdian en la copia, dejando
+        // 'buscar_web' (ADR-0091) deshabilitada en la version publicada.
+        Assert.Equal(colmena.Id, cloned.ColmenaClientId);
+        Assert.Equal("linkedin", cloned.ColmenaSessionKey);
+        Assert.Equal(voiceAgent.Id, cloned.VoiceAiAgentId);
+        Assert.Equal(line.Id, cloned.WhatsAppLineId);
+        Assert.Equal("primer_contacto", cloned.WhatsAppTemplateName);
+        Assert.Equal("es", cloned.WhatsAppTemplateLang);
+        Assert.Equal("Abrir la web del cliente y extraer el NIT.", cloned.ExtraPrompt);
+        Assert.True(cloned.CanSendEmail);
+    }
+
     // ---- (6) Indice: metricas reales ----
 
     [Fact]

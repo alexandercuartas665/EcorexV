@@ -3361,6 +3361,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_mcp_guide");
 
+                    b.Property<string>("McpGuideTopic")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("mcp_guide_topic");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)

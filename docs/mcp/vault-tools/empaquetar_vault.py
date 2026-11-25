@@ -2,17 +2,25 @@
 """Empaqueta docs/vault-mcp-ecorex/ en un ZIP para importarlo en el Super Admin (/cerebros-plantilla ->
 "Importar vault"). El importador titula cada nota con el NOMBRE del archivo e ignora las carpetas, asi que dos notas
 no pueden llamarse igual aunque esten en carpetas distintas: este script lo verifica antes de empaquetar.
-Uso: python empaquetar_vault.py [ruta_zip]   (por defecto salida.local/guia-ecorex-vault.zip, ignorado por git)."""
+Uso: python empaquetar_vault.py [--vault carpeta] [ruta_zip]   (carpeta bajo docs/, defecto vault-mcp-ecorex; zip por
+defecto salida.local/<carpeta>.zip, ignorado por git). Cada cerebro de tema (vault-mcp-flujos...) es su propio ZIP."""
 import os, sys, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-VAULT = os.path.join(REPO, "docs", "vault-mcp-ecorex")
+ARGS = [a for a in sys.argv[1:]]
+VAULT_NAME = "vault-mcp-ecorex"
+if "--vault" in ARGS:
+    i = ARGS.index("--vault")
+    VAULT_NAME = ARGS[i + 1]
+    del ARGS[i:i + 2]
+VAULT = os.path.join(REPO, "docs", VAULT_NAME)
 ENTRADA = "00 - LEEME PRIMERO"      # guia_ecorex reconoce la nota de entrada por este titulo: no renombrarla
 RESERVADOS = set("[]|#^/\\")
 MAX_CHARS = 200000                  # tope por nota del importador
 
-dest = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "salida.local", "guia-ecorex-vault.zip")
+DEFAULT_ZIP = "guia-ecorex-vault.zip" if VAULT_NAME == "vault-mcp-ecorex" else VAULT_NAME + ".zip"
+dest = ARGS[0] if ARGS else os.path.join(HERE, "salida.local", DEFAULT_ZIP)
 os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
 
 notas, titulos, errores = [], {}, []

@@ -3361,6 +3361,11 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_mcp_guide");
 
+                    b.Property<string>("McpGuideTopic")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("mcp_guide_topic");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)

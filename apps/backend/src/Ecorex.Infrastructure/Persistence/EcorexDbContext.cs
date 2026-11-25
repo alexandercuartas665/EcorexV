@@ -4153,6 +4153,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.CategoryColor).HasMaxLength(9);
             b.Property(x => x.TargetMode).HasMaxLength(10).IsRequired();
             b.Property(x => x.IsMcpGuide).HasDefaultValue(false);
+            b.Property(x => x.McpGuideTopic).HasMaxLength(40);
         });
         modelBuilder.Entity<BrainTemplateNote>(b =>
         {

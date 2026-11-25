@@ -71,9 +71,9 @@ public sealed partial class TableroMcpToolset
             """{"type":"object","properties":{"nodo_id":{"type":"string"},"nombre":{"type":"string"}},"required":["nodo_id","nombre"],"additionalProperties":false}"""),
         new("conectar_nodos",
             "Conecta dos nodos del mismo flujo en borrador (de 'desde_nodo_id' a 'hasta_nodo_id'). OJO: un nodo que no es " +
-            "compuerta sigue TODAS sus salidas en paralelo. 'condicion' opcional para una salida de compuerta (formato del " +
-            "motor, ej. approval == 'Aprobado'; vacio = ruta por defecto). Devuelve 'arista_id'.",
-            """{"type":"object","properties":{"desde_nodo_id":{"type":"string"},"hasta_nodo_id":{"type":"string"},"condicion":{"type":"string"}},"required":["desde_nodo_id","hasta_nodo_id"],"additionalProperties":false}"""),
+            "compuerta sigue TODAS sus salidas en paralelo. En salidas de compuerta: 'nombre' = la opcion que se elige (ej. " +
+            "Aprobada) y 'condicion' = approval == 'Aprobada' (vacia = ruta por defecto). Devuelve 'arista_id'.",
+            """{"type":"object","properties":{"desde_nodo_id":{"type":"string"},"hasta_nodo_id":{"type":"string"},"nombre":{"type":"string","description":"Nombre de la salida (opcion de la decision)"},"condicion":{"type":"string"}},"required":["desde_nodo_id","hasta_nodo_id"],"additionalProperties":false}"""),
         new("eliminar_conexion",
             "Quita una conexion (arista) de un flujo en borrador. 'arista_id' de ver_flujo.",
             """{"type":"object","properties":{"arista_id":{"type":"string"}},"required":["arista_id"],"additionalProperties":false}"""),
@@ -184,33 +184,75 @@ public sealed partial class TableroMcpToolset
 
         var cargos = await NodeCargosAsync(canvas, ct);
         var avisos = await FlowWarningsAsync(canvas, cargos, ct);
+        var boardIds = canvas.Nodes.Select(n => n.TargetBoardId).Where(b => b is not null).Select(b => b!.Value).Distinct().ToList();
+        var boardNames = boardIds.Count == 0 ? new Dictionary<Guid, string>()
+            : await _db.TaskBoards.AsNoTracking().Where(b => boardIds.Contains(b.Id)).ToDictionaryAsync(b => b.Id, b => b.Name, ct);
+        var colIds = canvas.Nodes.Select(n => n.TargetColumnId).Where(c => c is not null).Select(c => c!.Value).Distinct().ToList();
+        var colNames = colIds.Count == 0 ? new Dictionary<Guid, string>()
+            : await _db.TaskBoardColumns.AsNoTracking().Where(c => colIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+        var byBpmn = canvas.Nodes.ToDictionary(n => n.BpmnElementId, n => n, StringComparer.Ordinal);
+        var nodeIds = canvas.Nodes.Select(n => n.Id).ToList();
+        var agentNames = await _db.WorkflowNodeAgents.AsNoTracking()
+            .Where(a => nodeIds.Contains(a.NodeId))
+            .Join(_db.AiAgents.AsNoTracking(), a => a.AiAgentId, g => g.Id, (a, g) => new { a.NodeId, g.Name, g.IsActive })
+            .ToDictionaryAsync(x => x.NodeId, x => x.IsActive ? x.Name : x.Name + " (APAGADO)", ct);
         return Ok(new
         {
             definicion_id = canvas.DefinitionId,
             codigo = canvas.ProcessCode,
             nombre = canvas.Name,
+            categoria = canvas.Category,
+            descripcion = canvas.Description,
             version = canvas.Version,
             estado = canvas.Estado,
+            pausado = canvas.IsPaused ? true : (bool?)null,
             editable = canvas.IsEditable,
-            nota = canvas.IsEditable ? null : "Publicado: para cambiar el grafo usa nueva_version_flujo.",
+            nota = canvas.IsEditable ? null : "Publicado: para cambiar el grafo, la decision humana o el reinicio usa nueva_version_flujo (lo demas del nodo se edita aun publicado).",
             nodos = canvas.Nodes.Select(n => new
             {
                 nodo_id = n.Id,
                 bpmn = n.BpmnElementId,
                 nombre = n.Name,
                 tipo = NodeTypeEs(n.NodeType),
-                encargado_origen = n.NodeType == WorkflowNodeType.Task ? AssigneeSourceEs(n.AssigneeSource) : null,
+                decision_humana = n.NodeType is WorkflowNodeType.ExclusiveGateway or WorkflowNodeType.EndEvent ? n.AllowsAssignment : (bool?)null,
+                agente_ia = agentNames.GetValueOrDefault(n.Id),
+                encargado_origen = n.NodeType == WorkflowNodeType.Task || (n.NodeType != WorkflowNodeType.StartEvent && n.AllowsAssignment) ? AssigneeSourceEs(n.AssigneeSource) : null,
                 campo_encargado = n.AssigneeFormFieldCode,
                 cargos = cargos.TryGetValue(n.Id, out var cs) && cs.Count > 0 ? cs : null,
+                reinicia_en = n.RestartNodeId is Guid rn ? canvas.Nodes.FirstOrDefault(x => x.Id == rn)?.Name ?? rn.ToString() : null,
+                tablero_destino = n.TargetBoardId is Guid tb ? boardNames.GetValueOrDefault(tb, tb.ToString()) : null,
+                columna_destino = n.TargetColumnId is Guid tc ? colNames.GetValueOrDefault(tc, tc.ToString()) : null,
+                concepto_cierre = n.CloseReason,
+                salta_a_flujo = n.JumpToName,
+                plazo = string.IsNullOrWhiteSpace(n.SlaJson) ? null : DurationEs(StepSla.Read(n.SlaJson)),
+                tiempo_arranque = string.IsNullOrWhiteSpace(n.StartDelayJson) ? null : DurationEs(StepSla.Read(n.StartDelayJson)),
+                avisos_al_llegar = NodeNotifyConfig.Parse(n.NotifyJson).Reglas is { Count: > 0 } rs
+                    ? rs.Select((r, i) => new { numero = i + 1, detalle = NotifySummary(r, canvas) })
+                    : null,
                 formularios = n.Forms is { Count: > 0 }
-                    ? n.Forms.Select(f => new { codigo = f.Code, titulo = f.Title, obligatorio = f.IsRequired })
-                    : null
+                    ? n.Forms.Select(f => new
+                    {
+                        codigo = f.Code,
+                        titulo = f.Title,
+                        obligatorio = f.IsRequired,
+                        obligatorio_en_salidas = f.RequiredRoutes is { Count: > 0 } rr
+                            ? rr.Select(k => byBpmn.TryGetValue(k, out var t) ? (t.Name ?? k) : k)
+                            : null,
+                        crear_al_llegar = f.AutoCreateOnArrival ? (bool?)null : false
+                    })
+                    : null,
+                reglas = n.Rules.Count > 0
+                    ? n.Rules.Select(r => new { nombre = r.RuleName, verbo = r.VerbName, autonoma = r.IsAutonomous })
+                    : null,
+                color = n.Color,
+                nota = n.Note
             }),
             aristas = canvas.Edges.Select(e => new
             {
                 arista_id = e.Id,
                 desde = e.SourceNodeId,
                 hasta = e.TargetNodeId,
+                nombre = e.Name,
                 condicion = e.ConditionExpression
             }),
             avisos = avisos.Count > 0 ? avisos : null
@@ -328,13 +370,19 @@ public sealed partial class TableroMcpToolset
         var res = await _flowDesign!.ConnectAsync(from.Value, to.Value, ct);
         if (!res.IsOk || res.Value is null) { return Err(res.Error ?? "No se pudo conectar."); }
 
+        var edgeName = Str(args, "nombre");
+        if (edgeName is not null)
+        {
+            var sn = await _flowDesign.SetEdgeNameAsync(res.Value.Id, edgeName, ct);
+            if (!sn.IsOk) { return Err(sn.Error ?? "Se creo la conexion pero no se pudo poner el nombre."); }
+        }
         var cond = Str(args, "condicion");
         if (cond is not null)
         {
             var sc = await _flowDesign.SetEdgeConditionAsync(res.Value.Id, cond, ct);
             if (!sc.IsOk) { return Err(sc.Error ?? "Se creo la conexion pero no se pudo poner la condicion."); }
         }
-        return Ok(new { ok = true, arista_id = res.Value.Id, desde = from, hasta = to, condicion = cond });
+        return Ok(new { ok = true, arista_id = res.Value.Id, desde = from, hasta = to, nombre = edgeName, condicion = cond });
     }
 
     private async Task<McpToolResult> DeleteFlowEdgeAsync(JsonElement args, CancellationToken ct)
@@ -513,7 +561,8 @@ public sealed partial class TableroMcpToolset
     {
         var map = new Dictionary<Guid, List<string>>();
         if (_nodePolicies is null) { return map; }
-        foreach (var n in canvas.Nodes.Where(n => n.NodeType == WorkflowNodeType.Task))
+        foreach (var n in canvas.Nodes.Where(n => n.NodeType == WorkflowNodeType.Task
+                     || (n.NodeType is WorkflowNodeType.ExclusiveGateway or WorkflowNodeType.EndEvent && n.AllowsAssignment)))
         {
             map[n.Id] = (await _nodePolicies.ListNodePoliciesAsync(n.Id, ct)).Select(p => p.OrgUnitName).ToList();
         }
@@ -542,7 +591,18 @@ public sealed partial class TableroMcpToolset
                 w.Add($"'{name}' tiene {o} salidas sin compuerta: el motor las sigue EN PARALELO. Si sobra una, usa eliminar_conexion; si es una decision, usa una compuerta.");
             }
             if (n.NodeType == WorkflowNodeType.ExclusiveGateway && o < 2) { w.Add($"La compuerta '{name}' tiene {o} salida(s): una decision necesita al menos 2."); }
-            if (n.NodeType == WorkflowNodeType.Task && n.AssigneeSource == WorkflowAssigneeSource.Policy
+            if (n.NodeType == WorkflowNodeType.ExclusiveGateway && !n.AllowsAssignment && o >= 2
+                && c.Edges.Count(e => e.SourceNodeId == n.Id && string.IsNullOrWhiteSpace(e.ConditionExpression)) > 1)
+            {
+                w.Add($"La compuerta '{name}' se resuelve SOLA pero varias salidas no tienen condicion: si la decide una persona usa decision_humana_nodo; si es automatica pon condicion_ruta en cada salida (una sin condicion = ruta por defecto).");
+            }
+            if (n.NodeType == WorkflowNodeType.ExclusiveGateway && !n.AllowsAssignment && o >= 2
+                && c.Edges.Any(e => e.SourceNodeId == n.Id && string.IsNullOrWhiteSpace(e.Name)))
+            {
+                w.Add($"La compuerta automatica '{name}' tiene salidas SIN NOMBRE: quien cierra el paso anterior elige entre los nombres de las salidas (nombre_salida) y la condicion approval == '<nombre>' (condicion_ruta) lleva a cada una. Sin nombres no hay opciones que elegir.");
+            }
+            if ((n.NodeType == WorkflowNodeType.Task || (n.NodeType is WorkflowNodeType.ExclusiveGateway or WorkflowNodeType.EndEvent && n.AllowsAssignment))
+                && n.AssigneeSource == WorkflowAssigneeSource.Policy
                 && _nodePolicies is not null && (!cargos.TryGetValue(n.Id, out var cs) || cs.Count == 0))
             {
                 w.Add($"'{name}' toma el encargado por politica pero no tiene cargo/dependencia: nadie lo atendera (asignar_cargo_nodo u otro origen con asignar_encargado_nodo).");

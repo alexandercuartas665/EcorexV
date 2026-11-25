@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-25 - MCP olas 1-3 (ADR-0211): flujos por nodo, reglas y opciones de formularios, agente de IA del paso, cerebros por tema - v0.16.398 (rama feat/mcp-terminar-tarea)
+
+Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). CON migracion dual AddBrainTemplateMcpGuideTopic (solo AddColumn nullable en BrainTemplate).
+- **Hecho**: ver las 3 entradas de ECOREX.mcp abajo (olas 1, 2 y 3). Catalogo MCP tableros 164 -> 232; fix de FormAuthoringToolset (update_question/set_transactional/set_theme ya no borran configuracion).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/mcp-terminar-tarea (aeb3ca0b) como v0.16.398; conflicto solo en PROGRESO (se conservan ambas entradas).
+- **Siguiente (tras deploy)**: ECOREX.mcp importa y publica los cerebros de flujos y formularios (tema) en /cerebros-plantilla y republica la guia general.
+
 ## 2026-11-25 - Direccionar compra: el modal del FormDesigner guarda en la salida del formulario - v0.16.397 (rama feat/autorizacion-tarjeta-actividad)
 
 Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
@@ -26,6 +33,38 @@ Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
 - **Config prod (ya aplicada por la rama)**: AUT-COMPRA-001-2, campo `rut` = lista ORDENES_COMPRA con cascada PROVEEDOR <- nit_proveedor, campo oculto `nit_proveedor`.
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (3409e12b) como v0.16.395. Gates: build Release 0 errores, unitarias Application/SuperAdmin verdes.
 - **Smoke prod (SOLDARCO)**: crear tarea desde /autorizacion-compras-dian (proveedor con OC); "Orden de Compra" lista solo las OC del NIT; con "rut -> oc" mapeado, al aprobar el conciliador recibe el texto de la OC (ej. OMP0011528).
+
+## 2026-11-25 - MCP ola 3 (ADR-0211): agente de IA del paso de un flujo (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion.
+- **Hecho**: +14 herramientas (`TableroMcpToolset.FlujosAgente.cs`, permiso flujos), una por propiedad: opciones_agente_nodo, ver_agente_nodo, agente_nodo (autonomo|propone; avisa si el agente esta apagado), quitar_agente_nodo, instrucciones_agente_nodo, correo_agente_nodo, web_agente_nodo (Colmena), whatsapp_agente_nodo (linea + plantilla de frio + variables + encabezado + minutos de frio), voz_agente_nodo (agente/linea de voz, reintentos, ventana), canales_agente_nodo, fallo_agente_nodo, seguimiento_agente_nodo (cadencia + ventana horaria), tope_preguntas_agente_nodo, traspaso_salida_agente_nodo. Recursos como PATCH (SetNodeAgentResourcesAsync guarda todo). `ver_flujo` muestra `agente_ia` por paso. Catalogo 218 -> 232.
+- **Regla del motor reflejada**: una compuerta solo admite agente si es de decision humana (error claro que pide decision_humana_nodo).
+- **Cerebro de flujos**: receta F12 (agente de IA en un paso); F11 regenerada (53 herramientas); entrada y F01 actualizadas.
+- **Gates**: build 0 errores; integracion dual: FlowAgent_* + todos los McpCatalog_* verdes; ola 2 completa (McpTablerosTests + BrainTemplates + RulesEngine + FormBuilder) 80/80; unitarias 1764/1764; dotnet format verificado en los archivos tocados; vaults PROBLEMAS: 0.
+- **Siguiente**: integrar + deploy de las olas 1-3 (con OK del usuario). Tras el deploy: publicar cerebros de flujos y formularios y republicar la guia general (regenerar su referencia desde el catalogo vivo).
+
+## 2026-11-25 - MCP ola 2 (ADR-0211): reglas y opciones de formularios + cerebro de formularios (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion nueva (la de la ola 1 sigue pendiente de desplegar).
+- **Hecho**: +31 herramientas (`TableroMcpToolset.FormulariosConfig.cs`), una por propiedad. Reglas: listar_verbos_regla (catalogo de verbos con parametros y opciones), listar_reglas, ver_regla, historial_regla, crear_regla (cualquier verbo; valida parametros), parametros_regla, estado_regla, renombrar_regla, eliminar_regla; en formularios: reglas_de_formulario, regla_al_enviar (cualquier verbo, idempotente por verbo), quitar_regla_al_enviar, regla_en_campo (campo o boton), quitar_regla_de_campo, parametros_regla_en_campo, condicion_entre_campos. Opciones: ocultar_barra_envio, formulario_reportable, codigo_automatico_formulario, registro_editable, cierre_automatico_formulario. Versiones/enlaces: guardar/listar/restaurar_version_formulario, listar/revocar_enlace_formulario. Campo: campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol, subformulario_de_campo. Catalogo 187 -> 218.
+- **Referencias por id**: subcategoriaId/activityTypeId/assigneeUserId aceptan codigo/nombre/correo y se traducen a Guid; `listar_conceptos` devuelve `concepto_id` (antes CREAR_TAREA era inusable por IA: no habia como obtener el id del concepto).
+- **Hallazgos documentados**: NOTIFICAR solo registra (no envia); el boton de reglas es `Button` (ActionButton es otro control sin reglas).
+- **Cerebro de formularios**: `docs/vault-mcp-formularios/` (12 notas; FO11 generada del codigo). Generador generico `gen_referencia_codigo.py --tema` (reemplaza gen_referencia_flujos.py). Guia general: R04 corregida (update_question ya es parcial) y apunta al tema formularios; cerebro de flujos apunta a crear_regla.
+- **Gates**: build 0 errores; integracion dual de los tests nuevos (FormConfig_*, McpCatalog_ConFormConfig_*) verde; vaults validados (PROBLEMAS: 0 en los 3).
+- **Siguiente**: integrar + deploy (con OK del usuario). Tras el deploy: publicar cerebros de flujos y formularios (tema) y republicar la guia general. Ola 3: agente de IA del nodo.
+- **Decisiones**: ADR-0211 (seccion ola 2).
+
+## 2026-11-25 - MCP: configuracion completa de flujos (ola 1, ADR-0211), cerebros de guia por tema y 2 errores de autoria de formularios (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). CON migracion (AddBrainTemplateMcpGuideTopic, PG + SQL Server: 1 columna nullable).
+- **Pedido del usuario**: ampliar el MCP para formularios y flujos, con un cerebro propio por tema. Decidio: por OLAS y UNA HERRAMIENTA POR PROPIEDAD.
+- **Hecho (ola 1)**: +23 herramientas de flujos (`TableroMcpToolset.FlujosConfig.cs`): nombre_salida, decision_humana_nodo, reinicio_nodo, tablero_destino_nodo, concepto_cierre_nodo, color_nodo, nota_nodo, salto_a_flujo_nodo, plazo_nodo, tiempo_arranque_nodo, agregar/quitar_notificacion_nodo (con enlaces publicos de decision), quitar_formulario_nodo, formulario_obligatorio_por_salida, formulario_crear_al_llegar, listar_reglas_disponibles, agregar/quitar_regla_nodo, regla_autonoma_nodo, editar/pausar/reanudar_flujo, desenganchar_flujo_de_concepto. `conectar_nodos` acepta `nombre`; `ver_flujo` muestra toda la config del nodo y el nombre de cada arista; 2 avisos nuevos de revision (compuerta automatica sin condiciones / con salidas SIN NOMBRE). Nuevo `IWorkflowDesignService.SetEdgeNameAsync`. Catalogo 164 -> 187.
+- **Hallazgo clave**: en una compuerta AUTOMATICA las opciones son los NOMBRES de sus aristas y el MCP no podia ponerlos: toda compuerta creada por IA iba siempre por la ruta por defecto (la receta R03 de la guia lo tenia mal; corregida).
+- **Cerebros por tema**: `BrainTemplate.McpGuideTopic` (una guia por tema), `guia_ecorex` gana `tema` y lista `temas`; selector de tema en /cerebros-plantilla. Cerebro de flujos en `docs/vault-mcp-flujos/` (12 notas; F11 generada del codigo con `gen_referencia_flujos.py`); scripts del vault con `--vault`. ZIPs en `docs/mcp/vault-tools/salida.local/` (local).
+- **Errores corregidos (formularios)**: update_question/apply_form_spec ya no borran bloqueado/oculto, subformulario, cascada, permisos por rol, default dinamico, caption/numeral/gridcol; set_transactional es PATCH; set_theme conserva keepEditable.
+- **Gates**: build de la solucion 0 errores; integracion dual (PG + SQL Server) de los tests tocados 24/24 (FlowConfig, GuiaMcp por tema, FlowAuthoring, catalogos, permisos); unitarias FormAuthoringGuard 9/9; `dotnet format whitespace` verificado en los archivos tocados; vaults validados (PROBLEMAS: 0 en ambos).
+- **Siguiente**: dev principal integra + deploy (con OK del usuario por version). Tras el deploy: crear la plantilla "Cerebro de flujos de ECOREX por IA" (tema flujos), importar `vault-mcp-flujos.zip` y publicar; regenerar la referencia de la guia general desde el catalogo vivo y republicarla. Ola 2: reglas genericas y opciones de formularios + cerebro de formularios. Ola 3: agente de IA del nodo.
+- **Decisiones**: ADR-0211.
 
 ## 2026-11-24 - Autorizacion compras DIAN: la tarjeta opera la actividad (misma tarea del conciliador) - v0.16.394 (rama feat/autorizacion-tarjeta-actividad)
 

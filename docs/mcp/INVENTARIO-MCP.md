@@ -21,6 +21,15 @@
 > (addendum 2026-11-24: +6 herramientas: `editar_reporte`, `archivar_reporte`, `eliminar_indicador`,
 > `eliminar_libro_indicadores`, `agregar_filas`, `ver_filas`; y la consulta de reportes/indicadores gana `periodo`
 > (dia/semana/mes/trimestre/anio sobre un campo fecha), ADR-0206, total 164; rama `feat/mcp-filas-periodo-reportes`)
+> (addendum 2026-11-25: +23 herramientas de CONFIGURACION de flujos por nodo (decision humana, nombre de salida,
+> reinicio, tablero/columna, concepto de cierre, plazos, avisos con enlaces de decision, formularios por salida, reglas,
+> salto, editar/pausar/reanudar/desenganchar) y `guia_ecorex` gana `tema` (cerebros por tema), ADR-0211, total 187;
+> rama `feat/mcp-terminar-tarea`)
+> (addendum 2026-11-25: +31 herramientas de REGLAS y OPCIONES de formularios (catalogo de verbos, crear/editar reglas
+> con cualquier verbo, al enviar / en campo o boton / por vinculo, condicion entre campos, opciones del registro,
+> versiones, enlaces, propiedades de campo), ADR-0211 ola 2, total 218; misma rama)
+> (addendum 2026-11-25: +14 herramientas del AGENTE DE IA del paso de un flujo (asignar, instrucciones, correo, web,
+> WhatsApp, voz, canales, fallo, seguimiento con ventana, tope, traspaso por salida), ADR-0211 ola 3, total 232)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -31,7 +40,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **164** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **232** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -99,7 +108,7 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | inactivar_contacto | D | Delete | Baja logica reversible (exige motivo), nunca DELETE |
 | vincular_contacto | W | regla de la tarea | Liga contacto a una tarea como cliente |
 
-### 2.3 Autoria de FLUJOS (16) - `TableroMcpToolset.Flujos.cs` - permiso `flujos`
+### 2.3 Autoria de FLUJOS (16 + 23 de configuracion) - `TableroMcpToolset.Flujos.cs` / `.FlujosConfig.cs` - permiso `flujos`
 
 | Herramienta | Tipo | Permiso | Que hace |
 |---|---|---|---|
@@ -110,7 +119,7 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | nueva_version_flujo | W | Edit | Version borrador de un flujo publicado (ids nuevos, vinculos y cargos copiados) |
 | agregar_nodo | W | Edit | Nodo tarea/compuerta/fin; con desde/hasta lo INSERTA y quita la conexion directa |
 | renombrar_nodo | W | Edit | Renombra |
-| conectar_nodos | W | Edit | Conecta (con condicion opcional) |
+| conectar_nodos | W | Edit | Conecta (con nombre y condicion opcionales) |
 | eliminar_conexion | W | Edit | Quita una arista |
 | condicion_ruta | W | Edit | Condicion de salida de compuerta (`approval == 'X'`) |
 | asignar_encargado_nodo | W | Edit | Origen del encargado: politica / hereda_inicio / hereda_anterior / campo_formulario |
@@ -120,9 +129,52 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | enganchar_flujo_a_concepto | W | Edit | Concepto -> flujo (las tareas nuevas lo arrancan) |
 | eliminar_nodo | D | Delete | Borra nodo (nunca el inicio) |
 
+Configuracion por nodo (ADR-0211, `TableroMcpToolset.FlujosConfig.cs`, una herramienta por propiedad):
+
+| Herramienta | Tipo | Permiso | Que hace |
+|---|---|---|---|
+| listar_reglas_disponibles | R | View | Catalogo de reglas del tenant para vincular a nodos |
+| nombre_salida | W | Edit | Nombre de la arista = opcion de la decision (solo borrador) |
+| decision_humana_nodo | W | Edit | Compuerta/fin decidida por su encargado (AllowsAssignment; solo borrador) |
+| reinicio_nodo | W | Edit | Abre un ciclo nuevo en otro nodo (solo borrador) |
+| tablero_destino_nodo | W | Edit | Tablero + columna al llegar el paso |
+| concepto_cierre_nodo | W | Edit | Concepto de cierre (columna de cierre) |
+| color_nodo / nota_nodo | W | Edit | Apariencia (PATCH entre ellas) |
+| salto_a_flujo_nodo | W | Edit | Arranca otro flujo (tarea hija) |
+| plazo_nodo / tiempo_arranque_nodo | W | Edit | SLA y espera de arranque (dias habiles opcional) |
+| agregar_notificacion_nodo | W | Edit | Aviso al llegar (correo/WhatsApp/grupo/Telegram) con enlaces publicos de decision |
+| quitar_notificacion_nodo | D | Edit | Quita un aviso por numero |
+| quitar_formulario_nodo | D | Edit | Desvincula formulario |
+| formulario_obligatorio_por_salida | W | Edit | Obligatorio solo en ciertas salidas de compuerta |
+| formulario_crear_al_llegar | W | Edit | Crear (o no) el formulario al llegar |
+| agregar_regla_nodo / regla_autonoma_nodo | W | Edit | Vincula regla existente / autonoma |
+| quitar_regla_nodo | D | Edit | Desvincula regla |
+| editar_flujo / pausar_flujo / reanudar_flujo | W | Edit | Propiedades (PATCH) y pausa |
+| desenganchar_flujo_de_concepto | D | Edit | Concepto deja de arrancar el flujo |
+
 Avisos de revision (no reemplazan al motor; evitan que una IA publique un flujo roto): rama paralela involuntaria
 (el motor sigue TODAS las salidas de un nodo que no es compuerta), nodo sin entrada, nodo sin salida, compuerta con
-menos de 2 salidas, paso por politica sin cargo, flujo sin paso de tarea.
+menos de 2 salidas, paso por politica sin cargo (incluye compuerta/fin con decision humana), flujo sin paso de tarea,
+compuerta automatica con varias salidas sin condicion, compuerta automatica con salidas SIN NOMBRE (ADR-0211).
+
+### 2.3a Agente de IA del paso (14) - `TableroMcpToolset.FlujosAgente.cs` (ADR-0211 ola 3) - permiso `flujos`
+
+Lectura: opciones_agente_nodo, ver_agente_nodo. Destructiva: quitar_agente_nodo. Escritura: agente_nodo,
+instrucciones_agente_nodo, correo_agente_nodo, web_agente_nodo, whatsapp_agente_nodo, voz_agente_nodo,
+canales_agente_nodo, fallo_agente_nodo, seguimiento_agente_nodo, tope_preguntas_agente_nodo,
+traspaso_salida_agente_nodo. Recursos como PATCH (cambiar uno conserva los demas).
+
+### 2.3b Reglas y opciones de FORMULARIOS (31) - `TableroMcpToolset.FormulariosConfig.cs` (ADR-0211 ola 2)
+
+Permiso: catalogo de reglas (listar_verbos_regla, listar_reglas, ver_regla, historial_regla, crear_regla,
+parametros_regla, estado_regla, renombrar_regla, eliminar_regla) = modulo `reglas`; el resto = `formularios`.
+Lectura: listar_verbos_regla, listar_reglas, ver_regla, reglas_de_formulario, historial_regla,
+listar_versiones_formulario, listar_enlaces_formulario. Destructivas: eliminar_regla, quitar_regla_al_enviar,
+quitar_regla_de_campo, restaurar_version_formulario, revocar_enlace_formulario. Escritura: regla_al_enviar,
+regla_en_campo, parametros_regla_en_campo, condicion_entre_campos, ocultar_barra_envio, formulario_reportable,
+codigo_automatico_formulario, registro_editable, cierre_automatico_formulario, guardar_version_formulario,
+campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol, subformulario_de_campo.
+Detalle y parametros: `docs/vault-mcp-formularios/Referencia/FO11 - Referencia de herramientas de reglas y opciones.md`.
 
 ### 2.4 Autoria de FORMULARIOS (40 de 46) - puente a `IFormAuthoringToolset` (ADR-0067) - permiso `formularios`
 

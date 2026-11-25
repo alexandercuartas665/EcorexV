@@ -958,7 +958,18 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             CalcExpression: Has(args, "calc_expression") ? FormExpressionEvaluator.NormalizeReferences(Str(args, "calc_expression")) : cur?.CalcExpression,
             Aggregate: Has(args, "aggregate") ? EnumOr(args, "aggregate", cur?.Aggregate ?? FormAggregate.None) : (cur?.Aggregate ?? FormAggregate.None),
             Format: S("format", cur?.Format),
-            VisibleWhenJson: S("visible_when_json", cur?.VisibleWhenJson));
+            VisibleWhenJson: S("visible_when_json", cur?.VisibleWhenJson),
+            // PATCH: campos que el esquema no edita pero que el request reemplaza; sin esto un update_question
+            // los dejaba en blanco (bloqueado/oculto, subformulario, cascada, permisos por rol, default dinamico).
+            Caption: cur?.Caption,
+            Numeral: cur?.Numeral,
+            GridCol: cur?.GridCol ?? "col-12",
+            IsLocked: Has(args, "is_locked") ? (Bool(args, "is_locked") ?? false) : (cur?.IsLocked ?? false),
+            IsHidden: Has(args, "is_hidden") ? (Bool(args, "is_hidden") ?? false) : (cur?.IsHidden ?? false),
+            SubformDefinitionId: cur?.SubformDefinitionId,
+            DefaultDynamic: cur?.DefaultDynamic ?? FormDefaultDynamic.None,
+            FieldVisibilityJson: cur?.FieldVisibilityJson,
+            CascadeConfigJson: cur?.CascadeConfigJson);
     }
 
     // BLINDAJE de autoria por agente para el options_json. Segun el control:
@@ -1388,13 +1399,22 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     private async Task<AgentToolResult> SetTransactionalAsync(JsonElement args, CancellationToken ct)
     {
         if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido."); }
+        // PATCH sobre la definicion ACTUAL: el servicio asigna TODO el request, asi que lo no enviado conserva su
+        // valor (antes apagaba HideSubmitBar, IsReportable y el codigo automatico).
+        var cur = await _forms.GetAsync(id, ct);
+        if (cur is null) { return Err("No existe un formulario con ese id."); }
         var req = new SetFormTransactionalRequest(
-            IsTransactional: Bool(args, "is_transactional") ?? false,
-            IdentityMode: EnumOr(args, "identity_mode", FormIdentityMode.None),
-            IdentitySourceFieldCode: Str(args, "identity_source_field_code"),
-            CardLayout: EnumOr(args, "card_layout", FormCardLayout.Normal),
-            IdentityPrefix: Str(args, "identity_prefix"),
-            IdentityPadding: Int(args, "identity_padding") ?? 6);
+            IsTransactional: Has(args, "is_transactional") ? (Bool(args, "is_transactional") ?? false) : cur.IsTransactional,
+            IdentityMode: Has(args, "identity_mode") ? EnumOr(args, "identity_mode", cur.IdentityMode) : cur.IdentityMode,
+            IdentitySourceFieldCode: Has(args, "identity_source_field_code") ? Str(args, "identity_source_field_code") : cur.IdentitySourceFieldCode,
+            CardLayout: Has(args, "card_layout") ? EnumOr(args, "card_layout", cur.CardLayout) : cur.CardLayout,
+            IdentityPrefix: Has(args, "identity_prefix") ? Str(args, "identity_prefix") : cur.IdentityPrefix,
+            IdentityPadding: Has(args, "identity_padding") ? (Int(args, "identity_padding") ?? 6) : cur.IdentityPadding,
+            HideSubmitBar: cur.HideSubmitBar,
+            IsReportable: cur.IsReportable,
+            AutoCodeEnabled: cur.AutoCodeEnabled,
+            AutoCodeTargetFieldCode: cur.AutoCodeTargetFieldCode,
+            AutoCodePadWidth: cur.AutoCodePadWidth);
         var r = await _forms.SetTransactionalAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, form = v });
     }
@@ -1465,6 +1485,23 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             if (hideChips) { o["hideChips"] = true; }
             if (cards) { o["cards"] = true; }
             themeJson = o.ToJsonString(JsonOut);
+        }
+
+        // Conserva la bandera de COMPORTAMIENTO keepEditable ("registro editable") del tema actual: set_theme solo
+        // cambia la apariencia y antes la apagaba al reescribir theme_json.
+        var curTheme = (await _forms.GetAsync(id, ct))?.ThemeJson;
+        if (!string.IsNullOrWhiteSpace(curTheme))
+        {
+            try
+            {
+                if (JsonNode.Parse(curTheme) is JsonObject old && old.TryGetPropertyValue("keepEditable", out var ke) && ke is not null)
+                {
+                    var merged = themeJson is null ? new JsonObject { ["tema"] = "clasico" } : (JsonNode.Parse(themeJson) as JsonObject ?? new JsonObject());
+                    merged["keepEditable"] = ke.DeepClone();
+                    themeJson = merged.ToJsonString(JsonOut);
+                }
+            }
+            catch (JsonException) { /* tema actual invalido: se reemplaza como antes */ }
         }
 
         var r = await _forms.SetThemeAsync(id, themeJson, ct);

@@ -55,7 +55,7 @@ else
                     <span class="bt-badge @(t.IsLocked ? "lock" : "free")">@(t.IsLocked ? "Bloqueado" : "Libre")</span>
                     @if (t.IsMcpGuide)
                     {
-                        <span class="bt-badge lock" title="La sirve guia_ecorex a cualquier IA conectada al MCP de tableros"><i class="fa-solid fa-robot"></i> Guia MCP</span>
+                        <span class="bt-badge lock" title="La sirve guia_ecorex a cualquier IA conectada al MCP de tableros"><i class="fa-solid fa-robot"></i> Guia MCP@(t.McpGuideTopic is { } gt && gt != McpGuideTopics.General ? ": " + gt : "")</span>
                     }
                 </div>
                 @if (!string.IsNullOrWhiteSpace(t.Description))
@@ -132,7 +132,18 @@ else
                 <label>Color<input type="color" class="bt-color" @bind="_color" /></label>
             </div>
             <label class="bt-check"><input type="checkbox" @bind="_locked" /> Bloqueado (solo lectura en la empresa y se actualiza en cada publicacion)</label>
-            <label class="bt-check"><input type="checkbox" @bind="_mcpGuide" /> Es la guia de los MCP (la sirve guia_ecorex; solo una plantilla a la vez)</label>
+            <label class="bt-check"><input type="checkbox" @bind="_mcpGuide" /> Es una guia de los MCP (la sirve guia_ecorex; una plantilla por tema)</label>
+            @if (_mcpGuide)
+            {
+                <label class="bt-grow">Tema de la guia
+                    <select class="form-select form-select-sm" @bind="_mcpGuideTopic">
+                        @foreach (var tp in McpGuideTopics.Known)
+                        {
+                            <option value="@tp">@(tp == McpGuideTopics.General ? "general (guia de entrada)" : tp)</option>
+                        }
+                    </select>
+                </label>
+            }
             <div class="bt-targets">
                 <span class="bt-label">Sembrar en</span>
                 <label class="bt-check"><input type="radio" name="bt-target" checked="@(_mode == BrainTemplateTargets.All)" @onchange="() => _mode = BrainTemplateTargets.All" /> Todas las empresas activas</label>
@@ -231,6 +242,8 @@ else
     private bool _locked = true;
     private bool _mcpGuide;
     private bool _mcpGuideOriginal;
+    private string _mcpGuideTopic = McpGuideTopics.General;
+    private string _mcpGuideTopicOriginal = McpGuideTopics.General;
     private string _mode = BrainTemplateTargets.All;
     private HashSet<Guid> _targets = new();
     private string _targetSearch = string.Empty;
@@ -271,6 +284,8 @@ else
         _locked = true;
         _mcpGuide = false;
         _mcpGuideOriginal = false;
+        _mcpGuideTopic = McpGuideTopics.General;
+        _mcpGuideTopicOriginal = McpGuideTopics.General;
         _mode = BrainTemplateTargets.All;
         _targets = new();
         _targetSearch = string.Empty;
@@ -288,6 +303,8 @@ else
         _locked = t.IsLocked;
         _mcpGuide = t.IsMcpGuide;
         _mcpGuideOriginal = t.IsMcpGuide;
+        _mcpGuideTopic = t.McpGuideTopic ?? McpGuideTopics.General;
+        _mcpGuideTopicOriginal = _mcpGuideTopic;
         _mode = t.TargetMode;
         _targets = t.TargetIds.ToHashSet();
         _targetSearch = string.Empty;
@@ -318,10 +335,10 @@ else
                 _formError = res.Error;
                 return;
             }
-            if (_mcpGuide != _mcpGuideOriginal)
+            if (_mcpGuide != _mcpGuideOriginal || (_mcpGuide && _mcpGuideTopic != _mcpGuideTopicOriginal))
             {
-                // ADR-0204: marcar desmarca la guia anterior en la misma transaccion (auditado).
-                var guide = await svc.SetMcpGuideAsync(res.Value, _mcpGuide, _userId);
+                // ADR-0204/0211: marcar desmarca la guia anterior DEL MISMO TEMA en la misma transaccion (auditado).
+                var guide = await svc.SetMcpGuideAsync(res.Value, _mcpGuide, _mcpGuideTopic, _userId);
                 if (!guide.IsOk)
                 {
                     _formError = guide.Error;

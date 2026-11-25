@@ -75,6 +75,9 @@ public sealed class ConciliacionTareaService : IConciliacionTareaService
                             ["rut"] = new FormFieldValue(r.RutEscaneado ?? string.Empty, "Text"),
                             ["fecha_compra"] = new FormFieldValue(r.FechaEmision.ToString("yyyy-MM-dd"), "Date"),
                             ["num_factura"] = new FormFieldValue(r.NumFacturaProveedor ?? string.Empty, "Text"),
+                            // NIT del proveedor (suele ir en un campo OCULTO): filtra listas por proveedor, p. ej.
+                            // las OC de ORDENES_COMPRA cuya columna PROVEEDOR es el NIT.
+                            ["nit_proveedor"] = new FormFieldValue(r.NitProveedor ?? string.Empty, "Text"),
                         };
                         var planos = await _cfg.GetPlainTextFieldCodesAsync(fid, ct);
                         // Sin dato no se escribe (antes quedaba p. ej. "rut" = "" en el borrador).

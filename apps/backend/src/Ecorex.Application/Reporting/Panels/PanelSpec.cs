@@ -138,7 +138,9 @@ public sealed class PanelWhere
     /// <summary>Campo sobre el que aplica (de la fuente, un alias de lookup o un derivado).</summary>
     public string Field { get; set; } = "";
 
-    /// <summary>Operador: eq | ne | contains | gt | gte | lt | lte.</summary>
+    /// <summary>Operador: eq | ne | contains | gt | gte | lt | lte | lastDays. lastDays: Value = N (entero > 0);
+    /// la fecha del campo cae en los ultimos N dias CALENDARIO del tenant contando hoy (7 = hoy + 6 anteriores),
+    /// evaluado en la zona horaria del tenant al renderizar (fecha relativa, rodante).</summary>
     public string Op { get; set; } = "eq";
 
     /// <summary>Valor de comparacion (texto; para gt/lt se interpreta numerico o fecha si aplica).</summary>
@@ -289,8 +291,15 @@ public sealed class PanelWidget
     /// <summary>Ancho en la grilla: full | half (por defecto half).</summary>
     public string? Width { get; set; }
 
-    /// <summary>line: orden de la dimension (asc por defecto para series temporales).</summary>
+    /// <summary>Orden de la dimension. line: asc por defecto (serie temporal). bar: por defecto valor desc;
+    /// "asc"/"desc" ordena por la dimension (p.ej. dias o meses en orden cronologico) y entonces TopN no recorta.</summary>
     public string? SortDim { get; set; }
+
+    /// <summary>Filtro condicional PROPIO del widget (mismo formato y semantica que <see cref="PanelKpi.When"/>):
+    /// el widget agrega SOLO las filas del conjunto filtrado del panel que cumplen todas estas condiciones (AND).
+    /// Vacio = sobre todo el conjunto filtrado del panel. Permite graficas de un subconjunto (p.ej. solo la
+    /// etapa Cierre, o los ultimos 7 dias con lastDays) dentro de un panel mixto sin crear otro reporte.</summary>
+    public List<PanelWhere> When { get; set; } = new();
 
     /// <summary>table: campo por el que se agrupan las filas.</summary>
     public string? GroupBy { get; set; }

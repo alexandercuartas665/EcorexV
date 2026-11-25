@@ -64,6 +64,10 @@
                 <strong>Facturas por autorizar</strong>
                 <span class="ac-badge">@ItemsMostrados.Count</span>
             </div>
+            @if (_aviso is { Length: > 0 })
+            {
+                <div class="ac-ok" style="margin:0 0 8px;">@_aviso</div>
+            }
             @if (_miTenantUserId is not null)
             {
                 <label class="ac-mine" title="Muestra solo las facturas asignadas a ti (desde el conciliador)">
@@ -221,7 +225,7 @@
                             </div>
                             <DynamicFormRenderer @ref="_formRenderer" DefinitionId="tf.DefinitionId" ResponseId="tf.ResponseId" Reference="@tf.Reference"
                                                  Mode="@(tf.SoloLectura ? FormRenderMode.ReadOnly : FormRenderMode.Fill)" ShowHeader="false"
-                                                 HiddenContainerIds="_hiddenSecsTarea" HonorHideSubmitBar="true" AutosaveWhenHidden="true" TaskTokens="@BuildFormTokens()"
+                                                 HiddenContainerIds="_hiddenSecsTarea" HonorHideSubmitBar="true" AutosaveWhenHidden="true" OnStepCompleted="OnPasoCompletadoAsync" TaskTokens="@BuildFormTokens()"
                                                  SubmittedByTenantUserId="_miTenantUserId" @key="tf.Key" />
                         }
                         else
@@ -415,8 +419,10 @@
             // El activo efectivo; si la tarea aun no tiene respuesta, el renderer crea el borrador anclado a su numero.
             var it = g.Items.FirstOrDefault(x => x.IsActive) ?? g.Items.FirstOrDefault();
             var hidden = await Cfg.GetHiddenContainerIdsForFormAsync(g.DefinitionId);
+            // Solo lectura si el formulario ya se envio o la tarea ya termino (sus botones ya no deben actuar).
+            var terminada = await Cfg.IsTareaTerminadaAsync(numero);
             var form = new TaskFormRef(g.DefinitionId, it?.ResponseId, it?.Reference ?? numero, g.FormTitle,
-                SoloLectura: it?.Status == Ecorex.Domain.Enums.FormResponseStatus.Submitted);
+                SoloLectura: terminada || it?.Status == Ecorex.Domain.Enums.FormResponseStatus.Submitted);
             return (form, hidden);
         }
         catch { return (null, Array.Empty<Guid>()); }
@@ -470,6 +476,48 @@
         }
         catch (Exception ex) { _errMsg = "Error al crear la tarea: " + ex.Message; }
         finally { _solicitando = false; }
+    }
+
+    // Aviso sobre la lista (p. ej. "la tarea termino y la factura salio del modulo").
+    private string? _aviso;
+
+    // Un boton del formulario cerro el paso del flujo (COMPLETAR_PASO_FLUJO / Aprobar). Si con eso la tarea quedo
+    // TERMINADA, la factura ya no esta por autorizar: sale de la lista y se pasa a la siguiente. El retiro va
+    // DIFERIDO porque esta callback corre dentro del click del propio renderer: desmontarlo aqui lo romperia.
+    private async Task OnPasoCompletadoAsync()
+    {
+        if (_sel is null || _solicitada is not { } num) { return; }
+        bool terminada;
+        try { terminada = await Cfg.IsTareaTerminadaAsync(num); }
+        catch { return; }
+        if (!terminada) { return; }
+        var id = _sel.Id;
+        _aviso = $"Tarea {num} terminada: la factura sale del modulo.";
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(1500);   // deja ver el resultado de la regla antes de retirar la factura
+                await SacarFacturaAsync(id);
+            }
+            catch (ObjectDisposedException) { /* el usuario salio de la pagina */ }
+        });
+    }
+
+    private async Task SacarFacturaAsync(Guid id)
+    {
+        var vis = ItemsMostrados.ToList();
+        var idx = vis.FindIndex(x => x.Id == id);
+        _items.RemoveAll(x => x.Id == id);
+        if (_sel?.Id != id) { StateHasChanged(); return; }
+        // Sin flush: el formulario de la tarea terminada ya se persistio (autosave + la propia regla).
+        _sel = null; _solicitada = null; _taskForm = null; _hiddenSecsTarea = Array.Empty<Guid>();
+        _panelOpen = false;   // modal: se cierra; columna: muestra la siguiente factura
+        _viewUrl = null; _viewFiles = new(); _viewFile = null;
+        StateHasChanged();
+        var restantes = ItemsMostrados;
+        if (restantes.Count > 0) { await SelectAsync(restantes[Math.Clamp(idx, 0, restantes.Count - 1)]); }
+        StateHasChanged();
     }
 
     private async Task<Guid> ActorAsync()
@@ -583,6 +631,13 @@
         try
         {
             _items = (await Svc.ListPorAutorizarAsync(Filtro())).ToList();
+            // La factura sale del modulo cuando la tarea que la porta ya termino o se cerro.
+            try
+            {
+                var terminadas = await Cfg.GetRenglonesConTareaTerminadaAsync();
+                if (terminadas.Count > 0) { _items = _items.Where(r => !terminadas.Contains(r.Id)).ToList(); }
+            }
+            catch { /* sin el filtro la lista sigue siendo util */ }
             // Actividad ya creada por factura (renglon -> numero), una sola lectura para pintar las tarjetas.
             try { _solicitadas = new Dictionary<Guid, string>(await Cfg.GetSolicitadasMapAsync()); }
             catch { _solicitadas = new(); }

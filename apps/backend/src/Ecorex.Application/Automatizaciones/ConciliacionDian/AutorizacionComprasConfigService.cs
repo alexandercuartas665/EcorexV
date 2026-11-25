@@ -151,6 +151,14 @@ public interface IAutorizacionComprasConfigService
     /// null si no existe. El filtro global por tenant aplica.</summary>
     Task<Guid?> ResolveTaskIdByNumberAsync(string number, CancellationToken ct = default);
 
+    /// <summary>True si la tarea con ese numero ya esta TERMINADA o CERRADA (Done/Closed): su factura ya no esta
+    /// por autorizar y su formulario queda de solo lectura.</summary>
+    Task<bool> IsTareaTerminadaAsync(string number, CancellationToken ct = default);
+
+    /// <summary>Facturas (renglones) cuya tarea ligada ya esta terminada o cerrada: el modulo de autorizacion
+    /// no las muestra (la tarea que las portaba se cerro).</summary>
+    Task<IReadOnlySet<Guid>> GetRenglonesConTareaTerminadaAsync(CancellationToken ct = default);
+
     // ---- Integracion contable: renglones ya ENVIADOS al sistema contable (anti-reenvio) ----
     /// <summary>Mapa renglon-&gt;LOT de los ya enviados con exito al contable. "Pendiente" para el envio = NO esta
     /// como clave. El valor es el/los numero(s) LOT que devolvio el contable (puede venir vacio si no se pudo leer).</summary>
@@ -364,6 +372,29 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         var result = new Dictionary<Guid, string>();
         foreach (var kv in ParseMap(raw)) { if (Guid.TryParse(kv.Key, out var g)) { result[g] = kv.Value; } }
         return result;
+    }
+
+    private static readonly TaskItemStatus[] EstadosTerminados = { TaskItemStatus.Done, TaskItemStatus.Closed };
+
+    public async Task<bool> IsTareaTerminadaAsync(string number, CancellationToken ct = default)
+    {
+        number = (number ?? string.Empty).Trim();
+        if (number.Length == 0) { return false; }
+        return await _db.TaskItems.AsNoTracking()
+            .AnyAsync(t => t.Number == number && EstadosTerminados.Contains(t.Status), ct);
+    }
+
+    public async Task<IReadOnlySet<Guid>> GetRenglonesConTareaTerminadaAsync(CancellationToken ct = default)
+    {
+        var map = await GetSolicitadasMapAsync(ct);
+        if (map.Count == 0) { return new HashSet<Guid>(); }
+        var numeros = map.Values.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
+        var terminadas = (await _db.TaskItems.AsNoTracking()
+                .Where(t => numeros.Contains(t.Number) && EstadosTerminados.Contains(t.Status))
+                .Select(t => t.Number)
+                .ToListAsync(ct))
+            .ToHashSet(StringComparer.Ordinal);
+        return map.Where(kv => terminadas.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
     }
 
     public async Task<Guid?> ResolveTaskIdByNumberAsync(string number, CancellationToken ct = default)

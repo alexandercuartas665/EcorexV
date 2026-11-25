@@ -1007,6 +1007,8 @@ app.UseMaquetaHub();
 // Enlace publico de libros de indicadores /a/{token} (ADR-0158 D7): tope por IP solo en /a
 // (el limitador global no limita nada fuera de esa ruta).
 app.UseRateLimiter();
+// Formulario publico /f/{token} embebible en cualquier dominio (iframe de leads); el resto conserva anti-framing.
+Ecorex.SuperAdmin.Endpoints.PublicFormFraming.UsePublicFormFraming(app);
 app.UseAntiforgery();
 
 app.MapStaticAssets();

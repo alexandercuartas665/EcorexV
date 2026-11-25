@@ -15,6 +15,8 @@
 @inject IOportunidadEstadoService EstadosSvc
 @inject IDirectoryVariantService DirVariant
 @inject IDirectorioModularFichaService ModularFichas
+@inject ITerceroFieldService FieldSvc
+@inject ITerceroFichaService FichaSvc
 
 <PageTitle>Cargador de contactos - ECOREX.tareas</PageTitle>
 
@@ -733,6 +735,20 @@
                             {
                                 <option value="@c">@c</option>
                             }
+                            @if (TerceroFichaValues.FieldKeyOf(cr.Campo) is not null && FichaCampo(cr.Campo) is null)
+                            {
+                                @* Campo de ficha que ya no existe (borrado): se conserva visible para no perderlo. *@
+                                <option value="@cr.Campo">@cr.Campo (no existe)</option>
+                            }
+                            @foreach (var g in _fichaCampos.GroupBy(f => f.Seccion))
+                            {
+                                <optgroup label="@g.Key">
+                                    @foreach (var f in g)
+                                    {
+                                        <option value="@f.Campo">@f.Label</option>
+                                    }
+                                </optgroup>
+                            }
                         </select>
                         <select class="gc-input xs" value="@cr.Operador" @onchange="e => UpdateCriterio(idx, op: e.Value?.ToString())">
                             @foreach (var op in OperadorOpciones)
@@ -740,7 +756,18 @@
                                 <option value="@op">@op</option>
                             }
                         </select>
-                        <input class="gc-input sm" placeholder="valor" value="@cr.Valor" @onchange="e => UpdateCriterio(idx, valor: e.Value?.ToString())" />
+                        @{ var opciones = FichaCampo(cr.Campo)?.Opciones ?? Array.Empty<string>(); }
+                        <input class="gc-input sm" placeholder="valor" value="@cr.Valor" list="@(opciones.Count > 0 ? "gc-opts-" + idx : null)"
+                               @onchange="e => UpdateCriterio(idx, valor: e.Value?.ToString())" />
+                        @if (opciones.Count > 0)
+                        {
+                            <datalist id="@("gc-opts-" + idx)">
+                                @foreach (var o in opciones)
+                                {
+                                    <option value="@o"></option>
+                                }
+                            </datalist>
+                        }
                         <button class="gc-crit-del" @onclick="() => _fbCriterios.RemoveAt(idx)" title="Quitar">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                         </button>
@@ -1052,8 +1079,43 @@
         _oportunidades = (await GestorSvc.ListOportunidadesAsync()).ToList();
         _citas = (await GestorSvc.ListCitasAsync(_agAnio, _agMes)).ToList();
         _prospectos = (await GestorSvc.ListProspectosAsync(_prospFuente)).ToList();
-        _contactos = (await TerceroSvc.ListAsync(new TerceroListFilter())).ToList();
+        // IncludeAllFields: Filtrables trae los valores de los campos de ficha para filtrar por ellos.
+        _contactos = (await TerceroSvc.ListAsync(new TerceroListFilter(IncludeAllFields: true))).ToList();
+        await LoadFichaCamposAsync();
     }
+
+    // ================= CAMPOS DE FICHA EN LOS FILTROS =================
+    // Campo de ficha ofrecido en el constructor de filtros: criterio "f:{FieldKey}", etiqueta, seccion
+    // ("Ficha: titulo") y opciones de lista para sugerir valores. Mismos campos que la grilla del Directorio
+    // (sin los del motor Modular "mod_"), excepto los que guardan un Id (lookup/asesor), tablas y separadores.
+    private sealed record FichaCampoOpcion(string Campo, string Label, string Seccion, IReadOnlyList<string> Opciones);
+
+    private List<FichaCampoOpcion> _fichaCampos = new();
+
+    private async Task LoadFichaCamposAsync()
+    {
+        var fichas = await FichaSvc.ListAsync();
+        var orden = fichas.GroupBy(f => f.FichaKey).ToDictionary(g => g.Key, g => g.First().SortOrder, StringComparer.Ordinal);
+        var titulos = fichas.GroupBy(f => f.FichaKey).ToDictionary(g => g.Key, g => g.First().Title, StringComparer.Ordinal);
+        var vistos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        _fichaCampos = (await FieldSvc.ListFieldsAsync())
+            .Where(f => TerceroFichaValues.IsFilterable(f.FieldType) && !f.FichaKey.StartsWith("mod_", StringComparison.Ordinal))
+            .OrderBy(f => orden.TryGetValue(f.FichaKey, out var o) ? o : int.MaxValue)
+            .ThenBy(f => f.FichaKey).ThenBy(f => f.SortOrder)
+            .Where(f => vistos.Add(f.FieldKey))
+            .Select(f => new FichaCampoOpcion(
+                TerceroFichaValues.CampoFor(f.FieldKey), f.Label,
+                "Ficha: " + (titulos.TryGetValue(f.FichaKey, out var t) ? t : f.FichaKey),
+                f.FieldType is TerceroFieldType.Select or TerceroFieldType.MultiSelect
+                    ? (f.Options ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    : Array.Empty<string>()))
+            .ToList();
+    }
+
+    private FichaCampoOpcion? FichaCampo(string? campo)
+        => TerceroFichaValues.FieldKeyOf(campo) is null
+            ? null
+            : _fichaCampos.FirstOrDefault(f => string.Equals(f.Campo, campo, StringComparison.OrdinalIgnoreCase));
 
     // ================= CONTACTOS (scrapeados + directorio) =================
     // La pestana muestra TODOS los contactos del tenant, vengan de scraping o cargados a
@@ -1197,9 +1259,17 @@
             // ignoran (no excluyen). Antes "Filtrar ahora" solo cambiaba la fuente y no filtraba de verdad.
             if (_activeFiltro is { Criterios.Count: > 0 } af)
             {
+                // Una fila del directorio (o un prospecto ya promovido) se evalua con los datos de SU tercero:
+                // vendedor, sector/cargo, perfiles, estado y campos de ficha, igual que el conteo del filtro.
+                var terceros = _contactos.ToDictionary(t => t.Id);
                 rows = rows.Where(r => ContactFilterEvaluator.MatchesAll(
-                    new ContactFilterEvaluator.Row(
-                        r.Nombre, r.Ciudad, null, r.Empresa, r.Sub, TerceroPerfil.Ninguno, TerceroEstado.Activo),
+                    r.TerceroId is Guid tid && terceros.TryGetValue(tid, out var t)
+                        ? new ContactFilterEvaluator.Row(
+                            t.Nombre, t.Ciudad, t.Vendedor,
+                            t.EsEmpresa ? t.Sub : null, t.EsEmpresa ? null : t.Sub,
+                            t.Perfiles, t.Estado, t.Filtrables)
+                        : new ContactFilterEvaluator.Row(
+                            r.Nombre, r.Ciudad, null, r.Empresa, r.Sub, TerceroPerfil.Ninguno, TerceroEstado.Activo),
                     af.Criterios)).ToList();
             }
 

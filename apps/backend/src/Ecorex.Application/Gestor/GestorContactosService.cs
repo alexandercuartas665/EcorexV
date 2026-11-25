@@ -912,11 +912,14 @@ public sealed class GestorContactosService : IGestorContactosService
 
     /// <summary>Universo del conteo de filtros: terceros no inactivos, proyectados a memoria.</summary>
     private async Task<List<TerceroRow>> LoadTerceroRowsAsync(CancellationToken cancellationToken)
-        => await _db.Terceros.AsNoTracking()
+        => (await _db.Terceros.AsNoTracking()
             .Where(t => t.Estado != TerceroEstado.Inactivo)
+            .Select(t => new { t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado, t.FichasJson })
+            .ToListAsync(cancellationToken))
             .Select(t => new TerceroRow(
-                t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado))
-            .ToListAsync(cancellationToken);
+                t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado,
+                TerceroFichaValues.Flatten(t.FichasJson)))
+            .ToList();
 
     /// <summary>
     /// Cuenta las filas que cumplen TODOS los criterios (AND). Los criterios sobre campos no
@@ -925,7 +928,7 @@ public sealed class GestorContactosService : IGestorContactosService
     private static int CountMatching(IReadOnlyList<TerceroRow> rows, IReadOnlyList<FiltroCriterio> criterios)
         => rows.Count(row => ContactFilterEvaluator.MatchesAll(
             new ContactFilterEvaluator.Row(
-                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado),
+                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado, row.Fichas),
             criterios));
 
     /// <summary>Prospectos scrapeados (todas las fuentes) proyectados para el conteo. TerceroId != null =&gt;
@@ -947,7 +950,7 @@ public sealed class GestorContactosService : IGestorContactosService
     {
         var terceroHits = terceros.Count(row => ContactFilterEvaluator.MatchesAll(
             new ContactFilterEvaluator.Row(
-                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado),
+                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado, row.Fichas),
             criterios));
         var prospectoHits = prospectos.Count(p => p.TerceroId is null && ContactFilterEvaluator.MatchesAll(
             new ContactFilterEvaluator.Row(
@@ -1008,7 +1011,8 @@ public sealed class GestorContactosService : IGestorContactosService
         string? Sector,
         string? Cargo,
         TerceroPerfil Perfiles,
-        TerceroEstado Estado);
+        TerceroEstado Estado,
+        IReadOnlyDictionary<string, string>? Fichas);
 
     /// <summary>Proyeccion minima de un prospecto scrapeado para el conteo distinto (ver CountDistinctMatching).</summary>
     private sealed record ProspectoRow(

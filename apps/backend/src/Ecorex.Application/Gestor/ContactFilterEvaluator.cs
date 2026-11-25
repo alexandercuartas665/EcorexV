@@ -1,4 +1,5 @@
 using System.Globalization;
+using Ecorex.Application.Directorio;
 using Ecorex.Domain.Enums;
 
 namespace Ecorex.Application.Gestor;
@@ -7,8 +8,9 @@ namespace Ecorex.Application.Gestor;
 /// Evaluador COMPARTIDO de los criterios de un <c>TerceroFiltro</c> sobre un contacto proyectado
 /// (000740). Extraido de <see cref="GestorContactosService"/> para que el "Filtrar ahora" del Gestor
 /// y el MOTOR de acciones por filtro (ADR-0056, Fase 2) resuelvan el MISMO segmento con la MISMA logica
-/// (una sola fuente de verdad). Criterios combinados con AND; los campos no soportados (dinamicos de
-/// FichasJson) se IGNORAN (no excluyen filas).
+/// (una sola fuente de verdad). Los campos de FICHA (dinamicos de FichasJson) se escriben "f:{FieldKey}" y se
+/// comparan contra <see cref="Row.Fichas"/>: una fila sin ese dato (p.ej. un prospecto, que no tiene fichas) lo
+/// trata como vacio. Otros campos desconocidos se IGNORAN (no excluyen filas).
 /// </summary>
 public static class ContactFilterEvaluator
 {
@@ -20,7 +22,8 @@ public static class ContactFilterEvaluator
         string? Sector,
         string? Cargo,
         TerceroPerfil Perfiles,
-        TerceroEstado Estado);
+        TerceroEstado Estado,
+        IReadOnlyDictionary<string, string>? Fichas = null);
 
     /// <summary>Evalua los criterios encadenados por su conector (Y = AND, O = OR), de izquierda a
     /// derecha SIN precedencia (el primer conector se ignora). Lista vacia = todos pasan. Ej.:
@@ -44,6 +47,12 @@ public static class ContactFilterEvaluator
         var campo = (criterio.Campo ?? string.Empty).Trim().ToLowerInvariant();
         var op = (criterio.Operador ?? "=").Trim();
         var valor = criterio.Valor ?? string.Empty;
+
+        // Campo de FICHA ("f:{FieldKey}"): el valor guardado en las fichas del tercero (vacio si no lo tiene).
+        if (TerceroFichaValues.FieldKeyOf(criterio.Campo) is string fieldKey)
+        {
+            return Compare(FichaValue(row.Fichas, fieldKey), op, valor);
+        }
 
         // Perfil: se compara contra el flag [Flags] TerceroPerfil.
         if (campo == "perfil")
@@ -70,12 +79,29 @@ public static class ContactFilterEvaluator
             "estado" => row.Estado.ToString(),
             _ => null
         };
-        // Campo no soportado (dinamico/ficha): se ignora el criterio.
+        // Campo no soportado: se ignora el criterio.
         if (campo is not ("ciudad" or "vendedor" or "nombre" or "sector" or "cargo" or "estado"))
         {
             return true;
         }
 
+        return Compare(actual, op, valor);
+    }
+
+    private static string? FichaValue(IReadOnlyDictionary<string, string>? fichas, string fieldKey)
+    {
+        if (fichas is null) { return null; }
+        if (fichas.TryGetValue(fieldKey, out var v)) { return v; }
+        // El diccionario puede venir con comparador ordinal (Filtrables del listado): busqueda sin mayusculas.
+        foreach (var (k, value) in fichas)
+        {
+            if (string.Equals(k, fieldKey, StringComparison.OrdinalIgnoreCase)) { return value; }
+        }
+        return null;
+    }
+
+    private static bool Compare(string? actual, string op, string valor)
+    {
         switch (op)
         {
             case "=":

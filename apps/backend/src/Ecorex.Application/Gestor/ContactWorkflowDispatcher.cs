@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Ecorex.Application.Common;
+using Ecorex.Application.Directorio;
 using Ecorex.Application.Scheduling;
 using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Entities;
@@ -733,6 +734,7 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 t.Cargo,
                 t.Perfiles,
                 t.Estado,
+                t.FichasJson,
                 t.Email,
                 t.Telefono,
                 EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null,
@@ -745,7 +747,8 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
 
         return rows
             .Where(t => ContactFilterEvaluator.MatchesAll(
-                new ContactFilterEvaluator.Row(t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado),
+                new ContactFilterEvaluator.Row(t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado,
+                    TerceroFichaValues.Flatten(t.FichasJson)),
                 criterios))
             .Select(t => new SegmentContact(
                 t.Id, t.Nombre, t.Email, t.Telefono,

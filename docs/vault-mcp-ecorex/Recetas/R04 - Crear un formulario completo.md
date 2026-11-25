@@ -9,6 +9,10 @@ referencia: "[[T09 - Formularios dinamicos]]"
 Volver a [[00 - LEEME PRIMERO]]. Referencia: [[T09 - Formularios dinamicos]]. Las herramientas de formularios
 tienen nombres en **ingles**.
 
+> Esta receta arma la ESTRUCTURA. El COMPORTAMIENTO (reglas al enviar / en campos / en botones, campos que se exigen
+> segun otros, registros que se cierran al firmar, permisos por rol, versiones) esta en el cerebro de formularios:
+> `guia_ecorex` con `tema` = `formularios`.
+
 Ejemplo: **Solicitud de visita tecnica** con datos del cliente, ciudad (lista), equipos (grilla con total) y tarea
 automatica al enviar.
 
@@ -121,8 +125,7 @@ Corrige cada `error` (re-aplicando la spec) hasta `errors=0`. Luego:
 
 1. `get_form` (definicion completa + `Version`).
 2. Preferible: **re-aplicar `apply_form_spec`** con los campos a cambiar (upsert por `field_code`).
-3. **Cuidado con `update_question`: NO es parcial** - los atributos que omitas vuelven a su valor por defecto.
-   Si la usas, envia TODOS los atributos actuales de la pregunta (tomalos de `get_form`).
+3. `update_question` es parcial: solo cambia los atributos que envias (el resto del campo se conserva).
 4. `verify_form` de nuevo.
 
 ## Copiar un formulario

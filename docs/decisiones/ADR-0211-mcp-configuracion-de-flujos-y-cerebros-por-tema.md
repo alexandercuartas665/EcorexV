@@ -1,6 +1,6 @@
 # ADR-0211: MCP de tableros - configuracion completa de flujos (ola 1) y cerebros de guia por tema
 
-- Estado: Aceptado (ola 1 en rama; olas 2 y 3 planeadas)
+- Estado: Aceptado (olas 1, 2 y 3 en rama)
 - Fecha: 2026-11-25
 - Modulo: MCP personal de tableros (ADR-0159) + motor de flujos (ADR-0014/0022/0034) + guia de los MCP (ADR-0204) +
   autoria de formularios por agente (ADR-0067)
@@ -75,6 +75,48 @@ Catalogo del MCP de tableros: **164 -> 187**.
 `BuildQuestionRequest` conserva del campo actual lo que el request reemplaza (y acepta `is_locked`/`is_hidden`);
 `set_transactional` es PATCH sobre la definicion actual; `set_theme` conserva `keepEditable`.
 
+### Ola 2 - reglas y opciones de formularios (+31 herramientas, `TableroMcpToolset.FormulariosConfig.cs`)
+
+Capa delgada sobre `IRulesEngine` (catalogo de verbos), `IRuleDocumentService`, `IFormDefinitionService`,
+`IFormSnapshotService` e `IFormTokenService` (inyectados opcionales; el catalogo solo las expone si estan).
+
+| Grupo | Herramientas | Permiso |
+|---|---|---|
+| Catalogo de reglas | listar_verbos_regla, listar_reglas, ver_regla, historial_regla, crear_regla, parametros_regla, estado_regla, renombrar_regla, eliminar_regla | modulo `reglas` (View / Create / Edit / Delete) |
+| Reglas en un formulario | reglas_de_formulario, regla_al_enviar (`EnsureFormSubmitVerbRuleAsync`, cualquier verbo, idempotente por verbo), quitar_regla_al_enviar, regla_en_campo (campo o boton `Button`), quitar_regla_de_campo, parametros_regla_en_campo (override por vinculo), condicion_entre_campos | modulo `formularios` |
+| Opciones | ocultar_barra_envio, formulario_reportable, codigo_automatico_formulario (PATCH de `SetTransactionalAsync`), registro_editable (`keepEditable` del tema), cierre_automatico_formulario (`CloseRuleJson`) | `formularios` |
+| Versiones y enlaces | guardar/listar/restaurar_version_formulario, listar_enlaces_formulario, revocar_enlace_formulario | `formularios` |
+| Campo (PATCH sobre la pregunta) | campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol (`FieldVisibilityJson` hide/readonly por rol), subformulario_de_campo | `formularios` |
+
+Decisiones de detalle:
+- Los parametros se validan contra el descriptor del verbo ANTES de guardar (nombre conocido, numero, si/no, opcion
+  estatica, y codigos de campo contra el formulario); los obligatorios los valida el servicio.
+- **Referencias por id**: `subcategoriaId` (codigo o nombre del concepto), `activityTypeId` (nombre) y
+  `assigneeUserId` (correo) se traducen a Guid si no lo son; sin coincidencia, error (nunca se guarda una referencia
+  rota). `listar_conceptos` ahora devuelve `concepto_id`.
+- Las reglas creadas con `formulario` van a su documento `FRMRULES-<codigo>` (el mismo del constructor, activo); sin
+  formulario, a "Reglas creadas por IA" (`IA-MCP`, activo). Nacen ACTIVAS salvo estado=desarrollo.
+- Hallazgos documentados en el cerebro: `NOTIFICAR` solo registra (no envia); el boton de regla es `Button` (no
+  `ActionButton`).
+
+Cerebro de formularios: `docs/vault-mcp-formularios/` (12 notas, FO11 generada del codigo). El generador quedo
+generico: `gen_referencia_codigo.py --tema flujos|formularios` (entiende el helper `Obj(...)`).
+
+Catalogo del MCP de tableros: **187 -> 218**.
+
+### Ola 3 - agente de IA del paso (+14 herramientas, `TableroMcpToolset.FlujosAgente.cs`, permiso `flujos`)
+
+opciones_agente_nodo y ver_agente_nodo (lectura); agente_nodo (asignar/reemplazar con autonomia autonomo|propone;
+avisa si el agente esta apagado; no en inicio/fin) y quitar_agente_nodo (destructiva); recursos como PATCH sobre
+`SetNodeAgentResourcesAsync` (que guarda el estado COMPLETO): instrucciones_agente_nodo, correo_agente_nodo,
+web_agente_nodo (Colmena), whatsapp_agente_nodo (linea, plantilla de frio, variables, encabezado, minutos de frio),
+voz_agente_nodo (agente de voz, linea, reintentos y ventana), canales_agente_nodo, fallo_agente_nodo (ruta = nombre de
+la opcion); metadatos del nodo: seguimiento_agente_nodo (`StepSlaList.Build` + `PulseSendWindow`),
+tope_preguntas_agente_nodo y traspaso_salida_agente_nodo (mapa BpmnElementId destino -> nota, mergeado por salida).
+`ver_flujo` muestra `agente_ia` por paso (marca APAGADO). Lineas, clientes y agentes se resuelven por id o nombre.
+
+Catalogo del MCP de tableros: **218 -> 232**. Receta en el cerebro de flujos: F12.
+
 ## Consecuencias
 
 - Una IA puede dejar un proceso funcionando de punta a punta sin pantalla (salvo el agente del nodo, ola 3, y crear
@@ -83,5 +125,8 @@ Catalogo del MCP de tableros: **164 -> 187**.
 - Pruebas: `FlowConfig_NodoCompuertaHumana_Avisos_Formularios_CicloDeVida_ADR0211`,
   `GuiaMcp_PorTema_GeneralYFlujos_Independientes` (dual PG + SQL Server), conteos de catalogo, y
   `Update_parcial_conserva_bloqueo_subform_cascada_permisos_y_default_dinamico` (unitaria).
-- Pendiente tras el deploy: importar y publicar el cerebro de flujos en `/cerebros-plantilla` con tema "flujos",
-  regenerar la referencia de la guia general desde el catalogo vivo y republicarla.
+- Prueba ola 3: `FlowAgent_AsignarConfigurarSeguimientoYQuitar_ADR0211` (dual).
+- Pruebas ola 2: `FormConfig_Reglas_Opciones_Versiones_Campos_ADR0211` y `McpCatalog_ConFormConfig_EsConsistente_YDespacha`
+  (dual).
+- Pendiente tras el deploy: importar y publicar los cerebros de flujos y de formularios en `/cerebros-plantilla` con
+  su tema, regenerar la referencia de la guia general desde el catalogo vivo y republicarla.

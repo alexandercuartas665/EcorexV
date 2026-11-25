@@ -48,12 +48,13 @@ Una compuerta o un fin solo tienen encargado si los marcas como **decision human
 | Decision humana (`decision_humana_nodo`) | Formularios del nodo y su obligatoriedad |
 | Reinicio (`reinicio_nodo`) | Avisos (`agregar_notificacion_nodo`), plazos, arranque |
 |  | Tablero/columna, concepto de cierre, salto, color, nota, reglas |
+|  | Agente de IA del paso y todos sus recursos ([[F12 - Receta agente de IA en un paso]]) |
 
 Detalle en [[F08 - Modificar un flujo publicado]].
 
 ## Lo que configura cada nodo (todo se ve en `ver_flujo`)
 
-- `decision_humana` (compuertas y fines), `encargado_origen`, `cargos`
+- `decision_humana` (compuertas y fines), `agente_ia`, `encargado_origen`, `cargos`
 - `reinicia_en`, `tablero_destino`, `columna_destino`, `concepto_cierre`, `salta_a_flujo`
 - `plazo`, `tiempo_arranque`, `avisos_al_llegar` (numerados), `formularios` (con `obligatorio_en_salidas` y
   `crear_al_llegar`), `reglas`, `color`, `nota`

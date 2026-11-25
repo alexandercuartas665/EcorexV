@@ -1,14 +1,14 @@
 ---
 tipo: referencia
 tema: flujos
-generado: gen_referencia_flujos.py (no editar a mano)
+generado: gen_referencia_codigo.py (no editar a mano)
 ---
 
 # F11 - Referencia de herramientas de flujos
 
-Volver a [[00 - LEEME PRIMERO]]. Generada del codigo del servidor. 39 herramientas del MCP de tableros.
+Volver a [[00 - LEEME PRIMERO]]. Generada del codigo del servidor. 53 herramientas del MCP de tableros.
 
-Marcas: (lectura) no cambia nada; (confirmar) quita o desvincula algo: confirma con el usuario.
+Marcas: (lectura) no cambia nada; (confirmar) quita, borra o reemplaza algo: confirma con el usuario.
 
 ## Descubrir
 
@@ -409,4 +409,146 @@ Reanuda un flujo pausado.
 | Parametro | Tipo | Obligatorio | Nota |
 |---|---|---|---|
 | `flujo` | string | si |  |
+
+## Agente de IA del paso
+
+### `opciones_agente_nodo` (lectura)
+
+Lo que se puede usar al configurar el agente de un paso: agentes de IA del tenant (activos primero), clientes Colmena (busqueda web), lineas de WhatsApp y lineas de voz. Usala antes de agente_nodo y de los recursos.
+
+Sin parametros.
+
+### `ver_agente_nodo` (lectura)
+
+El agente de IA de un paso con toda su configuracion (autonomia, instrucciones, recursos, canales, fallo, seguimiento, tope de preguntas, traspasos). Sin agente = el paso lo atiende solo gente.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+
+### `agente_nodo`
+
+Pone (o reemplaza) el AGENTE DE IA que atiende un paso. 'agente' = id o nombre (opciones_agente_nodo). 'autonomia': autonomo = el agente cierra el paso solo; propone (defecto) = deja todo listo y una persona confirma. El agente debe estar ENCENDIDO para actuar.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `agente` | string | si |  |
+| `autonomia` | string (autonomo / propone) |  |  |
+
+### `quitar_agente_nodo` (confirmar)
+
+Quita el agente del paso: vuelve a ser 100% humano (se pierde su configuracion de recursos). Confirma con el usuario.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+
+### `instrucciones_agente_nodo`
+
+Instrucciones del agente SOLO para este paso (se suman a su prompt general): que debe lograr, que datos buscar, como hablarle al cliente. Sin 'instrucciones' las quita.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `instrucciones` | string |  |  |
+
+### `correo_agente_nodo`
+
+activo=true permite al agente enviar CORREOS en este paso.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `activo` | boolean | si |  |
+
+### `web_agente_nodo`
+
+Busqueda web con un navegador de la Colmena: 'cliente_colmena' (id o nombre, ver opciones_agente_nodo) y 'perfil' opcional (sesion guardada del navegador). Sin 'cliente_colmena' la quita.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `cliente_colmena` | string |  |  |
+| `perfil` | string |  |  |
+
+### `whatsapp_agente_nodo`
+
+El agente pregunta por WhatsApp desde 'linea' (id o nombre). Para escribir en FRIO (sin conversacion abierta) usa 'plantilla' HSM aprobada + 'idioma', 'variables' (variable -> texto con tokens) y 'encabezado_url' si la plantilla lleva archivo. 'minutos_frio' = desde cuantos minutos sin respuesta usa la plantilla. Sin 'linea' quita WhatsApp.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `linea` | string |  |  |
+| `plantilla` | string |  |  |
+| `idioma` | string |  |  |
+| `variables` | object |  |  |
+| `encabezado_url` | string |  |  |
+| `minutos_frio` | integer |  |  |
+
+### `voz_agente_nodo`
+
+Llamadas de VOZ: 'agente_voz' (agente de voz, id o nombre) y 'linea_voz' (id o nombre; omitida = la por defecto). Reintento: 'max_llamadas' (1-10), 'reintento_minutos' (1-1440) y ventana 'hora_inicio'-'hora_fin' (0-24, hora de la empresa). Sin 'agente_voz' quita la voz.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `agente_voz` | string |  |  |
+| `linea_voz` | string |  |  |
+| `max_llamadas` | integer |  |  |
+| `reintento_minutos` | integer |  |  |
+| `hora_inicio` | integer |  |  |
+| `hora_fin` | integer |  |  |
+
+### `canales_agente_nodo`
+
+Canales que el agente puede usar en este paso: voz, whatsapp, web, correo. Lista vacia = todos los configurados.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `canales` | lista de string (voz / whatsapp / web / correo) | si |  |
+
+### `fallo_agente_nodo`
+
+Que hacer si el agente NO resuelve el paso: devolver_a_persona (defecto), reintentar ('reintentos' 0-10), tomar_ruta ('ruta' = NOMBRE de la opcion/salida a tomar) o notificar.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `accion` | string (devolver_a_persona / reintentar / tomar_ruta / notificar) | si |  |
+| `reintentos` | integer |  |  |
+| `ruta` | string |  |  |
+
+### `seguimiento_agente_nodo`
+
+CADENCIA de seguimiento: lista de esperas entre recordatorios del agente (la 1a es el primer contacto; 0 = inmediato). Al agotarse deja de insistir. 'ventana' opcional (horario de envio: 'inicio'/'fin' HH:MM, 'dias' 1=lunes..7=domingo, 'festivos' true = no escribe en festivos). Lista vacia quita la cadencia.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `esperas` | lista de objetos | si |  |
+| `esperas[].dias` | integer |  |  |
+| `esperas[].horas` | integer |  |  |
+| `esperas[].minutos` | integer |  |  |
+| `ventana` | object |  |  |
+
+### `tope_preguntas_agente_nodo`
+
+Maximo de preguntas/recordatorios por WhatsApp por actividad antes de pasarla a una persona. Sin 'tope' = el valor por defecto del sistema.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `tope` | integer |  |  |
+
+### `traspaso_salida_agente_nodo`
+
+En una COMPUERTA con agente: nota que el flujo deja al agente conversacional cuando la tarea sale por esta salida ('salida_nodo_id' = nodo destino), para que sepa como seguir la conversacion. Sin 'nota' la quita.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `nodo_id` | string | si | Id del nodo (ver ver_flujo) |
+| `salida_nodo_id` | string | si |  |
+| `nota` | string |  |  |
 

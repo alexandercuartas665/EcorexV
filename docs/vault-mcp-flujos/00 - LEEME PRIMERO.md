@@ -35,6 +35,7 @@ La guia GENERAL (sin `tema`) cubre todo lo demas: tareas, contactos, contenedore
 | Que el CLIENTE decida desde un enlace (firma u observacion) | [[F05 - Receta decision del cliente por enlace]] |
 | Plazos, arrancar despues, mover la actividad de tablero y cerrarla con concepto | [[F06 - Receta tiempos, tableros y cierre]] |
 | Encadenar con otro proceso, reglas en un paso, avisos internos | [[F07 - Receta encadenar procesos, reglas y avisos]] |
+| Que un agente de IA atienda un paso (WhatsApp, voz, web, correo, insistencia) | [[F12 - Receta agente de IA en un paso]] |
 | Cambiar un flujo que ya esta publicado | [[F08 - Modificar un flujo publicado]] |
 | Saber que herramienta usar y con que parametros | [[F11 - Referencia de herramientas de flujos]] |
 | Evitar errores ya vividos | [[F09 - Trampas conocidas de flujos]] |
@@ -54,7 +55,5 @@ La guia GENERAL (sin `tema`) cubre todo lo demas: tareas, contactos, contenedore
 
 ## Lo que este cerebro NO cubre (aun)
 
-- El **agente de IA de un nodo** (que la IA atienda el paso, llame o escriba por WhatsApp): se configura en la
-  pantalla del flujo (panel del nodo -> Agente). Llegara al MCP en una ola posterior.
-- **Crear reglas** nuevas: hoy solo se VINCULAN reglas que ya existen (`agregar_regla_nodo`). Las reglas se crean
-  en el modulo Reglas o desde el cerebro de formularios cuando este disponible.
+- **Crear reglas**: se crean con `crear_regla` (cerebro `formularios`, nota FO02) y aqui se VINCULAN al paso con
+  `agregar_regla_nodo`.

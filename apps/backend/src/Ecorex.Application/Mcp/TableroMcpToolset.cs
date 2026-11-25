@@ -101,6 +101,13 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private readonly Analisis.IAnalisisService? _analisis;
     private readonly Analisis.IAnalisisWidgetRunner? _widgetRunner;
     private readonly DataContainers.IImportClassificationService? _importClassify;
+    // ADR-0211 ola 2: reglas y opciones de formularios.
+    private readonly Rules.IRulesEngine? _rulesEngine;
+    private readonly Rules.IRuleDocumentService? _ruleDocs;
+    private readonly Rules.IRuleParamOptionsProvider? _ruleOptions;
+    private readonly Forms.IFormDefinitionService? _formDefs;
+    private readonly Forms.Builder.IFormSnapshotService? _formSnapshots;
+    private readonly Forms.IFormTokenService? _formTokens;
 
     public TableroMcpToolset(IApplicationDbContext db, IActivityBoardService boards, ITaskItemService tasks, IWorkflowInboxService inbox,
         ITerceroService? terceros = null, IDirectorioToolset? directorio = null, ITerceroVinculoService? vinculos = null,
@@ -113,8 +120,17 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         Reporting.IReportCatalog? reportCatalog = null, Reporting.IReportDataSource? reportData = null,
         Reporting.IReportDefinitionService? reportDefs = null, Analisis.IAnalisisService? analisis = null,
         Analisis.IAnalisisWidgetRunner? widgetRunner = null,
-        DataContainers.IImportClassificationService? importClassify = null)
+        DataContainers.IImportClassificationService? importClassify = null,
+        Rules.IRulesEngine? rulesEngine = null, Rules.IRuleDocumentService? ruleDocs = null,
+        Rules.IRuleParamOptionsProvider? ruleOptions = null, Forms.IFormDefinitionService? formDefs = null,
+        Forms.Builder.IFormSnapshotService? formSnapshots = null, Forms.IFormTokenService? formTokens = null)
     {
+        _rulesEngine = rulesEngine;
+        _ruleDocs = ruleDocs;
+        _ruleOptions = ruleOptions;
+        _formDefs = formDefs;
+        _formSnapshots = formSnapshots;
+        _formTokens = formTokens;
         _importClassify = importClassify;
         _reportCatalog = reportCatalog;
         _reportData = reportData;
@@ -159,7 +175,8 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     {
         // Siempre subconjunto de lo EXPUESTO (GetSpecs): lo garantiza la prueba de integridad del catalogo.
         var set = new HashSet<string>(ReadOnly, StringComparer.Ordinal) { GuideToolName };
-        if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); set.UnionWith(FlowConfigReadOnly); }
+        if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); set.UnionWith(FlowConfigReadOnly); set.UnionWith(FlowAgentReadOnly); }
+        if (HasFormConfig) { set.UnionWith(FormConfigReadOnly); }
         if (_scrape is not null) { set.UnionWith(ExtractionReadOnly); }
         if (_dataModel is not null) { set.UnionWith(ContainerReadOnly); }
         if (_agents is not null) { set.UnionWith(AgentReadOnly); }
@@ -171,7 +188,8 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private HashSet<string> BuildDestructive()
     {
         var set = new HashSet<string>(Destructive, StringComparer.Ordinal);
-        if (_flowDesign is not null) { set.UnionWith(FlowDestructive); set.UnionWith(FlowConfigDestructive); }
+        if (_flowDesign is not null) { set.UnionWith(FlowDestructive); set.UnionWith(FlowConfigDestructive); set.UnionWith(FlowAgentDestructive); }
+        if (HasFormConfig) { set.UnionWith(FormConfigDestructive); }
         if (_scrape is not null) { set.UnionWith(ExtractionDestructive); }
         if (_dataModel is not null) { set.UnionWith(ContainerDestructive); }
         if (_agents is not null) { set.UnionWith(AgentDestructive); }
@@ -185,7 +203,8 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     {
         var all = new List<AiToolSpec>(Specs) { GuideSpec }; // ADR-0204: la guia siempre (solo lee la plataforma)
         all.AddRange(DirectorySpecs);
-        if (_flowDesign is not null) { all.AddRange(FlowSpecs); all.AddRange(FlowConfigSpecs); }
+        if (_flowDesign is not null) { all.AddRange(FlowSpecs); all.AddRange(FlowConfigSpecs); all.AddRange(FlowAgentSpecs); }
+        if (HasFormConfig) { all.AddRange(FormConfigSpecs); }
         if (_scrape is not null) { all.AddRange(ExtractionSpecs); }
         if (_dataModel is not null) { all.AddRange(ContainerSpecs); all.AddRange(ContainerRowSpecs); }
         if (_agents is not null) { all.AddRange(AgentSpecs); }
@@ -299,6 +318,8 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 _ when DirectoryToolNames.Contains(toolName) => await ExecuteDirectoryAsync(toolName, args, argumentsJson, actor, cancellationToken),
                 _ when _flowDesign is not null && FlowToolNames.Contains(toolName) => await ExecuteFlowAsync(toolName, args, actor, cancellationToken),
                 _ when _flowDesign is not null && FlowConfigToolNames.Contains(toolName) => await ExecuteFlowConfigAsync(toolName, args, actor, cancellationToken),
+                _ when _flowDesign is not null && FlowAgentToolNames.Contains(toolName) => await ExecuteFlowAgentAsync(toolName, args, actor, cancellationToken),
+                _ when HasFormConfig && FormConfigToolNames.Contains(toolName) => await ExecuteFormConfigAsync(toolName, args, actor, cancellationToken),
                 _ when _scrape is not null && ExtractionToolNames.Contains(toolName) => await ExecuteExtractionAsync(toolName, args, actor, cancellationToken),
                 _ when _dataModel is not null && ContainerToolNames.Contains(toolName) => await ExecuteContainerAsync(toolName, args, actor, cancellationToken),
                 _ when _agents is not null && AgentToolNames.Contains(toolName) => await ExecuteAgentAsync(toolName, args, actor, cancellationToken),
@@ -528,6 +549,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
         var rows = await q.OrderBy(s => s.SortOrder).ThenBy(s => s.Nombre).Take(100)
             .Select(s => new
             {
+                concepto_id = s.Id,
                 codigo = s.Codigo,
                 nombre = s.Nombre,
                 descripcion = s.Descripcion,

@@ -191,6 +191,11 @@ public sealed partial class TableroMcpToolset
         var colNames = colIds.Count == 0 ? new Dictionary<Guid, string>()
             : await _db.TaskBoardColumns.AsNoTracking().Where(c => colIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
         var byBpmn = canvas.Nodes.ToDictionary(n => n.BpmnElementId, n => n, StringComparer.Ordinal);
+        var nodeIds = canvas.Nodes.Select(n => n.Id).ToList();
+        var agentNames = await _db.WorkflowNodeAgents.AsNoTracking()
+            .Where(a => nodeIds.Contains(a.NodeId))
+            .Join(_db.AiAgents.AsNoTracking(), a => a.AiAgentId, g => g.Id, (a, g) => new { a.NodeId, g.Name, g.IsActive })
+            .ToDictionaryAsync(x => x.NodeId, x => x.IsActive ? x.Name : x.Name + " (APAGADO)", ct);
         return Ok(new
         {
             definicion_id = canvas.DefinitionId,
@@ -210,6 +215,7 @@ public sealed partial class TableroMcpToolset
                 nombre = n.Name,
                 tipo = NodeTypeEs(n.NodeType),
                 decision_humana = n.NodeType is WorkflowNodeType.ExclusiveGateway or WorkflowNodeType.EndEvent ? n.AllowsAssignment : (bool?)null,
+                agente_ia = agentNames.GetValueOrDefault(n.Id),
                 encargado_origen = n.NodeType == WorkflowNodeType.Task || (n.NodeType != WorkflowNodeType.StartEvent && n.AllowsAssignment) ? AssigneeSourceEs(n.AssigneeSource) : null,
                 campo_encargado = n.AssigneeFormFieldCode,
                 cargos = cargos.TryGetValue(n.Id, out var cs) && cs.Count > 0 ? cs : null,

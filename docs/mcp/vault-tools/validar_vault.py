@@ -30,13 +30,10 @@ for f in cs_files:
 # en el codigo; si su esquema es un raw string se valida, si se arma por concatenacion solo se valida que existan.
 SIN_ESQUEMA = set()
 import importlib.util
-_spec = importlib.util.spec_from_file_location("genref_flujos", os.path.join(HERE, "gen_referencia_flujos.py"))
+_spec = importlib.util.spec_from_file_location("genref_codigo", os.path.join(HERE, "gen_referencia_codigo.py"))
 _mod = importlib.util.module_from_spec(_spec)
-try:
-    _spec.loader.exec_module(_mod)
-except SystemExit:
-    pass
-for _n, (_d, _sc) in _mod.load_specs().items():
+_spec.loader.exec_module(_mod)
+for _n, (_d, _sc) in _mod.all_specs().items():
     schemas[_n] = _sc   # el codigo (rama) manda sobre el catalogo vivo: puede traer parametros nuevos
 # guia_ecorex (nombre por constante): su esquema se toma del codigo (puede traer 'tema', ADR-0211).
 _guia = open(os.path.join(mcp_dir, "TableroMcpToolset.Guia.cs"), encoding="utf-8").read()
@@ -171,7 +168,14 @@ extra_ok = {"agregar_filas_a_contenedor", "actualizar_filas_por_clave", "clasifi
             "whatsapp_grupo", "nodo_id", "arista_id",
             # ids de respuesta y tipos de paso de dron citados en las recetas generales
             "tabla_id", "tiene_script", "contacto_id", "reporte_id", "libro_id", "hoja_id", "widget_id", "dron_id",
-            "inyectar_script", "procesar_archivos", "cerrar_navegador", "crear_actividad", "fecha_de_ultima_publicaci"}
+            "inyectar_script", "procesar_archivos", "cerrar_navegador", "crear_actividad", "fecha_de_ultima_publicaci",
+            # cerebro de formularios: campos de ejemplo y de respuesta
+            "tarea_creada", "codigo_interno", "firma_cliente", "btn_aprobar", "btn_copiar", "nit_factura", "nombre_factura",
+            "valor_aprobado", "documento_activo", "regla_id", "version_id", "enlace_id",
+            # tipos de parametro de verbo que devuelve listar_verbos_regla
+            "codigo_de_campo", "si_no", "lista_de_codigos_de_campo", "nodo_de_flujo",
+            # agente del paso (ola 3): campo de ver_flujo y valor de accion de fallo
+            "agente_ia", "devolver_a_persona"}
 seen = set()
 for f in files:
     if os.path.basename(os.path.dirname(f)) == "Referencia":

@@ -45,12 +45,15 @@ Ademas de la guia general hay cerebros especializados que `guia_ecorex` sirve co
 | Tema | Vault | Plantilla en el Super Admin | Referencia |
 |---|---|---|---|
 | general | `docs/vault-mcp-ecorex/` | "Guia de uso de ECOREX por IA" (tema general) | `gen_referencia.py` (catalogo vivo) |
-| flujos | `docs/vault-mcp-flujos/` | "Cerebro de flujos de ECOREX por IA" (tema flujos) | `gen_referencia_flujos.py` (lee el CODIGO) |
+| flujos | `docs/vault-mcp-flujos/` | "Cerebro de flujos de ECOREX por IA" (tema flujos) | `gen_referencia_codigo.py --tema flujos` (lee el CODIGO) |
+| formularios | `docs/vault-mcp-formularios/` | "Cerebro de formularios de ECOREX por IA" (tema formularios) | `gen_referencia_codigo.py --tema formularios` (lee el CODIGO) |
 
 ```powershell
-python gen_referencia_flujos.py
+python gen_referencia_codigo.py                              # regenera las referencias de todos los temas
 python validar_vault.py --vault vault-mcp-flujos
-python empaquetar_vault.py --vault vault-mcp-flujos     # -> salida.local/vault-mcp-flujos.zip
+python validar_vault.py --vault vault-mcp-formularios
+python empaquetar_vault.py --vault vault-mcp-flujos          # -> salida.local/vault-mcp-flujos.zip
+python empaquetar_vault.py --vault vault-mcp-formularios     # -> salida.local/vault-mcp-formularios.zip
 ```
 
 En `/cerebros-plantilla`: plantilla nueva (categoria Plataforma, bloqueada, todas las empresas), marcar "Es una guia de

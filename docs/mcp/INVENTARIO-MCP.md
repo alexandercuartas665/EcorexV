@@ -25,6 +25,11 @@
 > reinicio, tablero/columna, concepto de cierre, plazos, avisos con enlaces de decision, formularios por salida, reglas,
 > salto, editar/pausar/reanudar/desenganchar) y `guia_ecorex` gana `tema` (cerebros por tema), ADR-0211, total 187;
 > rama `feat/mcp-terminar-tarea`)
+> (addendum 2026-11-25: +31 herramientas de REGLAS y OPCIONES de formularios (catalogo de verbos, crear/editar reglas
+> con cualquier verbo, al enviar / en campo o boton / por vinculo, condicion entre campos, opciones del registro,
+> versiones, enlaces, propiedades de campo), ADR-0211 ola 2, total 218; misma rama)
+> (addendum 2026-11-25: +14 herramientas del AGENTE DE IA del paso de un flujo (asignar, instrucciones, correo, web,
+> WhatsApp, voz, canales, fallo, seguimiento con ventana, tope, traspaso por salida), ADR-0211 ola 3, total 232)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -35,7 +40,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **187** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **232** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -151,6 +156,25 @@ Avisos de revision (no reemplazan al motor; evitan que una IA publique un flujo 
 (el motor sigue TODAS las salidas de un nodo que no es compuerta), nodo sin entrada, nodo sin salida, compuerta con
 menos de 2 salidas, paso por politica sin cargo (incluye compuerta/fin con decision humana), flujo sin paso de tarea,
 compuerta automatica con varias salidas sin condicion, compuerta automatica con salidas SIN NOMBRE (ADR-0211).
+
+### 2.3a Agente de IA del paso (14) - `TableroMcpToolset.FlujosAgente.cs` (ADR-0211 ola 3) - permiso `flujos`
+
+Lectura: opciones_agente_nodo, ver_agente_nodo. Destructiva: quitar_agente_nodo. Escritura: agente_nodo,
+instrucciones_agente_nodo, correo_agente_nodo, web_agente_nodo, whatsapp_agente_nodo, voz_agente_nodo,
+canales_agente_nodo, fallo_agente_nodo, seguimiento_agente_nodo, tope_preguntas_agente_nodo,
+traspaso_salida_agente_nodo. Recursos como PATCH (cambiar uno conserva los demas).
+
+### 2.3b Reglas y opciones de FORMULARIOS (31) - `TableroMcpToolset.FormulariosConfig.cs` (ADR-0211 ola 2)
+
+Permiso: catalogo de reglas (listar_verbos_regla, listar_reglas, ver_regla, historial_regla, crear_regla,
+parametros_regla, estado_regla, renombrar_regla, eliminar_regla) = modulo `reglas`; el resto = `formularios`.
+Lectura: listar_verbos_regla, listar_reglas, ver_regla, reglas_de_formulario, historial_regla,
+listar_versiones_formulario, listar_enlaces_formulario. Destructivas: eliminar_regla, quitar_regla_al_enviar,
+quitar_regla_de_campo, restaurar_version_formulario, revocar_enlace_formulario. Escritura: regla_al_enviar,
+regla_en_campo, parametros_regla_en_campo, condicion_entre_campos, ocultar_barra_envio, formulario_reportable,
+codigo_automatico_formulario, registro_editable, cierre_automatico_formulario, guardar_version_formulario,
+campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol, subformulario_de_campo.
+Detalle y parametros: `docs/vault-mcp-formularios/Referencia/FO11 - Referencia de herramientas de reglas y opciones.md`.
 
 ### 2.4 Autoria de FORMULARIOS (40 de 46) - puente a `IFormAuthoringToolset` (ADR-0067) - permiso `formularios`
 

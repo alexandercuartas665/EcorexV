@@ -2,6 +2,26 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-25 - MCP ola 3 (ADR-0211): agente de IA del paso de un flujo (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion.
+- **Hecho**: +14 herramientas (`TableroMcpToolset.FlujosAgente.cs`, permiso flujos), una por propiedad: opciones_agente_nodo, ver_agente_nodo, agente_nodo (autonomo|propone; avisa si el agente esta apagado), quitar_agente_nodo, instrucciones_agente_nodo, correo_agente_nodo, web_agente_nodo (Colmena), whatsapp_agente_nodo (linea + plantilla de frio + variables + encabezado + minutos de frio), voz_agente_nodo (agente/linea de voz, reintentos, ventana), canales_agente_nodo, fallo_agente_nodo, seguimiento_agente_nodo (cadencia + ventana horaria), tope_preguntas_agente_nodo, traspaso_salida_agente_nodo. Recursos como PATCH (SetNodeAgentResourcesAsync guarda todo). `ver_flujo` muestra `agente_ia` por paso. Catalogo 218 -> 232.
+- **Regla del motor reflejada**: una compuerta solo admite agente si es de decision humana (error claro que pide decision_humana_nodo).
+- **Cerebro de flujos**: receta F12 (agente de IA en un paso); F11 regenerada (53 herramientas); entrada y F01 actualizadas.
+- **Gates**: build 0 errores; integracion dual: FlowAgent_* + todos los McpCatalog_* verdes; ola 2 completa (McpTablerosTests + BrainTemplates + RulesEngine + FormBuilder) 80/80; unitarias 1764/1764; dotnet format verificado en los archivos tocados; vaults PROBLEMAS: 0.
+- **Siguiente**: integrar + deploy de las olas 1-3 (con OK del usuario). Tras el deploy: publicar cerebros de flujos y formularios y republicar la guia general (regenerar su referencia desde el catalogo vivo).
+
+## 2026-11-25 - MCP ola 2 (ADR-0211): reglas y opciones de formularios + cerebro de formularios (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion nueva (la de la ola 1 sigue pendiente de desplegar).
+- **Hecho**: +31 herramientas (`TableroMcpToolset.FormulariosConfig.cs`), una por propiedad. Reglas: listar_verbos_regla (catalogo de verbos con parametros y opciones), listar_reglas, ver_regla, historial_regla, crear_regla (cualquier verbo; valida parametros), parametros_regla, estado_regla, renombrar_regla, eliminar_regla; en formularios: reglas_de_formulario, regla_al_enviar (cualquier verbo, idempotente por verbo), quitar_regla_al_enviar, regla_en_campo (campo o boton), quitar_regla_de_campo, parametros_regla_en_campo, condicion_entre_campos. Opciones: ocultar_barra_envio, formulario_reportable, codigo_automatico_formulario, registro_editable, cierre_automatico_formulario. Versiones/enlaces: guardar/listar/restaurar_version_formulario, listar/revocar_enlace_formulario. Campo: campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol, subformulario_de_campo. Catalogo 187 -> 218.
+- **Referencias por id**: subcategoriaId/activityTypeId/assigneeUserId aceptan codigo/nombre/correo y se traducen a Guid; `listar_conceptos` devuelve `concepto_id` (antes CREAR_TAREA era inusable por IA: no habia como obtener el id del concepto).
+- **Hallazgos documentados**: NOTIFICAR solo registra (no envia); el boton de reglas es `Button` (ActionButton es otro control sin reglas).
+- **Cerebro de formularios**: `docs/vault-mcp-formularios/` (12 notas; FO11 generada del codigo). Generador generico `gen_referencia_codigo.py --tema` (reemplaza gen_referencia_flujos.py). Guia general: R04 corregida (update_question ya es parcial) y apunta al tema formularios; cerebro de flujos apunta a crear_regla.
+- **Gates**: build 0 errores; integracion dual de los tests nuevos (FormConfig_*, McpCatalog_ConFormConfig_*) verde; vaults validados (PROBLEMAS: 0 en los 3).
+- **Siguiente**: integrar + deploy (con OK del usuario). Tras el deploy: publicar cerebros de flujos y formularios (tema) y republicar la guia general. Ola 3: agente de IA del nodo.
+- **Decisiones**: ADR-0211 (seccion ola 2).
+
 ## 2026-11-25 - MCP: configuracion completa de flujos (ola 1, ADR-0211), cerebros de guia por tema y 2 errores de autoria de formularios (rama feat/mcp-terminar-tarea, SIN desplegar)
 
 Agente: ECOREX.mcp (Claude Code). CON migracion (AddBrainTemplateMcpGuideTopic, PG + SQL Server: 1 columna nullable).

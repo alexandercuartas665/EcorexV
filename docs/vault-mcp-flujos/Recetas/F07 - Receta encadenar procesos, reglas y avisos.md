@@ -20,8 +20,8 @@ Al llegar a un nodo se arranca OTRO flujo en una tarea hija (ej. al aprobar una 
 
 ## Reglas en un paso
 
-Las reglas (verbos del motor de reglas: crear tarea, pasar campos, notificar, completar paso...) se crean en el
-modulo Reglas. Aqui solo se VINCULAN a un nodo:
+Las reglas (verbos del motor de reglas: crear tarea, pasar campos, completar paso...) se crean con `crear_regla`
+(cerebro `formularios`: `listar_verbos_regla` da los verbos y sus parametros). Aqui se VINCULAN a un nodo:
 
 ```json
 {"name":"listar_reglas_disponibles","arguments":{"buscar":"tarea"}}

@@ -89,6 +89,11 @@ public interface IWorkflowDesignService
     /// <summary>Condicion de la arista (formato del motor: "approval == 'Approved'"; vacio = rama default).</summary>
     Task<WorkflowResult<bool>> SetEdgeConditionAsync(Guid edgeId, string? conditionExpression, CancellationToken cancellationToken = default);
 
+    /// <summary>NOMBRE de la arista (ADR-0211): en una compuerta es la OPCION que ve quien decide y el valor que se
+    /// evalua contra las condiciones ("approval == 'Nombre'"). Solo borradores; regenera el XML (viaja como name del
+    /// sequenceFlow). Vacio = sin nombre. Max 120.</summary>
+    Task<WorkflowResult<bool>> SetEdgeNameAsync(Guid edgeId, string? name, CancellationToken cancellationToken = default);
+
     /// <summary>Configuracion basica del nodo: AllowsAssignment + reinicio (reusa SetRestartTargetAsync del motor).</summary>
     Task<WorkflowResult<bool>> SetNodeConfigAsync(Guid nodeId, bool allowsAssignment, Guid? restartNodeId, CancellationToken cancellationToken = default);
 

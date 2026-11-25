@@ -21,6 +21,10 @@
 > (addendum 2026-11-24: +6 herramientas: `editar_reporte`, `archivar_reporte`, `eliminar_indicador`,
 > `eliminar_libro_indicadores`, `agregar_filas`, `ver_filas`; y la consulta de reportes/indicadores gana `periodo`
 > (dia/semana/mes/trimestre/anio sobre un campo fecha), ADR-0206, total 164; rama `feat/mcp-filas-periodo-reportes`)
+> (addendum 2026-11-25: +23 herramientas de CONFIGURACION de flujos por nodo (decision humana, nombre de salida,
+> reinicio, tablero/columna, concepto de cierre, plazos, avisos con enlaces de decision, formularios por salida, reglas,
+> salto, editar/pausar/reanudar/desenganchar) y `guia_ecorex` gana `tema` (cerebros por tema), ADR-0211, total 187;
+> rama `feat/mcp-terminar-tarea`)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -31,7 +35,7 @@
 
 | Servidor | Ruta | Quien lo usa | Auth | Actua como | Herramientas |
 |---|---|---|---|---|---|
-| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **164** |
+| MCP PERSONAL de tableros | `POST /api/mcp/tableros` | Usuario final desde Claude/Gemini/Codex | Token personal `ecx_` (Scope `mcp:tableros`, emitido en `/conectar-ia`) | El USUARIO (permisos, bitacora "(via IA)", auditoria) | **187** |
 | MCP de ADMINISTRACION | `POST /api/mgmt/agent/mcp` (+ REST `/api/mgmt/agent/tools`) | Operador de plataforma / scripts | Llave `ECOREX_MGMT_API_KEY` (header `X-Ecorex-Mgmt-Key`) + `?tenant=` | "Sistema" (Guid.Empty) | **64** |
 | MCP de WHATSAPP por linea (ADR-0164) | `POST /api/mcp/whatsapp/{lineId}` (uno por linea Evolution) | Usuario final; se configura en /lineas -> "Configurar MCP" | Token personal `ecx_` (Scope `mcp:whatsapp`) | El USUARIO (permisos conversaciones/lineas, envios "(via IA)", auditoria `mcp.whatsapp.*`) | **36** |
 
@@ -99,7 +103,7 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | inactivar_contacto | D | Delete | Baja logica reversible (exige motivo), nunca DELETE |
 | vincular_contacto | W | regla de la tarea | Liga contacto a una tarea como cliente |
 
-### 2.3 Autoria de FLUJOS (16) - `TableroMcpToolset.Flujos.cs` - permiso `flujos`
+### 2.3 Autoria de FLUJOS (16 + 23 de configuracion) - `TableroMcpToolset.Flujos.cs` / `.FlujosConfig.cs` - permiso `flujos`
 
 | Herramienta | Tipo | Permiso | Que hace |
 |---|---|---|---|
@@ -110,7 +114,7 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | nueva_version_flujo | W | Edit | Version borrador de un flujo publicado (ids nuevos, vinculos y cargos copiados) |
 | agregar_nodo | W | Edit | Nodo tarea/compuerta/fin; con desde/hasta lo INSERTA y quita la conexion directa |
 | renombrar_nodo | W | Edit | Renombra |
-| conectar_nodos | W | Edit | Conecta (con condicion opcional) |
+| conectar_nodos | W | Edit | Conecta (con nombre y condicion opcionales) |
 | eliminar_conexion | W | Edit | Quita una arista |
 | condicion_ruta | W | Edit | Condicion de salida de compuerta (`approval == 'X'`) |
 | asignar_encargado_nodo | W | Edit | Origen del encargado: politica / hereda_inicio / hereda_anterior / campo_formulario |
@@ -120,9 +124,33 @@ Leyenda: R = solo lectura, W = escribe, D = destructiva (la IA debe confirmar). 
 | enganchar_flujo_a_concepto | W | Edit | Concepto -> flujo (las tareas nuevas lo arrancan) |
 | eliminar_nodo | D | Delete | Borra nodo (nunca el inicio) |
 
+Configuracion por nodo (ADR-0211, `TableroMcpToolset.FlujosConfig.cs`, una herramienta por propiedad):
+
+| Herramienta | Tipo | Permiso | Que hace |
+|---|---|---|---|
+| listar_reglas_disponibles | R | View | Catalogo de reglas del tenant para vincular a nodos |
+| nombre_salida | W | Edit | Nombre de la arista = opcion de la decision (solo borrador) |
+| decision_humana_nodo | W | Edit | Compuerta/fin decidida por su encargado (AllowsAssignment; solo borrador) |
+| reinicio_nodo | W | Edit | Abre un ciclo nuevo en otro nodo (solo borrador) |
+| tablero_destino_nodo | W | Edit | Tablero + columna al llegar el paso |
+| concepto_cierre_nodo | W | Edit | Concepto de cierre (columna de cierre) |
+| color_nodo / nota_nodo | W | Edit | Apariencia (PATCH entre ellas) |
+| salto_a_flujo_nodo | W | Edit | Arranca otro flujo (tarea hija) |
+| plazo_nodo / tiempo_arranque_nodo | W | Edit | SLA y espera de arranque (dias habiles opcional) |
+| agregar_notificacion_nodo | W | Edit | Aviso al llegar (correo/WhatsApp/grupo/Telegram) con enlaces publicos de decision |
+| quitar_notificacion_nodo | D | Edit | Quita un aviso por numero |
+| quitar_formulario_nodo | D | Edit | Desvincula formulario |
+| formulario_obligatorio_por_salida | W | Edit | Obligatorio solo en ciertas salidas de compuerta |
+| formulario_crear_al_llegar | W | Edit | Crear (o no) el formulario al llegar |
+| agregar_regla_nodo / regla_autonoma_nodo | W | Edit | Vincula regla existente / autonoma |
+| quitar_regla_nodo | D | Edit | Desvincula regla |
+| editar_flujo / pausar_flujo / reanudar_flujo | W | Edit | Propiedades (PATCH) y pausa |
+| desenganchar_flujo_de_concepto | D | Edit | Concepto deja de arrancar el flujo |
+
 Avisos de revision (no reemplazan al motor; evitan que una IA publique un flujo roto): rama paralela involuntaria
 (el motor sigue TODAS las salidas de un nodo que no es compuerta), nodo sin entrada, nodo sin salida, compuerta con
-menos de 2 salidas, paso por politica sin cargo, flujo sin paso de tarea.
+menos de 2 salidas, paso por politica sin cargo (incluye compuerta/fin con decision humana), flujo sin paso de tarea,
+compuerta automatica con varias salidas sin condicion, compuerta automatica con salidas SIN NOMBRE (ADR-0211).
 
 ### 2.4 Autoria de FORMULARIOS (40 de 46) - puente a `IFormAuthoringToolset` (ADR-0067) - permiso `formularios`
 

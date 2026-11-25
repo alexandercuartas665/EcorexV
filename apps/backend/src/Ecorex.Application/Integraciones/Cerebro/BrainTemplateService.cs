@@ -12,7 +12,7 @@ namespace Ecorex.Application.Integraciones.Cerebro;
 public sealed record BrainTemplateSummaryDto(
     Guid Id, string Name, string? Description, string? CategoryName, string? CategoryColor, bool IsLocked,
     string TargetMode, IReadOnlyList<Guid> TargetIds, int PublishedVersion, DateTimeOffset? PublishedAt, int Notes,
-    bool IsMcpGuide = false);
+    bool IsMcpGuide = false, string? McpGuideTopic = null);
 
 public sealed record BrainTemplateNoteDto(Guid Id, string Title, string Body);
 
@@ -69,6 +69,10 @@ public interface IBrainTemplateService
     /// marcar una se desmarca la anterior en el MISMO SaveChanges (una transaccion). Auditado.
     /// </summary>
     Task<TaskCoreResult<bool>> SetMcpGuideAsync(Guid id, bool isGuide, Guid platformUserId, CancellationToken ct = default);
+
+    /// <summary>ADR-0211: marca (o desmarca) la plantilla como guia MCP de un TEMA ("general", "flujos",
+    /// "formularios"...). A lo sumo una guia por tema: al marcar se desmarca la anterior del mismo tema.</summary>
+    Task<TaskCoreResult<bool>> SetMcpGuideAsync(Guid id, bool isGuide, string? topic, Guid platformUserId, CancellationToken ct = default);
 }
 
 public sealed partial class BrainTemplateService : IBrainTemplateService
@@ -282,22 +286,34 @@ public sealed partial class BrainTemplateService : IBrainTemplateService
         return TaskCoreResult<BrainTemplatePublishPlan>.Ok(new BrainTemplatePublishPlan(snapshot, targets));
     }
 
-    public async Task<TaskCoreResult<bool>> SetMcpGuideAsync(Guid id, bool isGuide, Guid platformUserId, CancellationToken ct = default)
+    public Task<TaskCoreResult<bool>> SetMcpGuideAsync(Guid id, bool isGuide, Guid platformUserId, CancellationToken ct = default)
+        => SetMcpGuideAsync(id, isGuide, McpGuideTopics.General, platformUserId, ct);
+
+    public async Task<TaskCoreResult<bool>> SetMcpGuideAsync(Guid id, bool isGuide, string? topic, Guid platformUserId, CancellationToken ct = default)
     {
         var template = await _db.BrainTemplates.FirstOrDefaultAsync(t => t.Id == id && !t.IsArchived, ct);
         if (template is null) { return TaskCoreResult<bool>.NotFound("La plantilla no existe."); }
-        if (template.IsMcpGuide == isGuide) { return TaskCoreResult<bool>.Ok(isGuide); }
+        var key = McpGuideTopics.Normalize(topic);
+        if (key is null) { return TaskCoreResult<bool>.Invalid("Tema de guia no valido (minusculas, letras, numeros y guion bajo)."); }
+        var stored = key == McpGuideTopics.General ? null : key;
+        if (template.IsMcpGuide == isGuide && (!isGuide || McpGuideTopics.Normalize(template.McpGuideTopic) == key))
+        {
+            return TaskCoreResult<bool>.Ok(isGuide);
+        }
 
         string? previous = null;
         if (isGuide)
         {
-            var others = await _db.BrainTemplates.Where(t => t.IsMcpGuide && t.Id != id).ToListAsync(ct);
+            // Una guia por TEMA: se desmarca la anterior del mismo tema (la de otros temas sigue).
+            var candidates = await _db.BrainTemplates.Where(t => t.IsMcpGuide && t.Id != id).ToListAsync(ct);
+            var others = candidates.Where(o => McpGuideTopics.Normalize(o.McpGuideTopic) == key).ToList();
             foreach (var o in others) { o.IsMcpGuide = false; }
             previous = others.Count > 0 ? string.Join(", ", others.Select(o => o.Name)) : null;
         }
         template.IsMcpGuide = isGuide;
+        template.McpGuideTopic = isGuide ? stored : template.McpGuideTopic;
         _audit.Write(platformUserId, "cerebro.plantilla.guia-mcp", nameof(BrainTemplate), template.Id,
-            previousValue: new { guia_anterior = previous }, newValue: new { template.Name, es_guia = isGuide }, reason: AuditReason);
+            previousValue: new { guia_anterior = previous }, newValue: new { template.Name, es_guia = isGuide, tema = key }, reason: AuditReason);
         // Un solo SaveChanges = una transaccion: nunca quedan dos guias marcadas.
         await _db.SaveChangesAsync(ct);
         return TaskCoreResult<bool>.Ok(isGuide);
@@ -305,7 +321,7 @@ public sealed partial class BrainTemplateService : IBrainTemplateService
 
     private static BrainTemplateSummaryDto ToSummary(BrainTemplate t, int notes)
         => new(t.Id, t.Name, t.Description, t.CategoryName, t.CategoryColor, t.IsLocked, t.TargetMode, ParseIds(t.TargetIdsJson),
-            t.PublishedVersion, t.PublishedAt, notes, t.IsMcpGuide);
+            t.PublishedVersion, t.PublishedAt, notes, t.IsMcpGuide, McpGuideTopics.Normalize(t.McpGuideTopic));
 
     private static List<Guid> ParseIds(string? json)
     {

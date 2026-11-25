@@ -42,6 +42,12 @@ public sealed class BrainTemplate : BaseEntity
     /// </summary>
     public bool IsMcpGuide { get; set; }
 
+    /// <summary>
+    /// TEMA de la guia MCP (ADR-0211): null o "general" = la guia de entrada; "flujos", "formularios"... = cerebro
+    /// especializado que guia_ecorex sirve con tema=... Hay a lo sumo UNA guia marcada por tema.
+    /// </summary>
+    public string? McpGuideTopic { get; set; }
+
     public ICollection<BrainTemplateNote> Notes { get; set; } = new List<BrainTemplateNote>();
 }
 

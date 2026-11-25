@@ -38,5 +38,24 @@ python empaquetar_vault.py
 3. Super Admin: `/cerebros-plantilla` -> "Guia de uso de ECOREX por IA" -> importar el ZIP -> **Publicar**. Los
    cerebros sembrados (bloqueados) se sincronizan y `guia_ecorex` sirve la version nueva.
 
+## Cerebros por tema (ADR-0211)
+
+Ademas de la guia general hay cerebros especializados que `guia_ecorex` sirve con `tema`:
+
+| Tema | Vault | Plantilla en el Super Admin | Referencia |
+|---|---|---|---|
+| general | `docs/vault-mcp-ecorex/` | "Guia de uso de ECOREX por IA" (tema general) | `gen_referencia.py` (catalogo vivo) |
+| flujos | `docs/vault-mcp-flujos/` | "Cerebro de flujos de ECOREX por IA" (tema flujos) | `gen_referencia_flujos.py` (lee el CODIGO) |
+
+```powershell
+python gen_referencia_flujos.py
+python validar_vault.py --vault vault-mcp-flujos
+python empaquetar_vault.py --vault vault-mcp-flujos     # -> salida.local/vault-mcp-flujos.zip
+```
+
+En `/cerebros-plantilla`: plantilla nueva (categoria Plataforma, bloqueada, todas las empresas), marcar "Es una guia de
+los MCP" con el **tema** correspondiente, importar su ZIP y Publicar. Una guia por tema: marcar otra del mismo tema
+desmarca la anterior. Cada cerebro de tema tiene su propia nota `00 - LEEME PRIMERO`.
+
 Reglas: la nota `00 - LEEME PRIMERO` no se renombra (`guia_ecorex` la usa como entrada); titulos unicos en todo el
 vault (el importador ignora carpetas); solo ASCII; nada de tokens, ids de empresa ni datos de clientes.

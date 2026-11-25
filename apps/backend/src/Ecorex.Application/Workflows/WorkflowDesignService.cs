@@ -840,6 +840,36 @@ public sealed class WorkflowDesignService : IWorkflowDesignService
     }
 
 
+    public async Task<WorkflowResult<bool>> SetEdgeNameAsync(
+        Guid edgeId, string? name, CancellationToken cancellationToken = default)
+    {
+        var edge = await _db.WorkflowEdges.FirstOrDefaultAsync(e => e.Id == edgeId, cancellationToken);
+        if (edge is null)
+        {
+            return WorkflowResult<bool>.NotFound("Conexion de flujo no encontrada.");
+        }
+        var guarded = await LoadDraftAsync(edge.DefinitionId, cancellationToken);
+        if (guarded.Error is not null)
+        {
+            return Fail<bool>(guarded.Error);
+        }
+        var normalized = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        if (normalized?.Length > 120)
+        {
+            return WorkflowResult<bool>.Invalid("El nombre de la salida supera los 120 caracteres.");
+        }
+        edge.Name = normalized;
+
+        await using var transaction = await BeginTransactionIfNoneAsync(cancellationToken);
+        await RegenerateXmlAsync(guarded.Definition!, cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return WorkflowResult<bool>.Ok(true);
+    }
+
     public async Task<WorkflowResult<bool>> SetNodeConfigAsync(
         Guid nodeId, bool allowsAssignment, Guid? restartNodeId, CancellationToken cancellationToken = default)
     {

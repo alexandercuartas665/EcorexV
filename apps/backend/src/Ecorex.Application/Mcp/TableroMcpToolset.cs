@@ -159,7 +159,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     {
         // Siempre subconjunto de lo EXPUESTO (GetSpecs): lo garantiza la prueba de integridad del catalogo.
         var set = new HashSet<string>(ReadOnly, StringComparer.Ordinal) { GuideToolName };
-        if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); }
+        if (_flowDesign is not null) { set.UnionWith(FlowReadOnly); set.UnionWith(FlowConfigReadOnly); }
         if (_scrape is not null) { set.UnionWith(ExtractionReadOnly); }
         if (_dataModel is not null) { set.UnionWith(ContainerReadOnly); }
         if (_agents is not null) { set.UnionWith(AgentReadOnly); }
@@ -171,7 +171,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     private HashSet<string> BuildDestructive()
     {
         var set = new HashSet<string>(Destructive, StringComparer.Ordinal);
-        if (_flowDesign is not null) { set.UnionWith(FlowDestructive); }
+        if (_flowDesign is not null) { set.UnionWith(FlowDestructive); set.UnionWith(FlowConfigDestructive); }
         if (_scrape is not null) { set.UnionWith(ExtractionDestructive); }
         if (_dataModel is not null) { set.UnionWith(ContainerDestructive); }
         if (_agents is not null) { set.UnionWith(AgentDestructive); }
@@ -185,7 +185,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
     {
         var all = new List<AiToolSpec>(Specs) { GuideSpec }; // ADR-0204: la guia siempre (solo lee la plataforma)
         all.AddRange(DirectorySpecs);
-        if (_flowDesign is not null) { all.AddRange(FlowSpecs); }
+        if (_flowDesign is not null) { all.AddRange(FlowSpecs); all.AddRange(FlowConfigSpecs); }
         if (_scrape is not null) { all.AddRange(ExtractionSpecs); }
         if (_dataModel is not null) { all.AddRange(ContainerSpecs); all.AddRange(ContainerRowSpecs); }
         if (_agents is not null) { all.AddRange(AgentSpecs); }
@@ -298,6 +298,7 @@ public sealed partial class TableroMcpToolset : ITableroMcpToolset
                 GuideToolName => await GuideAsync(args, cancellationToken),
                 _ when DirectoryToolNames.Contains(toolName) => await ExecuteDirectoryAsync(toolName, args, argumentsJson, actor, cancellationToken),
                 _ when _flowDesign is not null && FlowToolNames.Contains(toolName) => await ExecuteFlowAsync(toolName, args, actor, cancellationToken),
+                _ when _flowDesign is not null && FlowConfigToolNames.Contains(toolName) => await ExecuteFlowConfigAsync(toolName, args, actor, cancellationToken),
                 _ when _scrape is not null && ExtractionToolNames.Contains(toolName) => await ExecuteExtractionAsync(toolName, args, actor, cancellationToken),
                 _ when _dataModel is not null && ContainerToolNames.Contains(toolName) => await ExecuteContainerAsync(toolName, args, actor, cancellationToken),
                 _ when _agents is not null && AgentToolNames.Contains(toolName) => await ExecuteAgentAsync(toolName, args, actor, cancellationToken),

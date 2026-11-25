@@ -2,6 +2,18 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-25 - MCP: configuracion completa de flujos (ola 1, ADR-0211), cerebros de guia por tema y 2 errores de autoria de formularios (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). CON migracion (AddBrainTemplateMcpGuideTopic, PG + SQL Server: 1 columna nullable).
+- **Pedido del usuario**: ampliar el MCP para formularios y flujos, con un cerebro propio por tema. Decidio: por OLAS y UNA HERRAMIENTA POR PROPIEDAD.
+- **Hecho (ola 1)**: +23 herramientas de flujos (`TableroMcpToolset.FlujosConfig.cs`): nombre_salida, decision_humana_nodo, reinicio_nodo, tablero_destino_nodo, concepto_cierre_nodo, color_nodo, nota_nodo, salto_a_flujo_nodo, plazo_nodo, tiempo_arranque_nodo, agregar/quitar_notificacion_nodo (con enlaces publicos de decision), quitar_formulario_nodo, formulario_obligatorio_por_salida, formulario_crear_al_llegar, listar_reglas_disponibles, agregar/quitar_regla_nodo, regla_autonoma_nodo, editar/pausar/reanudar_flujo, desenganchar_flujo_de_concepto. `conectar_nodos` acepta `nombre`; `ver_flujo` muestra toda la config del nodo y el nombre de cada arista; 2 avisos nuevos de revision (compuerta automatica sin condiciones / con salidas SIN NOMBRE). Nuevo `IWorkflowDesignService.SetEdgeNameAsync`. Catalogo 164 -> 187.
+- **Hallazgo clave**: en una compuerta AUTOMATICA las opciones son los NOMBRES de sus aristas y el MCP no podia ponerlos: toda compuerta creada por IA iba siempre por la ruta por defecto (la receta R03 de la guia lo tenia mal; corregida).
+- **Cerebros por tema**: `BrainTemplate.McpGuideTopic` (una guia por tema), `guia_ecorex` gana `tema` y lista `temas`; selector de tema en /cerebros-plantilla. Cerebro de flujos en `docs/vault-mcp-flujos/` (12 notas; F11 generada del codigo con `gen_referencia_flujos.py`); scripts del vault con `--vault`. ZIPs en `docs/mcp/vault-tools/salida.local/` (local).
+- **Errores corregidos (formularios)**: update_question/apply_form_spec ya no borran bloqueado/oculto, subformulario, cascada, permisos por rol, default dinamico, caption/numeral/gridcol; set_transactional es PATCH; set_theme conserva keepEditable.
+- **Gates**: build de la solucion 0 errores; integracion dual (PG + SQL Server) de los tests tocados 24/24 (FlowConfig, GuiaMcp por tema, FlowAuthoring, catalogos, permisos); unitarias FormAuthoringGuard 9/9; `dotnet format whitespace` verificado en los archivos tocados; vaults validados (PROBLEMAS: 0 en ambos).
+- **Siguiente**: dev principal integra + deploy (con OK del usuario por version). Tras el deploy: crear la plantilla "Cerebro de flujos de ECOREX por IA" (tema flujos), importar `vault-mcp-flujos.zip` y publicar; regenerar la referencia de la guia general desde el catalogo vivo y republicarla. Ola 2: reglas genericas y opciones de formularios + cerebro de formularios. Ola 3: agente de IA del nodo.
+- **Decisiones**: ADR-0211.
+
 ## 2026-11-24 - Autorizacion compras DIAN: la tarjeta opera la actividad (misma tarea del conciliador) - v0.16.394 (rama feat/autorizacion-tarjeta-actividad)
 
 Agente: ECOREX.agentes (desarrollo de la rama) + ECOREX.desarrollo (integracion). SIN migracion.

@@ -629,6 +629,187 @@ public abstract class McpTablerosTestsBase
         Assert.Equal(defV2, (await ctx.ActividadSubcategorias.AsNoTracking().SingleAsync(s => s.Id == concepto.Id)).WorkflowDefinitionId);
     }
 
+    /// <summary>
+    /// ADR-0211 (ola 1): la IA deja un flujo FUNCIONANDO con la configuracion por nodo, una herramienta por propiedad:
+    /// compuerta que decide una persona, reinicio, tablero/columna + concepto de cierre, plazo y arranque, color y nota
+    /// (PATCH: cambiar uno no borra el otro), avisos con enlaces publicos de decision por salida, formulario obligatorio
+    /// por salida / sin crear al llegar / quitar, salto a otro flujo, editar, pausar/reanudar y desenganchar.
+    /// </summary>
+    [Fact]
+    public async Task FlowConfig_NodoCompuertaHumana_Avisos_Formularios_CicloDeVida_ADR0211()
+    {
+        var seed = await SeedTenantAsync("Mcp Config Flujo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx);
+        var me = Actor(seed, owner: true);
+
+        var form = new FormDefinition { TenantId = seed.TenantId, Code = "F-RECH", Title = "Motivo de rechazo", Status = FormStatus.Active };
+        var cat = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-CF", Nombre = "Compras CF" };
+        var board = new TaskBoard
+        {
+            TenantId = seed.TenantId,
+            Name = "Compras CF",
+            Kind = TaskBoardKind.Activities,
+            CloseReasonsJson = "[\"Aprobada\",\"Rechazada\"]"
+        };
+        ctx.FormDefinitions.Add(form);
+        ctx.ActividadCategorias.Add(cat);
+        ctx.TaskBoards.Add(board);
+        await ctx.SaveChangesAsync();
+        ctx.TaskBoardColumns.Add(new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Por hacer", SortOrder = 1 });
+        ctx.TaskBoardColumns.Add(new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Cerrado", SortOrder = 2, IsDone = true });
+        var concepto = new ActividadSubcategoria { TenantId = seed.TenantId, CategoriaId = cat.Id, Codigo = "C-CF", Nombre = "Compra CF" };
+        ctx.ActividadSubcategorias.Add(concepto);
+        await ctx.SaveChangesAsync();
+
+        async Task<JsonElement> Ok(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.False(r.IsError, $"{tool}: {r.Json}");
+            return Payload(r);
+        }
+        async Task<string> Fail(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.True(r.IsError, $"{tool} debia fallar: {r.Json}");
+            return r.Json;
+        }
+        JsonElement NodeIn(JsonElement canvas, Guid id) =>
+            canvas.GetProperty("nodos").EnumerateArray().First(n => n.GetProperty("nodo_id").GetGuid() == id);
+
+        // Grafo: inicio -> Revisar -> Decision (compuerta) -> fin | Rechazado (otro fin).
+        var creado = await Ok("crear_flujo", new { nombre = "Compra con decision", categoria = "Compras" });
+        var defId = creado.GetProperty("definicion_id").GetGuid();
+        var nodos = creado.GetProperty("nodos").EnumerateArray().ToList();
+        var inicio = nodos.First(n => n.GetProperty("tipo").GetString() == "inicio").GetProperty("nodo_id").GetGuid();
+        var fin = nodos.First(n => n.GetProperty("tipo").GetString() == "fin").GetProperty("nodo_id").GetGuid();
+        var rev = (await Ok("agregar_nodo", new { flujo = defId, tipo = "tarea", nombre = "Revisar", desde_nodo_id = inicio, hasta_nodo_id = fin })).GetProperty("nodo_id").GetGuid();
+        await Ok("asignar_encargado_nodo", new { nodo_id = rev, origen = "hereda_inicio" });
+        var gw = (await Ok("agregar_nodo", new { flujo = defId, tipo = "compuerta", nombre = "Decision", desde_nodo_id = rev, hasta_nodo_id = fin })).GetProperty("nodo_id").GetGuid();
+        var rech = (await Ok("agregar_nodo", new { flujo = defId, tipo = "fin", nombre = "Rechazado" })).GetProperty("nodo_id").GetGuid();
+        await Ok("conectar_nodos", new { desde_nodo_id = gw, hasta_nodo_id = rech });
+
+        // Compuerta automatica sin condiciones: aviso. Con decision humana + encargado, el aviso desaparece.
+        var c1 = await Ok("ver_flujo", new { flujo = defId });
+        Assert.Contains(c1.GetProperty("avisos").EnumerateArray(), a => a.GetString()!.Contains("se resuelve SOLA"));
+        Assert.Contains(c1.GetProperty("avisos").EnumerateArray(), a => a.GetString()!.Contains("SIN NOMBRE"));
+        Assert.False(NodeIn(c1, gw).GetProperty("decision_humana").GetBoolean());
+
+        // Nombre de la salida (opcion de la decision): en compuerta automatica sugiere la condicion.
+        var toRech = c1.GetProperty("aristas").EnumerateArray()
+            .First(e => e.GetProperty("desde").GetGuid() == gw && e.GetProperty("hasta").GetGuid() == rech).GetProperty("arista_id").GetGuid();
+        var named = await Ok("nombre_salida", new { arista_id = toRech, nombre = "Rechazada" });
+        Assert.Contains("approval == 'Rechazada'", named.GetProperty("sugerencia").GetString());
+        Assert.Equal("Rechazada", (await ctx.WorkflowEdges.AsNoTracking().SingleAsync(e => e.Id == toRech)).Name);
+        await Ok("decision_humana_nodo", new { nodo_id = gw, activo = true });
+        Assert.Contains("politica", (await Ok("ver_flujo", new { flujo = defId })).GetProperty("avisos").ToString());
+        await Ok("asignar_encargado_nodo", new { nodo_id = gw, origen = "hereda_inicio" });
+        Assert.Contains("inicio no admite", await Fail("decision_humana_nodo", new { nodo_id = inicio, activo = true }));
+
+        // Reinicio (PATCH: conserva la decision humana).
+        await Ok("reinicio_nodo", new { nodo_id = rech, reiniciar_en_nodo_id = rev });
+        Assert.True((await ctx.WorkflowNodes.AsNoTracking().SingleAsync(n => n.Id == gw)).AllowsAssignment);
+
+        // Tablero + columna de cierre + concepto (valida contra los del tablero).
+        var tb = await Ok("tablero_destino_nodo", new { nodo_id = fin, tablero = "compras cf", columna = "Cerrado" });
+        Assert.True(tb.GetProperty("columna_de_cierre").GetBoolean());
+        Assert.Contains("Aprobada", await Fail("concepto_cierre_nodo", new { nodo_id = fin, concepto = "No existe" }));
+        await Ok("concepto_cierre_nodo", new { nodo_id = fin, concepto = "Aprobada" });
+        Assert.Contains("Por hacer", await Fail("tablero_destino_nodo", new { nodo_id = rev, tablero = "Compras CF", columna = "Inexistente" }));
+
+        // Plazo / arranque y color / nota (cambiar el color NO borra la nota).
+        Assert.Contains("habiles", (await Ok("plazo_nodo", new { nodo_id = rev, dias = 2, dias_habiles = true })).GetProperty("valor").GetString());
+        await Ok("tiempo_arranque_nodo", new { nodo_id = rev, horas = 1 });
+        await Ok("nota_nodo", new { nodo_id = rev, nota = "Revisa los soportes" });
+        await Ok("color_nodo", new { nodo_id = rev, color = "green" });
+        var revDb = await ctx.WorkflowNodes.AsNoTracking().SingleAsync(n => n.Id == rev);
+        Assert.Equal("green", revDb.Color);
+        Assert.Equal("Revisa los soportes", revDb.Note);
+
+        // Avisos al llegar: correo al cliente con un enlace de decision por salida de la compuerta.
+        Assert.Contains("compuerta", await Fail("agregar_notificacion_nodo", new
+        {
+            nodo_id = gw,
+            canal = "correo",
+            destino = "contacto_tarea",
+            mensaje = "x",
+            enlaces_decision = new[] { new { variable = "a", salida_nodo_id = rev } }
+        }));
+        Assert.Contains("linea_id", await Fail("agregar_notificacion_nodo", new { nodo_id = gw, canal = "whatsapp" }));
+        var noti = await Ok("agregar_notificacion_nodo", new
+        {
+            nodo_id = gw,
+            canal = "correo",
+            destino = "contacto_tarea",
+            asunto = "Tu compra {tarea.titulo}",
+            mensaje = "Aprueba: {aprobar} o rechaza: {rechazar}",
+            enlaces_decision = new object[]
+            {
+                new { variable = "aprobar", salida_nodo_id = fin, captura = "firma" },
+                new { variable = "rechazar", salida_nodo_id = rech, captura = "observacion", observacion_obligatoria = true }
+            }
+        });
+        Assert.Equal(1, noti.GetProperty("numero").GetInt32());
+        var cfg = NodeNotifyConfig.Parse((await ctx.WorkflowNodes.AsNoTracking().SingleAsync(n => n.Id == gw)).NotifyJson);
+        var regla = Assert.Single(cfg.Reglas!);
+        Assert.Equal(NodeNotifyRecipient.ContactoTarea, regla.Destino);
+        Assert.Equal(2, regla.EnlacesDecision!.Count);
+        Assert.Equal(WorkflowDecisionCapture.Observation, regla.EnlacesDecision.Single(l => l.TargetNodeId == rech).Capture);
+
+        // Formulario de la compuerta: obligatorio SOLO al rechazar y sin crearse al llegar.
+        await Ok("poner_formulario_a_nodo", new { nodo_id = gw, formulario = "F-RECH" });
+        Assert.Contains("no es una salida", await Fail("formulario_obligatorio_por_salida", new { nodo_id = gw, formulario = "F-RECH", salidas = new[] { rev } }));
+        await Ok("formulario_obligatorio_por_salida", new { nodo_id = gw, formulario = "F-RECH", salidas = new[] { rech } });
+        await Ok("formulario_crear_al_llegar", new { nodo_id = gw, formulario = "F-RECH", activo = false });
+
+        // Reglas: una que no existe da error claro con la herramienta para descubrirlas.
+        Assert.True((await Ok("listar_reglas_disponibles", new { })).GetProperty("total").GetInt32() >= 0);
+        Assert.Contains("listar_reglas_disponibles", await Fail("agregar_regla_nodo", new { nodo_id = rev, regla = "No existe" }));
+
+        // Salto a otro flujo y edicion parcial del flujo (conserva el nombre).
+        await Ok("crear_flujo", new { nombre = "Despacho CF" });
+        Assert.Equal("Despacho CF", (await Ok("salto_a_flujo_nodo", new { nodo_id = rev, flujo_destino = "Despacho CF" })).GetProperty("salta_a").GetString());
+        await Ok("editar_flujo", new { flujo = defId, descripcion = "Compra con aprobacion del cliente" });
+
+        // ver_flujo muestra TODO lo configurado.
+        var full = await Ok("ver_flujo", new { flujo = defId });
+        Assert.False(full.TryGetProperty("avisos", out _), full.ToString());
+        Assert.Equal("Compra con decision", full.GetProperty("nombre").GetString());
+        Assert.Equal("Compra con aprobacion del cliente", full.GetProperty("descripcion").GetString());
+        var g = NodeIn(full, gw);
+        Assert.True(g.GetProperty("decision_humana").GetBoolean());
+        Assert.Equal(2, g.GetProperty("avisos_al_llegar")[0].GetProperty("detalle").GetProperty("enlaces_decision").GetArrayLength());
+        var gf = g.GetProperty("formularios")[0];
+        Assert.Equal("Rechazado", gf.GetProperty("obligatorio_en_salidas")[0].GetString());
+        Assert.False(gf.GetProperty("crear_al_llegar").GetBoolean());
+        var f = NodeIn(full, fin);
+        Assert.Equal("Compras CF", f.GetProperty("tablero_destino").GetString());
+        Assert.Equal("Cerrado", f.GetProperty("columna_destino").GetString());
+        Assert.Equal("Aprobada", f.GetProperty("concepto_cierre").GetString());
+        var r = NodeIn(full, rev);
+        Assert.Contains("habiles", r.GetProperty("plazo").GetString());
+        Assert.Equal("Despacho CF", r.GetProperty("salta_a_flujo").GetString());
+        Assert.Equal("Revisar", NodeIn(full, rech).GetProperty("reinicia_en").GetString());
+
+        // Quitar aviso y formulario.
+        Assert.Equal(0, (await Ok("quitar_notificacion_nodo", new { nodo_id = gw, numero = 1 })).GetProperty("quedan").GetInt32());
+        await Fail("quitar_notificacion_nodo", new { nodo_id = gw, numero = 1 });
+        await Ok("quitar_formulario_nodo", new { nodo_id = gw, formulario = "F-RECH" });
+
+        // Publicar, pausar/reanudar, enganchar/desenganchar. Publicado: la decision humana exige borrador.
+        await Ok("publicar_flujo", new { flujo = defId });
+        Assert.Contains("nueva_version_flujo", await Fail("decision_humana_nodo", new { nodo_id = gw, activo = false }));
+        await Ok("pausar_flujo", new { flujo = defId });
+        Assert.True((await ctx.WorkflowDefinitions.AsNoTracking().SingleAsync(d => d.Id == defId)).IsPaused);
+        await Ok("reanudar_flujo", new { flujo = defId });
+        Assert.False((await ctx.WorkflowDefinitions.AsNoTracking().SingleAsync(d => d.Id == defId)).IsPaused);
+        await Ok("enganchar_flujo_a_concepto", new { concepto = "C-CF", flujo = defId });
+        Assert.Equal("Compra con decision", (await Ok("desenganchar_flujo_de_concepto", new { concepto = "C-CF" })).GetProperty("flujo_quitado").GetString());
+        Assert.Null((await ctx.ActividadSubcategorias.AsNoTracking().SingleAsync(s => s.Id == concepto.Id)).WorkflowDefinitionId);
+        await Fail("desenganchar_flujo_de_concepto", new { concepto = "C-CF" });
+    }
+
     /// <summary>La IA respeta los permisos del usuario al CREAR flujos y formularios: un lector solo ve; sin
     /// permiso de edicion no crea ni cambia. El puente de formularios reenvia al toolset existente COMO el usuario
     /// y mapea sus errores estructurados (ok:false) a error del MCP.</summary>
@@ -730,7 +911,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3, specs.Count); // nucleo + guia_ecorex + directorio + flujos + formularios permitidos del doble
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 3, specs.Count); // nucleo + guia_ecorex + directorio + flujos + formularios permitidos del doble
 
         foreach (var s in specs)
         {
@@ -1540,7 +1721,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17, specs.Count); // nucleo + directorio + flujos + formularios + EXTRACCION
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 3 + 17, specs.Count); // nucleo + directorio + flujos + formularios + EXTRACCION
 
         // Las 17 de extraccion estan expuestas, 6 de lectura y 4 destructivas, sin solape.
         foreach (var n in new[] { "listar_drones", "ver_dron", "crear_dron", "agregar_paso", "guardar_programacion", "eliminar_dron" })
@@ -1660,7 +1841,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 26, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 3 + 17 + 26, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
 
         // Las 26 de contenedores estan expuestas (ADR-0206: + agregar_filas, ver_filas); 8 de lectura y 7 destructivas, sin solape.
         foreach (var n in new[] { "listar_contenedores_datos", "crear_contenedor_datos", "agregar_tabla",
@@ -1886,7 +2067,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 26 + 17, specs.Count); // ... + AGENTES
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 3 + 17 + 26 + 17, specs.Count); // ... + AGENTES
 
         // Las 17 de agentes estan expuestas; 3 de lectura y 3 destructivas, sin solape.
         foreach (var n in new[] { "listar_agentes", "ver_agente", "crear_agente", "editar_agente",

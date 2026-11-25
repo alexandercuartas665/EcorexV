@@ -2,6 +2,31 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Verbo CREAR_TAREA + /f/{token} embebible (ADR-0209) y When por widget + lastDays en paneles (ADR-0210) - v0.16.393
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario.
+- **ADR-0209 (encargo ECOREX.formularios_sol, SOLDARCO FRM-LEAD)**: verbo `CREAR_TAREA` (una tarea por concepto/subcategoria; titulo/descripcion por tokens {campo}; asignado y solicitante por params/campos; anti-duplicado `marcaCreadaField` que recibe el numero de tarea). `PublicFormFraming`: SOLO en /f/... se quita X-Frame-Options (lo pone UseAntiforgery) y se fija `frame-ancestors *` (sobre el frame-ancestors self de Blazor); la consola conserva el anti-framing. Verificado en local: /f embebido desde otro origen carga y el circuito responde; /login embebido bloqueado. Pruebas: unitarias del verbo y del middleware + integracion dual RulesEngineTests (la tarea cae en el tablero del concepto, primera columna).
+- **ADR-0210 (encargo sesion de reportes, Pipeline comercial)**: `PanelWidget.When` (subconjunto por widget, vacio = todo el panel), operador `lastDays` (ultimos N dias calendario contando hoy, en la zona del tenant; fecha sin hora no se corre de dia) en Where/When de KPI y widget, `SortDim` asc|desc en bar (orden cronologico opcional), validador ampliado. Verificado en local con widgets temporales en el panel SIIGO de AGRO (restaurado).
+- **Gates**: build Release 0 errores, format ok; unitarias Application 1754, SuperAdmin 334; integracion dual RulesEngineTests verde.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/crear-tarea-verbo-iframe-form (53df3db3) y feat/panel-widget-when-lastdays (21243703) como v0.16.393.
+- **Siguiente**: formularios_sol aplica por SQL la config de FRM-LEAD (boton + regla on-field CREAR_TAREA + token publico); la sesion de reportes agrega los 3 widgets al Pipeline. Pendiente evaluar derivados de fecha (Derive) en la zona del tenant.
+
+## 2026-11-24 - Usuarios: un solo rol por usuario (Administrador o rol de permisos) - v0.16.392 (rama fix/usuarios-rol-unico)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario (incluye v0.16.391, telefono real en crear_actividad).
+- **Pedido**: en Usuarios habia DOS selectores (rol de tenant Usuario/Administrador + rol de permisos) y confundia. Se deja UNO.
+- **Hecho** (`AdmUsuarios.razor`, `RolesPermisos.razor`): columna "Rol" unica con "Administrador (acceso total)" + los roles de permisos + "Sin rol (ve todo)". Administrador -> TenantRole Admin; un rol -> Advisor + RolId; Owner se muestra "Propietario (acceso total)" y no se edita; el propio usuario admin no se degrada a si mismo. El modal "Asignar rol" de Roles y permisos usa el mismo selector. Sin cambios de modelo ni de reglas de permisos.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/usuarios-rol-unico (d07e9faa) como v0.16.392.
+
+## 2026-11-24 - crear_actividad guarda el telefono REAL en el formulario (hand-off SOLDARCO/ANA) - v0.16.391 (rama fix/crear-actividad-telefono-real)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. NO desplegada (a senal del usuario).
+- **Sintoma**: en FRM-LEAD (SOLDARCO, agente ANA) el campo `telefono` ("Movil / WhatsApp", requerido) guardaba "Mismo WhatsApp" (ej. T00099-1, T00101-1); la TAREA si tenia el numero (RequesterPhone). Causa: el modelo no recibe el numero (el prompt le pide "Mismo WhatsApp" para que no lo invente) y el ContactPhone de la conversacion (ADR-0101 rev.2) solo se aplicaba a RequesterPhone, no a `datos`.
+- **Hecho** (`ActividadesToolset.CrearActividad`): el telefono real de la conversacion se resuelve ANTES de la pre-validacion; `FindPhoneFieldCode` localiza el campo de telefono en la DEFINICION (texto/numero con movil/whatsapp/telefono/celular/phone en el field_code); `ApplyRealPhone` lo pone si viene vacio o con menos de 7 digitos (el requerido pasa) y RESPETA un numero de 7+ digitos ("llamenme a otro numero"). Sin conversacion: igual que antes. El prompt de ANA no cambia.
+- **Pruebas**: build Release 0 errores, format ok; unitarias Application 1730 (+5: "Mismo WhatsApp" -> real, requerido ausente -> real, numero propio respetado, sin conversacion sigue fallando, FindPhoneFieldCode). El doble de BD de ActividadesToolsetTests ahora soporta Messages (con conversacion la adjuncion de media lanzaba; una prueba vieja no revisaba ok).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/crear-actividad-telefono-real (7e746459) como v0.16.391.
+- **Siguiente (tras desplegar)**: la sesion data-ops corrige por SQL (con backup) las respuestas viejas de SOLDARCO con telefono = "Mismo WhatsApp", copiando el requester_phone de su tarea.
+
 ## 2026-11-24 - Bitacora del agente: filtro por dia y buscador (pedido sesion EPRING) - v0.16.390 (rama fix/bitacora-agente-fecha)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.
@@ -9,7 +34,8 @@ Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion.
 - **Hecho**: `ListAttendedContactsAsync(take, day, search, zone)` (retrocompatible; `ListAttendedConversationsAsync` del API/MCP intacta): ventana [00:00, 24:00) del dia en la zona del tenant (Tenant.TimeZoneId, fallback America/Bogota) sobre OccurredAt en WhatsApp y voz; buscador por nombre o telefono (tambien solo digitos). Pagina: dia (hoy por defecto), anterior/siguiente, "Todas las fechas", buscador con debounce, tope 500 con filtro, recarga solo el riel, estado vacio "No hubo atenciones el {fecha}"; todas las horas de la pagina en la zona del tenant (antes ToLocalTime del servidor = UTC en prod, corridas 5h).
 - **Pruebas**: build Release 0 errores, format ok; unitarias Application 1725 (+2: DayWindowUtc y filtro dia/busqueda, incluido 22-11 23:30 Bogota = 23-11 UTC), SuperAdmin 323.
 - **Validacion local** (preview 5236, AGRO): 11-11 = 2 contactos (cuadra con SQL), horas 18:59/20:07 = hora Bogota en BD, "Todas las fechas" = vista reciente, busqueda por telefono y nombre.
-- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/bitacora-agente-fecha (4a31937c) como v0.16.390 sobre v0.16.389 (no desplegada: el deploy fallo por disco lleno en el host; pendiente OK de limpieza de imagenes).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de fix/bitacora-agente-fecha (4a31937c) como v0.16.390 sobre v0.16.389 (v0.16.389 nunca se desplego: el pull fallo por disco lleno).
+- **Deploy 2026-11-24 ~14:46 Bogota** con OK del usuario (limpieza + deploy): disco del host al 98% (3 GB libres); se borraron 44 imagenes <none> de ECOREX de mas de 24h sin contenedor (identificadas por entrypoint Ecorex.SuperAdmin.dll; se conservaron 6 recientes y la etiquetada de respaldo 3d6ffcb1 = v0.16.388) -> 39 GB libres (74%). SSH al host se cortaba en el intercambio de claves (KEX post-cuantico sntrup761, paquete grande por la VPN): se uso -o KexAlgorithms=curve25519-sha256 y el paso del host (actualizar-en-linux.sh) a mano. Verificado: footer /login v0.16.390, Restarts=0, 0 errores en log. Despliega a la vez la grilla del Directorio (ADR-0207) y los campos de ficha en native:tercero (ADR-0208).
 
 ## 2026-11-24 - Grilla comun en el Directorio (ADR-0207) + campos de ficha en native:tercero (ADR-0208) - v0.16.389 (ramas feat/grilla-comun y feat/tercero-report-fichas)
 

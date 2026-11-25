@@ -173,6 +173,19 @@ public sealed class ActividadesToolset : IActividadesToolset
             foreach (var p in datosEl.EnumerateObject()) { datos[p.Name] = ValueToString(p.Value); }
         }
 
+        // Telefono REAL (ADR-0101 rev.2): gana el ContactPhone de la conversacion en curso; el del formulario
+        // solo como RESPALDO cuando NO hay conversacion (el modelo no recibe el numero y suele ALUCINARLO, por eso
+        // el prompt le pide escribir "Mismo WhatsApp"). Se resuelve ANTES de validar el formulario para que el
+        // campo de telefono guarde el numero real y el requerido pase aunque el modelo lo omita.
+        var conversationId = AiToolRunContext.ConversationId;
+        string? realPhone = null;
+        if (conversationId is Guid convId)
+        {
+            var convPhone = await _db.Conversations.AsNoTracking()
+                .Where(c => c.Id == convId).Select(c => c.ContactPhone).FirstOrDefaultAsync(ct);
+            realPhone = string.IsNullOrWhiteSpace(convPhone) ? null : convPhone!.Trim();
+        }
+
         // Tipos por field_code (solo con formulario): alimentan el SaveAsync del paso 3. Se llena en la validacion.
         Dictionary<string, string>? typeByCode = null;
         if (hasForm)
@@ -180,6 +193,12 @@ public sealed class ActividadesToolset : IActividadesToolset
             var defId = (Guid)sub.FormDefinitionId!;
             var def = await _formDefs.GetAsync(defId, ct);
             if (def is null) { return Err($"El formulario del concepto '{sub.Nombre}' no se pudo cargar."); }
+
+            // El campo de telefono del FORMULARIO guarda el numero real de la conversacion (no "Mismo WhatsApp").
+            if (realPhone is not null && FindPhoneFieldCode(def.Questions) is string phoneField)
+            {
+                ApplyRealPhone(datos, phoneField, realPhone);
+            }
 
             // PRE-VALIDACION contra la definicion (evita crear una actividad huerfana): requeridos presentes y
             // valores de seleccion (Radio/Select) que sean una opcion valida. SaveAsync es la autoridad final.
@@ -216,19 +235,11 @@ public sealed class ActividadesToolset : IActividadesToolset
         // Datos del solicitante (para el RESUMEN de la actividad): heuristica por field_code. El detalle real
         // queda en la respuesta del formulario; esto solo alimenta Contacto/Telefono/Email de la tarea.
         var clienteNombre = FindByKey(datos, "nombre", "contacto", "cliente");
-        var clienteTelefono = FindByKey(datos, "movil", "whatsapp", "telefono", "celular", "phone");
+        var clienteTelefono = FindByKey(datos, PhoneNeedles);
         var clienteEmail = FindByKey(datos, "correo", "email", "mail");
 
-        // Telefono REAL (ADR-0101 rev.2): gana el ContactPhone de la conversacion en curso; el del formulario
-        // solo como RESPALDO cuando NO hay conversacion (el modelo suele ALUCINAR el numero dictado).
-        var conversationId = AiToolRunContext.ConversationId;
-        if (conversationId is Guid convId)
-        {
-            var convPhone = await _db.Conversations.AsNoTracking()
-                .Where(c => c.Id == convId).Select(c => c.ContactPhone).FirstOrDefaultAsync(ct);
-            var real = string.IsNullOrWhiteSpace(convPhone) ? null : convPhone!.Trim();
-            clienteTelefono = real ?? clienteTelefono;
-        }
+        // Telefono de la tarea (RequesterPhone): el real de la conversacion si lo hay (resuelto arriba).
+        clienteTelefono = realPhone ?? clienteTelefono;
 
         var titulo = Str(args, "titulo");
         if (string.IsNullOrWhiteSpace(titulo)) { titulo = clienteNombre ?? sub.Nombre; }
@@ -428,6 +439,31 @@ public sealed class ActividadesToolset : IActividadesToolset
     private async Task SafeArchiveAsync(Guid taskId, Guid actor, CancellationToken ct)
     {
         try { await _tasks.ArchiveAsync(taskId, actor, ActorName, ct); } catch { /* limpieza best-effort */ }
+    }
+
+    /// <summary>Claves que identifican el campo de telefono (mismo criterio que el resumen de la actividad).</summary>
+    private static readonly string[] PhoneNeedles = { "movil", "whatsapp", "telefono", "celular", "phone" };
+
+    /// <summary>field_code del campo de telefono del formulario: el primero de texto (o numero) cuyo codigo contenga
+    /// movil / whatsapp / telefono / celular / phone. Null si el formulario no tiene uno.</summary>
+    internal static string? FindPhoneFieldCode(IEnumerable<FormQuestionDto> questions)
+        => questions
+            .Where(q => q.ControlType is FormControlType.Text or FormControlType.Number)
+            .FirstOrDefault(q => PhoneNeedles.Any(n => q.FieldCode.Contains(n, StringComparison.OrdinalIgnoreCase)))
+            ?.FieldCode;
+
+    /// <summary>
+    /// Pone el telefono REAL de la conversacion en el campo de telefono del formulario cuando el modelo no trajo un
+    /// numero (vacio, o texto como "Mismo WhatsApp" con menos de 7 digitos). Si trae un numero de 7+ digitos se
+    /// RESPETA: es el caso "el cliente pidio que lo llamen a otro numero". Devuelve true si lo cambio.
+    /// </summary>
+    internal static bool ApplyRealPhone(Dictionary<string, string?> datos, string fieldCode, string realPhone)
+    {
+        datos.TryGetValue(fieldCode, out var actual);
+        var digitos = (actual ?? string.Empty).Count(char.IsDigit);
+        if (digitos >= 7) { return false; }
+        datos[fieldCode] = realPhone;
+        return true;
     }
 
     private static string? FindByKey(Dictionary<string, string?> datos, params string[] needles)

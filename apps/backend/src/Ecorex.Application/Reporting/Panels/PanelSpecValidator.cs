@@ -28,7 +28,7 @@ public static class PanelSpecValidator
         new(new[] { "dropdown", "daterange", "text" }, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> KnownWhereOps =
-        new(new[] { "eq", "ne", "contains", "gt", "gte", "lt", "lte" }, StringComparer.OrdinalIgnoreCase);
+        new(new[] { "eq", "ne", "contains", "gt", "gte", "lt", "lte", "lastDays" }, StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> KnownKeyTransforms =
         new(new[] { "beforedash" }, StringComparer.OrdinalIgnoreCase);
@@ -208,8 +208,10 @@ public static class PanelSpecValidator
 
             if (!KnownWhereOps.Contains(w.Op ?? ""))
             {
-                errors.Add($"El where sobre '{w.Field}' tiene un operador desconocido: '{w.Op}' (eq|ne|contains|gt|gte|lt|lte).");
+                errors.Add($"El where sobre '{w.Field}' tiene un operador desconocido: '{w.Op}' (eq|ne|contains|gt|gte|lt|lte|lastDays).");
             }
+
+            RequireLastDaysValue(errors, $"El where sobre '{w.Field}'", w);
         }
 
         // 6) Filtros.
@@ -307,6 +309,8 @@ public static class PanelSpecValidator
                 {
                     errors.Add($"El KPI '{k.Label}' tiene un when con operador desconocido: '{w.Op}'.");
                 }
+
+                RequireLastDaysValue(errors, $"El KPI '{k.Label}'", w);
             }
         }
 
@@ -318,6 +322,22 @@ public static class PanelSpecValidator
             {
                 errors.Add($"El widget '{label}' tiene un tipo desconocido: '{w.Type}'.");
                 continue;
+            }
+
+            // When propio del widget: mismas reglas que el When del KPI.
+            foreach (var cond in w.When)
+            {
+                if (!available.Contains(cond.Field))
+                {
+                    errors.Add($"El widget '{label}' tiene un when sobre '{cond.Field}', que no es un campo disponible.");
+                }
+
+                if (!KnownWhereOps.Contains(cond.Op ?? ""))
+                {
+                    errors.Add($"El widget '{label}' tiene un when con operador desconocido: '{cond.Op}'.");
+                }
+
+                RequireLastDaysValue(errors, $"El widget '{label}'", cond);
             }
 
             switch (w.Type!.ToLowerInvariant())
@@ -355,6 +375,16 @@ public static class PanelSpecValidator
         }
 
         return errors;
+    }
+
+    /// <summary>lastDays exige un entero mayor que 0 en Value (los ultimos N dias).</summary>
+    private static void RequireLastDaysValue(List<string> errors, string who, PanelWhere w)
+    {
+        if (string.Equals(w.Op, "lastDays", StringComparison.OrdinalIgnoreCase)
+            && !(int.TryParse((w.Value ?? "").Trim(), out var n) && n > 0))
+        {
+            errors.Add($"{who} usa lastDays sobre '{w.Field}' con un valor invalido: '{w.Value}' (entero mayor que 0).");
+        }
     }
 
     private static void RequireField(List<string> errors, string who, string prop, string? value, HashSet<string> available)

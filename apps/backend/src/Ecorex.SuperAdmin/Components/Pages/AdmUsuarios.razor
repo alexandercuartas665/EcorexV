@@ -73,10 +73,9 @@ else
                 <tr>
                     <th>Usuario</th>
                     <th>Email</th>
-                    <th>Rol</th>
                     <th>Estado</th>
                     <th>Vista de menu</th>
-                    <th>Rol de permisos</th>
+                    <th>Rol</th>
                     <th style="text-align:right;">Acciones</th>
                 </tr>
             </thead>
@@ -86,24 +85,22 @@ else
                     <tr>
                         <td><strong>@(string.IsNullOrWhiteSpace(u.DisplayName) ? "-" : u.DisplayName)</strong></td>
                         <td><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;">@u.Email</span></td>
-                        <td><span class="badge" style="background:@RoleColor(u.TenantRole);color:#fff;">@RoleLabel(u.TenantRole)</span></td>
                         <td><span class="badge" style="background:@StatusColor(u.Status);color:#fff;">@StatusLabel(u.Status)</span></td>
                         <td style="font-size:12.5px;color:var(--muted-foreground);">@ViewNameFor(u.Id)</td>
                         <td>
-                            @if (_canEdit)
+                            @* Un solo rol (2026-11-24): "Administrador (acceso total)" o un rol de permisos. El propietario y la
+                               fila propia no se editan aqui (nadie se quita a si mismo el acceso de administrador). *@
+                            @if (_canEdit && u.TenantRole != TenantRole.Owner
+                                 && !(u.PlatformUserId == _selfPlatformUserId && TenantRoleKind.IsAdmin(u.TenantRole)))
                             {
-                                <select class="form-control" style="min-width:150px;" value="@RolIdFor(u.PlatformUserId)"
-                                        @onchange="@(e => AssignRolAsync(u, e.Value?.ToString()))">
-                                    <option value="">Sin rol</option>
-                                    @foreach (var r in _roles)
-                                    {
-                                        <option value="@r.Id">@r.Name</option>
-                                    }
+                                <select class="form-control" style="min-width:230px;" value="@UnifiedRolFor(u)"
+                                        @onchange="@(e => SetRolAsync(u, e.Value?.ToString()))" disabled="@_busy">
+                                    @RolOptions()
                                 </select>
                             }
                             else
                             {
-                                <span style="font-size:12.5px;color:var(--muted-foreground);">@RolNameFor(u.PlatformUserId)</span>
+                                <span style="font-size:12.5px;color:var(--muted-foreground);">@UnifiedRolLabel(u)</span>
                             }
                         </td>
                         <td style="text-align:right;white-space:nowrap;">
@@ -172,11 +169,18 @@ else
                 </div>
                 <div class="field">
                     <label class="form-label">Rol *</label>
-                    <select class="form-control" @bind="_fRoleKind">
-                        <option value="@KindUser">@TenantRoleKind.UserLabel</option>
-                        <option value="@KindAdmin">@TenantRoleKind.AdminLabel</option>
-                    </select>
-                    <small class="text-muted">Administrador: acceso total (no aplica el rol de permisos). Usuario: ve lo que diga su rol de permisos.</small>
+                    @if (_editTarget is { TenantRole: TenantRole.Owner })
+                    {
+                        <input class="form-control" value="Propietario (acceso total)" disabled />
+                        <small class="text-muted">El propietario de la empresa siempre tiene acceso total.</small>
+                    }
+                    else
+                    {
+                        <select class="form-control" @bind="_fRol">
+                            @RolOptions()
+                        </select>
+                        <small class="text-muted">Administrador: acceso total. Un rol de permisos: el usuario ve solo lo que ese rol permite (se configura en Roles y permisos).</small>
+                    }
                 </div>
                 <div class="field">
                     <label class="form-label">Contrasena</label>
@@ -236,11 +240,18 @@ else
                 </div>
                 <div class="field">
                     <label class="form-label">Rol *</label>
-                    <select class="form-control" @bind="_fRoleKind">
-                        <option value="@KindUser">@TenantRoleKind.UserLabel</option>
-                        <option value="@KindAdmin">@TenantRoleKind.AdminLabel</option>
-                    </select>
-                    <small class="text-muted">Administrador: acceso total (no aplica el rol de permisos). Usuario: ve lo que diga su rol de permisos.</small>
+                    @if (_editTarget is { TenantRole: TenantRole.Owner })
+                    {
+                        <input class="form-control" value="Propietario (acceso total)" disabled />
+                        <small class="text-muted">El propietario de la empresa siempre tiene acceso total.</small>
+                    }
+                    else
+                    {
+                        <select class="form-control" @bind="_fRol">
+                            @RolOptions()
+                        </select>
+                        <small class="text-muted">Administrador: acceso total. Un rol de permisos: el usuario ve solo lo que ese rol permite (se configura en Roles y permisos).</small>
+                    }
                 </div>
                 <div class="field">
                     <label class="form-label">Estado</label>
@@ -350,10 +361,8 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
-    // Rol simplificado (2026-11-16): solo Administrador / Usuario en pantalla (TenantRoleKind). El enum
-    // TenantRole no cambia; al editar sin cambiar de grupo se conserva el valor original.
+    // Valor del selector de rol unico que significa "Administrador (acceso total)".
     private const string KindAdmin = "admin";
-    private const string KindUser = "user";
 
     private bool _loading = true;
     private bool _busy;
@@ -379,7 +388,7 @@ else
     private string _fEmail = "";
     private string _fDisplayName = "";
     private string _fPhone = "";
-    private string _fRoleKind = KindUser;
+    private string _fRol = "";
     private PlatformUserStatus _fStatus = PlatformUserStatus.Active;
     private string _fPassword = "";
     private string _fPasswordConfirm = "";
@@ -444,18 +453,59 @@ else
             ? _roles.FirstOrDefault(r => r.Id == g)?.Name ?? "Sin rol"
             : "Sin rol";
 
-    private async Task AssignRolAsync(TenantUserDto u, string? value)
+    // ---- Rol unico (2026-11-24) ----
+    // Antes habia dos: "Rol" (Usuario/Administrador) y "Rol de permisos", y confundia. Ahora es UNO: la opcion
+    // "Administrador (acceso total)" (TenantRole Admin) o un rol de permisos (TenantRole Advisor + RolId). El enum
+    // TenantRole y los permisos no cambian; nadie pierde acceso. Sin rol de permisos un usuario sigue viendo todo
+    // (regla opt-in B2), por eso la opcion lo dice.
+
+    /// <summary>Valor del selector para un usuario: "admin" o el Id del rol de permisos ("" = sin rol).</summary>
+    private string UnifiedRolFor(TenantUserDto u) => TenantRoleKind.IsAdmin(u.TenantRole) ? KindAdmin : RolIdFor(u.PlatformUserId);
+
+    private string UnifiedRolLabel(TenantUserDto u) => u.TenantRole switch
     {
-        Guid? rolId = Guid.TryParse(value, out var g) ? g : null;
+        TenantRole.Owner => "Propietario (acceso total)",
+        TenantRole.Admin => "Administrador (acceso total)",
+        _ => RolNameFor(u.PlatformUserId)
+    };
+
+    private RenderFragment RolOptions() => __builder =>
+    {
+        <option value="@KindAdmin">Administrador (acceso total)</option>
+        @foreach (var r in _roles)
+        {
+            <option value="@r.Id">@r.Name</option>
+        }
+        <option value="">Sin rol (ve todo)</option>
+    };
+
+    private async Task SetRolAsync(TenantUserDto u, string? value)
+    {
         _busy = true;
         try
         {
             var actor = await ResolveSelfIdAsync();
-            await RolesSvc.AssignRoleToUserAsync(u.Id, rolId, actor);
+            await ApplyRolAsync(u, value, actor);
             await ReloadAsync();
-            ShowToast("Rol de permisos actualizado.", true);
+            ShowToast("Rol actualizado.", true);
         }
         finally { _busy = false; }
+    }
+
+    /// <summary>Aplica la opcion elegida: Administrador sube a Admin; un rol de permisos (o "sin rol") deja al usuario
+    /// como usuario normal con ese rol. El propietario nunca se toca.</summary>
+    private async Task ApplyRolAsync(TenantUserDto u, string? value, Guid actor)
+    {
+        if (u.TenantRole == TenantRole.Owner) { return; }
+        if (value == KindAdmin)
+        {
+            if (!TenantRoleKind.IsAdmin(u.TenantRole)) { await UsersSvc.ChangeRoleAsync(u.Id, TenantRole.Admin, actor); }
+            return;
+        }
+        var newRole = TenantRoleKind.Resolve(u.TenantRole, admin: false);
+        if (newRole != u.TenantRole) { await UsersSvc.ChangeRoleAsync(u.Id, newRole, actor); }
+        Guid? rolId = Guid.TryParse(value, out var g) ? g : null;
+        await RolesSvc.AssignRoleToUserAsync(u.Id, rolId, actor);
     }
 
     // ---- Crear ----
@@ -465,7 +515,7 @@ else
         _fEmail = "";
         _fDisplayName = "";
         _fPhone = "";
-        _fRoleKind = KindUser;
+        _fRol = "";
         _fPassword = "";
         _fViewId = "";
         _showPassword = false;
@@ -489,7 +539,7 @@ else
         {
             var actor = await ResolveSelfIdAsync();
             var created = await UsersSvc.InviteAsync(
-                new InviteTenantUserRequest(email, TenantRoleKind.ForNew(_fRoleKind == KindAdmin),
+                new InviteTenantUserRequest(email, TenantRoleKind.ForNew(_fRol == KindAdmin),
                     Password: string.IsNullOrWhiteSpace(_fPassword) ? null : _fPassword,
                     DisplayName: string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(),
                     Phone: string.IsNullOrWhiteSpace(_fPhone) ? null : _fPhone.Trim()),
@@ -503,6 +553,10 @@ else
             if (Guid.TryParse(_fViewId, out var viewId))
             {
                 await MenuSvc.AssignUserToViewAsync(created.Id, viewId);
+            }
+            if (Guid.TryParse(_fRol, out var newRolId))
+            {
+                await RolesSvc.AssignRoleToUserAsync(created.Id, newRolId, actor);
             }
 
             _createOpen = false;
@@ -519,7 +573,7 @@ else
         _editTarget = u;
         _fDisplayName = u.DisplayName ?? "";
         _fPhone = u.Phone ?? "";
-        _fRoleKind = TenantRoleKind.IsAdmin(u.TenantRole) ? KindAdmin : KindUser;
+        _fRol = UnifiedRolFor(u);
         _fStatus = u.Status;
         _fViewId = _assignedView.ContainsKey(u.Id)
             ? (_views.FirstOrDefault(v => v.Name == _assignedView[u.Id])?.Id.ToString() ?? "")
@@ -544,10 +598,11 @@ else
                 string.IsNullOrWhiteSpace(_fDisplayName) ? null : _fDisplayName.Trim(),
                 string.IsNullOrWhiteSpace(_fPhone) ? null : _fPhone.Trim(),
                 actor);
-            var newRole = TenantRoleKind.Resolve(_editTarget.TenantRole, _fRoleKind == KindAdmin);
-            if (newRole != _editTarget.TenantRole)
+            // Nadie se quita a si mismo el acceso de administrador desde aqui.
+            var selfAdmin = _editTarget.PlatformUserId == _selfPlatformUserId && TenantRoleKind.IsAdmin(_editTarget.TenantRole);
+            if (!selfAdmin && _fRol != UnifiedRolFor(_editTarget))
             {
-                await UsersSvc.ChangeRoleAsync(id, newRole, actor);
+                await ApplyRolAsync(_editTarget, _fRol, actor);
             }
             if (_fStatus != _editTarget.Status)
             {
@@ -708,10 +763,6 @@ else
         var st = await AuthState;
         return Guid.TryParse(st.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
     }
-
-    private static string RoleLabel(TenantRole role) => TenantRoleKind.Label(role);
-
-    private static string RoleColor(TenantRole role) => TenantRoleKind.IsAdmin(role) ? "#06b6d4" : "#10b981";
 
     private static string StatusLabel(PlatformUserStatus status) => status switch
     {

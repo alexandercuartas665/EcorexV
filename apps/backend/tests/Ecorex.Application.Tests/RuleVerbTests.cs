@@ -234,6 +234,98 @@ public class RuleVerbTests
         Assert.False(result.Success);
     }
 
+    // ---- CREAR_TAREA (una tarea por concepto, formulario publico de leads) ----
+
+    [Fact]
+    public async Task CrearTarea_ConSubcategoria_ArmaTituloSolicitanteYMarca()
+    {
+        var tasks = new FakeTaskItemService();
+        var verb = new CrearTareaVerb(tasks);
+        var sub = Guid.CreateVersion7();
+        var asignado = Guid.CreateVersion7();
+        var context = BuildContext(
+            $$"""{"subcategoriaId":"{{sub}}","titleTemplate":"Lead - {nombre} - {empresa}","descriptionTemplate":"Interes: {interes}","assigneeUserId":"{{asignado}}","requesterNameField":"nombre","requesterEmailField":"correo","requesterPhoneField":"telefono","marcaCreadaField":"tarea_creada"}""",
+            new Dictionary<string, string?>
+            {
+                ["nombre"] = "Juan Perez",
+                ["empresa"] = "ACME",
+                ["interes"] = "Soldadura",
+                ["correo"] = "juan@acme.test",
+                ["telefono"] = "3001112233"
+            });
+
+        var result = await verb.ExecuteAsync(context, CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        var req = Assert.Single(tasks.Created);
+        Assert.Equal("Lead - Juan Perez - ACME", req.Title);
+        Assert.Equal("Interes: Soldadura", req.Description);
+        Assert.Equal(sub, req.SubcategoriaId);
+        Assert.Null(req.ActivityTypeId);
+        Assert.Null(req.BoardId); // el tablero lo deriva el servicio desde el concepto
+        Assert.Equal(asignado, req.AssigneeTenantUserId);
+        Assert.Equal("Juan Perez", req.RequesterName);
+        Assert.Equal("juan@acme.test", req.RequesterEmail);
+        Assert.Equal("3001112233", req.RequesterPhone);
+        var accion = Assert.Single(result.ActionList);
+        Assert.Equal(RuleActionKind.SetFieldValue, accion.Kind);
+        Assert.Equal("tarea_creada", accion.FieldCode);
+        Assert.Equal("T00001", accion.Value);
+        Assert.Equal("T00001", context.FormData["tarea_creada"]);
+    }
+
+    [Fact]
+    public async Task CrearTarea_ConMarcaYaLlena_NoDuplica()
+    {
+        var tasks = new FakeTaskItemService();
+        var context = BuildContext(
+            $$"""{"subcategoriaId":"{{Guid.CreateVersion7()}}","titleTemplate":"Lead - {nombre}","marcaCreadaField":"tarea_creada"}""",
+            new Dictionary<string, string?> { ["nombre"] = "Juan", ["tarea_creada"] = "T00007" });
+
+        var result = await new CrearTareaVerb(tasks).ExecuteAsync(context, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(0, result.RecordsAffected);
+        Assert.Empty(tasks.Created);
+    }
+
+    [Theory]
+    [InlineData("""{"titleTemplate":"Lead"}""")]                                   // sin subcategoria ni tipo
+    [InlineData("""{"subcategoriaId":"no-es-guid","titleTemplate":"Lead"}""")]      // guid invalido
+    public async Task CrearTarea_SinConceptoValido_Falla(string paramsJson)
+    {
+        var tasks = new FakeTaskItemService();
+        var result = await new CrearTareaVerb(tasks).ExecuteAsync(BuildContext(paramsJson), CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Empty(tasks.Created);
+    }
+
+    [Fact]
+    public async Task CrearTarea_TituloVacio_Falla_y_titleField_es_respaldo()
+    {
+        var sub = Guid.CreateVersion7();
+        var tasks = new FakeTaskItemService();
+        var vacio = await new CrearTareaVerb(tasks).ExecuteAsync(
+            BuildContext($$"""{"subcategoriaId":"{{sub}}","titleTemplate":"{nombre}"}"""), CancellationToken.None);
+        Assert.False(vacio.Success);
+
+        var conCampo = await new CrearTareaVerb(tasks).ExecuteAsync(
+            BuildContext($$"""{"subcategoriaId":"{{sub}}","titleField":"asunto"}""",
+                new Dictionary<string, string?> { ["asunto"] = "Cotizar tanque" }), CancellationToken.None);
+        Assert.True(conCampo.Success, conCampo.Message);
+        Assert.Equal("Cotizar tanque", Assert.Single(tasks.Created).Title);
+    }
+
+    [Theory]
+    [InlineData("Lead - {nombre} - {empresa}", "Lead - Ana")]   // token vacio no deja separador colgando
+    [InlineData("{nombre}  {apellido}", "Ana")]
+    [InlineData("Sin tokens", "Sin tokens")]
+    public void CrearTarea_Render_SustituyeTokens(string plantilla, string esperado)
+    {
+        var data = new Dictionary<string, string?> { ["nombre"] = " Ana " };
+        Assert.Equal(esperado, CrearTareaVerb.Render(plantilla, data));
+    }
+
     // ---- NOTIFICAR ----
 
     [Fact]

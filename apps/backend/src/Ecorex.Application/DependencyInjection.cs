@@ -188,6 +188,7 @@ public static class DependencyInjection
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.BloquearCampoPorCondicionVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.AsignarConsecutivoVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.GenerarTareasDesdeTablaVerb>();
+        services.AddScoped<Rules.IRuleVerb, Rules.Verbs.CrearTareaVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.NotificarVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ImprimirPlantillaVerb>();
         services.AddScoped<Rules.IRuleVerb, Rules.Verbs.ConvertirAFormularioVerb>();

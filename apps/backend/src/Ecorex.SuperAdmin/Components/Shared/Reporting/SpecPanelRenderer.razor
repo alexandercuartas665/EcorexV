@@ -4,6 +4,7 @@
 @inject IReportCatalog Catalog
 @inject IReportDataSource ReportDs
 @inject IReportDefinitionService Defs
+@inject Ecorex.Application.Analisis.IAnalisisZonaHoraria Zona
 @implements IDisposable
 
 @* ADR-0066 - Renderizador de panel GENERICO por spec. UN solo componente que interpreta un PanelSpec
@@ -206,6 +207,7 @@
 
     private readonly List<PanelRow> _rows = new();     // filas enriquecidas (join + derivados)
     private List<PanelRow> _filtered = new();
+    private TimeZoneInfo? _zone;                         // zona del tenant: fechas relativas (lastDays)
     private readonly List<ActiveFilter> _filters = new();
     private readonly List<KpiValue> _kpis = new();
     private readonly List<RenderWidget> _widgets = new();
@@ -233,6 +235,7 @@
                 json = await Defs.GetSpecJsonAsync(ReportId);
             }
 
+            _zone ??= await Zona.ObtenerAsync();
             _spec = PanelSpec.FromJson(json);
             if (_spec is null)
             {
@@ -323,7 +326,7 @@
         // 4) Where FIJO (ADR-0068): acota el panel SIEMPRE (no es control de UI), antes de poblar dropdowns.
         if (_spec.Where.Count > 0)
         {
-            _rows.RemoveAll(row => !_spec.Where.All(w => PanelDataEngine.Matches(row, w.Field, w.Op, w.Value)));
+            _rows.RemoveAll(row => !Cumple(row, _spec.Where));
         }
 
         // 5) Opciones DISTINCT de los dropdowns que NO tienen origen de lookup (queryParam o no). Los que ya
@@ -768,7 +771,7 @@
             // KPI condicional (ADR-0068): agrega solo el subconjunto que cumple When (AND). Vacio = todo.
             var subset = k.When.Count == 0
                 ? (IReadOnlyList<PanelRow>)_filtered
-                : _filtered.Where(row => k.When.All(w => PanelDataEngine.Matches(row, w.Field, w.Op, w.Value))).ToList();
+                : _filtered.Where(row => Cumple(row, k.When)).ToList();
 
             // percentOfTotal (ADR-0089): razon numerador/denominador*100. El subconjunto When es el numerador
             // y el conjunto filtrado COMPLETO del panel es el denominador (ej. Cierre / total = % conversion).
@@ -788,8 +791,22 @@
         }
     }
 
+    /// <summary>La fila cumple TODAS las condiciones (AND), con fechas relativas en la zona del tenant.</summary>
+    private bool Cumple(PanelRow row, List<PanelWhere> conds)
+        => conds.All(c => PanelDataEngine.Matches(row, c.Field, c.Op, c.Value, _zone));
+
+    /// <summary>bar: orden por dimension solo si el spec lo pide (SortDim asc|desc); si no, por valor desc.</summary>
+    private static PanelSliceOrder BarOrder(PanelWidget w) => (w.SortDim ?? "").Trim().ToLowerInvariant() switch
+    {
+        "asc" => PanelSliceOrder.DimAsc,
+        "desc" => PanelSliceOrder.DimDesc,
+        _ => PanelSliceOrder.ValueDesc
+    };
+
     private RenderWidget BuildWidget(PanelWidget w)
     {
+        // When por widget: el widget mira SOLO el subconjunto que cumple sus condiciones (vacio = todo el panel).
+        var data = w.When.Count == 0 ? _filtered : PanelDataEngine.Subset(_filtered, w.When, _zone);
         var full = string.Equals(w.Width, "full", StringComparison.OrdinalIgnoreCase);
         var rw = new RenderWidget { Title = w.Title, Full = full };
         var scale = w.Scale is double sc && sc > 0 ? sc : 1d;
@@ -803,7 +820,7 @@
             {
                 case "line":
                 {
-                    var slices = PanelDataEngine.GroupAggregate(_filtered, w.Dim!, w.Agg, w.Field, scale, null, PanelSliceOrder.DimAsc);
+                    var slices = PanelDataEngine.GroupAggregate(data, w.Dim!, w.Agg, w.Field, scale, null, PanelSliceOrder.DimAsc);
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 320;
                     rw.Option = EChartBuilders.Line(slices.Select(s => s.Key).ToList(), slices.Select(s => s.Value).ToList());
@@ -812,7 +829,7 @@
                 }
                 case "bar":
                 {
-                    var slices = PanelDataEngine.GroupAggregate(_filtered, w.Dim!, w.Agg, w.Field, scale, w.TopN, PanelSliceOrder.ValueDesc);
+                    var slices = PanelDataEngine.GroupAggregate(data, w.Dim!, w.Agg, w.Field, scale, w.TopN, BarOrder(w));
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 320;
                     if (string.Equals(w.Orientation, "horizontal", StringComparison.OrdinalIgnoreCase))
@@ -833,7 +850,7 @@
                 }
                 case "donut":
                 {
-                    var slices = PanelDataEngine.GroupAggregate(_filtered, w.Dim!, w.Agg, w.Field, scale, w.TopN, PanelSliceOrder.ValueDesc, includeBlank: true);
+                    var slices = PanelDataEngine.GroupAggregate(data, w.Dim!, w.Agg, w.Field, scale, w.TopN, PanelSliceOrder.ValueDesc, includeBlank: true);
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 320;
                     rw.Option = EChartBuilders.Donut(slices.Select(s => (s.Key, s.Value)).ToList(), integerValues: isInteger);
@@ -842,7 +859,7 @@
                 }
                 case "pareto":
                 {
-                    var (cats, bars, cum) = PanelDataEngine.Pareto(_filtered, w.Dim!, w.Agg, w.Field, scale, w.TopN ?? 20);
+                    var (cats, bars, cum) = PanelDataEngine.Pareto(data, w.Dim!, w.Agg, w.Field, scale, w.TopN ?? 20);
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 360;
                     var barName = MeasureLabel(w, scale);
@@ -863,7 +880,7 @@
                     rw.Heatmap = w.Heatmap;
                     rw.RowDimLabel = w.RowDim ?? "";
                     rw.ColDimLabel = w.ColDim ?? "";
-                    rw.Matrix = PanelDataEngine.Matrix(_filtered, w.RowDim!, w.ColDim!, w.Agg, w.Field);
+                    rw.Matrix = PanelDataEngine.Matrix(data, w.RowDim!, w.ColDim!, w.Agg, w.Field);
                     rw.Full = true;
                     break;
                 }
@@ -871,7 +888,7 @@
                 {
                     rw.Kind = WKind.Table;
                     rw.Full = true;
-                    var rows = PanelDataEngine.TableRows(_filtered, w.GroupBy!, w.Columns, w.TopN);
+                    var rows = PanelDataEngine.TableRows(data, w.GroupBy!, w.Columns, w.TopN);
                     foreach (var col in w.Columns)
                     {
                         rw.TableHeaders.Add(col.Label);

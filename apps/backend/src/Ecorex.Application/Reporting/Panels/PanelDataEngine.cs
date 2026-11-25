@@ -128,13 +128,17 @@ public static class PanelDataEngine
     }
 
     /// <summary>Evalua una condicion fija (Where/When) sobre una fila. Ops: eq | ne | contains | gt | gte |
-    /// lt | lte. Para gt/lt intenta numero y luego fecha. Puro (sin EF).</summary>
-    public static bool Matches(PanelRow row, string field, string? op, string? value)
+    /// lt | lte | lastDays. Para gt/lt intenta numero y luego fecha. lastDays usa la zona del tenant
+    /// (<paramref name="zone"/>, UTC si falta) y <paramref name="now"/> (ahora si falta). Puro (sin EF).</summary>
+    public static bool Matches(PanelRow row, string field, string? op, string? value,
+        TimeZoneInfo? zone = null, DateTimeOffset? now = null)
     {
         var cell = row.GetValueOrDefault(field);
         var target = value ?? "";
         switch ((op ?? "eq").Trim().ToLowerInvariant())
         {
+            case "lastdays":
+                return InLastDays(cell, target, zone, now);
             case "eq":
                 return string.Equals(Norm(cell), target, StringComparison.OrdinalIgnoreCase);
             case "ne":
@@ -158,6 +162,42 @@ public static class PanelDataEngine
                 return true;
         }
     }
+
+    /// <summary>Subconjunto de filas que cumple TODAS las condiciones (AND): el When de un KPI o de un widget.
+    /// Sin condiciones devuelve todas las filas.</summary>
+    public static List<PanelRow> Subset(IEnumerable<PanelRow> rows, IReadOnlyCollection<PanelWhere> conds,
+        TimeZoneInfo? zone = null, DateTimeOffset? now = null)
+        => rows.Where(r => conds.All(c => Matches(r, c.Field, c.Op, c.Value, zone, now))).ToList();
+
+    /// <summary>Fecha RELATIVA: true si la fecha de <paramref name="cell"/> cae en los ultimos N dias calendario
+    /// del tenant contando hoy (N = <paramref name="days"/>; 7 = hoy y los 6 anteriores). Fechas futuras no
+    /// cuentan. N invalido (no entero o menor que 1) o celda sin fecha -> false.</summary>
+    public static bool InLastDays(object? cell, string? days, TimeZoneInfo? zone, DateTimeOffset? now = null)
+    {
+        if (!int.TryParse((days ?? "").Trim(), NumberStyles.Integer, Inv, out var n) || n < 1)
+        {
+            return false;
+        }
+
+        var date = AsDate(cell);
+        if (date is null)
+        {
+            return false;
+        }
+
+        var tz = zone ?? TimeZoneInfo.Utc;
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now ?? DateTimeOffset.UtcNow, tz).DateTime);
+        var day = LocalDay(date.Value, tz);
+        return day <= today && day > today.AddDays(-n);
+    }
+
+    /// <summary>Dia calendario de una fecha en la zona del tenant. Una fecha SIN hora (medianoche UTC: campos
+    /// de solo fecha, "2026-11-24") ya es un dia calendario y no se convierte (si no, en Bogota caeria el dia
+    /// anterior); un instante con hora (timestamptz) se lleva a la zona del tenant.</summary>
+    private static DateOnly LocalDay(DateTimeOffset value, TimeZoneInfo tz)
+        => value.Offset == TimeSpan.Zero && value.TimeOfDay == TimeSpan.Zero
+            ? DateOnly.FromDateTime(value.DateTime)
+            : DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value, tz).DateTime);
 
     private static bool CompareOp(int c, string op) => op.Trim().ToLowerInvariant() switch
     {

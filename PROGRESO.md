@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-24 - Verbo CREAR_TAREA + /f/{token} embebible (ADR-0209) y When por widget + lastDays en paneles (ADR-0210) - v0.16.393
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario.
+- **ADR-0209 (encargo ECOREX.formularios_sol, SOLDARCO FRM-LEAD)**: verbo `CREAR_TAREA` (una tarea por concepto/subcategoria; titulo/descripcion por tokens {campo}; asignado y solicitante por params/campos; anti-duplicado `marcaCreadaField` que recibe el numero de tarea). `PublicFormFraming`: SOLO en /f/... se quita X-Frame-Options (lo pone UseAntiforgery) y se fija `frame-ancestors *` (sobre el frame-ancestors self de Blazor); la consola conserva el anti-framing. Verificado en local: /f embebido desde otro origen carga y el circuito responde; /login embebido bloqueado. Pruebas: unitarias del verbo y del middleware + integracion dual RulesEngineTests (la tarea cae en el tablero del concepto, primera columna).
+- **ADR-0210 (encargo sesion de reportes, Pipeline comercial)**: `PanelWidget.When` (subconjunto por widget, vacio = todo el panel), operador `lastDays` (ultimos N dias calendario contando hoy, en la zona del tenant; fecha sin hora no se corre de dia) en Where/When de KPI y widget, `SortDim` asc|desc en bar (orden cronologico opcional), validador ampliado. Verificado en local con widgets temporales en el panel SIIGO de AGRO (restaurado).
+- **Gates**: build Release 0 errores, format ok; unitarias Application 1754, SuperAdmin 334; integracion dual RulesEngineTests verde.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/crear-tarea-verbo-iframe-form (53df3db3) y feat/panel-widget-when-lastdays (21243703) como v0.16.393.
+- **Siguiente**: formularios_sol aplica por SQL la config de FRM-LEAD (boton + regla on-field CREAR_TAREA + token publico); la sesion de reportes agrega los 3 widgets al Pipeline. Pendiente evaluar derivados de fecha (Derive) en la zona del tenant.
+
 ## 2026-11-24 - Usuarios: un solo rol por usuario (Administrador o rol de permisos) - v0.16.392 (rama fix/usuarios-rol-unico)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario (incluye v0.16.391, telefono real en crear_actividad).

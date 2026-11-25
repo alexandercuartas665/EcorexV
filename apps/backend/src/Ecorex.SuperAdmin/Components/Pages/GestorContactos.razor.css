@@ -346,3 +346,9 @@
 .gc-emp-count { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .03em; background: var(--t-blue-bg); color: var(--t-blue); white-space: nowrap; }
 /* Fila hija (contacto conectado a su empresa): fondo sutil + guia de indentacion. */
 .gc-tbl-row.gc-child { background: var(--surface-2, rgba(0,0,0,.015)); }
+/* Filtros del Cargador: operador con texto, "sin valor" y chips de "es uno de". */
+.gc-input.md { width: 150px; flex: none; height: 38px; padding: 0 8px; font-size: 12px; }
+.gc-crit-novalue { display: flex; align-items: center; color: var(--ink-3); font-size: 12px; font-style: italic; background: transparent; }
+.gc-crit-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 10px 55px; max-height: 120px; overflow-y: auto; }
+.gc-inchip { border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; }
+.gc-inchip.on { background: var(--ink); border-color: var(--ink); color: #fff; }

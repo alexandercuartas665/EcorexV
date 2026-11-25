@@ -28,6 +28,9 @@
     [Parameter, EditorRequired] public IReadOnlyList<TerceroListItemDto> Rows { get; set; } = Array.Empty<TerceroListItemDto>();
     [Parameter] public IReadOnlyList<TerceroFieldDto> Fields { get; set; } = Array.Empty<TerceroFieldDto>();
     [Parameter] public IReadOnlyList<TerceroFichaDto> Fichas { get; set; } = Array.Empty<TerceroFichaDto>();
+    /// <summary>Titulos que el tenant le puso a los campos FIJOS en "Configurar campos" (clave -> titulo, p.ej.
+    /// sector -> "Macro Sector"). Las columnas y el filtro usan ese nombre; sin titulo propio, el de siempre.</summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? FixedLabels { get; set; }
     [Parameter] public ISet<Guid> Expanded { get; set; } = new HashSet<Guid>();
     [Parameter] public IReadOnlyDictionary<Guid, IReadOnlyList<TerceroContactoDto>> Kids { get; set; } = new Dictionary<Guid, IReadOnlyList<TerceroContactoDto>>();
     [Parameter] public bool CanEdit { get; set; }
@@ -52,12 +55,15 @@
     private IReadOnlyList<GridColumn<TerceroListItemDto>> _columns = Array.Empty<GridColumn<TerceroListItemDto>>();
     private IReadOnlyList<TerceroFieldDto>? _lastFields;
     private IReadOnlyList<TerceroFichaDto>? _lastFichas;
+    private IReadOnlyDictionary<string, string>? _lastFixedLabels;
 
     protected override void OnParametersSet()
     {
-        if (ReferenceEquals(Fields, _lastFields) && ReferenceEquals(Fichas, _lastFichas)) { return; }
+        if (ReferenceEquals(Fields, _lastFields) && ReferenceEquals(Fichas, _lastFichas)
+            && ReferenceEquals(FixedLabels, _lastFixedLabels)) { return; }
         _lastFields = Fields;
         _lastFichas = Fichas;
+        _lastFixedLabels = FixedLabels;
         _columns = BuildColumns();
     }
 
@@ -68,13 +74,16 @@
             new() { Key = "cliente", Label = "Cliente", Value = r => r.Nombre, Cell = NameCell, Groupable = false },
             new() { Key = "naturaleza", Label = "Naturaleza", Value = r => r.EsEmpresa ? "Empresa" : "Persona", DefaultHidden = true },
             new() { Key = "perfil", Label = "Perfiles", Value = r => PerfilText(r.Perfiles), DefaultHidden = true },
-            new() { Key = "identificacion", Label = "Identificacion", Value = r => r.Identificacion, CellClass = "dt-mono", Groupable = false },
-            new() { Key = "vendedor", Label = "Vendedor", Value = r => VendedorText(r) },
-            new() { Key = "estado", Label = "Estado", Value = r => DirectorioSharedBase.EstadoInfo(r.Estado).Label, Cell = EstadoCell },
-            new() { Key = "ciudad", Label = "Ciudad", Value = r => r.Ciudad, DefaultHidden = true },
-            new() { Key = "sector", Label = "Sector / Cargo", Value = r => r.Sub, DefaultHidden = true },
-            new() { Key = "email", Label = "Correo", Value = r => r.Email, DefaultHidden = true, Groupable = false },
-            new() { Key = "telefono", Label = "Telefono", Value = r => r.Telefono, DefaultHidden = true, Groupable = false },
+            new() { Key = "identificacion", Label = Fixed("identificacion", "Identificacion"), Value = r => r.Identificacion, CellClass = "dt-mono", Groupable = false },
+            new() { Key = "vendedor", Label = Fixed("vendedor", "Vendedor"), Value = r => VendedorText(r) },
+            new() { Key = "estado", Label = Fixed("estado", "Estado"), Value = r => DirectorioSharedBase.EstadoInfo(r.Estado).Label, Cell = EstadoCell },
+            new() { Key = "ciudad", Label = Fixed("ciudad", "Ciudad"), Value = r => r.Ciudad, DefaultHidden = true },
+            // Sector (campo fijo de la EMPRESA, p.ej. "Macro Sector") y Cargo (de la PERSONA) en columnas aparte:
+            // antes iban mezclados en "Sector / Cargo" y el sector no se encontraba por su nombre en el filtro.
+            new() { Key = "sector", Label = Fixed("sector", "Sector"), Value = r => r.EsEmpresa ? r.Sub : null, DefaultHidden = true },
+            new() { Key = "cargo", Label = "Cargo", Value = r => r.EsEmpresa ? null : r.Sub, DefaultHidden = true },
+            new() { Key = "email", Label = Fixed("correo", "Correo"), Value = r => r.Email, DefaultHidden = true, Groupable = false },
+            new() { Key = "telefono", Label = Fixed("telefono", "Telefono"), Value = r => r.Telefono, DefaultHidden = true, Groupable = false },
             new() { Key = "empresa", Label = "Empresa (de la persona)", Value = r => r.EmpresaNombre, DefaultHidden = true },
             new() { Key = "contactos", Label = "Contactos", Type = GridColType.Number, Value = r => r.EsEmpresa ? r.ContadorContactos : null, Summable = true, Groupable = false, DefaultHidden = true },
         };
@@ -115,6 +124,10 @@
         });
         return cols;
     }
+
+    /// <summary>Titulo del tenant para un campo fijo ("Configurar campos"); si no lo renombro, el de siempre.</summary>
+    private string Fixed(string key, string fallback)
+        => FixedLabels is not null && FixedLabels.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : fallback;
 
     private static object? FichaValue(TerceroListItemDto r, string key, GridColType type)
     {

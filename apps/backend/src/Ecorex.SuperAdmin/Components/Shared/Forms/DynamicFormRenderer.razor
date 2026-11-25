@@ -2465,13 +2465,16 @@ else
                        placeholder="@(string.IsNullOrWhiteSpace(q.PlaceholderText) ? "Buscar..." : q.PlaceholderText)"
                        value="@(_lookupQuery.TryGetValue(q.FieldCode, out var typed) ? typed : display)"
                        @oninput="@(e => LookupTypeAsync(q, e.Value?.ToString()))"
+                       @onchange="@(e => LookupFreeTextCommitAsync(q, e.Value?.ToString()))"
                        @onfocus="@(() => LookupSearchAsync(q, _lookupQuery.GetValueOrDefault(q.FieldCode)))" />
                 @if (!string.IsNullOrEmpty(value) && !IsDisabled)
                 {
                     <button type="button" class="dfr-lookup-clear" title="Quitar" @onclick="@(() => LookupClearAsync(q))">&times;</button>
                 }
             </div>
-            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display))
+            @* Texto libre (sin sugerencia elegida): no es una "seleccion", no se muestra el chip. *@
+            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display)
+                 && !(FormLookupFreeText.IsEnabled(q.OptionsJson) && !_lookupDisplay.ContainsKey(q.FieldCode)))
             {
                 <div class="dfr-lookup-chosen">Seleccionado: <strong>@display</strong></div>
             }
@@ -2607,6 +2610,34 @@ else
             if (targetQ is not null) { ValidateField(targetQ); }
         }
         await ClearDependentChildrenAsync(q.FieldCode); // la cascada hija depende de este padre
+        RecomputeCalculatedFields();
+        _dirty = true;
+    }
+
+    /// <summary>
+    /// Lookup con TEXTO LIBRE (opt-in, <see cref="FormLookupFreeText"/>): al salir del buscador (change) sin elegir
+    /// una sugerencia, lo escrito queda como valor del campo (p.ej. el nombre de un lead nuevo). No toca los
+    /// destinos del autollenado (el usuario llena el resto). Borrar el texto vacia el campo. Elegir una sugerencia
+    /// despues gana (LookupChooseAsync guarda el id). Con el flag apagado no hace nada (comportamiento de siempre).
+    /// </summary>
+    private async Task LookupFreeTextCommitAsync(FormQuestionDto q, string? text)
+    {
+        if (IsDisabled || !FormLookupFreeText.IsEnabled(q.OptionsJson)) { return; }
+        var t = (text ?? string.Empty).Trim();
+        if (t.Length == 0)
+        {
+            await LookupClearAsync(q);
+            _dirty = true;
+            return;
+        }
+        // Si es exactamente la etiqueta de lo ya elegido, se conserva el id (no se degrada a texto).
+        if (_lookupDisplay.TryGetValue(q.FieldCode, out var chosen) && string.Equals(chosen, t, StringComparison.Ordinal))
+        {
+            return;
+        }
+        _lookupDisplay.Remove(q.FieldCode);
+        _lookupQuery[q.FieldCode] = t;
+        await SetValue(q, t);
         RecomputeCalculatedFields();
         _dirty = true;
     }

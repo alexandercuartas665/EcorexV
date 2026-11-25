@@ -4153,6 +4153,18 @@ else
                     </select>
                 </div>
 
+                @if (q.Presentation != FormFieldPresentation.Dropdown)
+                {
+                    <div class="fb-field">
+                        <label class="fb-check">
+                            <input type="checkbox" checked="@FormLookupFreeText.IsEnabled(q.OptionsJson)"
+                                   @onchange="@(e => PatchQuestionAsync(q, r => r with { OptionsJson = FormLookupFreeText.Set(q.OptionsJson, e.Value is true) }))" />
+                            Permitir texto libre
+                        </label>
+                        <div class="fb-hint">Si la persona escribe y no elige una sugerencia, se guarda lo escrito (p.ej. el nombre de un cliente nuevo). Elegir una sugerencia sigue llenando el resto de campos.</div>
+                    </div>
+                }
+
                 <div class="fb-field">
                     <label>Mostrar (etiqueta)</label>
                     <select class="fb-select" value="@(q.DisplayField ?? "")"

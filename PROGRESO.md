@@ -2,6 +2,17 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-25 - Cargador: filtros como los del Directorio + "es uno de"; Directorio con titulos de campos fijos; lookup con texto libre; /f/ honra ocultar Enviar - v0.16.396
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario (incluye v0.16.395).
+- **Cargador de contactos (000740, pedido usuario AGRO)**: el constructor de filtros ofrece los campos fijos del Directorio con los titulos del tenant (Nombre, Naturaleza, Perfiles, Identificacion, Vendedor, Estado, Ciudad, Sector/"Macro Sector", Cargo, Correo, Telefono, Empresa) + todos los campos de ficha ("f:{FieldKey}", TerceroFichaValues). Operadores: =, !=, contiene, no contiene, es uno de (IN), no es ninguno de (NOT IN), vacio, tiene contenido, >, < (numero o fecha). Sugerencias desde los datos y chips para IN (<=60 valores). ContactFilterEvaluator evalua igual la lista, el conteo del filtro y el motor de acciones (vendedor = asesor o texto). Verificado local AGRO: IN sobre direccion = 43 en tarjeta y lista.
+- **Directorio**: la grilla usa los titulos propios de los campos fijos (FixedLabels; AGRO "Macro Sector") y separa Sector (empresa) de Cargo (persona).
+- **Formularios (encargo ECOREX.formularios_sol, FRM-LEAD SOLDARCO)**: lookup con texto libre opt-in por campo (OptionsJson {"allowFreeText": true}, FormLookupFreeText; casilla en el disenador); FormPublic pasa HonorHideSubmitBar (hide_submit_bar aplica en /f/).
+- **Higiene**: se normalizaron a LF 30 archivos que commits previos (v0.16.393 y estas ramas) habian guardado con CRLF (git add con core.autocrlf=false); causaban diffs de archivo completo y un conflicto en DynamicFormRenderer con v0.16.395. Resuelto tomando el renderer del tronco y reaplicando el texto libre.
+- **Gates**: build Release 0 errores, format ok; unitarias Application y SuperAdmin verdes.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/cargador-filtros-campos-ficha (ffe622e9) y feat/lookup-texto-libre-y-f-hide-submit (dd14853c) como v0.16.396.
+- **Siguiente**: formularios_sol aplica allowFreeText en `nombre` de FRM-LEAD y prueba "Crear tarea" en /f/ con la barra oculta.
+
 ## 2026-11-25 - Autorizacion compras DIAN: OC como lista de ORDENES_COMPRA filtrada por proveedor - v0.16.395 (rama feat/autorizacion-tarjeta-actividad)
 
 Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.

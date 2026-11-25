@@ -2365,12 +2365,21 @@ else
                     continue; // filtro opcional con padre vacio: se omite (lista completa)
                 }
                 string? resolved = null;
-                try
+                if (parentQ.SourceKind is FormSourceKind.Options or FormSourceKind.SystemUser)
                 {
-                    var item = await LookupSvc.ResolveAsync(parentQ.SourceKind, parentQ.SourceRef ?? "", pv, new[] { c.FromColumn });
-                    resolved = item is not null && item.Fields.TryGetValue(c.FromColumn, out var fv) ? fv : null;
+                    // Padre de TEXTO (no es lista de una fuente): se filtra por su valor tal cual; FromColumn no
+                    // aplica. Ej.: un campo oculto con el NIT del proveedor filtra las OC de ese proveedor.
+                    resolved = pv;
                 }
-                catch (Exception) { resolved = null; }
+                else
+                {
+                    try
+                    {
+                        var item = await LookupSvc.ResolveAsync(parentQ.SourceKind, parentQ.SourceRef ?? "", pv, new[] { c.FromColumn });
+                        resolved = item is not null && item.Fields.TryGetValue(c.FromColumn, out var fv) ? fv : null;
+                    }
+                    catch (Exception) { resolved = null; }
+                }
                 if (string.IsNullOrWhiteSpace(resolved))
                 {
                     if (c.Require) { return (true, null); }

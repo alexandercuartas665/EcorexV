@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-25 - Autorizacion compras DIAN: OC como lista de ORDENES_COMPRA filtrada por proveedor - v0.16.395 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: DIRECCIONAR_CONCILIADOR envia el texto visible (DisplayField) de un campo lista (Contenedor/Tercero/Item), no el id de la fila. Cascada de listas: un campo padre de TEXTO filtra por su valor tal cual (DynamicFormRenderer.ResolveEqFiltersAsync). La tarea de factura (IConciliacionTareaService) prellena `nit_proveedor` con el NIT del proveedor.
+- **Config prod (ya aplicada por la rama)**: AUT-COMPRA-001-2, campo `rut` = lista ORDENES_COMPRA con cascada PROVEEDOR <- nit_proveedor, campo oculto `nit_proveedor`.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (3409e12b) como v0.16.395. Gates: build Release 0 errores, unitarias Application/SuperAdmin verdes.
+- **Smoke prod (SOLDARCO)**: crear tarea desde /autorizacion-compras-dian (proveedor con OC); "Orden de Compra" lista solo las OC del NIT; con "rut -> oc" mapeado, al aprobar el conciliador recibe el texto de la OC (ej. OMP0011528).
+
 ## 2026-11-24 - Autorizacion compras DIAN: la tarjeta opera la actividad (misma tarea del conciliador) - v0.16.394 (rama feat/autorizacion-tarjeta-actividad)
 
 Agente: ECOREX.agentes (desarrollo de la rama) + ECOREX.desarrollo (integracion). SIN migracion.
@@ -70,6 +78,7 @@ Agente: ECOREX.agentes (Claude Opus 5.5), pedido del usuario. SIN migracion, SIN
 - Formulario de la tarea en el panel SIN boton "Guardar cambios": nuevo parametro del renderer `AutosaveWhenHidden` (con la barra Enviar oculta guarda solo cada 3 s si hubo cambios; flush al cambiar de factura/vista/cerrar). Validado en 5263 (T00063 persiste sin pulsar nada). El prellenado generico ya no escribe valores vacios. Mapeo grilla->form verificado: Tiene RUT/Camara/Cert. bancaria/Redireccionamiento mapeados; "En directorio general" NO tiene columna mapeada.
 - Cierre: la factura SALE del modulo de autorizacion cuando su tarea esta Done/Closed (`GetRenglonesConTareaTerminadaAsync`, sin migracion). Al cerrar el paso desde el panel (OnStepCompleted) si la tarea quedo terminada se avisa y la factura se retira (diferido 1.5 s, el renderer sigue en su click) y se pasa a la siguiente; el formulario de una tarea terminada abre en solo lectura. Local: 542 -> 537 (T00064 + 4 terminadas).
 - FIX circuito caido ("A second operation was started on this context"): el autosave de 3 s del formulario chocaba con las lecturas de la pagina (SelectAsync/GetSolicitadaAsync) sobre el DbContext scoped; muerto el circuito, "Crear tarea" no hacia nada y la tarea no llegaba al conciliador. Toda operacion de BD de la pagina pasa ahora por el MISMO turno de los renderers (CircuitFormGate, helper EnTurnoAsync). Validado: 10 cambios rapidos de factura con formulario montado, 0 errores en el log.
+- OC como lista: (1) DIRECCIONAR_CONCILIADOR envia el TEXTO visible de un campo lista (Contenedor/Tercero/Item, su DisplayField) y no el id de la fila; (2) filtro en cascada desde un campo de TEXTO (el renderer usa su valor tal cual) + la creacion de la tarea prellena `nit_proveedor` con el NIT de la factura -> la OC se filtra por PROVEEDOR. CONFIG en PROD (OK del usuario, 2026-11-25): form AUT-COMPRA-001-2 campo `rut` "Orden de Compra" = lista DIAN_CONCILIADOR.ORDENES_COMPRA (DOCUMENTO, Autocomplete, cascada PROVEEDOR<-nit_proveedor) + campo oculto `nit_proveedor`; respaldo en scratchpad. Local: contenedor copiado de prod + mismo form + mapeo rut->oc (solo local). Validado: busqueda OMP00115 y filtro por NIT 890110294 (14 de sus 57 OC).
 - **Siguiente**: dev principal une con version libre y despliega con OK.
 
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)

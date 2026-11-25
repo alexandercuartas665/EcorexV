@@ -735,6 +735,8 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
                 t.Perfiles,
                 t.Estado,
                 t.FichasJson,
+                t.Tipo,
+                t.IdValor,
                 t.Email,
                 t.Telefono,
                 EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null,
@@ -747,8 +749,13 @@ public sealed class ContactWorkflowDispatcher : IContactWorkflowDispatcher
 
         return rows
             .Where(t => ContactFilterEvaluator.MatchesAll(
-                new ContactFilterEvaluator.Row(t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado,
-                    TerceroFichaValues.Flatten(t.FichasJson)),
+                new ContactFilterEvaluator.Row(
+                    t.Nombre, t.Ciudad, string.IsNullOrWhiteSpace(t.AsesorNombre) ? t.Vendedor : t.AsesorNombre,
+                    t.Sector, t.Cargo, t.Perfiles, t.Estado,
+                    TerceroFichaValues.Flatten(t.FichasJson),
+                    Identificacion: string.IsNullOrWhiteSpace(t.IdValor) ? null : t.IdValor.Trim(),
+                    Naturaleza: ContactFilterEvaluator.NaturalezaDe(t.Tipo == TerceroTipo.Empresa),
+                    Correo: t.Email, Telefono: t.Telefono, Empresa: t.EmpresaNombre),
                 criterios))
             .Select(t => new SegmentContact(
                 t.Id, t.Nombre, t.Email, t.Telefono,

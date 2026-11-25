@@ -102,6 +102,79 @@ public class ContactFilterFichaTests
         Assert.True(ContactFilterEvaluator.Matches(row, C("campo_raro", "=", "x")));
     }
 
+    // ---- Operadores nuevos (es uno de, no contiene, vacio, ...) y campos fijos del Directorio ----
+
+    private static ContactFilterEvaluator.Row Completa() => new(
+        "ACME SAS", "Cali", "Ana", "Agropecuario", null, TerceroPerfil.Cliente | TerceroPerfil.Proveedor,
+        TerceroEstado.Activo, TerceroFichaValues.Flatten(Fichas),
+        Identificacion: "900123456", Naturaleza: "Empresa", Correo: "compras@acme.co", Telefono: null, Empresa: null);
+
+    [Theory]
+    [InlineData("sector", "IN", "Industrial, agropecuario", true)]
+    [InlineData("sector", "IN", "Industrial, Construccion", false)]
+    [InlineData("sector", "NOT IN", "Industrial, Construccion", true)]
+    [InlineData("sector", "NOT IN", "Agropecuario", false)]
+    [InlineData("f:tipo_de_empresa_subsector", "IN", "Cantera,Ingenio Azucarero / Planta", true)]
+    [InlineData("nombre", "NOT LIKE", "sas", false)]
+    [InlineData("nombre", "NOT LIKE", "ltda", true)]
+    [InlineData("telefono", "EMPTY", "", true)]
+    [InlineData("telefono", "NOT EMPTY", "", false)]
+    [InlineData("correo", "NOT EMPTY", "", true)]
+    [InlineData("correo", "LIKE", "@acme", true)]
+    [InlineData("identificacion", "=", "900123456", true)]
+    [InlineData("naturaleza", "=", "persona", false)]
+    [InlineData("naturaleza", "IN", "Empresa,Persona", true)]
+    [InlineData("estado", "IN", "Prospecto, Activo", true)]
+    [InlineData("perfil", "IN", "Empleado, Proveedor", true)]
+    [InlineData("perfil", "NOT IN", "Empleado, Proveedor", false)]
+    [InlineData("perfil", "EMPTY", "", false)]
+    [InlineData("f:pais", "EMPTY", "", false)]
+    [InlineData("f:no_existe", "EMPTY", "", true)]
+    [InlineData("vendedor", "contains", "an", true)]
+    public void Operadores_Y_CamposFijos(string campo, string op, string valor, bool esperado)
+        => Assert.Equal(esperado, ContactFilterEvaluator.Matches(Completa(), C(campo, op, valor)));
+
+    [Fact]
+    public void MayorMenor_AceptaNumerosYFechas()
+    {
+        var row = Row(new Dictionary<string, string> { ["fecha_ingreso"] = "2026-03-15", ["salario"] = "2500000" });
+        Assert.True(ContactFilterEvaluator.Matches(row, C("f:fecha_ingreso", ">", "2026-01-01")));
+        Assert.False(ContactFilterEvaluator.Matches(row, C("f:fecha_ingreso", "<", "2026-01-01")));
+        Assert.True(ContactFilterEvaluator.Matches(row, C("f:salario", "<", "3000000")));
+    }
+
+    [Theory]
+    [InlineData("NIT 900123456", "900123456")]
+    [InlineData("CC 1144", "1144")]
+    [InlineData("Tel 3001112233", "3001112233")]
+    [InlineData("correo@x.co", "correo@x.co")]
+    [InlineData("Sin identificacion", null)]
+    [InlineData(null, null)]
+    public void IdentificacionDe_QuitaElPrefijoDelListado(string? texto, string? esperado)
+        => Assert.Equal(esperado, ContactFilterEvaluator.IdentificacionDe(texto));
+
+    [Theory]
+    [InlineData("contains", "LIKE")]
+    [InlineData("not  like", "NOT LIKE")]
+    [InlineData("in", "IN")]
+    [InlineData("notin", "NOT IN")]
+    [InlineData("eq", "=")]
+    [InlineData(null, "=")]
+    public void NormalizeOp_AceptaAlias(string? op, string esperado)
+        => Assert.Equal(esperado, ContactFilterEvaluator.NormalizeOp(op));
+
+    [Fact]
+    public void TodosLosOperadoresDeLaUi_SonConocidos()
+    {
+        var row = Completa();
+        foreach (var op in ContactFilterEvaluator.Operadores)
+        {
+            // Ningun operador ofrecido cae al "default -> false" por desconocido con un valor que coincide.
+            var r = ContactFilterEvaluator.Matches(row, C("nombre", op, "ACME SAS"));
+            Assert.True(r || op is "!=" or "NOT LIKE" or "NOT IN" or "EMPTY" or ">" or "<", op);
+        }
+    }
+
     [Theory]
     [InlineData(TerceroFieldType.Select, true)]
     [InlineData(TerceroFieldType.Text, true)]

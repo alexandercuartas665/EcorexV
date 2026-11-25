@@ -914,11 +914,31 @@ public sealed class GestorContactosService : IGestorContactosService
     private async Task<List<TerceroRow>> LoadTerceroRowsAsync(CancellationToken cancellationToken)
         => (await _db.Terceros.AsNoTracking()
             .Where(t => t.Estado != TerceroEstado.Inactivo)
-            .Select(t => new { t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado, t.FichasJson })
+            .Select(t => new
+            {
+                t.Nombre,
+                t.Ciudad,
+                t.Vendedor,
+                t.Sector,
+                t.Cargo,
+                t.Perfiles,
+                t.Estado,
+                t.FichasJson,
+                t.Tipo,
+                t.IdValor,
+                t.Email,
+                t.Telefono,
+                AsesorNombre = t.VendedorAsesor != null ? t.VendedorAsesor.Nombre : null,
+                EmpresaNombre = t.Empresa != null ? t.Empresa.Nombre : null
+            })
             .ToListAsync(cancellationToken))
-            .Select(t => new TerceroRow(
-                t.Nombre, t.Ciudad, t.Vendedor, t.Sector, t.Cargo, t.Perfiles, t.Estado,
-                TerceroFichaValues.Flatten(t.FichasJson)))
+            .Select(t => new TerceroRow(new ContactFilterEvaluator.Row(
+                t.Nombre, t.Ciudad, string.IsNullOrWhiteSpace(t.AsesorNombre) ? t.Vendedor : t.AsesorNombre,
+                t.Sector, t.Cargo, t.Perfiles, t.Estado,
+                TerceroFichaValues.Flatten(t.FichasJson),
+                Identificacion: string.IsNullOrWhiteSpace(t.IdValor) ? null : t.IdValor.Trim(),
+                Naturaleza: ContactFilterEvaluator.NaturalezaDe(t.Tipo == TerceroTipo.Empresa),
+                Correo: t.Email, Telefono: t.Telefono, Empresa: t.EmpresaNombre)))
             .ToList();
 
     /// <summary>
@@ -926,10 +946,7 @@ public sealed class GestorContactosService : IGestorContactosService
     /// soportados (p. ej. campos dinamicos de FichasJson) se IGNORAN (no excluyen filas).
     /// </summary>
     private static int CountMatching(IReadOnlyList<TerceroRow> rows, IReadOnlyList<FiltroCriterio> criterios)
-        => rows.Count(row => ContactFilterEvaluator.MatchesAll(
-            new ContactFilterEvaluator.Row(
-                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado, row.Fichas),
-            criterios));
+        => rows.Count(row => ContactFilterEvaluator.MatchesAll(row.Eval, criterios));
 
     /// <summary>Prospectos scrapeados (todas las fuentes) proyectados para el conteo. TerceroId != null =&gt;
     /// el prospecto ya es un Tercero (promovido): NO se cuenta aparte, para dedup con el directorio.</summary>
@@ -948,10 +965,7 @@ public sealed class GestorContactosService : IGestorContactosService
     private static int CountDistinctMatching(
         IReadOnlyList<TerceroRow> terceros, IReadOnlyList<ProspectoRow> prospectos, IReadOnlyList<FiltroCriterio> criterios)
     {
-        var terceroHits = terceros.Count(row => ContactFilterEvaluator.MatchesAll(
-            new ContactFilterEvaluator.Row(
-                row.Nombre, row.Ciudad, row.Vendedor, row.Sector, row.Cargo, row.Perfiles, row.Estado, row.Fichas),
-            criterios));
+        var terceroHits = terceros.Count(row => ContactFilterEvaluator.MatchesAll(row.Eval, criterios));
         var prospectoHits = prospectos.Count(p => p.TerceroId is null && ContactFilterEvaluator.MatchesAll(
             new ContactFilterEvaluator.Row(
                 p.Nombre, p.Ciudad, null, p.Empresa, p.Cargo, TerceroPerfil.Ninguno, TerceroEstado.Activo),
@@ -1004,15 +1018,7 @@ public sealed class GestorContactosService : IGestorContactosService
     }
 
     /// <summary>Proyeccion en memoria de un tercero para evaluar los criterios de filtro.</summary>
-    private sealed record TerceroRow(
-        string Nombre,
-        string? Ciudad,
-        string? Vendedor,
-        string? Sector,
-        string? Cargo,
-        TerceroPerfil Perfiles,
-        TerceroEstado Estado,
-        IReadOnlyDictionary<string, string>? Fichas);
+    private sealed record TerceroRow(ContactFilterEvaluator.Row Eval);
 
     /// <summary>Proyeccion minima de un prospecto scrapeado para el conteo distinto (ver CountDistinctMatching).</summary>
     private sealed record ProspectoRow(

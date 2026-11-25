@@ -17,6 +17,7 @@
 @inject IDirectorioModularFichaService ModularFichas
 @inject ITerceroFieldService FieldSvc
 @inject ITerceroFichaService FichaSvc
+@inject IDirectorioLayoutConfigService LayoutSvc
 
 <PageTitle>Cargador de contactos - ECOREX.tareas</PageTitle>
 
@@ -731,15 +732,17 @@
                             </select>
                         }
                         <select class="gc-input sm" value="@cr.Campo" @onchange="e => UpdateCriterio(idx, campo: e.Value?.ToString())">
-                            @foreach (var c in CampoOpciones)
+                            @if (!CampoConocido(cr.Campo))
                             {
-                                <option value="@c">@c</option>
-                            }
-                            @if (TerceroFichaValues.FieldKeyOf(cr.Campo) is not null && FichaCampo(cr.Campo) is null)
-                            {
-                                @* Campo de ficha que ya no existe (borrado): se conserva visible para no perderlo. *@
+                                @* Campo que ya no existe (borrado o de otra version): se conserva visible para no perderlo. *@
                                 <option value="@cr.Campo">@cr.Campo (no existe)</option>
                             }
+                            <optgroup label="Contacto">
+                                @foreach (var c in CamposFijos())
+                                {
+                                    <option value="@c.Campo">@c.Label</option>
+                                }
+                            </optgroup>
                             @foreach (var g in _fichaCampos.GroupBy(f => f.Seccion))
                             {
                                 <optgroup label="@g.Key">
@@ -750,30 +753,52 @@
                                 </optgroup>
                             }
                         </select>
-                        <select class="gc-input xs" value="@cr.Operador" @onchange="e => UpdateCriterio(idx, op: e.Value?.ToString())">
-                            @foreach (var op in OperadorOpciones)
+                        <select class="gc-input md" value="@ContactFilterEvaluator.NormalizeOp(cr.Operador)" @onchange="e => UpdateCriterio(idx, op: e.Value?.ToString())">
+                            @foreach (var op in ContactFilterEvaluator.Operadores)
                             {
-                                <option value="@op">@op</option>
+                                <option value="@op">@OperadorLabel(op)</option>
                             }
                         </select>
-                        @{ var opciones = FichaCampo(cr.Campo)?.Opciones ?? Array.Empty<string>(); }
-                        <input class="gc-input sm" placeholder="valor" value="@cr.Valor" list="@(opciones.Count > 0 ? "gc-opts-" + idx : null)"
-                               @onchange="e => UpdateCriterio(idx, valor: e.Value?.ToString())" />
-                        @if (opciones.Count > 0)
+                        @if (ContactFilterEvaluator.SinValor(cr.Operador))
                         {
-                            <datalist id="@("gc-opts-" + idx)">
-                                @foreach (var o in opciones)
-                                {
-                                    <option value="@o"></option>
-                                }
-                            </datalist>
+                            <span class="gc-input sm gc-crit-novalue">sin valor</span>
+                        }
+                        else
+                        {
+                            var sugerencias = Sugerencias(cr.Campo);
+                            var esLista = ContactFilterEvaluator.NormalizeOp(cr.Operador) is "IN" or "NOT IN";
+                            <input class="gc-input sm" placeholder="@(esLista ? "valores separados por coma" : "valor")" value="@cr.Valor"
+                                   list="@(sugerencias.Count > 0 && !esLista ? "gc-opts-" + idx : null)"
+                                   @onchange="e => UpdateCriterio(idx, valor: e.Value?.ToString())" />
+                            @if (sugerencias.Count > 0 && !esLista)
+                            {
+                                <datalist id="@("gc-opts-" + idx)">
+                                    @foreach (var o in sugerencias)
+                                    {
+                                        <option value="@o"></option>
+                                    }
+                                </datalist>
+                            }
                         }
                         <button class="gc-crit-del" @onclick="() => _fbCriterios.RemoveAt(idx)" title="Quitar">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                         </button>
                     </div>
+                    @if (ContactFilterEvaluator.NormalizeOp(cr.Operador) is "IN" or "NOT IN" && Sugerencias(cr.Campo) is { Count: > 0 and <= 60 } chips)
+                    {
+                        @* "Es uno de": marca varios valores con un clic (se guardan separados por coma). *@
+                        var elegidos = ContactFilterEvaluator.SplitList(cr.Valor);
+                        <div class="gc-crit-chips">
+                            @foreach (var ch in chips)
+                            {
+                                var chv = ch;
+                                var on = elegidos.Any(x => string.Equals(x, chv, StringComparison.OrdinalIgnoreCase));
+                                <button type="button" class="gc-inchip @(on ? "on" : "")" @onclick="() => ToggleInValor(idx, chv)">@chv</button>
+                            }
+                        </div>
+                    }
                 }
-                <button class="gc-add-row" @onclick="() => _fbCriterios.Add(new FiltroCriterio(CampoOpciones[0], OperadorOpciones[0], string.Empty))">
+                <button class="gc-add-row" @onclick="() => _fbCriterios.Add(new FiltroCriterio(CampoPorDefecto, OpIgual, string.Empty))">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
                     Agregar criterio
                 </button>
@@ -1092,8 +1117,81 @@
 
     private List<FichaCampoOpcion> _fichaCampos = new();
 
+    // Titulos que el tenant le puso a los campos fijos en el Directorio (p.ej. sector -> "Macro Sector").
+    private IReadOnlyDictionary<string, string> _fixedLabels = new Dictionary<string, string>();
+
+    private sealed record CampoFiltro(string Campo, string Label);
+
+    /// <summary>Campos fijos del contacto, con los mismos nombres que la grilla del Directorio.</summary>
+    private IEnumerable<CampoFiltro> CamposFijos()
+    {
+        string L(string key, string fallback)
+            => _fixedLabels.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : fallback;
+        yield return new("nombre", L("nombre", "Nombre / Razon social"));
+        yield return new("naturaleza", "Naturaleza");
+        yield return new("perfil", "Perfiles");
+        yield return new("identificacion", L("identificacion", "Identificacion"));
+        yield return new("vendedor", L("vendedor", "Vendedor"));
+        yield return new("estado", L("estado", "Estado"));
+        yield return new("ciudad", L("ciudad", "Ciudad"));
+        yield return new("sector", L("sector", "Sector"));
+        yield return new("cargo", "Cargo");
+        yield return new("correo", L("correo", "Correo"));
+        yield return new("telefono", L("telefono", "Telefono"));
+        yield return new("empresa", "Empresa (de la persona)");
+    }
+
+    private bool CampoConocido(string? campo)
+        => FichaCampo(campo) is not null
+            || ContactFilterEvaluator.CamposFijos.Contains((campo ?? "").Trim().ToLowerInvariant());
+
+    // Sugerencias de valor por campo (opciones de lista + valores reales de los contactos), cacheadas por carga.
+    private readonly Dictionary<string, IReadOnlyList<string>> _sugCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<string> Sugerencias(string? campo)
+    {
+        var c = (campo ?? "").Trim();
+        if (c.Length == 0) { return Array.Empty<string>(); }
+        if (_sugCache.TryGetValue(c, out var cached)) { return cached; }
+
+        IEnumerable<string?> valores = (TerceroFichaValues.FieldKeyOf(c), c.ToLowerInvariant()) switch
+        {
+            (string fk, _) => (FichaCampo(c)?.Opciones ?? Array.Empty<string>())
+                .Concat(_contactos.Select(t => t.Filtrables is not null && t.Filtrables.TryGetValue(fk, out var v) ? v : null)),
+            (_, "estado") => Enum.GetNames<TerceroEstado>(),
+            (_, "perfil") => Enum.GetNames<TerceroPerfil>().Where(n => n != nameof(TerceroPerfil.Ninguno)),
+            (_, "naturaleza") => new[] { "Empresa", "Persona" },
+            (_, "ciudad") => _contactos.Select(t => t.Ciudad),
+            (_, "vendedor") => _contactos.Select(t => string.IsNullOrWhiteSpace(t.VendedorAsesorNombre) ? t.Vendedor : t.VendedorAsesorNombre),
+            (_, "sector") => _contactos.Where(t => t.EsEmpresa).Select(t => t.Sub),
+            (_, "cargo") => _contactos.Where(t => !t.EsEmpresa).Select(t => t.Sub),
+            (_, "empresa") => _contactos.Select(t => t.EmpresaNombre),
+            _ => Array.Empty<string?>()
+        };
+        var lista = valores
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+            .Take(300)
+            .ToList();
+        _sugCache[c] = lista;
+        return lista;
+    }
+
+    /// <summary>"Es uno de": agrega o quita un valor de la lista separada por comas del criterio.</summary>
+    private void ToggleInValor(int idx, string valor)
+    {
+        var actuales = ContactFilterEvaluator.SplitList(_fbCriterios[idx].Valor).ToList();
+        var i = actuales.FindIndex(x => string.Equals(x, valor, StringComparison.OrdinalIgnoreCase));
+        if (i >= 0) { actuales.RemoveAt(i); } else { actuales.Add(valor); }
+        UpdateCriterio(idx, valor: string.Join(", ", actuales));
+    }
+
     private async Task LoadFichaCamposAsync()
     {
+        _sugCache.Clear();
+        _fixedLabels = (await LayoutSvc.GetAsync()).Labels;
         var fichas = await FichaSvc.ListAsync();
         var orden = fichas.GroupBy(f => f.FichaKey).ToDictionary(g => g.Key, g => g.First().SortOrder, StringComparer.Ordinal);
         var titulos = fichas.GroupBy(f => f.FichaKey).ToDictionary(g => g.Key, g => g.First().Title, StringComparer.Ordinal);
@@ -1265,11 +1363,15 @@
                 rows = rows.Where(r => ContactFilterEvaluator.MatchesAll(
                     r.TerceroId is Guid tid && terceros.TryGetValue(tid, out var t)
                         ? new ContactFilterEvaluator.Row(
-                            t.Nombre, t.Ciudad, t.Vendedor,
+                            t.Nombre, t.Ciudad, string.IsNullOrWhiteSpace(t.VendedorAsesorNombre) ? t.Vendedor : t.VendedorAsesorNombre,
                             t.EsEmpresa ? t.Sub : null, t.EsEmpresa ? null : t.Sub,
-                            t.Perfiles, t.Estado, t.Filtrables)
+                            t.Perfiles, t.Estado, t.Filtrables,
+                            Identificacion: ContactFilterEvaluator.IdentificacionDe(t.Identificacion),
+                            Naturaleza: ContactFilterEvaluator.NaturalezaDe(t.EsEmpresa),
+                            Correo: t.Email, Telefono: t.Telefono, Empresa: t.EmpresaNombre)
                         : new ContactFilterEvaluator.Row(
-                            r.Nombre, r.Ciudad, null, r.Empresa, r.Sub, TerceroPerfil.Ninguno, TerceroEstado.Activo),
+                            r.Nombre, r.Ciudad, null, r.Empresa, r.Sub, TerceroPerfil.Ninguno, TerceroEstado.Activo,
+                            Naturaleza: r.EsPersona ? "Persona" : "Empresa", Empresa: r.Empresa),
                     af.Criterios)).ToList();
             }
 
@@ -1505,7 +1607,7 @@
         _fbNombre = "";
         _fbDesc = "";
         _fbFuente = null;
-        _fbCriterios = new List<FiltroCriterio> { new(CampoOpciones[0], OperadorOpciones[0], "") };
+        _fbCriterios = new List<FiltroCriterio> { new(CampoPorDefecto, "=", "") };
         _fbError = null;
         _fbOpen = true;
     }
@@ -1520,7 +1622,7 @@
         _fbFuente = f.Fuente;
         _fbCriterios = f.Criterios.Count > 0
             ? f.Criterios.Select(c => c).ToList()
-            : new List<FiltroCriterio> { new(CampoOpciones[0], OperadorOpciones[0], "") };
+            : new List<FiltroCriterio> { new(CampoPorDefecto, "=", "") };
         _fbError = null;
         _fbOpen = true;
     }
@@ -1797,8 +1899,24 @@
     private static readonly string?[] FuenteOpciones = { null, "LinkedIn", "Maps", "Web" };
     // Chips de la pestana de contactos: ademas del scraping, el directorio cargado a mano.
     private static readonly string?[] FuenteChips = { null, "LinkedIn", "Maps", "Web", FuenteDirectorio };
-    private static readonly string[] CampoOpciones = { "ciudad", "vendedor", "nombre", "sector", "cargo", "estado", "perfil" };
-    private static readonly string[] OperadorOpciones = { "=", "!=", "LIKE", ">", "<" };
+    private const string CampoPorDefecto = "ciudad";
+    private const string OpIgual = "=";
+
+    /// <summary>Etiqueta legible de un operador del filtro (el valor guardado es el canonico del evaluador).</summary>
+    private static string OperadorLabel(string op) => op switch
+    {
+        "=" => "es igual a",
+        "!=" => "es distinto de",
+        "LIKE" => "contiene",
+        "NOT LIKE" => "no contiene",
+        "IN" => "es uno de",
+        "NOT IN" => "no es ninguno de",
+        "EMPTY" => "esta vacio",
+        "NOT EMPTY" => "tiene contenido",
+        ">" => "mayor que",
+        "<" => "menor que",
+        _ => op
+    };
     private static readonly OportunidadEtapa[] EtapasBoard =
     {
         OportunidadEtapa.Nueva, OportunidadEtapa.Calificada, OportunidadEtapa.Propuesta,

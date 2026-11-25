@@ -109,5 +109,88 @@ window.ecorexAutVisor = (function () {
         }
     }
 
-    return { cargar: cargar, zoomMas: zoomMas, zoomMenos: zoomMenos, zoomAncho: zoomAncho };
+    // Re-ajusta el PDF al ancho si el usuario no fijo un zoom (cambio de vista o del ancho de la columna).
+    function ajustar() { if (pdfDoc && escala === 0) { render(); } }
+
+    // ---- Distribucion: vista "columna" del formulario (ancho ajustable) y aviso de ventana angosta ----
+    var layoutRef = null, layoutMin = 930, layoutNarrow = null, winTimer = null, galObserver = null;
+
+    // "Angosta" = la GALERIA (no la ventana) no tiene espacio para lista + visor + columna minima. Asi cuenta
+    // tambien el menu lateral del sistema (abierto o plegado).
+    function reportNarrow() {
+        var g = document.getElementById('acGallery');
+        var ancho = g ? g.clientWidth : window.innerWidth;
+        var n = ancho < layoutMin;
+        if (n === layoutNarrow) { return; }
+        layoutNarrow = n;
+        if (layoutRef) { layoutRef.invokeMethodAsync('OnViewportChanged', n).catch(function () { }); }
+    }
+    function onWinResize() {
+        clearTimeout(winTimer);
+        winTimer = setTimeout(function () { reportNarrow(); ajustar(); }, 150);
+    }
+    function initLayout(ref, minWidth) {
+        layoutRef = ref;
+        layoutMin = minWidth || 930;
+        layoutNarrow = null;
+        window.removeEventListener('resize', onWinResize);
+        window.addEventListener('resize', onWinResize);
+        if (galObserver) { galObserver.disconnect(); galObserver = null; }
+        var g = document.getElementById('acGallery');
+        if (g && window.ResizeObserver) { galObserver = new ResizeObserver(onWinResize); galObserver.observe(g); }
+        reportNarrow();
+    }
+    function disposeLayout() {
+        window.removeEventListener('resize', onWinResize);
+        if (galObserver) { galObserver.disconnect(); galObserver = null; }
+        layoutRef = null;
+    }
+
+    // Tirador en el borde izquierdo de la columna: arrastrar cambia --ac-panel-w en vivo; al soltar se avisa al
+    // servidor (que lo guarda en la preferencia del usuario). Doble clic = ancho por defecto.
+    function wireResize(minW, maxW, defW) {
+        var h = document.getElementById('acPanelRz');
+        var g = document.getElementById('acGallery');
+        if (!h || !g || h.dataset.wired === '1') { return; }
+        h.dataset.wired = '1';
+        function avisar(w) {
+            ajustar();
+            if (layoutRef) { layoutRef.invokeMethodAsync('OnPanelResized', w).catch(function () { }); }
+        }
+        h.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            var rect = g.getBoundingClientRect();
+            // Deja al menos 260 (lista) + 300 (visor) + separaciones.
+            var max = Math.max(minW, Math.min(maxW, Math.round(rect.width - 260 - 300 - 28)));
+            var ultimo = null;
+            h.classList.add('on');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            function mv(ev) {
+                var w = Math.round(rect.right - ev.clientX);
+                w = Math.max(minW, Math.min(max, w));
+                g.style.setProperty('--ac-panel-w', w + 'px');
+                ultimo = w;
+            }
+            function up() {
+                window.removeEventListener('mousemove', mv);
+                window.removeEventListener('mouseup', up);
+                h.classList.remove('on');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                if (ultimo !== null) { avisar(ultimo); }
+            }
+            window.addEventListener('mousemove', mv);
+            window.addEventListener('mouseup', up);
+        });
+        h.addEventListener('dblclick', function () {
+            g.style.setProperty('--ac-panel-w', defW + 'px');
+            avisar(defW);
+        });
+    }
+
+    return {
+        cargar: cargar, zoomMas: zoomMas, zoomMenos: zoomMenos, zoomAncho: zoomAncho,
+        ajustar: ajustar, initLayout: initLayout, disposeLayout: disposeLayout, wireResize: wireResize
+    };
 })();

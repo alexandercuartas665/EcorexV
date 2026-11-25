@@ -122,8 +122,7 @@ public sealed class GenerarRequerimientosDesdeTablaVerb : IRuleVerb
                 .Where(r => r.Id == frId).Select(r => r.Reference).FirstOrDefaultAsync(cancellationToken);
             if (!string.IsNullOrWhiteSpace(reference))
             {
-                sourceTaskId = await _db.TaskItems.AsNoTracking()
-                    .Where(t => t.Number == reference).Select(t => (Guid?)t.Id).FirstOrDefaultAsync(cancellationToken);
+                sourceTaskId = await TaskReference.ResolveTaskIdAsync(_db, reference, cancellationToken);
             }
         }
 

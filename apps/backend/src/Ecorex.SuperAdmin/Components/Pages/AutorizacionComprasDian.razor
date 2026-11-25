@@ -12,6 +12,7 @@
 @inject IFileStorageService Files
 @inject IAutorizacionComprasConfigService Cfg
 @inject IConciliacionTareaService TareaSvc
+@inject Ecorex.SuperAdmin.Services.CircuitFormGate FormGate
 @inject ITenantUserService Users
 @inject ITaskItemService Tasks
 @inject IFormResponseService FormResponses
@@ -458,15 +459,22 @@
         try
         {
             var sel = _sel;
-            await Svc.SetAssigneeAsync(sel.Id, assignee);
             var asignada = sel with { AssignedTenantUserId = assignee };
+            var actor = await ActorAsync();
+            var actorName = await ActorNameAsync();
+            // Asignar + crear + leer el formulario en UN turno del DbContext (ver EnTurnoAsync).
+            var (ok, res, tform, thidden) = await EnTurnoAsync(async () =>
+            {
+                await Svc.SetAssigneeAsync(sel.Id, assignee);
+                var (cok, cres) = await TareaSvc.CrearTareaAsync(asignada, salida, assignee, actor, actorName);
+                if (!cok) { return (false, cres, (TaskFormRef?)null, (IReadOnlyList<Guid>)Array.Empty<Guid>()); }
+                var (f, h) = await CargarFormTareaAsync(cres);
+                return (true, cres, f, h);
+            });
             var i = _items.FindIndex(x => x.Id == sel.Id);
             if (i >= 0) { _items[i] = asignada; }
             _sel = asignada;
-
-            var (ok, res) = await TareaSvc.CrearTareaAsync(asignada, salida, assignee, await ActorAsync(), await ActorNameAsync());
             if (!ok) { _errMsg = res; return; }
-            var (tform, thidden) = await CargarFormTareaAsync(res);
             _solicitada = res;
             _solicitadas[sel.Id] = res;   // la tarjeta muestra la actividad sin recargar
             _taskForm = tform;
@@ -488,7 +496,7 @@
     {
         if (_sel is null || _solicitada is not { } num) { return; }
         bool terminada;
-        try { terminada = await Cfg.IsTareaTerminadaAsync(num); }
+        try { terminada = await EnTurnoAsync(() => Cfg.IsTareaTerminadaAsync(num)); }
         catch { return; }
         if (!terminada) { return; }
         var id = _sel.Id;
@@ -520,6 +528,19 @@
         StateHasChanged();
     }
 
+    // Turno UNICO del DbContext del circuito: el MISMO semaforo que usan los DynamicFormRenderer (CircuitFormGate).
+    // El formulario de la tarea se autoguarda cada 3 s; si una lectura de esta pagina (Cfg/Svc/Files/Prefs, todos
+    // sobre el DbContext scoped) coincide con ese autosave -> "A second operation was started on this context
+    // instance" y el circuito MUERE (los botones dejan de responder). Toda operacion de BD de la pagina pasa por
+    // aqui. NO es reentrante: nunca llamar FlushFormAsync (que toma el gate en el renderer) desde dentro.
+    private async Task<T> EnTurnoAsync<T>(Func<Task<T>> op)
+    {
+        await FormGate.Gate.WaitAsync();
+        try { return await op(); }
+        finally { FormGate.Gate.Release(); }
+    }
+    private Task EnTurnoAsync(Func<Task> op) => EnTurnoAsync(async () => { await op(); return true; });
+
     private async Task<Guid> ActorAsync()
     {
         var st = await AuthState.GetAuthenticationStateAsync();
@@ -533,12 +554,15 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _cfg = await Cfg.GetAsync();
-        try { _salidasRun = (await Cfg.ListSalidasAsync()).Where(x => x.SubcategoriaId is not null).ToList(); }
-        catch { _salidasRun = new(); }
+        await EnTurnoAsync(async () =>
+        {
+            _cfg = await Cfg.GetAsync();
+            try { _salidasRun = (await Cfg.ListSalidasAsync()).Where(x => x.SubcategoriaId is not null).ToList(); }
+            catch { _salidasRun = new(); }
+            _usuarios = (await Users.ListAsync()).ToList();
+        });
         // Por defecto la salida del concepto configurado en el modulo; si no, la primera.
         _salidaSelId = _salidasRun.FirstOrDefault(x => x.SubcategoriaId == _cfg.SubcategoriaId)?.Id ?? _salidasRun.FirstOrDefault()?.Id;
-        _usuarios = (await Users.ListAsync()).ToList();
         // Resolver el TenantUser del usuario actual (por PlatformUserId) para el filtro "solo mis documentos".
         var actor = await ActorAsync();
         _miTenantUserId = _usuarios.FirstOrDefault(u => u.PlatformUserId == actor)?.Id;
@@ -551,7 +575,7 @@
     {
         try
         {
-            var raw = await Prefs.GetAsync(PrefsKey);
+            var raw = await EnTurnoAsync(() => Prefs.GetAsync(PrefsKey));
             if (string.IsNullOrWhiteSpace(raw)) { return; }
             var p = System.Text.Json.JsonSerializer.Deserialize<VistaPrefs>(raw);
             _vista = p?.Vista == VistaColumna ? VistaColumna : VistaModal;
@@ -562,7 +586,7 @@
 
     private async Task GuardarVistaAsync()
     {
-        try { await Prefs.SaveAsync(PrefsKey, System.Text.Json.JsonSerializer.Serialize(new VistaPrefs(_vista, _panelW))); }
+        try { await EnTurnoAsync(() => Prefs.SaveAsync(PrefsKey, System.Text.Json.JsonSerializer.Serialize(new VistaPrefs(_vista, _panelW)))); }
         catch { /* no guardar la preferencia nunca debe romper la pantalla */ }
     }
 
@@ -630,17 +654,21 @@
         _busy = true;
         try
         {
-            _items = (await Svc.ListPorAutorizarAsync(Filtro())).ToList();
-            // La factura sale del modulo cuando la tarea que la porta ya termino o se cerro.
-            try
+            var filtro = Filtro();
+            await EnTurnoAsync(async () =>
             {
-                var terminadas = await Cfg.GetRenglonesConTareaTerminadaAsync();
-                if (terminadas.Count > 0) { _items = _items.Where(r => !terminadas.Contains(r.Id)).ToList(); }
-            }
-            catch { /* sin el filtro la lista sigue siendo util */ }
-            // Actividad ya creada por factura (renglon -> numero), una sola lectura para pintar las tarjetas.
-            try { _solicitadas = new Dictionary<Guid, string>(await Cfg.GetSolicitadasMapAsync()); }
-            catch { _solicitadas = new(); }
+                _items = (await Svc.ListPorAutorizarAsync(filtro)).ToList();
+                // La factura sale del modulo cuando la tarea que la porta ya termino o se cerro.
+                try
+                {
+                    var terminadas = await Cfg.GetRenglonesConTareaTerminadaAsync();
+                    if (terminadas.Count > 0) { _items = _items.Where(r => !terminadas.Contains(r.Id)).ToList(); }
+                }
+                catch { /* sin el filtro la lista sigue siendo util */ }
+                // Actividad ya creada por factura (renglon -> numero), una sola lectura para pintar las tarjetas.
+                try { _solicitadas = new Dictionary<Guid, string>(await Cfg.GetSolicitadasMapAsync()); }
+                catch { _solicitadas = new(); }
+            });
             // Si la seleccion ya no esta en la lista MOSTRADA (respeta "solo mios"), se limpia; si no hay, se abre la primera.
             var vis = ItemsMostrados;
             if (_sel is not null && vis.All(x => x.Id != _sel.Id)) { _sel = null; _viewUrl = null; _viewFiles = new(); _viewFile = null; }
@@ -673,19 +701,24 @@
         // Serializando (leer primero, publicar _sel + render al final) no hay dos operaciones a la vez.
         // Vista columna: al saltar a otra factura se guarda primero el borrador de la actual (tambien en serie).
         if (_sel is not null && _sel.Id != r.Id) { await FlushFormAsync(); }
-        var asignado = r.AssignedTenantUserId ?? await Cfg.GetAsignadoAsync(r.Id);
-        var solicitada = await Cfg.GetSolicitadaAsync(r.Id);
-        var (taskForm, hiddenTarea) = await CargarFormTareaAsync(solicitada);
-        List<StoredFileDto> viewFiles = new();
-        try
+        // Todas las lecturas en UN turno del DbContext (el autosave del formulario montado espera su turno).
+        var (asignado, solicitada, taskForm, hiddenTarea, viewFiles) = await EnTurnoAsync(async () =>
         {
-            var files = string.IsNullOrWhiteSpace(r.Cufe)
-                ? new List<StoredFileDto>()
-                : (await Files.ListAsync("ConciliacionDian", r.Cufe)).ToList();
-            // Solo PDFs; preferir la representacion grafica de NEWTON, caer al PDF de la DIAN.
-            viewFiles = files.Where(f => EsPdf(f)).OrderByDescending(EsNewton).ToList();
-        }
-        catch { viewFiles = new(); }
+            var asig = r.AssignedTenantUserId ?? await Cfg.GetAsignadoAsync(r.Id);
+            var sol = await Cfg.GetSolicitadaAsync(r.Id);
+            var (tf, ht) = await CargarFormTareaAsync(sol);
+            List<StoredFileDto> vf;
+            try
+            {
+                var files = string.IsNullOrWhiteSpace(r.Cufe)
+                    ? new List<StoredFileDto>()
+                    : (await Files.ListAsync("ConciliacionDian", r.Cufe)).ToList();
+                // Solo PDFs; preferir la representacion grafica de NEWTON, caer al PDF de la DIAN.
+                vf = files.Where(f => EsPdf(f)).OrderByDescending(EsNewton).ToList();
+            }
+            catch { vf = new(); }
+            return (asig, sol, tf, ht, vf);
+        });
 
         _sel = r;
         _okMsg = null; _errMsg = null;

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.Organization;
 using Ecorex.Application.Forms;
@@ -472,6 +473,78 @@ public abstract class RulesEngineTestsBase
           </bpmn:process>
         </bpmn:definitions>
         """;
+
+    [Fact]
+    public async Task CrearTarea_ConSubcategoria_CaeEnElTableroDelConcepto()
+    {
+        // Verbo CREAR_TAREA (form publico de leads): clasificada por concepto, sin BoardId -> el servicio
+        // real deriva el tablero del concepto y la ubica en su PRIMERA columna; el solicitante sale del form.
+        var seed = await SeedTenantAsync("Reglas CrearTarea");
+        Guid subcategoriaId, boardId, firstColumnId;
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var board = new TaskBoard { TenantId = seed.TenantId, Name = "Registros de lead", Kind = TaskBoardKind.Activities };
+            ctx.TaskBoards.Add(board);
+            var prospecto = new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Prospecto", SortOrder = 0 };
+            var cerrado = new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Cerrado", SortOrder = 1, IsDone = true };
+            ctx.TaskBoardColumns.AddRange(prospecto, cerrado);
+            var categoria = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-01", Nombre = "Comercial" };
+            ctx.ActividadCategorias.Add(categoria);
+            var sub = new ActividadSubcategoria
+            {
+                TenantId = seed.TenantId,
+                CategoriaId = categoria.Id,
+                Codigo = "CAT-01-05",
+                Nombre = "Leads",
+                TaskBoardId = board.Id,
+                TaskBoardColumnId = cerrado.Id
+            };
+            ctx.ActividadSubcategorias.Add(sub);
+            await ctx.SaveChangesAsync();
+            subcategoriaId = sub.Id;
+            boardId = board.Id;
+            firstColumnId = prospecto.Id;
+        }
+
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var tenantContext = new TestTenantContext(seed.TenantId, seed.PlatformUserId);
+            var engine = BuildEngine(ctx, seed);
+            var verb = new CrearTareaVerb(new TaskItemService(ctx, tenantContext, new SequenceService(ctx, tenantContext),
+                new WorkflowEngine(ctx, tenantContext, new WorkflowRuleHook(engine), new NoOpTaskBroadcaster()),
+                new NoOpEmailSender(), new NodeAssigneeResolver(ctx)));
+            var paramsJson = $$"""{"subcategoriaId":"{{subcategoriaId}}","titleTemplate":"Lead - {nombre} - {empresa}","assigneeUserId":"{{seed.TenantUserId}}","requesterNameField":"nombre","requesterPhoneField":"telefono","marcaCreadaField":"tarea"}""";
+            var context = new RuleContext
+            {
+                TenantId = seed.TenantId,
+                RuleId = Guid.CreateVersion7(),
+                TriggerKind = RuleTriggerKind.FormField,
+                Params = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(paramsJson)!,
+                FormData = new Dictionary<string, string?>
+                {
+                    ["nombre"] = "Juan Perez",
+                    ["empresa"] = "ACME",
+                    ["telefono"] = "573001112233"
+                }
+            };
+
+            var result = await verb.ExecuteAsync(context, CancellationToken.None);
+
+            Assert.True(result.Success, result.Message);
+            Assert.False(string.IsNullOrWhiteSpace(context.FormData["tarea"]));
+        }
+
+        await using (var ctx = _fixture.CreateContext(seed.TenantId))
+        {
+            var task = await ctx.TaskItems.AsNoTracking().SingleAsync(t => t.Title == "Lead - Juan Perez - ACME");
+            Assert.Equal(subcategoriaId, task.SubcategoriaId);
+            Assert.Equal(boardId, task.BoardId);
+            Assert.Equal(firstColumnId, task.ColumnId);
+            Assert.Equal(seed.TenantUserId, task.AssigneeTenantUserId);
+            Assert.Equal("Juan Perez", task.RequesterName);
+            Assert.Equal("573001112233", task.RequesterPhone);
+        }
+    }
 
     /// <summary>
     /// Motor de reglas con el REGISTRO TIPADO real de los 5 verbos, cableado a mano contra

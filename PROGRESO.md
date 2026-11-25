@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-08-24 - v0.15.56: el iniciador del flujo de una tarea es TenantUser, no PlatformUser (ADR-0075)
+
+**Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion. Build verde (SuperAdmin).
+Verificado de punta a punta en dev contra la BD local `ecorex` (copia de prod).
+
+- **Problema (raiz):** al crear una actividad ligada a un flujo, `TaskItemService.CreateAsync`
+  pasaba `actorUserId` a `WorkflowEngine.StartInstanceAsync`, que lo guarda en
+  `WorkflowInstance.StartedByTenantUserId` y lo hereda `InheritStart` (ADR-0056). Pero
+  `actorUserId` es el id de **PlatformUser** del autenticado (claim `NameIdentifier` del wizard/UI,
+  del `/dev/login`, del seeder `owner.PlatformUserId`, de programaciones), NO un tenant_user. En
+  datos reales (T00032, AGROMETALICAS) `started_by_tenant_user_id` quedo con un PlatformUser
+  (calidad@agrometalicas.com), rompiendo `InheritStart` (heredaba un usuario fantasma).
+- **Fix (raiz):** nuevo `ResolveActorTenantUserIdAsync` en `TaskItemService`; se resuelve el
+  TenantUser del actor SOLO para arrancar el flujo (el log de actividad/notificaciones/auditoria
+  sigue usando el PlatformUser, correcto por diseno). Resolucion robusta: si el id ya es tenant_user
+  se usa; si es platform se mapea por `PlatformUserId` en el tenant; si no hay membresia -> null.
+- **Fix (defensa):** `WorkflowEngine.ResolveDynamicAssigneeAsync` valida que `StartedByTenantUserId`
+  sea un TenantUser real antes de heredarlo en `InheritStart`; si no, cae a `InheritPrevious`.
+  Protege instancias historicas ya guardadas con un PlatformUser.
+- **Verificacion:** el seeder pasa `owner.PlatformUserId` (`019f2d5f-c74a-...`) y la instancia
+  resultante (T00213, SKY SYSTEM) queda con `started_by_tenant_user_id = 019f2d5f-c763-...`, que ES
+  el TenantUser de owner@sky-system.local (is_tenant_user=1, is_platform_user=0). Los logs muestran
+  correr las dos consultas del helper (EXISTS-by-id -> false, luego mapeo por platform_user_id).
+- **Nota:** correr la app en Development contra `ecorex` disparo el seeder demo (SKY SYSTEM) en la
+  copia local; datos demo inocuos, refrescables con re-dump. No afecta AGROMETALICAS.
+
+---
+
 ## 2026-08-21 - v0.15.55: scheduler de busquedas interpreta runTime en la TZ del tenant (no UTC)
 
 **Agentes:** Claude Opus 4.8 (sesion de codigo). Sin migracion (solo logica + label). Build verde.

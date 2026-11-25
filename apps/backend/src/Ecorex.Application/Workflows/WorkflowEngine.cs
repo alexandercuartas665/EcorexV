@@ -736,13 +736,30 @@ public sealed class WorkflowEngine : IWorkflowEngine
         WorkflowInstance instance, WorkflowNode node, Guid? predecessorUserId, CancellationToken cancellationToken)
         => node.AssigneeSource switch
         {
-            WorkflowAssigneeSource.InheritStart => instance.StartedByTenantUserId,
+            // ADR-0075 (defensa en profundidad): StartedByTenantUserId DEBE ser un TenantUser del tenant.
+            // Instancias historicas quedaron con el PLATFORM user id del creador (bug de raiz ya corregido
+            // en TaskItemService), que NO es tenant_user; heredarlo daria un asignado fantasma. Si no valida,
+            // se cae al usuario del paso anterior (InheritPrevious) para no colgar el paso.
+            WorkflowAssigneeSource.InheritStart => await ValidTenantUserOrFallbackAsync(
+                instance.StartedByTenantUserId, predecessorUserId, cancellationToken),
             WorkflowAssigneeSource.InheritPrevious => predecessorUserId,
             WorkflowAssigneeSource.FormField => string.IsNullOrWhiteSpace(node.AssigneeFormFieldCode)
                 ? null
                 : await ResolveAssigneeFromFormAsync(instance.Id, node.Id, node.AssigneeFormFieldCode!.Trim(), cancellationToken),
             _ => null
         };
+
+    /// <summary>Devuelve <paramref name="candidate"/> si es un TenantUser del tenant activo; si no, el fallback.</summary>
+    private async Task<Guid?> ValidTenantUserOrFallbackAsync(
+        Guid? candidate, Guid? fallback, CancellationToken cancellationToken)
+    {
+        if (candidate is Guid id
+            && await _db.TenantUsers.AsNoTracking().AnyAsync(u => u.Id == id, cancellationToken))
+        {
+            return id;
+        }
+        return fallback;
+    }
 
     /// <summary>Busca en las respuestas de formulario COMPLETADAS de OTROS nodos de la instancia el valor del
     /// campo indicado (la mas reciente con valor no vacio) y lo mapea a un TenantUser (por id o correo).</summary>

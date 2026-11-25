@@ -303,8 +303,15 @@ public sealed class TaskItemService : ITaskItemService
             && await _db.WorkflowDefinitions.AnyAsync(
                 d => d.Id == wfDefId && d.IsPublished && !d.IsArchived, cancellationToken))
         {
+            // ADR-0075 (raiz): el flujo guarda al iniciador en WorkflowInstance.StartedByTenantUserId y el
+            // modo InheritStart (ADR-0056) lo hereda como asignado. Ese campo DEBE ser un TenantUser del
+            // tenant; pero el actor que llega aqui es, casi siempre, el PLATFORM user id (claim
+            // NameIdentifier del wizard/UI), correcto para el log de actividad pero NO como tenant_user.
+            // Se resuelve el TenantUser del actor SOLO para arrancar el flujo (el resto -actividad,
+            // notificaciones, auditoria- sigue usando actorUserId, que es el platform user por diseno).
+            var starterTenantUserId = await ResolveActorTenantUserIdAsync(actorUserId, cancellationToken);
             var started = await _workflowEngine.StartInstanceAsync(
-                wfDefId, task.Id, actorUserId, actorName, cancellationToken);
+                wfDefId, task.Id, starterTenantUserId, actorName, cancellationToken);
             if (started.Status is not (WorkflowEngineStatus.Ok or WorkflowEngineStatus.StuckDetected))
             {
                 await transaction.RollbackAsync(cancellationToken);
@@ -1498,6 +1505,33 @@ public sealed class TaskItemService : ITaskItemService
     private static TaskItemChecklistItemDto ToChecklistDto(TaskItemChecklistItem item)
         => new(item.Id, item.TaskItemId, item.Text, item.IsCompleted,
             item.CompletedAt, item.CompletedByTenantUserId, item.SortOrder);
+
+    /// <summary>
+    /// Resuelve el TenantUser del actor para iniciar un flujo (StartedByTenantUserId). El actor que llega
+    /// a los servicios de tarea es, por diseno, el PLATFORM user id (claim NameIdentifier); pero el motor
+    /// necesita un tenant_user del tenant activo. Resolucion robusta (tolerante al caller):
+    ///   1) Guid.Empty / sistema -> null (flujo sin iniciador conocido).
+    ///   2) si el id YA es un TenantUser del tenant -> se usa tal cual.
+    ///   3) si es un PlatformUser -> se mapea a su TenantUser en el tenant activo.
+    ///   4) si no hay membresia -> null (no se hereda un usuario fantasma; InheritStart quedara sin
+    ///      asignado y el paso se resolvera por su cargo/candidatos, sin romper el arranque).
+    /// El filtro global de tenant acota ambas consultas al tenant activo.
+    /// </summary>
+    private async Task<Guid?> ResolveActorTenantUserIdAsync(Guid actorUserId, CancellationToken cancellationToken)
+    {
+        if (actorUserId == Guid.Empty)
+        {
+            return null;
+        }
+        if (await _db.TenantUsers.AsNoTracking().AnyAsync(u => u.Id == actorUserId, cancellationToken))
+        {
+            return actorUserId;
+        }
+        return await _db.TenantUsers.AsNoTracking()
+            .Where(u => u.PlatformUserId == actorUserId)
+            .Select(u => (Guid?)u.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
 
     private static TaskItemActivity BuildActivity(Guid tenantId, Guid taskItemId, Guid? actorUserId, string actorName, TaskActivityType type, string text)
         => new()

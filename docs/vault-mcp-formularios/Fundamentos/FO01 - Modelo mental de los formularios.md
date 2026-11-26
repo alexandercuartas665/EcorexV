@@ -38,8 +38,9 @@ tarea (completar paso, reiniciar flujo) no tienen sobre que actuar.
 |---|---|
 | Reglas (al enviar / campo / boton) | `regla_al_enviar`, `crear_regla` + `regla_en_campo`, `condicion_entre_campos` |
 | Registro | `codigo_automatico_formulario`, `cierre_automatico_formulario`, `registro_editable`, `ocultar_barra_envio`, `formulario_reportable` |
-| Campo | `campo_bloqueado`, `campo_oculto`, `valor_por_defecto_dinamico`, `permisos_campo_por_rol`, `subformulario_de_campo` |
+| Campo | `campo_bloqueado`, `campo_oculto`, `valor_por_defecto_dinamico`, `permisos_campo_por_rol`, `subformulario_de_campo`, `diseno_campo`, `renombrar_campo` |
 | Seguridad del trabajo | `guardar_version_formulario`, `restaurar_version_formulario`, `listar_enlaces_formulario`, `revocar_enlace_formulario` |
 
 Editar la estructura con `update_question` o `apply_form_spec` es seguro: solo cambia lo que envias (lo demas del
-campo se conserva).
+campo se conserva). Para el nombre interno (`field_code`) usa `renombrar_campo`: simula primero y renombra en
+cascada (ver [[FO09 - Cambios seguros y versiones]]).

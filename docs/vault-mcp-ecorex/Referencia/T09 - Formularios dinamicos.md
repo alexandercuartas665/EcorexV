@@ -542,6 +542,8 @@ Llamada minima (solo obligatorios):
 | `format` | string |  |  |
 | `validation_json` | string |  |  |
 | `visible_when_json` | string |  | Muestra/oculta el campo segun otra pregunta {"field":"codigo","op":"equals/notEquals/includes/empty/notEmpty","value":"x"} |
+| `is_read_only` | boolean |  | No editable para todos (tambien en /f/): solo lo llenan default, prellenado o reglas |
+| `style_json` | string |  | Diseno del control: {labelSize,labelBold,labelItalic,labelColor,hideLabel,boxBg,borderColor,borderWidth,radius,height,align(left/center/right),marginTop,marginBottom,blockBg,valueSize,valueBold,valueColor}; colores #hex, medidas en px |
 
 Llamada minima (solo obligatorios):
 
@@ -588,6 +590,8 @@ Llamada minima (solo obligatorios):
 | `format` | string |  |  |
 | `validation_json` | string |  |  |
 | `visible_when_json` | string |  |  |
+| `is_read_only` | boolean |  | No editable para todos (tambien en /f/): solo lo llenan default, prellenado o reglas |
+| `style_json` | string |  | Diseno del control: {labelSize,labelBold,labelItalic,labelColor,hideLabel,boxBg,borderColor,borderWidth,radius,height,align(left/center/right),marginTop,marginBottom,blockBg,valueSize,valueBold,valueColor}; colores #hex, medidas en px |
 
 Llamada minima (solo obligatorios):
 

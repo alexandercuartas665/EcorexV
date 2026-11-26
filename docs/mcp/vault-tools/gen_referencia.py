@@ -213,7 +213,8 @@ Recetas: [[R07 - Crear reportes e indicadores]]"""),
      "quitar_regla_de_campo parametros_regla_en_campo condicion_entre_campos ocultar_barra_envio formulario_reportable "
      "codigo_automatico_formulario registro_editable cierre_automatico_formulario guardar_version_formulario "
      "listar_versiones_formulario restaurar_version_formulario listar_enlaces_formulario revocar_enlace_formulario "
-     "campo_bloqueado campo_oculto valor_por_defecto_dinamico permisos_campo_por_rol subformulario_de_campo",
+     "campo_bloqueado campo_oculto valor_por_defecto_dinamico permisos_campo_por_rol subformulario_de_campo "
+     "diseno_campo renombrar_campo",
      """Autoria de formularios (DynamicFormRenderer). Estos nombres van en INGLES (es otra familia de herramientas).
 
 Orden de trabajo recomendado:
@@ -396,7 +397,11 @@ def example_block(name, schema):
 index_rows = []
 for num, title, slug, names, intro in MODULES:
     fname = "T%s - %s.md" % (num, title)
-    names_l = names.split()
+    # Las que aun no estan en el catalogo vivo (codigo sin desplegar) se omiten hasta el proximo deploy.
+    pending = [n for n in names.split() if n not in by_name]
+    if pending:
+        print("aun no desplegadas (se omiten): %s" % pending)
+    names_l = [n for n in names.split() if n in by_name]
     out = ["---", "tipo: referencia", "servidor: ecorex-tableros", "modulo: " + slug,
            "herramientas: %d" % len(names_l), "fuente: catalogo vivo tools/list (generado)", "---", "",
            "# MCP Tableros - %s" % title, "", "Servidor: `/api/mcp/tableros` - ver [[01 - Conectar los MCP]]. Volver a [[00 - LEEME PRIMERO]].", "",

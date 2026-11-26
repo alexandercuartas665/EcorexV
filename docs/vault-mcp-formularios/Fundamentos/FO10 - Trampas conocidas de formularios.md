@@ -24,7 +24,8 @@ Volver a [[00 - LEEME PRIMERO]].
 8. **"Requerir" que nunca se quita.** `condicion_entre_campos` con efecto requerir no se revierte solo; agrega la
    regla inversa (opcional).
 9. **Registro editable + cierre automatico.** Se contradicen: el editable nunca se cierra.
-10. **Cambiar `field_code` de un campo con datos.** Rompe registros, reglas, calculos, plantillas y reportes.
+10. **Cambiar `field_code` sin simular.** Usa `renombrar_campo`: primero la simulacion, luego `aplicar=true`, y
+    revisa a mano sus `advertencias` (plantillas, avisos de flujo, reportes y reglas compartidas no se cambian solos).
 11. **Codigo de campo de otro formulario en un parametro.** Los parametros `codigo_de_campo` se validan contra el
     formulario de la regla: usa los codigos de `get_form` de ESE formulario.
 12. **Eliminar una regla que ya corrio.** No se puede (el historial es inmutable): `estado_regla` inactiva.

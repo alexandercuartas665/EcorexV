@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - MCP: campo no editable, diseno por control y renombrar en cascada sobre ADR-0212 (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion (usa las columnas de v0.16.400). Aviso de ECOREX.desarrollo.
+- **Fix**: `campo_bloqueado` fijaba IsLocked (candado de layout del constructor, no impide editar); ahora fija IsReadOnly (no editable para todos, tambien en /f/).
+- **Nuevas**: `diseno_campo` (estilo por control, mezcla claves, quitar/limpiar, saneado) y `renombrar_campo` (simulacion por defecto con cambios + advertencias; aplicar=true renombra en cascada). Descripcion de update_question corregida (es PATCH). Catalogo 232 -> 234. ADR-0211 addendum.
+- **Cerebros**: formularios: FO12 nueva (diseno visual), FO01/FO08/FO09/FO10/LEEME actualizadas, FO11 regenerada (33); general: 04 Trampas corregida y T09 regenerada del catalogo vivo v0.16.400 (is_read_only, style_json). Vaults PROBLEMAS: 0.
+- **Gates**: build 0 errores; integracion dual McpTablerosTests + FormAuthoring 58/58; Application Mcp/Form 512/512; dotnet format ok.
+- **Siguiente**: integrar + deploy (OK del usuario); luego regenerar T09 (entran diseno_campo y renombrar_campo) y republicar cerebro de formularios y guia general.
+
 ## 2026-11-26 - Formularios: campo no editable, diseno por control y renombrado del nombre interno en cascada - v0.16.400 (rama feat/form-control-noeditable-estilo, ADR-0212)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion dual aditiva AddFormQuestionReadOnlyStyle (is_read_only bool default false + style_json json nullable). Desplegada con OK del usuario.

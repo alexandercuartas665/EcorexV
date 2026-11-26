@@ -38,7 +38,7 @@ public sealed partial class TableroMcpToolset
     private static readonly HashSet<string> FormConfigDestructive = new(StringComparer.Ordinal)
     {
         "eliminar_regla", "quitar_regla_al_enviar", "quitar_regla_de_campo", "restaurar_version_formulario",
-        "revocar_enlace_formulario"
+        "revocar_enlace_formulario", "renombrar_campo"
     };
 
     /// <summary>Herramientas cuyo permiso es el del modulo de REGLAS (el resto, el de formularios).</summary>
@@ -58,7 +58,7 @@ public sealed partial class TableroMcpToolset
         "cierre_automatico_formulario", "guardar_version_formulario", "listar_versiones_formulario",
         "restaurar_version_formulario", "listar_enlaces_formulario", "revocar_enlace_formulario",
         "campo_bloqueado", "campo_oculto", "valor_por_defecto_dinamico", "permisos_campo_por_rol",
-        "subformulario_de_campo"
+        "subformulario_de_campo", "diseno_campo", "renombrar_campo"
     };
 
     private const string FormProp = "\"formulario\":{\"type\":\"string\",\"description\":\"Id, codigo o titulo (ver list_forms)\"}";
@@ -178,7 +178,9 @@ public sealed partial class TableroMcpToolset
 
         // ---------------- Propiedades de campo ----------------
         new("campo_bloqueado",
-            "activo=true: el campo se ve pero NO se puede editar (solo lectura para todos).",
+            "activo=true: el campo se ve pero NADIE lo edita (sin importar el rol, tambien en el enlace publico /f/); " +
+            "su valor solo lo ponen el valor por defecto, el prellenado o las reglas. Solo para algunos roles usa " +
+            "permisos_campo_por_rol.",
             Obj(FormProp + "," + CampoProp + "," + ActivoProp, "formulario", "campo", "activo")),
         new("campo_oculto",
             "activo=true: el campo existe y guarda valor pero no se muestra (util para calculos o datos que pone una regla).",
@@ -198,7 +200,46 @@ public sealed partial class TableroMcpToolset
             "En un campo de tipo Subform: el formulario HIJO (maestro-detalle) que se llena dentro. Sin 'subformulario' lo quita.",
             Obj(FormProp + "," + CampoProp + ",\"subformulario\":{\"type\":\"string\",\"description\":\"Formulario hijo (id, codigo o titulo)\"}",
                 "formulario", "campo")),
+        new("diseno_campo",
+            "Diseno visual de UN control: etiqueta (tamano, negrita, cursiva, color, ocultar), caja (fondo, borde, grosor, " +
+            "redondeo, alto, alineacion), valor (tamano, negrita, color) y bloque (margenes, fondo). Solo cambia las claves " +
+            "que envias en 'estilo'; 'quitar' devuelve claves al tema y limpiar=true vuelve al estilo del tema. Colores #hex, medidas " +
+            "en px; lo invalido se descarta.",
+            Obj(FormProp + "," + CampoProp + "," + EstiloProp + ",\"limpiar\":{\"type\":\"boolean\"}", "formulario", "campo")),
+        new("renombrar_campo",
+            "Cambia el NOMBRE INTERNO (field_code) de un campo EN CASCADA dentro del formulario: respuestas guardadas, " +
+            "calculos, condicionales, grillas, autollenado, reglas propias y propiedades. aplicar=false (por defecto) solo " +
+            "SIMULA y lista lo que cambiaria y las ADVERTENCIAS (plantillas, avisos de flujo, reportes y reglas compartidas " +
+            "que hay que revisar a mano). Muestra la simulacion al usuario y repite con aplicar=true. La etiqueta visible se " +
+            "cambia con update_question.",
+            Obj(FormProp + "," + CampoProp + ",\"nuevo_codigo\":{\"type\":\"string\",\"description\":\"minusculas, numeros y _\"}" +
+                ",\"aplicar\":{\"type\":\"boolean\"}", "formulario", "campo", "nuevo_codigo")),
     };
+
+    private static readonly string[] StyleKeys =
+    {
+        "labelSize", "labelBold", "labelItalic", "labelColor", "hideLabel", "boxBg", "borderColor", "borderWidth",
+        "radius", "height", "align", "marginTop", "marginBottom", "blockBg", "valueSize", "valueBold", "valueColor"
+    };
+
+    private const string EstiloProp = "\"estilo\":{\"type\":\"object\",\"properties\":{" +
+        "\"labelSize\":{\"type\":\"integer\",\"description\":\"8-48 px\"}," +
+        "\"labelBold\":{\"type\":\"boolean\"},\"labelItalic\":{\"type\":\"boolean\"}," +
+        "\"labelColor\":{\"type\":\"string\",\"description\":\"#hex\"},\"hideLabel\":{\"type\":\"boolean\"}," +
+        "\"boxBg\":{\"type\":\"string\",\"description\":\"#hex\"},\"borderColor\":{\"type\":\"string\",\"description\":\"#hex\"}," +
+        "\"borderWidth\":{\"type\":\"integer\",\"description\":\"0-8 px\"}," +
+        "\"radius\":{\"type\":\"integer\",\"description\":\"0-40 px\"}," +
+        "\"height\":{\"type\":\"integer\",\"description\":\"20-400 px\"}," +
+        "\"align\":{\"type\":\"string\",\"enum\":[\"left\",\"center\",\"right\"]}," +
+        "\"marginTop\":{\"type\":\"integer\",\"description\":\"0-120 px\"}," +
+        "\"marginBottom\":{\"type\":\"integer\",\"description\":\"0-120 px\"}," +
+        "\"blockBg\":{\"type\":\"string\",\"description\":\"#hex\"}," +
+        "\"valueSize\":{\"type\":\"integer\",\"description\":\"8-64 px\"}," +
+        "\"valueBold\":{\"type\":\"boolean\"},\"valueColor\":{\"type\":\"string\",\"description\":\"#hex\"}" +
+        "},\"additionalProperties\":false}," +
+        "\"quitar\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"enum\":[\"labelSize\",\"labelBold\",\"labelItalic\"," +
+        "\"labelColor\",\"hideLabel\",\"boxBg\",\"borderColor\",\"borderWidth\",\"radius\",\"height\",\"align\",\"marginTop\"," +
+        "\"marginBottom\",\"blockBg\",\"valueSize\",\"valueBold\",\"valueColor\"]},\"description\":\"Claves que vuelven al tema\"}";
 
     private async Task<McpToolResult> ExecuteFormConfigAsync(string tool, JsonElement args, McpActor actor, CancellationToken ct)
     {
@@ -251,11 +292,13 @@ public sealed partial class TableroMcpToolset
             "restaurar_version_formulario" => await RestoreFormVersionAsync(args, actor, ct),
             "listar_enlaces_formulario" => await ListFormLinksAsync(args, ct),
             "revocar_enlace_formulario" => await RevokeFormLinkAsync(args, ct),
-            "campo_bloqueado" => await PatchFieldAsync(args, ct, (r, a) => (r with { IsLocked = Bool(a, "activo") == true }, null)),
+            "campo_bloqueado" => await PatchFieldAsync(args, ct, (r, a) => (r with { IsReadOnly = Bool(a, "activo") == true }, null)),
             "campo_oculto" => await PatchFieldAsync(args, ct, (r, a) => (r with { IsHidden = Bool(a, "activo") == true }, null)),
             "valor_por_defecto_dinamico" => await PatchFieldAsync(args, ct, DefaultDynamicPatch),
             "permisos_campo_por_rol" => await PatchFieldAsync(args, ct, FieldRolesPatch),
             "subformulario_de_campo" => await SetSubformAsync(args, ct),
+            "diseno_campo" => await SetFieldStyleAsync(args, ct),
+            "renombrar_campo" => await RenameFieldAsync(args, ct),
             _ => Err($"Herramienta desconocida: {tool}")
         };
     }
@@ -872,8 +915,9 @@ public sealed partial class TableroMcpToolset
             ok = true,
             formulario = form!.Title,
             campo = v.FieldCode,
-            bloqueado = v.IsLocked,
+            no_editable = v.IsReadOnly,
             oculto = v.IsHidden,
+            estilo = ParseObject(v.StyleJson),
             valor_por_defecto_dinamico = DefaultDynamicEs(v.DefaultDynamic),
             permisos_por_rol = ParseObject(v.FieldVisibilityJson),
             subformulario_id = v.SubformDefinitionId
@@ -938,6 +982,65 @@ public sealed partial class TableroMcpToolset
             child = cid;
         }
         return await PatchFieldAsync(args, ct, (r, _) => (r with { SubformDefinitionId = child }, null));
+    }
+
+    // Diseno del control: MEZCLA las claves enviadas sobre el estilo actual; el servicio sanea al guardar.
+    private async Task<McpToolResult> SetFieldStyleAsync(JsonElement args, CancellationToken ct)
+    {
+        var limpiar = Bool(args, "limpiar") == true;
+        var hasEstilo = args.TryGetProperty("estilo", out var estilo) && estilo.ValueKind == JsonValueKind.Object;
+        var hasQuitar = args.TryGetProperty("quitar", out var quitar) && quitar.ValueKind == JsonValueKind.Array;
+        if (!limpiar && !hasEstilo && !hasQuitar) { return Err("Envia 'estilo', 'quitar' o limpiar=true."); }
+
+        return await PatchFieldAsync(args, ct, (r, _) =>
+        {
+            if (limpiar) { return (r with { StyleJson = null }, null); }
+            JsonObject merged;
+            try { merged = JsonNode.Parse(string.IsNullOrWhiteSpace(r.StyleJson) ? "{}" : r.StyleJson) as JsonObject ?? new JsonObject(); }
+            catch (JsonException) { merged = new JsonObject(); }
+            if (hasQuitar)
+            {
+                foreach (var k in quitar.EnumerateArray().Select(x => x.GetString()).OfType<string>()) { merged.Remove(k); }
+            }
+            if (hasEstilo)
+            {
+                foreach (var p in estilo.EnumerateObject())
+                {
+                    if (!StyleKeys.Contains(p.Name, StringComparer.Ordinal))
+                    {
+                        return (r, $"Clave de estilo '{p.Name}' no valida. Claves: {string.Join(", ", StyleKeys)}.");
+                    }
+                    if (p.Value.ValueKind == JsonValueKind.Null) { merged.Remove(p.Name); continue; }
+                    merged[p.Name] = JsonNode.Parse(p.Value.GetRawText());
+                }
+            }
+            return (r with { StyleJson = merged.Count == 0 ? null : merged.ToJsonString() }, null);
+        });
+    }
+
+    private async Task<McpToolResult> RenameFieldAsync(JsonElement args, CancellationToken ct)
+    {
+        var (form, q, error) = await LoadFieldAsync(args, ct);
+        if (q is null) { return Err(error!); }
+        var nuevo = Str(args, "nuevo_codigo")?.Trim();
+        if (string.IsNullOrEmpty(nuevo)) { return Err("'nuevo_codigo' es obligatorio."); }
+        var aplicar = Bool(args, "aplicar") == true;
+        var res = await _formDefs!.RenameFieldCodeAsync(q.Id, nuevo, aplicar, ct);
+        if (!res.IsOk || res.Value is null) { return Err(res.Error ?? "No se pudo renombrar el campo."); }
+        var rep = res.Value;
+        return Ok(new
+        {
+            ok = true,
+            formulario = form!.Title,
+            codigo_anterior = rep.OldCode,
+            codigo_nuevo = rep.NewCode,
+            aplicado = rep.Applied,
+            cambios = rep.Changes.Select(c => new { lugar = c.Place, cantidad = c.Count }),
+            advertencias = rep.Warnings,
+            siguiente = rep.Applied
+                ? (rep.Warnings.Count > 0 ? "Renombrado. Revisa a mano las advertencias (no se cambian solas)." : "Renombrado.")
+                : "SIMULACION: no se guardo nada. Muestra esto al usuario y, con su OK, repite con aplicar=true."
+        });
     }
 
     // ===================== Helpers =====================

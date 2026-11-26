@@ -39,7 +39,8 @@ la guia GENERAL: receta "R04 - Crear un formulario completo" y referencia "T09 -
 | Un boton que haga algo (imprimir, cerrar el paso, copiar datos, convertir) | [[FO06 - Receta botones que ejecutan acciones]] |
 | Registros numerados que se cierran al firmar | [[FO07 - Receta registro transaccional con cierre por firma]] |
 | Que ciertos roles no vean o no editen un campo | [[FO08 - Receta proteger campos por rol]] |
-| Cambiar un formulario en uso sin romperlo | [[FO09 - Cambios seguros y versiones]] |
+| Cambiar el aspecto de un campo (color, tamano, borde) o dejarlo no editable | [[FO12 - Receta diseno visual de un campo]] |
+| Cambiar un formulario en uso sin romperlo, o renombrar un campo | [[FO09 - Cambios seguros y versiones]] |
 | Ver todas las herramientas y parametros | [[FO11 - Referencia de herramientas de reglas y opciones]] |
 
 ## Protocolo

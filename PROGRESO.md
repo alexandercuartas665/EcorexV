@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Formularios: campo no editable, diseno por control y renombrado del nombre interno en cascada - v0.16.400 (rama feat/form-control-noeditable-estilo, ADR-0212)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion dual aditiva AddFormQuestionReadOnlyStyle (is_read_only bool default false + style_json json nullable). Desplegada con OK del usuario.
+- **Hecho**: (1) FormQuestion.IsReadOnly "No editable (solo lectura para todos)", aplica sin rol y en /f/ (bloqueo en UI; reglas/prellenado/default siguen escribiendo). (2) StyleJson + FormFieldStyle: diseno por control (etiqueta, caja, letra del valor, bloque), saneado (#hex, numeros acotados), renderer con clases fs-* y variables --fs-*. (3) RenameFieldCodeAsync con simulacion y aplicacion en un solo SaveChanges: respuestas, calculos, condicionales, grillas, autollenado, reglas propias (la regla base solo si no es compartida), propiedades, FormRecordLink, firmas, columnas form:{defId}:x de tableros; lo externo (plantillas, {form.x}, reportes, configs) va como advertencia. UpdateQuestionAsync/MCP update_question usan el mismo nucleo. MCP add/update_question aceptan is_read_only y style_json.
+- **Fix**: el ToRequest del disenador no arrastraba VisibleWhenJson (cualquier cambio de un campo borraba su "Mostrar solo si"); @key en los selects del condicional.
+- **Gates**: build Release 0 errores, format ok, Application 1846 (+10), SuperAdmin 334, Integration dual 128 (formularios, reglas, MCP, autocodigo, copia) incl. RenameFieldCode nuevo. Validado en preview AGRO local (formulario borrador de prueba FRM-81422 en la copia local).
+
 ## 2026-11-25 - CREAR_TAREA con listas (concepto, tipo de actividad, asignado) sin GUIDs - v0.16.399 (rama feat/crear-tarea-params-lista)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario. Encargo ECOREX.formularios_sol (FRM-LEAD SOLDARCO, cambio 3).

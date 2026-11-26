@@ -10212,6 +10212,12 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_locked");
 
+                    b.Property<bool>("IsReadOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_read_only");
+
                     b.Property<string>("Label")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -10260,6 +10266,10 @@ namespace Ecorex.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("source_ref");
+
+                    b.Property<string>("StyleJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("style_json");
 
                     b.Property<Guid?>("SubformDefinitionId")
                         .HasColumnType("uuid")

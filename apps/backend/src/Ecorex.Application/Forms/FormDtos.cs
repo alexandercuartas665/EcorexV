@@ -56,7 +56,9 @@ public sealed record FormQuestionDto(
     // Configurador en cascada (motor generico): taxonomia de la pregunta CascadeConfigurator.
     string? CascadeConfigJson = null,
     // Visibilidad condicional por valor de otra pregunta ({field,op,value}). Null = siempre visible.
-    string? VisibleWhenJson = null);
+    string? VisibleWhenJson = null,
+    // No editable para todos + diseno por control (FormFieldStyle).
+    bool IsReadOnly = false, string? StyleJson = null);
 
 public sealed record FormDefinitionDetailDto(
     Guid Id, string Code, string Title, string? Description, FormStatus Status,
@@ -179,7 +181,9 @@ public sealed record SaveFormQuestionRequest(
     // Configurador en cascada (motor generico): taxonomia de la pregunta CascadeConfigurator.
     string? CascadeConfigJson = null,
     // Visibilidad condicional por valor de otra pregunta ({field,op,value}). Null = siempre visible.
-    string? VisibleWhenJson = null);
+    string? VisibleWhenJson = null,
+    // No editable para todos + diseno por control (FormFieldStyle).
+    bool IsReadOnly = false, string? StyleJson = null);
 
 public sealed record FormResponseDto(
     Guid Id, Guid DefinitionId, string? Reference, FormResponseStatus Status,

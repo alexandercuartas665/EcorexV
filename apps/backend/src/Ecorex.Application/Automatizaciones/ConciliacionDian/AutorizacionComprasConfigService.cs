@@ -328,14 +328,11 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
     public async Task SetAsignadoAsync(Guid renglonId, Guid? userId, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tid) { return; }
-        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == AsignKey, ct);
-        var map = ParseMap(row?.ConfigValue);
+        var map = ParseMap(await LeerConfigFrescaAsync(AsignKey, ct));
         var key = renglonId.ToString();
         var prev = map.TryGetValue(key, out var pv) && Guid.TryParse(pv, out var pg) ? (Guid?)pg : null;
         if (userId is Guid uid) { map[key] = uid.ToString(); } else { map.Remove(key); }
-        var json = JsonSerializer.Serialize(map);
-        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = AsignKey, ConfigValue = json }); }
-        else { row.ConfigValue = json; }
+        await PonerConfigAsync(tid, AsignKey, JsonSerializer.Serialize(map), ct);
 
         // Historial: contar un direccionamiento solo cuando se asigna a un usuario REAL y DISTINTO del anterior
         // (evita doble conteo si se re-escribe el mismo). Al direccionar, el documento deja de estar "rechazado".
@@ -410,23 +407,45 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
     public async Task SetSolicitadaAsync(Guid renglonId, string taskNumber, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tid) { return; }
-        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SolicKey, ct);
-        var map = ParseMap(row?.ConfigValue);
+        var map = ParseMap(await LeerConfigFrescaAsync(SolicKey, ct));
         map[renglonId.ToString()] = taskNumber;
-        var json = JsonSerializer.Serialize(map);
-        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = SolicKey, ConfigValue = json }); }
-        else { row.ConfigValue = json; }
+        await PonerConfigAsync(tid, SolicKey, JsonSerializer.Serialize(map), ct);
         await _db.SaveChangesAsync(ct);
     }
 
     public async Task ClearSolicitadaAsync(Guid renglonId, CancellationToken ct = default)
     {
-        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SolicKey, ct);
-        if (row is null) { return; }
-        var map = ParseMap(row.ConfigValue);
+        if (_tenant.TenantId is not Guid tid) { return; }
+        // Lectura FRESCA: con la copia rastreada (vieja) del circuito, el renglon recien ligado no aparecia, Remove
+        // devolvia false y el vinculo quedaba -> el conciliador seguia bloqueando el responsable tras "Rechazar".
+        var raw = await LeerConfigFrescaAsync(SolicKey, ct);
+        if (raw is null) { return; }
+        var map = ParseMap(raw);
         if (!map.Remove(renglonId.ToString())) { return; } // ya no estaba: idempotente
-        row.ConfigValue = JsonSerializer.Serialize(map);
+        await PonerConfigAsync(tid, SolicKey, JsonSerializer.Serialize(map), ct);
         await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Valor ACTUAL en BD de una clave de config (AsNoTracking). El _db del circuito es de larga vida: una
+    /// fila ya rastreada NO se refresca al re-consultarla (EF conserva sus valores en memoria), asi que los mapas
+    /// JSON compartidos (asignaciones, solicitadas, enviados, salidas) se leen siempre por aqui antes de modificarse.</summary>
+    private Task<string?> LeerConfigFrescaAsync(string key, CancellationToken ct)
+        => _db.TenantConfigurations.AsNoTracking()
+            .Where(c => c.ConfigKey == key).Select(c => c.ConfigValue).FirstOrDefaultAsync(ct);
+
+    /// <summary>Deja el valor de la clave en el contexto (alta o UPDATE forzado; el SaveChanges lo hace quien llama).
+    /// Update marca la fila completa como modificada: aunque la copia rastreada este vieja y coincida con el valor
+    /// nuevo, el UPDATE se emite igual (sin token de concurrencia en TenantConfiguration).</summary>
+    private async Task PonerConfigAsync(Guid tid, string key, string json, CancellationToken ct)
+    {
+        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == key, ct);
+        if (row is null)
+        {
+            _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = key, ConfigValue = json });
+            return;
+        }
+        row.ConfigValue = json;
+        _db.TenantConfigurations.Update(row);
     }
 
     private static Dictionary<string, string> ParseMap(string? raw)
@@ -451,16 +470,13 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
     public async Task MarkEnviadoContableAsync(Guid renglonId, string lote, CancellationToken ct = default)
     {
         if (_tenant.TenantId is not Guid tid) { return; }
-        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == EnviadoContableKey, ct);
-        var map = ParseMap(row?.ConfigValue);
+        var map = ParseMap(await LeerConfigFrescaAsync(EnviadoContableKey, ct));
         var k = renglonId.ToString();
         // Valor = LOT; si no se pudo leer el LOT, guarda la fecha ISO para dejar constancia del envio.
         var val = string.IsNullOrWhiteSpace(lote) ? DateTimeOffset.UtcNow.ToString("o") : lote;
         if (map.TryGetValue(k, out var prev) && prev == val) { return; } // idempotente
         map[k] = val;
-        var json = JsonSerializer.Serialize(map);
-        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = EnviadoContableKey, ConfigValue = json }); }
-        else { row.ConfigValue = json; }
+        await PonerConfigAsync(tid, EnviadoContableKey, JsonSerializer.Serialize(map), ct);
         await _db.SaveChangesAsync(ct);
     }
 
@@ -750,10 +766,7 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
     private async Task GuardarSalidasAsync(List<SalidaStored> list, CancellationToken ct)
     {
         if (_tenant.TenantId is not Guid tid) { return; }
-        var json = JsonSerializer.Serialize(list);
-        var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == SalidasKey, ct);
-        if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = SalidasKey, ConfigValue = json }); }
-        else { row.ConfigValue = json; }
+        await PonerConfigAsync(tid, SalidasKey, JsonSerializer.Serialize(list), ct);
         await _db.SaveChangesAsync(ct);
     }
 

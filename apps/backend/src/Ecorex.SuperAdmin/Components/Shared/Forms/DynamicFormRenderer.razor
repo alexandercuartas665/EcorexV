@@ -2465,14 +2465,13 @@ else
                        placeholder="@(string.IsNullOrWhiteSpace(q.PlaceholderText) ? "Buscar..." : q.PlaceholderText)"
                        value="@(_lookupQuery.TryGetValue(q.FieldCode, out var typed) ? typed : display)"
                        @oninput="@(e => LookupTypeAsync(q, e.Value?.ToString()))"
-                       @onchange="@(() => LookupCommitFreeTextAsync(q))"
                        @onfocus="@(() => LookupSearchAsync(q, _lookupQuery.GetValueOrDefault(q.FieldCode)))" />
                 @if (!string.IsNullOrEmpty(value) && !IsDisabled)
                 {
                     <button type="button" class="dfr-lookup-clear" title="Quitar" @onclick="@(() => LookupClearAsync(q))">&times;</button>
                 }
             </div>
-            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display) && (!IsFreeText(q) || label is not null))
+            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display))
             {
                 <div class="dfr-lookup-chosen">Seleccionado: <strong>@display</strong></div>
             }
@@ -2482,12 +2481,6 @@ else
                     @if (_lookupBusy.Contains(q.FieldCode))
                     {
                         <div class="dfr-lookup-empty"><em>Buscando...</em></div>
-                    }
-                    else if ((results is null || results.Count == 0) && IsFreeText(q))
-                    {
-                        <div class="dfr-lookup-empty">
-                            <span>@(string.IsNullOrWhiteSpace(_lookupQuery.GetValueOrDefault(q.FieldCode)) ? "Sin resultados." : "Sin coincidencias: se guarda el texto escrito.")</span>
-                        </div>
                     }
                     else if (results is null || results.Count == 0)
                     {
@@ -2557,31 +2550,10 @@ else
         _ => "#",
     };
 
-    /// <summary>Lista que ademas acepta texto libre (Presentation = AutocompleteFreeText).</summary>
-    private static bool IsFreeText(FormQuestionDto q) => q.Presentation == FormFieldPresentation.AutocompleteFreeText;
-
     private async Task LookupTypeAsync(FormQuestionDto q, string? text)
     {
         _lookupQuery[q.FieldCode] = text;
-        if (IsFreeText(q))
-        {
-            // Texto libre: lo escrito ES el valor hasta que se elija una fila. Se escribe directo en _values (sin
-            // disparar reglas en cada tecla); las reglas corren al confirmar (onchange/blur) o al elegir de la lista.
-            _lookupDisplay.Remove(q.FieldCode);
-            _values[q.FieldCode] = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-            _dirty = true;
-            ValidateField(q);
-        }
         await LookupSearchAsync(q, text);
-    }
-
-    /// <summary>Al confirmar el texto (blur) en modo texto libre: fija el valor escrito como definitivo (dispara las
-    /// reglas del campo y limpia la cascada hija). Si se eligio una fila de la lista no hace nada.</summary>
-    private async Task LookupCommitFreeTextAsync(FormQuestionDto q)
-    {
-        if (!IsFreeText(q) || _lookupDisplay.ContainsKey(q.FieldCode)) { return; }
-        await SetValue(q, _values.GetValueOrDefault(q.FieldCode));
-        await ClearDependentChildrenAsync(q.FieldCode);
     }
 
     private async Task LookupSearchAsync(FormQuestionDto q, string? text)

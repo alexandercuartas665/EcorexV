@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Formularios: interruptor "No editable" visible en la pestana Diseno - v0.16.404 (rama feat/form-noeditable-en-diseno)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Solo UI del FormDesigner.
+- **Hecho**: el usuario no encontraba "No editable" (ADR-0212): estaba a mitad de la pestana Datos. Se movio a Diseno como fila de interruptor junto a "Fijo en el layout" y "Oculto". Validado en local (AGRO, 5236): se ve, alterna y persiste al recargar.
+- **Descartado**: 832ccef5 (feat/autorizacion-tarjeta-actividad, presentacion "Autocompletar o texto libre") NO se integro por decision del usuario: duplica la casilla "Permitir texto libre" (FormLookupFreeText) que esta en prod desde v0.16.396 y chocaba en DynamicFormRenderer. Avisado ECOREX.compras.
+- **Gates**: build Release 0 errores, format ok, SuperAdmin.Tests.
+
 ## 2026-11-26 - Directorio: ultimas actualizaciones (quien y cuando) en native:tercero - v0.16.403 (rama feat/directorio-actualizado-por)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes ("Directorio - ultimas actualizaciones").

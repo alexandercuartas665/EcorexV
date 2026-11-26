@@ -50,6 +50,8 @@ Volver a [[00 - LEEME PRIMERO]]. Busca el mensaje (o sintoma) y aplica la salida
 | "Para Upsert indica keyColumn" / "La columna clave ... debe estar mapeada" | Upsert sin clave mapeada | Mapea la clave en `fields` y pon `columna_clave` |
 | "Tiempo de espera agotado al llamar al API" | Paginas grandes / demasiadas paginas / consulta lenta | Baja `pageSize` y `maxPages`; consulta mas angosta (ver trampa 9 y 11) |
 | "Se alcanzo el limite de 50000 filas por corrida" | Tope por corrida | Partir por ventanas de fecha / varias corridas |
+| Dron: "El Navegador no respondio la orden ... en N s" (el agente cierra el navegador) | La corrida completa supero su tiempo (portal lento) | `tope_segundos` en el paso lento (trampa 23) |
+| Dron termina "ok" con 0 filas | Script de `extraer` asincrono (`async`/`fetch`) devuelve `{}` | Script sincrono (trampa 24) |
 | Corrida `agente_desconectado` | El conector/dron corre via agente colmena y esta apagado | Encender el agente en el PC/servidor del cliente |
 | Corrida OK pero 0 filas | Ventana vacia, `arrayPath` equivocado o filtro que no casa | Prueba la URL a mano; revisa `arrayPath` (ruta al arreglo) |
 | Filas duplicadas en cada corrida | Modo `append` o dron sin `ingesta_llave` | `upsert` + `columna_clave`, o `ingesta_llave` en el paso extraer |

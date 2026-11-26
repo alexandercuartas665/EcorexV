@@ -46,6 +46,42 @@ public static class ScrapeFlowCompiler
         string? signingSecret)
         => CompileSteps(flow.Steps.OrderBy(s => s.Order), flow.ContainerId, variables, correlationId, signingSecret);
 
+    /// <summary>Tope de una orden al Navegador, sin contar los pasos que la componen.</summary>
+    public static readonly TimeSpan TimeBudgetBase = TimeSpan.FromSeconds(60);
+
+    /// <summary>Techo duro de una orden, aunque los pasos pidan mas (evita una corrida eterna).</summary>
+    public static readonly TimeSpan TimeBudgetCap = TimeSpan.FromMinutes(60);
+
+    /// <summary>
+    /// Cuanto esperar el resultado de una orden que ejecuta estos pasos. Antes era "60 s + esperas fijas" para
+    /// TODA la orden: la corrida completa manda el flujo entero (login, navegar, extraer) en una sola orden y
+    /// en portales lentos (Siesa) se pasaba de 60 s; el servidor cancelaba y el agente cerraba el navegador a
+    /// mitad de corrida sin entregar filas. Ahora cada paso aporta su holgura: navegar 30 s, extraer/inyectar
+    /// 20 s, esperar = su espera (o los 5 s por defecto del agente si es por selector), lo demas 5 s, mas la
+    /// espera tras el paso. Si el paso declara <see cref="ScrapeStep.MaxSeconds"/> (tope_segundos), manda el
+    /// mayor de los dos: asi el operador le da mas tiempo a un paso lento sin inflar esperas fijas.
+    /// </summary>
+    public static TimeSpan TimeBudget(IEnumerable<ScrapeStep> steps)
+    {
+        var total = TimeBudgetBase.TotalSeconds;
+        foreach (var step in steps)
+        {
+            var waitSec = (step.WaitMs is > 0 ? step.WaitMs.Value : 0) / 1000.0;
+            var stepSec = step.Kind switch
+            {
+                ScrapeStepKind.Navigate => 30 + waitSec,
+                ScrapeStepKind.Wait => string.IsNullOrWhiteSpace(step.Selector) || waitSec > 0 ? waitSec : 5,
+                ScrapeStepKind.Extract or ScrapeStepKind.Tabla or ScrapeStepKind.TablaID
+                    or ScrapeStepKind.Exploracion or ScrapeStepKind.WebResponse
+                    or ScrapeStepKind.InjectScript or ScrapeStepKind.Variable => 20 + waitSec,
+                _ => 5 + waitSec,
+            };
+            if (step.MaxSeconds is > 0 && step.MaxSeconds.Value > stepSec) { stepSec = step.MaxSeconds.Value; }
+            total += stepSec;
+        }
+        return TimeSpan.FromSeconds(Math.Min(total, TimeBudgetCap.TotalSeconds));
+    }
+
     /// <summary>Compila un SUBCONJUNTO de pasos (un segmento determinista de un flujo) a acciones. El
     /// runtime secuencial (Ola 4) lo usa para despachar de a un tramo entre pasos de IA; los indices de
     /// los ExtractBinding son relativos a las acciones de ESTE tramo.</summary>

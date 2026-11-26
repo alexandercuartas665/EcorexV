@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Drones: tope de tiempo por paso en la corrida completa (fix timeout, rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Opus 5.5). SIN migracion. Reporte del usuario: dron "Siesa movimientos contables" del tenant CCM
+no entregaba filas; el agente colmena cerraba el navegador antes de tiempo; error reportado = tiempo maximo.
+- **Causa**: la corrida completa despacha TODO el flujo (login, navegar, extraer) en UNA orden con tope fijo
+  60 s + esperas fijas (BrowserRunService). Al vencer, BrowserActionChannel empuja Cancel y el agente cierra el
+  navegador sin ingerir. Paso a paso funcionaba porque cada paso tenia sus propios 60 s.
+- **Hecho**: ScrapeFlowCompiler.TimeBudget(steps): 60 s base + holgura por paso (navegar 30, extraer/inyectar 20,
+  esperar = espera_ms o 5 s por selector, resto 5, + espera tras el paso); si el paso trae MaxSeconds
+  (MCP tope_segundos) manda el mayor; techo 60 min. Usado en los 3 despachos (paso a paso, bucle, corrida completa).
+  MCP: tope_segundos descrito para cualquier paso y visible en ver_dron. Guia general: trampas 23 (timeout) y
+  24 (script de extraer asincrono devuelve {} y 0 filas), R08 y 05 actualizadas.
+- **Tests**: SuperAdmin Scrape 73/73 (2 nuevos de TimeBudget); integracion McpCatalog 10/10; build 0 errores; format ok.
+- **Siguiente**: integrar + desplegar (OK del usuario); luego, en CCM, ver_dron/listar_corridas y poner
+  tope_segundos al paso lento si aun no alcanza; republicar la guia general (trampas 23-24) tras el deploy.
+
 ## 2026-11-26 - Paneles: la tabla se ordena por cualquier columna (OrderBy/OrderDir) - v0.16.405 (rama feat/panel-tabla-orderby)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes.

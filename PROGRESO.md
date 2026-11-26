@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Directorio: ultimas actualizaciones (quien y cuando) en native:tercero - v0.16.403 (rama feat/directorio-actualizado-por)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes ("Directorio - ultimas actualizaciones").
+- **Hecho (tarea 1)**: native:tercero expone UpdatedAt "Actualizado" (Date), ActualizadoMes "Mes de actualizacion" (zona del tenant) y UpdatedByName "Actualizado por". Nuevo ReportLookups.AuditUsersAsync: resuelve el autor por id de PLATAFORMA (lo que sella el AuditableTenantInterceptor) o de TenantUser, solo usuarios del tenant; sin usuario queda en blanco.
+- **Diagnostico (tarea 2, sin cambio de codigo)**: el interceptor YA pone UpdatedBy en cada guardado con el usuario de la cookie (UI) o el actor del MCP (Begin(tenant, PlatformUserId)); verificado en local (8/8 ediciones de UI con usuario). Los updated_by vacios vienen de procesos de FONDO que fijan solo el tenant (AmbientTenantContext.Begin(tenantId) sin usuario: importaciones, agentes, dron, webhooks, llenados masivos como la clasificacion de sector AGRO del 2026-11-20) y del historico (1205 filas AGRO "actualizadas" en jul-2026 por un proceso masivo). OJO: updated_by guarda el id de PLATAFORMA, no el de TenantUser (por eso el lookup nuevo).
+- **Gates**: build Release 0 errores, format ok, Application 1846, SuperAdmin 334, integracion dual AnalisisSources/Libros 52/52 (incl. Tercero_UltimaActualizacion nuevo).
+- **Siguiente**: la sesion de reportes arma el reporte como DATO tras el deploy.
+
 ## 2026-11-26 - MCP de formularios sobre ADR-0212 (campo_bloqueado -> IsReadOnly, diseno_campo, renombrar_campo) - v0.16.402 (rama feat/mcp-terminar-tarea)
 
 Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). SIN migracion. Catalogo MCP tableros 232 -> 234.

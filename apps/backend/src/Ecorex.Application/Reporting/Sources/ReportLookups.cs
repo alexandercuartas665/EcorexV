@@ -21,6 +21,29 @@ public static class ReportLookups
         return users.ToDictionary(x => x.Id, x => x.Name);
     }
 
+    /// <summary>
+    /// Nombre del autor de una columna de AUDITORIA (CreatedBy/UpdatedBy). El interceptor de auditoria guarda el
+    /// id de PLATAFORMA (claim NameIdentifier de la cookie, o el actor del MCP); algunos procesos guardan el id
+    /// del TenantUser. Mapea AMBOS al nombre, solo para usuarios de este tenant (el join parte de TenantUsers,
+    /// que lleva el filtro global), asi que un id ajeno al tenant no se resuelve.
+    /// </summary>
+    public static async Task<Dictionary<Guid, string>> AuditUsersAsync(IApplicationDbContext db, CancellationToken ct)
+    {
+        var users = await (
+            from u in db.TenantUsers.AsNoTracking()
+            join p in db.PlatformUsers.AsNoTracking() on u.PlatformUserId equals p.Id into pj
+            from p in pj.DefaultIfEmpty()
+            select new { u.Id, u.PlatformUserId, Name = (p != null ? p.DisplayName : null) ?? u.Email })
+            .ToListAsync(ct);
+        var map = new Dictionary<Guid, string>();
+        foreach (var u in users)
+        {
+            map[u.PlatformUserId] = u.Name;
+            map.TryAdd(u.Id, u.Name);
+        }
+        return map;
+    }
+
     public static async Task<Dictionary<Guid, string>> BoardsAsync(IApplicationDbContext db, CancellationToken ct) =>
         (await db.TaskBoards.AsNoTracking().Select(b => new { b.Id, b.Name }).ToListAsync(ct))
             .ToDictionary(x => x.Id, x => x.Name);

@@ -888,7 +888,7 @@
                 {
                     rw.Kind = WKind.Table;
                     rw.Full = true;
-                    var rows = PanelDataEngine.TableRows(data, w.GroupBy!, w.Columns, w.TopN);
+                    var rows = PanelDataEngine.TableRows(data, w.GroupBy!, w.Columns, w.TopN, w.OrderBy, w.OrderDir);
                     foreach (var col in w.Columns)
                     {
                         rw.TableHeaders.Add(col.Label);

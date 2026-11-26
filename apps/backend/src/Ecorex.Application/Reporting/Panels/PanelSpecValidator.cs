@@ -366,6 +366,18 @@ public static class PanelSpecValidator
                         }
                     }
 
+                    if (!string.IsNullOrWhiteSpace(w.OrderBy) && PanelDataEngine.FindColumnIndex(w.Columns, w.OrderBy) < 0)
+                    {
+                        errors.Add($"El widget tabla '{label}' ordena por '{w.OrderBy}', que no es el Label ni el Field de ninguna de sus columnas.");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(w.OrderDir)
+                        && !string.Equals(w.OrderDir.Trim(), "asc", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(w.OrderDir.Trim(), "desc", StringComparison.OrdinalIgnoreCase))
+                    {
+                        errors.Add($"El widget tabla '{label}' tiene OrderDir '{w.OrderDir}': solo se acepta asc o desc.");
+                    }
+
                     break;
                 default: // line | bar | donut | pareto
                     RequireField(errors, $"El widget '{label}'", "dim", w.Dim, available);

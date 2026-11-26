@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Paneles: la tabla se ordena por cualquier columna (OrderBy/OrderDir) - v0.16.405 (rama feat/panel-tabla-orderby)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes.
+- **Hecho**: PanelWidget gana OrderBy (Label o Field de una columna, directa o agregada) y OrderDir (asc|desc, desc por defecto). PanelDataEngine.TableRows ordena por tipo (Format date/datetime = fecha, money/moneyM/percent/int = numero; sin Format se infiere de los datos), vacios al final, ANTES de TopN. Sin OrderBy no cambia nada (primera agregada desc). PanelSpecValidator reporta OrderBy que no es columna y OrderDir invalido. SpecPanelRenderer pasa los dos valores. Adenda en ADR-0066.
+- **Gates**: build Release 0 errores, format ok, Application (incl. PanelTableOrderByTests nuevos), SuperAdmin.
+- **Siguiente**: la sesion de reportes pone OrderBy "Actualizado" desc + TopN 300 en la tabla de "Directorio - ultimas actualizaciones" (AGRO) tras el deploy.
+
 ## 2026-11-26 - Formularios: interruptor "No editable" visible en la pestana Diseno - v0.16.404 (rama feat/form-noeditable-en-diseno)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Solo UI del FormDesigner.

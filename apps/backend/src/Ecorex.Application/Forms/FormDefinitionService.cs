@@ -524,6 +524,13 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         }
 
         var containerChanged = question.ContainerId != request.ContainerId;
+        // Cambio del nombre interno (p.ej. update_question del MCP): se propaga en cascada (respuestas, calculos,
+        // condicionales, reglas...) en el MISMO SaveChanges; si no, el valor guardado se perderia.
+        var newCode = request.FieldCode.Trim();
+        if (!string.Equals(question.FieldCode, newCode, StringComparison.Ordinal))
+        {
+            await RenameFieldCodeCoreAsync(question.DefinitionId, question.Id, question.FieldCode, newCode, apply: true, cancellationToken);
+        }
         ApplyRequest(question, request);
         if (containerChanged)
         {
@@ -955,7 +962,8 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
             q.Width, q.PlaceholderText, q.DefaultValue, q.IsLocked, q.IsHidden,
             q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
             q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
-            q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson);
+            q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson,
+            q.IsReadOnly, q.StyleJson);
 
     private static void ApplyRequest(FormQuestion question, SaveFormQuestionRequest request)
     {
@@ -1017,6 +1025,9 @@ public sealed partial class FormDefinitionService : IFormDefinitionService
         question.VisibleWhenJson = Normalize(request.VisibleWhenJson);
         // Configurador en cascada (motor generico): taxonomia de la pregunta.
         question.CascadeConfigJson = Normalize(request.CascadeConfigJson);
+        // No editable para todos + diseno por control (saneado: colores #hex, numeros acotados).
+        question.IsReadOnly = request.IsReadOnly;
+        question.StyleJson = FormFieldStyle.Normalize(request.StyleJson);
     }
 
     /// <summary>col-12 -> 12, col-md-6 -> 6, col-6 -> 6; null si no parsea.</summary>

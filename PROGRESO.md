@@ -2,6 +2,51 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Formularios: campo no editable, diseno por control y renombrado del nombre interno en cascada - v0.16.400 (rama feat/form-control-noeditable-estilo, ADR-0212)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion dual aditiva AddFormQuestionReadOnlyStyle (is_read_only bool default false + style_json json nullable). Desplegada con OK del usuario.
+- **Hecho**: (1) FormQuestion.IsReadOnly "No editable (solo lectura para todos)", aplica sin rol y en /f/ (bloqueo en UI; reglas/prellenado/default siguen escribiendo). (2) StyleJson + FormFieldStyle: diseno por control (etiqueta, caja, letra del valor, bloque), saneado (#hex, numeros acotados), renderer con clases fs-* y variables --fs-*. (3) RenameFieldCodeAsync con simulacion y aplicacion en un solo SaveChanges: respuestas, calculos, condicionales, grillas, autollenado, reglas propias (la regla base solo si no es compartida), propiedades, FormRecordLink, firmas, columnas form:{defId}:x de tableros; lo externo (plantillas, {form.x}, reportes, configs) va como advertencia. UpdateQuestionAsync/MCP update_question usan el mismo nucleo. MCP add/update_question aceptan is_read_only y style_json.
+- **Fix**: el ToRequest del disenador no arrastraba VisibleWhenJson (cualquier cambio de un campo borraba su "Mostrar solo si"); @key en los selects del condicional.
+- **Gates**: build Release 0 errores, format ok, Application 1846 (+10), SuperAdmin 334, Integration dual 128 (formularios, reglas, MCP, autocodigo, copia) incl. RenameFieldCode nuevo. Validado en preview AGRO local (formulario borrador de prueba FRM-81422 en la copia local).
+
+## 2026-11-25 - CREAR_TAREA con listas (concepto, tipo de actividad, asignado) sin GUIDs - v0.16.399 (rama feat/crear-tarea-params-lista)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario. Encargo ECOREX.formularios_sol (FRM-LEAD SOLDARCO, cambio 3).
+- **Hecho**: en CREAR_TAREA, subcategoriaId / activityTypeId / assigneeUserId pasan a RuleParamType.Select con OptionsSource "actividad-subcategorias" / "actividad-tipos" / "tenant-usuarios", resueltos en RuleParamOptionsProvider (IActividadCatalogoService, IActivityTypeService, ITenantUserService; dependencias opcionales). El valor guardado sigue siendo el Guid (reglas existentes intactas; un Guid fuera de lista se muestra "(actual)").
+- **Gates**: build Release 0 errores, format ok, Application 1836 (+2: proveedor y descriptor).
+- **Higiene (2026-11-25)**: se quitaron 14 worktrees sin trabajo pendiente (C: de 1,7 a 36,8 GB libres); 4 con trabajo sin subir se respaldaron antes en GitHub (feat/conciliacion-dian-compras, worktree-contenedores, claude/vibrant-lamport-ea0516, claude/festive-feistel-8ca65b). El traslado del proyecto a D: se descarto por ahora.
+
+## 2026-11-25 - MCP olas 1-3 (ADR-0211): flujos por nodo, reglas y opciones de formularios, agente de IA del paso, cerebros por tema - v0.16.398 (rama feat/mcp-terminar-tarea)
+
+Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). CON migracion dual AddBrainTemplateMcpGuideTopic (solo AddColumn nullable en BrainTemplate).
+- **Hecho**: ver las 3 entradas de ECOREX.mcp abajo (olas 1, 2 y 3). Catalogo MCP tableros 164 -> 232; fix de FormAuthoringToolset (update_question/set_transactional/set_theme ya no borran configuracion).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/mcp-terminar-tarea (aeb3ca0b) como v0.16.398; conflicto solo en PROGRESO (se conservan ambas entradas).
+- **Siguiente (tras deploy)**: ECOREX.mcp importa y publica los cerebros de flujos y formularios (tema) en /cerebros-plantilla y republica la guia general.
+
+## 2026-11-25 - Direccionar compra: el modal del FormDesigner guarda en la salida del formulario - v0.16.397 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: AutorizacionComprasConfigService.SetDireccionarAsync guarda el mapeo en la SALIDA del formulario (conciliacion-dian.salidas) en vez de la clave legacy; el modal "Configurar regla Direccionar compra" del FormDesigner no guardaba.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (fd8cf431) como v0.16.397. Gates: build Release 0 errores, unitarias verdes.
+
+## 2026-11-25 - Cargador: filtros como los del Directorio + "es uno de"; Directorio con titulos de campos fijos; lookup con texto libre; /f/ honra ocultar Enviar - v0.16.396
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario (incluye v0.16.395).
+- **Cargador de contactos (000740, pedido usuario AGRO)**: el constructor de filtros ofrece los campos fijos del Directorio con los titulos del tenant (Nombre, Naturaleza, Perfiles, Identificacion, Vendedor, Estado, Ciudad, Sector/"Macro Sector", Cargo, Correo, Telefono, Empresa) + todos los campos de ficha ("f:{FieldKey}", TerceroFichaValues). Operadores: =, !=, contiene, no contiene, es uno de (IN), no es ninguno de (NOT IN), vacio, tiene contenido, >, < (numero o fecha). Sugerencias desde los datos y chips para IN (<=60 valores). ContactFilterEvaluator evalua igual la lista, el conteo del filtro y el motor de acciones (vendedor = asesor o texto). Verificado local AGRO: IN sobre direccion = 43 en tarjeta y lista.
+- **Directorio**: la grilla usa los titulos propios de los campos fijos (FixedLabels; AGRO "Macro Sector") y separa Sector (empresa) de Cargo (persona).
+- **Formularios (encargo ECOREX.formularios_sol, FRM-LEAD SOLDARCO)**: lookup con texto libre opt-in por campo (OptionsJson {"allowFreeText": true}, FormLookupFreeText; casilla en el disenador); FormPublic pasa HonorHideSubmitBar (hide_submit_bar aplica en /f/).
+- **Higiene**: se normalizaron a LF 30 archivos que commits previos (v0.16.393 y estas ramas) habian guardado con CRLF (git add con core.autocrlf=false); causaban diffs de archivo completo y un conflicto en DynamicFormRenderer con v0.16.395. Resuelto tomando el renderer del tronco y reaplicando el texto libre.
+- **Gates**: build Release 0 errores, format ok; unitarias Application y SuperAdmin verdes.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/cargador-filtros-campos-ficha (ffe622e9) y feat/lookup-texto-libre-y-f-hide-submit (dd14853c) como v0.16.396.
+- **Siguiente**: formularios_sol aplica allowFreeText en `nombre` de FRM-LEAD y prueba "Crear tarea" en /f/ con la barra oculta.
+
+## 2026-11-25 - Autorizacion compras DIAN: OC como lista de ORDENES_COMPRA filtrada por proveedor - v0.16.395 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: DIRECCIONAR_CONCILIADOR envia el texto visible (DisplayField) de un campo lista (Contenedor/Tercero/Item), no el id de la fila. Cascada de listas: un campo padre de TEXTO filtra por su valor tal cual (DynamicFormRenderer.ResolveEqFiltersAsync). La tarea de factura (IConciliacionTareaService) prellena `nit_proveedor` con el NIT del proveedor.
+- **Config prod (ya aplicada por la rama)**: AUT-COMPRA-001-2, campo `rut` = lista ORDENES_COMPRA con cascada PROVEEDOR <- nit_proveedor, campo oculto `nit_proveedor`.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (3409e12b) como v0.16.395. Gates: build Release 0 errores, unitarias Application/SuperAdmin verdes.
+- **Smoke prod (SOLDARCO)**: crear tarea desde /autorizacion-compras-dian (proveedor con OC); "Orden de Compra" lista solo las OC del NIT; con "rut -> oc" mapeado, al aprobar el conciliador recibe el texto de la OC (ej. OMP0011528).
 ## 2026-11-25 - Cerebros MCP por tema PUBLICADOS en prod (v0.16.398, ADR-0211)
 
 Agente: ECOREX.mcp (Claude Code), con OK del usuario. Sin codigo.
@@ -110,6 +155,8 @@ Agente: ECOREX.agentes (Claude Opus 5.5), pedido del usuario. SIN migracion, SIN
 - Formulario de la tarea en el panel SIN boton "Guardar cambios": nuevo parametro del renderer `AutosaveWhenHidden` (con la barra Enviar oculta guarda solo cada 3 s si hubo cambios; flush al cambiar de factura/vista/cerrar). Validado en 5263 (T00063 persiste sin pulsar nada). El prellenado generico ya no escribe valores vacios. Mapeo grilla->form verificado: Tiene RUT/Camara/Cert. bancaria/Redireccionamiento mapeados; "En directorio general" NO tiene columna mapeada.
 - Cierre: la factura SALE del modulo de autorizacion cuando su tarea esta Done/Closed (`GetRenglonesConTareaTerminadaAsync`, sin migracion). Al cerrar el paso desde el panel (OnStepCompleted) si la tarea quedo terminada se avisa y la factura se retira (diferido 1.5 s, el renderer sigue en su click) y se pasa a la siguiente; el formulario de una tarea terminada abre en solo lectura. Local: 542 -> 537 (T00064 + 4 terminadas).
 - FIX circuito caido ("A second operation was started on this context"): el autosave de 3 s del formulario chocaba con las lecturas de la pagina (SelectAsync/GetSolicitadaAsync) sobre el DbContext scoped; muerto el circuito, "Crear tarea" no hacia nada y la tarea no llegaba al conciliador. Toda operacion de BD de la pagina pasa ahora por el MISMO turno de los renderers (CircuitFormGate, helper EnTurnoAsync). Validado: 10 cambios rapidos de factura con formulario montado, 0 errores en el log.
+- OC como lista: (1) DIRECCIONAR_CONCILIADOR envia el TEXTO visible de un campo lista (Contenedor/Tercero/Item, su DisplayField) y no el id de la fila; (2) filtro en cascada desde un campo de TEXTO (el renderer usa su valor tal cual) + la creacion de la tarea prellena `nit_proveedor` con el NIT de la factura -> la OC se filtra por PROVEEDOR. CONFIG en PROD (OK del usuario, 2026-11-25): form AUT-COMPRA-001-2 campo `rut` "Orden de Compra" = lista DIAN_CONCILIADOR.ORDENES_COMPRA (DOCUMENTO, Autocomplete, cascada PROVEEDOR<-nit_proveedor) + campo oculto `nit_proveedor`; respaldo en scratchpad. Local: contenedor copiado de prod + mismo form + mapeo rut->oc (solo local). Validado: busqueda OMP00115 y filtro por NIT 890110294 (14 de sus 57 OC).
+- FIX modal "Configurar regla Direccionar compra" (FormDesigner) no guardaba: leia el mapeo de la SALIDA del formulario pero `SetDireccionarAsync` escribia la clave legacy compartida. Ahora, si el form pertenece a una salida, actualiza DireEnabled/DireMaps de esa salida (+ cableado boton/regla). Validado local: quitar y reagregar rut->oc persiste y se ve al reabrir.
 - **Siguiente**: dev principal une con version libre y despliega con OK.
 
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)

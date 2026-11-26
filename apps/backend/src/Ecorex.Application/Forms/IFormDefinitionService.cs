@@ -84,6 +84,13 @@ public interface IFormDefinitionService
 
     Task<FormResult<FormQuestionDto>> UpdateQuestionAsync(Guid questionId, SaveFormQuestionRequest request, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Renombra el nombre interno (FieldCode) de un campo propagando el cambio en cascada dentro del formulario
+    /// (respuestas guardadas, calculos, condicionales, grillas, reglas propias, propiedades). apply=false =
+    /// simulacion (no guarda). Las referencias externas compartidas se devuelven como advertencias.
+    /// </summary>
+    Task<FormResult<RenameFieldCodeReport>> RenameFieldCodeAsync(Guid questionId, string newCode, bool apply, CancellationToken cancellationToken = default);
+
     /// <summary>Lee UNA pregunta por su id (sin cargar todo el formulario). La usa la autoria por agente
     /// para hacer un update PARCIAL: parte de los valores actuales y solo pisa lo que el agente envia.</summary>
     Task<FormQuestionDto?> GetQuestionAsync(Guid questionId, CancellationToken cancellationToken = default);

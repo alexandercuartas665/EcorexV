@@ -492,6 +492,23 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
             .Where(m => !string.IsNullOrWhiteSpace(m.FormField) && !string.IsNullOrWhiteSpace(m.Target))
             .Select(m => new DireccionarMapDto(m.FormField.Trim(), m.Target.Trim()))
             .ToList();
+        // Si el formulario pertenece a una SALIDA, su mapeo vive ahi (es lo que leen GetDireccionarByFormAsync, el
+        // verbo y el prellenado). Antes se guardaba siempre en la clave legacy compartida y el modal del
+        // FormDesigner "no guardaba": al reabrir volvia a leer la salida sin cambios.
+        if (formDefinitionId is Guid formId)
+        {
+            var salidas = await LeerSalidasAsync(ct);
+            if (salidas.Any(s => s.Form == formId))
+            {
+                var nuevas = salidas
+                    .Select(s => s.Form == formId ? s with { DireEnabled = enabled, DireMaps = clean.ToList() } : s)
+                    .ToList();
+                await GuardarSalidasAsync(nuevas, ct);
+                if (enabled && clean.Count > 0) { await EnsureDireccionarWiringAsync(formId, ct); }
+                return;
+            }
+        }
+
         var json = JsonSerializer.Serialize(new DireccionarStored(enabled, clean));
         var row = await _db.TenantConfigurations.FirstOrDefaultAsync(c => c.ConfigKey == DireccionarKey, ct);
         if (row is null) { _db.TenantConfigurations.Add(new TenantConfiguration { TenantId = tid, ConfigKey = DireccionarKey, ConfigValue = json }); }

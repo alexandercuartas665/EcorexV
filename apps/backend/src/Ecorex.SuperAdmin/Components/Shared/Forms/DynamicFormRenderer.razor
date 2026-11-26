@@ -1048,8 +1048,11 @@ else
             return;
         }
         @* La clase estable field-{FieldCode} permite que el CSS personalizado del formulario apunte a
-           un objeto puntual (p.ej. .field-total { font-weight:800 }). *@
-        <div class="@(forceFullWidth ? "col-12" : string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol) field-@q.FieldCode">
+           un objeto puntual (p.ej. .field-total { font-weight:800 }). El diseno POR CONTROL (StyleJson,
+           saneado en FormFieldStyle) agrega clases bandera + variables CSS; sin estilo no agrega nada. *@
+        var fieldStyle = Ecorex.Application.Forms.FormFieldStyle.Parse(q.StyleJson);
+        <div class="@(forceFullWidth ? "col-12" : string.IsNullOrWhiteSpace(q.GridCol) ? "col-12" : q.GridCol) field-@q.FieldCode @fieldStyle.CssClasses()"
+             style="@(fieldStyle.IsEmpty ? null : fieldStyle.InlineStyle())">
             @switch (q.ControlType)
             {
                 case FormControlType.Paragraph:
@@ -1123,7 +1126,8 @@ else
                     {
                         <div class="dfr-caption">@q.Caption</div>
                     }
-                    @* Solo lectura por rol (ola F6): fieldset disabled deshabilita el control sin tocar RenderInput. *@
+                    @* Solo lectura (para todos con IsReadOnly, o por rol, ola F6): fieldset disabled deshabilita
+                       el control sin tocar RenderInput. *@
                     @if (IsFieldReadonly(q))
                     {
                         <fieldset disabled class="dfr-ro">@RenderInput(q)</fieldset>
@@ -2365,12 +2369,21 @@ else
                     continue; // filtro opcional con padre vacio: se omite (lista completa)
                 }
                 string? resolved = null;
-                try
+                if (parentQ.SourceKind is FormSourceKind.Options or FormSourceKind.SystemUser)
                 {
-                    var item = await LookupSvc.ResolveAsync(parentQ.SourceKind, parentQ.SourceRef ?? "", pv, new[] { c.FromColumn });
-                    resolved = item is not null && item.Fields.TryGetValue(c.FromColumn, out var fv) ? fv : null;
+                    // Padre de TEXTO (no es lista de una fuente): se filtra por su valor tal cual; FromColumn no
+                    // aplica. Ej.: un campo oculto con el NIT del proveedor filtra las OC de ese proveedor.
+                    resolved = pv;
                 }
-                catch (Exception) { resolved = null; }
+                else
+                {
+                    try
+                    {
+                        var item = await LookupSvc.ResolveAsync(parentQ.SourceKind, parentQ.SourceRef ?? "", pv, new[] { c.FromColumn });
+                        resolved = item is not null && item.Fields.TryGetValue(c.FromColumn, out var fv) ? fv : null;
+                    }
+                    catch (Exception) { resolved = null; }
+                }
                 if (string.IsNullOrWhiteSpace(resolved))
                 {
                     if (c.Require) { return (true, null); }
@@ -2456,13 +2469,16 @@ else
                        placeholder="@(string.IsNullOrWhiteSpace(q.PlaceholderText) ? "Buscar..." : q.PlaceholderText)"
                        value="@(_lookupQuery.TryGetValue(q.FieldCode, out var typed) ? typed : display)"
                        @oninput="@(e => LookupTypeAsync(q, e.Value?.ToString()))"
+                       @onchange="@(e => LookupFreeTextCommitAsync(q, e.Value?.ToString()))"
                        @onfocus="@(() => LookupSearchAsync(q, _lookupQuery.GetValueOrDefault(q.FieldCode)))" />
                 @if (!string.IsNullOrEmpty(value) && !IsDisabled)
                 {
                     <button type="button" class="dfr-lookup-clear" title="Quitar" @onclick="@(() => LookupClearAsync(q))">&times;</button>
                 }
             </div>
-            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display))
+            @* Texto libre (sin sugerencia elegida): no es una "seleccion", no se muestra el chip. *@
+            @if (!string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(display)
+                 && !(FormLookupFreeText.IsEnabled(q.OptionsJson) && !_lookupDisplay.ContainsKey(q.FieldCode)))
             {
                 <div class="dfr-lookup-chosen">Seleccionado: <strong>@display</strong></div>
             }
@@ -2598,6 +2614,34 @@ else
             if (targetQ is not null) { ValidateField(targetQ); }
         }
         await ClearDependentChildrenAsync(q.FieldCode); // la cascada hija depende de este padre
+        RecomputeCalculatedFields();
+        _dirty = true;
+    }
+
+    /// <summary>
+    /// Lookup con TEXTO LIBRE (opt-in, <see cref="FormLookupFreeText"/>): al salir del buscador (change) sin elegir
+    /// una sugerencia, lo escrito queda como valor del campo (p.ej. el nombre de un lead nuevo). No toca los
+    /// destinos del autollenado (el usuario llena el resto). Borrar el texto vacia el campo. Elegir una sugerencia
+    /// despues gana (LookupChooseAsync guarda el id). Con el flag apagado no hace nada (comportamiento de siempre).
+    /// </summary>
+    private async Task LookupFreeTextCommitAsync(FormQuestionDto q, string? text)
+    {
+        if (IsDisabled || !FormLookupFreeText.IsEnabled(q.OptionsJson)) { return; }
+        var t = (text ?? string.Empty).Trim();
+        if (t.Length == 0)
+        {
+            await LookupClearAsync(q);
+            _dirty = true;
+            return;
+        }
+        // Si es exactamente la etiqueta de lo ya elegido, se conserva el id (no se degrada a texto).
+        if (_lookupDisplay.TryGetValue(q.FieldCode, out var chosen) && string.Equals(chosen, t, StringComparison.Ordinal))
+        {
+            return;
+        }
+        _lookupDisplay.Remove(q.FieldCode);
+        _lookupQuery[q.FieldCode] = t;
+        await SetValue(q, t);
         RecomputeCalculatedFields();
         _dirty = true;
     }
@@ -4634,7 +4678,8 @@ else
 
     // Permisos por campo (ola F6, doc 01 D8): FieldVisibilityJson = { "hide":[...], "readonly":[...] }.
     private bool IsFieldHidden(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "hide");
-    private bool IsFieldReadonly(FormQuestionDto q) => FieldRoleMatch(q.FieldVisibilityJson, "readonly");
+    // "No editable" para todos (IsReadOnly) aplica sin rol, tambien en el formulario publico /f/.
+    private bool IsFieldReadonly(FormQuestionDto q) => q.IsReadOnly || FieldRoleMatch(q.FieldVisibilityJson, "readonly");
 
     // Estilo "tarjetas" para Radio/MultiCheck (opt-in): se guarda en Format=="cards" (Format no aplica a
     // controles de opcion, asi que se reutiliza sin migracion). Solo cambia la presentacion.

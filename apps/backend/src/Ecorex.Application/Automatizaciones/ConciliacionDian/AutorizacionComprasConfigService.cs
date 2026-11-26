@@ -340,6 +340,7 @@ public sealed class AutorizacionComprasConfigService : IAutorizacionComprasConfi
         {
             await _hist.RegistrarAsync(renglonId, nuid, null, ConciliacionAsignacionAccion.Asignado, ct);
             var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+            await _db.RecargarAsync(r, ct);
             if (r is not null) { r.Rechazado = false; }
         }
         await _db.SaveChangesAsync(ct);

@@ -123,6 +123,7 @@ public sealed class DevolverConciliadorVerb : IRuleVerb
 
         // 1) Quien tenia el documento (para el historial): columna de entidad o, si no, el mapa JSON.
         var renglon = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == rid, cancellationToken);
+        await _db.RecargarAsync(renglon, cancellationToken);
         var prevAssignee = renglon?.AssignedTenantUserId ?? await _cfg.GetAsignadoAsync(rid, cancellationToken);
 
         // 2) Desasignar la columna de entidad + marcar RECHAZADO; registrar el evento en el historial.

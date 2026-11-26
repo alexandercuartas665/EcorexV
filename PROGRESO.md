@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-25 - Cerebros MCP por tema PUBLICADOS en prod (v0.16.398, ADR-0211)
+
+Agente: ECOREX.mcp (Claude Code), con OK del usuario. Sin codigo.
+- **Verificado en prod**: MCP de tableros = 232 herramientas (olas 1-3 presentes).
+- **Publicado en /cerebros-plantilla** (Plataforma, bloqueados, todas las empresas): "Cerebro de flujos de ECOREX por IA" (tema flujos) v1 - 13 notas, 12 empresas sembradas, 0 errores; "Cerebro de formularios de ECOREX por IA" (tema formularios) v1 - 12 notas, 12 sembradas, 0 errores; "Guia de uso de ECOREX por IA" (general) v5 - referencia regenerada del catalogo vivo (232 tools, indice 285), 12 sincronizadas, 0 errores.
+- **Validado por MCP**: guia_ecorex sin args -> v5, temas general/flujos/formularios; tema=flujos -> v1 13 notas; tema=formularios -> v1 12 notas; nota y buscar por tema OK.
+- **Siguiente**: al cambiar herramientas, regenerar con docs/mcp/vault-tools (gen_referencia.py + gen_referencia_codigo.py), validar, empaquetar por --vault y republicar cada plantilla.
+
 ## 2026-11-25 - MCP ola 3 (ADR-0211): agente de IA del paso de un flujo (rama feat/mcp-terminar-tarea, SIN desplegar)
 
 Agente: ECOREX.mcp (Claude Code). SIN migracion.

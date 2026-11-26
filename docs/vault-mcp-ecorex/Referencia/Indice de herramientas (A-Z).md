@@ -81,6 +81,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `describe_data_container` | [[T09 - Formularios dinamicos]] | Lectura |
 | `desenganchar_flujo_de_concepto` | [[T03 - Flujos de proceso (BPMN)]] | DESTRUCTIVA |
 | `despublicar_contenedor` | [[T05 - Contenedores de datos]] | DESTRUCTIVA |
+| `diseno_campo` | [[T09 - Formularios dinamicos]] | Escritura |
 | `duplicar_agente` | [[T06 - Agentes de IA]] | Escritura |
 | `editar_agente` | [[T06 - Agentes de IA]] | Escritura |
 | `editar_columna` | [[T05 - Contenedores de datos]] | Escritura |
@@ -234,6 +235,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `reiniciar_linea` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `reinicio_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `rellenar_columna` | [[T07 - Clasificacion y datos masivos con IA]] | Escritura |
+| `renombrar_campo` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
 | `renombrar_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `renombrar_regla` | [[T09 - Formularios dinamicos]] | Escritura |
 | `reordenar_pasos` | [[T04 - Drones de extraccion web]] | Escritura |

@@ -130,3 +130,17 @@ Catalogo del MCP de tableros: **218 -> 232**. Receta en el cerebro de flujos: F1
   (dual).
 - Pendiente tras el deploy: importar y publicar los cerebros de flujos y de formularios en `/cerebros-plantilla` con
   su tema, regenerar la referencia de la guia general desde el catalogo vivo y republicarla.
+
+## Addendum 2026-11-26 (sobre ADR-0212, v0.16.400)
+
+- **Correccion**: `campo_bloqueado` fijaba `IsLocked`, que es el candado de LAYOUT del constructor (no impide editar).
+  Ahora fija `FormQuestion.IsReadOnly` (ADR-0212): nadie edita el campo, tampoco en `/f/` ni sin rol.
+- **`diseno_campo`**: estilo de UN control (`StyleJson`, esquema `FormFieldStyle`). MEZCLA las claves enviadas sobre
+  el estilo actual, `quitar` devuelve claves al tema, `limpiar` lo borra; el servicio sanea (colores #hex, rangos).
+- **`renombrar_campo`**: expone `RenameFieldCodeAsync`. Sin `aplicar` es SIMULACION (cambios + advertencias de
+  referencias externas); con `aplicar=true` renombra en cascada en una transaccion. Marcada destructiva.
+- La descripcion de `update_question` ya no dice que lo omitido vuelve al valor por defecto (es PATCH desde
+  2dd4286e) y remite a `renombrar_campo` para cambiar el codigo.
+- Catalogo **232 -> 234**. Cerebro de formularios: receta FO12 (diseno visual), FO09 (renombrar), FO08/FO10.
+- Pruebas: `FormConfig_Reglas_Opciones_Versiones_Campos_ADR0211` y `McpCatalog_ConFormConfig_EsConsistente_YDespacha`
+  ampliadas (dual).

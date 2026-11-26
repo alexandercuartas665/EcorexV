@@ -30,6 +30,8 @@
 > versiones, enlaces, propiedades de campo), ADR-0211 ola 2, total 218; misma rama)
 > (addendum 2026-11-25: +14 herramientas del AGENTE DE IA del paso de un flujo (asignar, instrucciones, correo, web,
 > WhatsApp, voz, canales, fallo, seguimiento con ventana, tope, traspaso por salida), ADR-0211 ola 3, total 232)
+> (addendum 2026-11-26: +2 de campo sobre ADR-0212: diseno_campo (estilo por control, mezcla) y renombrar_campo
+> (field_code en cascada con simulacion); campo_bloqueado pasa a IsReadOnly (no editable para todos), total 234)
 > (rama `claude/mcp-autoria-flujos-formularios`, AUN NO integrada a main ni desplegada).
 > Mantener este archivo al dia cuando se agregue/quite una herramienta (lo protege la prueba
 > `McpCatalog_IsConsistent_AndEveryToolDispatches`).
@@ -170,10 +172,10 @@ Permiso: catalogo de reglas (listar_verbos_regla, listar_reglas, ver_regla, hist
 parametros_regla, estado_regla, renombrar_regla, eliminar_regla) = modulo `reglas`; el resto = `formularios`.
 Lectura: listar_verbos_regla, listar_reglas, ver_regla, reglas_de_formulario, historial_regla,
 listar_versiones_formulario, listar_enlaces_formulario. Destructivas: eliminar_regla, quitar_regla_al_enviar,
-quitar_regla_de_campo, restaurar_version_formulario, revocar_enlace_formulario. Escritura: regla_al_enviar,
+quitar_regla_de_campo, restaurar_version_formulario, revocar_enlace_formulario, renombrar_campo. Escritura: regla_al_enviar,
 regla_en_campo, parametros_regla_en_campo, condicion_entre_campos, ocultar_barra_envio, formulario_reportable,
 codigo_automatico_formulario, registro_editable, cierre_automatico_formulario, guardar_version_formulario,
-campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol, subformulario_de_campo.
+campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol, subformulario_de_campo, diseno_campo.
 Detalle y parametros: `docs/vault-mcp-formularios/Referencia/FO11 - Referencia de herramientas de reglas y opciones.md`.
 
 ### 2.4 Autoria de FORMULARIOS (40 de 46) - puente a `IFormAuthoringToolset` (ADR-0067) - permiso `formularios`

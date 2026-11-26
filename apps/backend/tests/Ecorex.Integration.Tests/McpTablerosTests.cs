@@ -909,7 +909,7 @@ public abstract class McpTablerosTestsBase
         Assert.Contains("solo gente", (await Ok("ver_agente_nodo", new { nodo_id = cobrar })).GetProperty("nota").GetString());
     }
 
-    /// <summary>ADR-0211 ola 2: las 31 herramientas de reglas/opciones de formularios se exponen solo con sus servicios,
+    /// <summary>ADR-0211 ola 2: las 33 herramientas de reglas/opciones de formularios se exponen solo con sus servicios,
     /// sus esquemas son validos, lectura/destructivas son subconjunto de lo expuesto y todas despachan.</summary>
     [Fact]
     public async Task McpCatalog_ConFormConfig_EsConsistente_YDespacha()
@@ -922,7 +922,9 @@ public abstract class McpTablerosTestsBase
         var owner = Actor(seed, owner: true);
 
         var nuevas = con.GetSpecs().Select(s => s.Name).Except(sin.GetSpecs().Select(s => s.Name)).ToList();
-        Assert.Equal(31, nuevas.Count);
+        Assert.Equal(33, nuevas.Count);
+        Assert.Contains("diseno_campo", nuevas);
+        Assert.Contains("renombrar_campo", nuevas);
         Assert.Contains("crear_regla", nuevas);
         Assert.Contains("regla_al_enviar", nuevas);
         Assert.Contains("campo_bloqueado", nuevas);
@@ -1081,7 +1083,8 @@ public abstract class McpTablerosTestsBase
         Assert.Contains("Rol", await Fail("permisos_campo_por_rol", new { formulario = "F-CFG", campo = "total", ocultar_a = new[] { "Jefe" } }));
         Assert.Contains("Subform", await Fail("subformulario_de_campo", new { formulario = "F-CFG", campo = "total", subformulario = "F-CFG" }));
         var qTotal = await ctx.FormQuestions.AsNoTracking().SingleAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total");
-        Assert.True(qTotal.IsLocked);
+        Assert.True(qTotal.IsReadOnly); // no editable para todos (ADR-0212), no el candado de layout
+        Assert.False(qTotal.IsLocked);
         Assert.Equal(FormDefaultDynamic.Today, qTotal.DefaultDynamic);
         Assert.Contains("Advisor", qTotal.FieldVisibilityJson);
 
@@ -1099,6 +1102,33 @@ public abstract class McpTablerosTestsBase
         // Enlaces: sin emitir, lista vacia; revocar uno ajeno falla.
         Assert.Equal(0, (await Ok("listar_enlaces_formulario", new { formulario = "F-CFG" })).GetProperty("total").GetInt32());
         await Fail("revocar_enlace_formulario", new { formulario = "F-CFG", enlace = Guid.NewGuid() });
+
+        // Diseno del control (ADR-0212): mezcla claves, descarta lo invalido, quita y limpia.
+        await Ok("campo_bloqueado", new { formulario = "F-CFG", campo = "total", activo = true });
+        await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", estilo = new { labelBold = true, labelColor = "#FF0000", radius = 99 } });
+        var st1 = await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", estilo = new { boxBg = "rojo", valueSize = 14 } });
+        var estilo = st1.GetProperty("estilo");
+        Assert.True(estilo.GetProperty("labelBold").GetBoolean());
+        Assert.Equal("#ff0000", estilo.GetProperty("labelColor").GetString());
+        Assert.Equal(40, estilo.GetProperty("radius").GetInt32()); // acotado
+        Assert.Equal(14, estilo.GetProperty("valueSize").GetInt32());
+        Assert.False(estilo.TryGetProperty("boxBg", out _)); // color invalido descartado
+        Assert.Contains("no valida", await Fail("diseno_campo", new { formulario = "F-CFG", campo = "total", estilo = new { fuente = "Arial" } }));
+        var st2 = await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", quitar = new[] { "radius" } });
+        Assert.False(st2.GetProperty("estilo").TryGetProperty("radius", out _));
+        var qStyled = await ctx.FormQuestions.AsNoTracking().SingleAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total");
+        Assert.True(qStyled.IsReadOnly); // el diseno no borra otras propiedades
+        await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", limpiar = true });
+        Assert.Null((await ctx.FormQuestions.AsNoTracking().SingleAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total")).StyleJson);
+
+        // Renombrar el nombre interno: simulacion primero (no guarda), luego aplicar.
+        var sim = await Ok("renombrar_campo", new { formulario = "F-CFG", campo = "total", nuevo_codigo = "total_general" });
+        Assert.False(sim.GetProperty("aplicado").GetBoolean());
+        Assert.True(await ctx.FormQuestions.AsNoTracking().AnyAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total"));
+        var ren = await Ok("renombrar_campo", new { formulario = "F-CFG", campo = "total", nuevo_codigo = "total_general", aplicar = true });
+        Assert.True(ren.GetProperty("aplicado").GetBoolean());
+        Assert.True(await ctx.FormQuestions.AsNoTracking().AnyAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total_general"));
+        Assert.False(await ctx.FormQuestions.AsNoTracking().AnyAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total"));
     }
 
     /// <summary>La IA respeta los permisos del usuario al CREAR flujos y formularios: un lector solo ve; sin

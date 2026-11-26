@@ -49,7 +49,7 @@ permisos**.
 
 | Servidor | Ruta | Para que | Token |
 |---|---|---|---|
-| **Tableros** (el principal, 164 herramientas) | `/api/mcp/tableros` | Todo el sistema: tareas, flujos, formularios, contactos, contenedores, drones, agentes, IA, reportes | Token personal de `/conectar-ia` |
+| **Tableros** (el principal, 232 herramientas) | `/api/mcp/tableros` | Todo el sistema: tareas, flujos, formularios, contactos, contenedores, drones, agentes, IA, reportes | Token personal de `/conectar-ia` |
 | **Maquetas** (17) | `/api/mcp/maquetas` | Ajustar maquetas HTML desde solicitudes anotadas y leer/escribir cerebros | Token de maquetas |
 | **WhatsApp por linea** (36) | `/api/mcp/whatsapp/{lineId}` | Leer y escribir por una linea de WhatsApp | Token de `/lineas` |
 
@@ -103,7 +103,7 @@ Como conectarlos: [[01 - Conectar los MCP]].
 - [[T04 - Drones de extraccion web]] - [[T05 - Contenedores de datos]] - [[T06 - Agentes de IA]]
 - [[T07 - Clasificacion y datos masivos con IA]] - [[T08 - Reportes e indicadores]] - [[T09 - Formularios dinamicos]]
 - [[M01 - MCP Maquetas]] - [[W01 - MCP WhatsApp por linea]]
-- [[Indice de herramientas (A-Z)]] - las 217 herramientas con su modulo.
+- [[Indice de herramientas (A-Z)]] - las 285 herramientas con su modulo.
 
 **Para el cliente (opcional)**: [[Plantilla CLAUDE.md para el cliente]] - bloque para el CLAUDE.md de la IA del
 cliente que refuerza el habito de consultar esta guia.

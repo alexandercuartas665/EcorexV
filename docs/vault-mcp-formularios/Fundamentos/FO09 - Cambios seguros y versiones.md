@@ -17,10 +17,27 @@ Volver a [[00 - LEEME PRIMERO]].
 
 ## Que NO hacer en un formulario con registros
 
-- Cambiar el `field_code` de un campo: los registros viejos, reglas, calculos, plantillas y reportes lo pierden.
-  Crea un campo nuevo y oculta el viejo.
+- Cambiar el `field_code` a mano. Usa `renombrar_campo` (ver abajo).
 - Borrar un campo con datos: preferible `campo_oculto`.
 - Cambiar el tipo de control de un campo con datos (texto -> numero): los valores viejos pueden no leerse.
+
+## Renombrar el nombre interno de un campo
+
+`renombrar_campo` cambia el `field_code` EN CASCADA dentro del formulario: respuestas guardadas, calculos,
+condicionales, grillas, autollenado, reglas propias del formulario y sus propiedades (codigo automatico, cierre,
+columnas del modulo, KPIs). Todo en una sola transaccion.
+
+1. Primero SIMULA (sin `aplicar`): devuelve `cambios` (donde y cuantos) y `advertencias`.
+2. Muestra la simulacion al usuario. Las `advertencias` son referencias FUERA del formulario que NO se cambian
+   solas: plantillas de impresion `{{campo.x}}`, `{form.x}` en avisos de flujo, agentes o documentos, reportes
+   `form:{codigo}`, reglas compartidas con otros formularios. Hay que revisarlas a mano.
+3. Con su OK, repite con `aplicar=true`.
+
+```json
+{"name":"renombrar_campo","arguments":{"formulario":"COT-VENTA","campo":"vlr","nuevo_codigo":"valor_total"}}
+```
+
+La etiqueta visible NO es el nombre interno: se cambia con `update_question` (`label`).
 
 ## Enlaces publicos
 

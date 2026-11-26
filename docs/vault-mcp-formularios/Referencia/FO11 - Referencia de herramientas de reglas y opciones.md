@@ -6,7 +6,7 @@ generado: gen_referencia_codigo.py (no editar a mano)
 
 # FO11 - Referencia de herramientas de reglas y opciones
 
-Volver a [[00 - LEEME PRIMERO]]. Generada del codigo del servidor. 31 herramientas del MCP de tableros.
+Volver a [[00 - LEEME PRIMERO]]. Generada del codigo del servidor. 33 herramientas del MCP de tableros.
 
 Marcas: (lectura) no cambia nada; (confirmar) quita, borra o reemplaza algo: confirma con el usuario.
 
@@ -271,7 +271,7 @@ Revoca un enlace publico ('enlace' = id de listar_enlaces_formulario): deja de a
 
 ### `campo_bloqueado`
 
-activo=true: el campo se ve pero NO se puede editar (solo lectura para todos).
+activo=true: el campo se ve pero NADIE lo edita (sin importar el rol, tambien en el enlace publico /f/); su valor solo lo ponen el valor por defecto, el prellenado o las reglas. Solo para algunos roles usa permisos_campo_por_rol.
 
 | Parametro | Tipo | Obligatorio | Nota |
 |---|---|---|---|
@@ -319,4 +319,27 @@ En un campo de tipo Subform: el formulario HIJO (maestro-detalle) que se llena d
 | `formulario` | string | si | Id, codigo o titulo (ver list_forms) |
 | `campo` | string | si | Codigo del campo (field_code), id o etiqueta (ver get_form) |
 | `subformulario` | string |  | Formulario hijo (id, codigo o titulo) |
+
+### `diseno_campo`
+
+Diseno visual de UN control: etiqueta (tamano, negrita, cursiva, color, ocultar), caja (fondo, borde, grosor, redondeo, alto, alineacion), valor (tamano, negrita, color) y bloque (margenes, fondo). Solo cambia las claves que envias en 'estilo'; 'quitar' devuelve claves al tema y limpiar=true vuelve al estilo del tema. Colores #hex, medidas en px; lo invalido se descarta.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `formulario` | string | si | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | si | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `estilo` | object |  |  |
+| `quitar` | lista de string (labelSize / labelBold / labelItalic / labelColor / hideLabel / boxBg / borderColor / borderWidth / radius / height / align / marginTop / marginBottom / blockBg / valueSize / valueBold / valueColor) |  | Claves que vuelven al tema |
+| `limpiar` | boolean |  |  |
+
+### `renombrar_campo`
+
+Cambia el NOMBRE INTERNO (field_code) de un campo EN CASCADA dentro del formulario: respuestas guardadas, calculos, condicionales, grillas, autollenado, reglas propias y propiedades. aplicar=false (por defecto) solo SIMULA y lista lo que cambiaria y las ADVERTENCIAS (plantillas, avisos de flujo, reportes y reglas compartidas que hay que revisar a mano). Muestra la simulacion al usuario y repite con aplicar=true. La etiqueta visible se cambia con update_question.
+
+| Parametro | Tipo | Obligatorio | Nota |
+|---|---|---|---|
+| `formulario` | string | si | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | si | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `nuevo_codigo` | string | si | minusculas, numeros y _ |
+| `aplicar` | boolean |  |  |
 

@@ -12,13 +12,16 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `add_container` | [[T09 - Formularios dinamicos]] | Escritura |
 | `add_question` | [[T09 - Formularios dinamicos]] | Escritura |
 | `agente_lector_medios` | [[T06 - Agentes de IA]] | Escritura |
+| `agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `agregar_columna` | [[T05 - Contenedores de datos]] | Escritura |
 | `agregar_filas` | [[T05 - Contenedores de datos]] | Escritura |
 | `agregar_indicador` | [[T08 - Reportes e indicadores]] | Escritura |
 | `agregar_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `agregar_notificacion_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `agregar_paso` | [[T04 - Drones de extraccion web]] | Escritura |
 | `agregar_prompt_agente` | [[T06 - Agentes de IA]] | Escritura |
 | `agregar_recurso_agente` | [[T06 - Agentes de IA]] | Escritura |
+| `agregar_regla_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `agregar_relacion` | [[T05 - Contenedores de datos]] | Escritura |
 | `agregar_tabla` | [[T05 - Contenedores de datos]] | Escritura |
 | `apagar_agente` | [[T06 - Agentes de IA]] | Escritura |
@@ -33,17 +36,26 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `buscar_contactos` | [[W01 - MCP WhatsApp por linea]] | Lectura |
 | `buscar_notas` | [[M01 - MCP Maquetas]] | Lectura |
 | `buscar_tareas` | [[T01 - Tableros y tareas]] | Lectura |
+| `campo_bloqueado` | [[T09 - Formularios dinamicos]] | Escritura |
+| `campo_oculto` | [[T09 - Formularios dinamicos]] | Escritura |
+| `canales_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `catalogo_business` | [[W01 - MCP WhatsApp por linea]] | Lectura |
 | `checklist` | [[T01 - Tableros y tareas]] | Escritura |
+| `cierre_automatico_formulario` | [[T09 - Formularios dinamicos]] | Escritura |
 | `clasificar_lote` | [[T07 - Clasificacion y datos masivos con IA]] | Escritura |
+| `codigo_automatico_formulario` | [[T09 - Formularios dinamicos]] | Escritura |
+| `color_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `comentar` | [[T01 - Tableros y tareas]] | Escritura |
 | `comentar_solicitud` | [[M01 - MCP Maquetas]] | Escritura |
 | `como_publicar_version` | [[M01 - MCP Maquetas]] | Lectura |
 | `completar_paso` | [[T01 - Tableros y tareas]] | Escritura |
+| `concepto_cierre_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `condicion_entre_campos` | [[T09 - Formularios dinamicos]] | Escritura |
 | `condicion_ruta` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `conectar_nodos` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `configurar_paso_clasificacion` | [[T07 - Clasificacion y datos masivos con IA]] | Escritura |
 | `contacto_interno` | [[T02 - Directorio de contactos]] | Escritura |
+| `correo_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `crear_agente` | [[T06 - Agentes de IA]] | Escritura |
 | `crear_contacto` | [[T02 - Directorio de contactos]] | Escritura |
 | `crear_contenedor_datos` | [[T05 - Contenedores de datos]] | Escritura |
@@ -52,6 +64,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `crear_grupo` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `crear_libro_indicadores` | [[T08 - Reportes e indicadores]] | Escritura |
 | `crear_nota` | [[M01 - MCP Maquetas]] | Escritura |
+| `crear_regla` | [[T09 - Formularios dinamicos]] | Escritura |
 | `crear_reporte` | [[T08 - Reportes e indicadores]] | Escritura |
 | `crear_tarea` | [[T01 - Tableros y tareas]] | Escritura |
 | `create_form` | [[T09 - Formularios dinamicos]] | Escritura |
@@ -59,12 +72,14 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `create_share_link` | [[T09 - Formularios dinamicos]] | Escritura |
 | `create_template` | [[T09 - Formularios dinamicos]] | Escritura |
 | `deactivate` | [[T09 - Formularios dinamicos]] | Escritura |
+| `decision_humana_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `definir_variable` | [[T04 - Drones de extraccion web]] | Escritura |
 | `delete_container` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
 | `delete_question` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
 | `descargar_media` | [[W01 - MCP WhatsApp por linea]] | Lectura |
 | `describe_components` | [[T09 - Formularios dinamicos]] | Lectura |
 | `describe_data_container` | [[T09 - Formularios dinamicos]] | Lectura |
+| `desenganchar_flujo_de_concepto` | [[T03 - Flujos de proceso (BPMN)]] | DESTRUCTIVA |
 | `despublicar_contenedor` | [[T05 - Contenedores de datos]] | DESTRUCTIVA |
 | `duplicar_agente` | [[T06 - Agentes de IA]] | Escritura |
 | `editar_agente` | [[T06 - Agentes de IA]] | Escritura |
@@ -72,6 +87,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `editar_contacto` | [[T02 - Directorio de contactos]] | Escritura |
 | `editar_contenedor_datos` | [[T05 - Contenedores de datos]] | Escritura |
 | `editar_dron` | [[T04 - Drones de extraccion web]] | Escritura |
+| `editar_flujo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `editar_grupo` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `editar_mensaje` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `editar_nota` | [[M01 - MCP Maquetas]] | Escritura |
@@ -95,6 +111,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `eliminar_programacion_importacion` | [[T05 - Contenedores de datos]] | DESTRUCTIVA |
 | `eliminar_prompt_agente` | [[T06 - Agentes de IA]] | DESTRUCTIVA |
 | `eliminar_recurso_agente` | [[T06 - Agentes de IA]] | DESTRUCTIVA |
+| `eliminar_regla` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
 | `eliminar_relacion` | [[T05 - Contenedores de datos]] | DESTRUCTIVA |
 | `eliminar_tabla` | [[T05 - Contenedores de datos]] | DESTRUCTIVA |
 | `eliminar_variable` | [[T04 - Drones de extraccion web]] | DESTRUCTIVA |
@@ -108,8 +125,13 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `enviar_ubicacion` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `escribiendo` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `estado_linea` | [[W01 - MCP WhatsApp por linea]] | Lectura |
+| `estado_regla` | [[T09 - Formularios dinamicos]] | Escritura |
 | `etiquetar_chat` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `export_form` | [[T09 - Formularios dinamicos]] | Lectura |
+| `fallo_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `formulario_crear_al_llegar` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `formulario_obligatorio_por_salida` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `formulario_reportable` | [[T09 - Formularios dinamicos]] | Escritura |
 | `gestionar_chat` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `get_form` | [[T09 - Formularios dinamicos]] | Lectura |
 | `get_render_urls` | [[T09 - Formularios dinamicos]] | Lectura |
@@ -118,11 +140,14 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `guardar_contacto` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `guardar_programacion` | [[T04 - Drones de extraccion web]] | Escritura |
 | `guardar_programacion_importacion` | [[T05 - Contenedores de datos]] | Escritura |
+| `guardar_version_formulario` | [[T09 - Formularios dinamicos]] | Escritura |
 | `guia_ecorex` | [[T01 - Tableros y tareas]] | Lectura |
 | `historial_prompts_agente` | [[T06 - Agentes de IA]] | Lectura |
+| `historial_regla` | [[T09 - Formularios dinamicos]] | Lectura |
 | `import_form` | [[T09 - Formularios dinamicos]] | Escritura |
 | `importar_bpmn` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `inactivar_contacto` | [[T02 - Directorio de contactos]] | DESTRUCTIVA |
+| `instrucciones_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `invitacion_grupo` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `leer_mensajes` | [[W01 - MCP WhatsApp por linea]] | Lectura |
 | `limpiar_marca` | [[T07 - Clasificacion y datos masivos con IA]] | DESTRUCTIVA |
@@ -144,6 +169,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `listar_corridas_importacion` | [[T05 - Contenedores de datos]] | Lectura |
 | `listar_destinos_extraccion` | [[T04 - Drones de extraccion web]] | Lectura |
 | `listar_drones` | [[T04 - Drones de extraccion web]] | Lectura |
+| `listar_enlaces_formulario` | [[T09 - Formularios dinamicos]] | Lectura |
 | `listar_etiquetas` | [[W01 - MCP WhatsApp por linea]] | Lectura |
 | `listar_flujos` | [[T03 - Flujos de proceso (BPMN)]] | Lectura |
 | `listar_fuentes_reporte` | [[T08 - Reportes e indicadores]] | Lectura |
@@ -153,55 +179,93 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `listar_programaciones` | [[T04 - Drones de extraccion web]] | Lectura |
 | `listar_programaciones_importacion` | [[T05 - Contenedores de datos]] | Lectura |
 | `listar_proyectos` | [[M01 - MCP Maquetas]] | Lectura |
+| `listar_reglas` | [[T09 - Formularios dinamicos]] | Lectura |
+| `listar_reglas_disponibles` | [[T03 - Flujos de proceso (BPMN)]] | Lectura |
 | `listar_reglas_extraccion` | [[T04 - Drones de extraccion web]] | Lectura |
 | `listar_reportes` | [[T08 - Reportes e indicadores]] | Lectura |
 | `listar_solicitudes` | [[M01 - MCP Maquetas]] | Lectura |
 | `listar_tableros` | [[T01 - Tableros y tareas]] | Lectura |
 | `listar_usuarios` | [[T01 - Tableros y tareas]] | Lectura |
+| `listar_verbos_regla` | [[T09 - Formularios dinamicos]] | Lectura |
 | `listar_versiones` | [[M01 - MCP Maquetas]] | Lectura |
+| `listar_versiones_formulario` | [[T09 - Formularios dinamicos]] | Lectura |
 | `marcar_leido` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `mis_pasos_pendientes` | [[T01 - Tableros y tareas]] | Lectura |
 | `move_container` | [[T09 - Formularios dinamicos]] | Escritura |
 | `move_question` | [[T09 - Formularios dinamicos]] | Escritura |
 | `mover_solicitud` | [[M01 - MCP Maquetas]] | Escritura |
 | `mover_tarea` | [[T01 - Tableros y tareas]] | Escritura |
+| `nombre_salida` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `nota_contacto` | [[T02 - Directorio de contactos]] | Escritura |
+| `nota_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `nueva_version_flujo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `ocultar_barra_envio` | [[T09 - Formularios dinamicos]] | Escritura |
+| `opciones_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Lectura |
+| `parametros_regla` | [[T09 - Formularios dinamicos]] | Escritura |
+| `parametros_regla_en_campo` | [[T09 - Formularios dinamicos]] | Escritura |
 | `participantes_grupo` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `pausar_agente` | [[W01 - MCP WhatsApp por linea]] | Escritura |
+| `pausar_flujo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `perfil_linea` | [[W01 - MCP WhatsApp por linea]] | Escritura |
+| `permisos_campo_por_rol` | [[T09 - Formularios dinamicos]] | Escritura |
+| `plazo_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `poner_formulario_a_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `privacidad_linea` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `publicar_contenedor` | [[T05 - Contenedores de datos]] | Escritura |
 | `publicar_estado` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `publicar_flujo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `quitar_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | DESTRUCTIVA |
+| `quitar_formulario_nodo` | [[T03 - Flujos de proceso (BPMN)]] | DESTRUCTIVA |
+| `quitar_notificacion_nodo` | [[T03 - Flujos de proceso (BPMN)]] | DESTRUCTIVA |
 | `quitar_paso_clasificacion` | [[T07 - Clasificacion y datos masivos con IA]] | Escritura |
+| `quitar_regla_al_enviar` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
+| `quitar_regla_de_campo` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
+| `quitar_regla_nodo` | [[T03 - Flujos de proceso (BPMN)]] | DESTRUCTIVA |
 | `reaccionar` | [[W01 - MCP WhatsApp por linea]] | Escritura |
 | `reactivar_contacto` | [[T02 - Directorio de contactos]] | Escritura |
 | `reanudar_agente` | [[W01 - MCP WhatsApp por linea]] | Escritura |
+| `reanudar_flujo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `registrar_tiempo` | [[T01 - Tableros y tareas]] | Escritura |
+| `registro_editable` | [[T09 - Formularios dinamicos]] | Escritura |
+| `regla_al_enviar` | [[T09 - Formularios dinamicos]] | Escritura |
+| `regla_autonoma_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `regla_en_campo` | [[T09 - Formularios dinamicos]] | Escritura |
+| `reglas_de_formulario` | [[T09 - Formularios dinamicos]] | Lectura |
 | `reiniciar_linea` | [[W01 - MCP WhatsApp por linea]] | Escritura |
+| `reinicio_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `rellenar_columna` | [[T07 - Clasificacion y datos masivos con IA]] | Escritura |
 | `renombrar_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `renombrar_regla` | [[T09 - Formularios dinamicos]] | Escritura |
 | `reordenar_pasos` | [[T04 - Drones de extraccion web]] | Escritura |
 | `resolver_solicitud` | [[M01 - MCP Maquetas]] | Escritura |
+| `restaurar_version_formulario` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
 | `restaurar_version_prompt` | [[T06 - Agentes de IA]] | Escritura |
+| `revocar_enlace_formulario` | [[T09 - Formularios dinamicos]] | DESTRUCTIVA |
 | `salir_grupo` | [[W01 - MCP WhatsApp por linea]] | DESTRUCTIVA |
+| `salto_a_flujo_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `seguimiento_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `set_custom_css` | [[T09 - Formularios dinamicos]] | Escritura |
 | `set_default_template` | [[T09 - Formularios dinamicos]] | Escritura |
 | `set_sequence_next` | [[T09 - Formularios dinamicos]] | Escritura |
 | `set_status_ladder` | [[T09 - Formularios dinamicos]] | Escritura |
 | `set_theme` | [[T09 - Formularios dinamicos]] | Escritura |
 | `set_transactional` | [[T09 - Formularios dinamicos]] | Escritura |
+| `subformulario_de_campo` | [[T09 - Formularios dinamicos]] | Escritura |
+| `tablero_destino_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `tareas_del_contacto` | [[T02 - Directorio de contactos]] | Lectura |
 | `terminar_tarea` | [[T01 - Tableros y tareas]] | Escritura |
+| `tiempo_arranque_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `tomar_paso` | [[T01 - Tableros y tareas]] | Escritura |
+| `tope_preguntas_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `traspaso_salida_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `update_container` | [[T09 - Formularios dinamicos]] | Escritura |
 | `update_form_header` | [[T09 - Formularios dinamicos]] | Escritura |
 | `update_question` | [[T09 - Formularios dinamicos]] | Escritura |
 | `update_template` | [[T09 - Formularios dinamicos]] | Escritura |
+| `valor_por_defecto_dinamico` | [[T09 - Formularios dinamicos]] | Escritura |
 | `ver_adjunto` | [[M01 - MCP Maquetas]] | Lectura |
 | `ver_agente` | [[T06 - Agentes de IA]] | Lectura |
+| `ver_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Lectura |
 | `ver_conector` | [[T05 - Contenedores de datos]] | Lectura |
 | `ver_contacto` | [[T02 - Directorio de contactos]] | Lectura |
 | `ver_contenedor_datos` | [[T05 - Contenedores de datos]] | Lectura |
@@ -214,6 +278,7 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `ver_nota` | [[M01 - MCP Maquetas]] | Lectura |
 | `ver_perfil_contacto` | [[W01 - MCP WhatsApp por linea]] | Lectura |
 | `ver_publicacion_contenedor` | [[T05 - Contenedores de datos]] | Lectura |
+| `ver_regla` | [[T09 - Formularios dinamicos]] | Lectura |
 | `ver_reporte` | [[T08 - Reportes e indicadores]] | Lectura |
 | `ver_solicitud` | [[M01 - MCP Maquetas]] | Lectura |
 | `ver_tablero` | [[T01 - Tableros y tareas]] | Lectura |
@@ -222,6 +287,9 @@ Todas las herramientas de los 3 servidores MCP, con su modulo. Volver a [[00 - L
 | `verify_form` | [[T09 - Formularios dinamicos]] | Lectura |
 | `vincular_contacto` | [[T02 - Directorio de contactos]] | Escritura |
 | `vincular_persona_empresa` | [[T02 - Directorio de contactos]] | Escritura |
+| `voz_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `web_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
+| `whatsapp_agente_nodo` | [[T03 - Flujos de proceso (BPMN)]] | Escritura |
 | `wire_convert_button` | [[T09 - Formularios dinamicos]] | Escritura |
 | `wire_print_button` | [[T09 - Formularios dinamicos]] | Escritura |
 | `wire_submit_task_rule` | [[T09 - Formularios dinamicos]] | Escritura |

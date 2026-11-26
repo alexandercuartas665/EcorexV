@@ -421,10 +421,11 @@ Ejemplo real (valores genericos):
 
 **Tipo:** Lectura
 
-> Manual de uso de este MCP: protocolo, reglas, trampas conocidas y recetas paso a paso (contenedores, conectores, reportes, flujos, formularios, drones, agentes, clasificacion IA). Llamala antes de construir algo nuevo. Sin argumentos devuelve la nota de entrada y los titulos de todas las notas; 'nota' = una nota completa por titulo; 'buscar' = notas que contienen el texto (por ejemplo, el texto de un error), maximo 20.
+> Manual de uso de este MCP: protocolo, reglas, trampas conocidas y recetas paso a paso (contenedores, conectores, reportes, flujos, formularios, drones, agentes, clasificacion IA). Llamala antes de construir algo nuevo. Sin argumentos devuelve la nota de entrada, los titulos de todas las notas y los 'temas' (cerebros especializados, p.ej. flujos y formularios); 'tema' = abre ese cerebro (combinable con nota/buscar); 'nota' = una nota completa por titulo; 'buscar' = notas que contienen el texto (por ejemplo, el texto de un error), maximo 20.
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
+| `tema` | string |  | Cerebro especializado (ver 'temas' sin argumentos), ej. flujos, formularios. Omitido = guia general |
 | `nota` | string |  | Titulo de la nota (ver la lista sin argumentos) |
 | `buscar` | string |  | Texto a buscar en titulos y contenido |
 

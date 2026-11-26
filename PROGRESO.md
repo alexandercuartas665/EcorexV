@@ -2,6 +2,21 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - MCP de formularios sobre ADR-0212 (campo_bloqueado -> IsReadOnly, diseno_campo, renombrar_campo) - v0.16.402 (rama feat/mcp-terminar-tarea)
+
+Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). SIN migracion. Catalogo MCP tableros 232 -> 234.
+- **Hecho**: ver la entrada de ECOREX.mcp abajo.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de 06658fb1 sobre v0.16.401; conflicto solo en PROGRESO (se conservan ambas entradas).
+
+## 2026-11-26 - MCP: campo no editable, diseno por control y renombrar en cascada sobre ADR-0212 (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion (usa las columnas de v0.16.400). Aviso de ECOREX.desarrollo.
+- **Fix**: `campo_bloqueado` fijaba IsLocked (candado de layout del constructor, no impide editar); ahora fija IsReadOnly (no editable para todos, tambien en /f/).
+- **Nuevas**: `diseno_campo` (estilo por control, mezcla claves, quitar/limpiar, saneado) y `renombrar_campo` (simulacion por defecto con cambios + advertencias; aplicar=true renombra en cascada). Descripcion de update_question corregida (es PATCH). Catalogo 232 -> 234. ADR-0211 addendum.
+- **Cerebros**: formularios: FO12 nueva (diseno visual), FO01/FO08/FO09/FO10/LEEME actualizadas, FO11 regenerada (33); general: 04 Trampas corregida y T09 regenerada del catalogo vivo v0.16.400 (is_read_only, style_json). Vaults PROBLEMAS: 0.
+- **Gates**: build 0 errores; integracion dual McpTablerosTests + FormAuthoring 58/58; Application Mcp/Form 512/512; dotnet format ok.
+- **Siguiente**: integrar + deploy (OK del usuario); luego regenerar T09 (entran diseno_campo y renombrar_campo) y republicar cerebro de formularios y guia general.
+
 ## 2026-11-26 - Conciliador: Direccionar compra devuelve aprobado, usuario y fecha-hora del clic - v0.16.401 (rama feat/autorizacion-tarjeta-actividad)
 
 Agente: ECOREX.agentes/compras (rama) + ECOREX.desarrollo (integracion). SIN migracion.
@@ -53,6 +68,13 @@ Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
 - **Config prod (ya aplicada por la rama)**: AUT-COMPRA-001-2, campo `rut` = lista ORDENES_COMPRA con cascada PROVEEDOR <- nit_proveedor, campo oculto `nit_proveedor`.
 - **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (3409e12b) como v0.16.395. Gates: build Release 0 errores, unitarias Application/SuperAdmin verdes.
 - **Smoke prod (SOLDARCO)**: crear tarea desde /autorizacion-compras-dian (proveedor con OC); "Orden de Compra" lista solo las OC del NIT; con "rut -> oc" mapeado, al aprobar el conciliador recibe el texto de la OC (ej. OMP0011528).
+## 2026-11-25 - Cerebros MCP por tema PUBLICADOS en prod (v0.16.398, ADR-0211)
+
+Agente: ECOREX.mcp (Claude Code), con OK del usuario. Sin codigo.
+- **Verificado en prod**: MCP de tableros = 232 herramientas (olas 1-3 presentes).
+- **Publicado en /cerebros-plantilla** (Plataforma, bloqueados, todas las empresas): "Cerebro de flujos de ECOREX por IA" (tema flujos) v1 - 13 notas, 12 empresas sembradas, 0 errores; "Cerebro de formularios de ECOREX por IA" (tema formularios) v1 - 12 notas, 12 sembradas, 0 errores; "Guia de uso de ECOREX por IA" (general) v5 - referencia regenerada del catalogo vivo (232 tools, indice 285), 12 sincronizadas, 0 errores.
+- **Validado por MCP**: guia_ecorex sin args -> v5, temas general/flujos/formularios; tema=flujos -> v1 13 notas; tema=formularios -> v1 12 notas; nota y buscar por tema OK.
+- **Siguiente**: al cambiar herramientas, regenerar con docs/mcp/vault-tools (gen_referencia.py + gen_referencia_codigo.py), validar, empaquetar por --vault y republicar cada plantilla.
 
 ## 2026-11-25 - MCP ola 3 (ADR-0211): agente de IA del paso de un flujo (rama feat/mcp-terminar-tarea, SIN desplegar)
 

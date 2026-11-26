@@ -65,14 +65,26 @@ Recetas: [[R02 - Directorio de contactos]]"""),
     ("03", "Flujos de proceso (BPMN)", "flujos",
      "listar_flujos ver_flujo crear_flujo nueva_version_flujo agregar_nodo renombrar_nodo conectar_nodos "
      "eliminar_conexion condicion_ruta asignar_encargado_nodo asignar_cargo_nodo poner_formulario_a_nodo eliminar_nodo "
-     "importar_bpmn publicar_flujo enganchar_flujo_a_concepto",
+     "importar_bpmn publicar_flujo enganchar_flujo_a_concepto "
+     "nombre_salida decision_humana_nodo reinicio_nodo tablero_destino_nodo concepto_cierre_nodo color_nodo nota_nodo "
+     "salto_a_flujo_nodo plazo_nodo tiempo_arranque_nodo agregar_notificacion_nodo quitar_notificacion_nodo "
+     "quitar_formulario_nodo formulario_obligatorio_por_salida formulario_crear_al_llegar listar_reglas_disponibles "
+     "agregar_regla_nodo quitar_regla_nodo regla_autonoma_nodo editar_flujo pausar_flujo reanudar_flujo "
+     "desenganchar_flujo_de_concepto opciones_agente_nodo ver_agente_nodo agente_nodo quitar_agente_nodo "
+     "instrucciones_agente_nodo correo_agente_nodo web_agente_nodo whatsapp_agente_nodo voz_agente_nodo "
+     "canales_agente_nodo fallo_agente_nodo seguimiento_agente_nodo tope_preguntas_agente_nodo "
+     "traspaso_salida_agente_nodo",
      """Diseno de procesos (WorkflowEngine BPMN 2.0): nodos tarea (paso humano), compuertas (decision), inicio y fin.
+
+> Para disenar procesos reales usa el CEREBRO DE FLUJOS: `guia_ecorex` con `tema` = `flujos` (decision humana vs
+> compuerta automatica, avisos con enlaces de decision, plazos, tablero y cierre, agente de IA del paso).
 
 Reglas:
 - `crear_flujo` nace con inicio->fin YA conectados. Inserta pasos con `agregar_nodo` dando `desde_nodo_id` y
   `hasta_nodo_id` (reemplaza esa conexion directa).
-- Un nodo que NO es compuerta sigue TODAS sus salidas en paralelo. Para decidir usa una **compuerta** y pon
-  `condicion_ruta` en sus aristas (vacia = ruta por defecto).
+- Un nodo que NO es compuerta sigue TODAS sus salidas en paralelo. Para decidir usa una **compuerta**: automatica
+  (cada salida con `nombre_salida` + `condicion_ruta` approval == '<nombre>'; una sin condicion = por defecto) o de
+  decision humana (`decision_humana_nodo`).
 - Encargado del paso: `asignar_encargado_nodo` (politica/hereda_inicio/hereda_anterior/campo_formulario); con
   `politica` agrega cargos con `asignar_cargo_nodo`.
 - Revisa `ver_flujo`: si trae **avisos**, muestraselos al usuario antes de `publicar_flujo`.
@@ -195,7 +207,14 @@ Recetas: [[R07 - Crear reportes e indicadores]]"""),
      "import_form export_form update_form_header add_container update_container move_container add_question "
      "update_question move_question delete_question set_transactional set_sequence_next set_custom_css set_theme "
      "set_status_ladder wire_submit_task_rule activate deactivate archive create_template update_template "
-     "set_default_template wire_print_button wire_convert_button create_share_link create_record get_render_urls",
+     "set_default_template wire_print_button wire_convert_button create_share_link create_record get_render_urls "
+     "listar_verbos_regla listar_reglas ver_regla historial_regla crear_regla parametros_regla estado_regla "
+     "renombrar_regla eliminar_regla reglas_de_formulario regla_al_enviar quitar_regla_al_enviar regla_en_campo "
+     "quitar_regla_de_campo parametros_regla_en_campo condicion_entre_campos ocultar_barra_envio formulario_reportable "
+     "codigo_automatico_formulario registro_editable cierre_automatico_formulario guardar_version_formulario "
+     "listar_versiones_formulario restaurar_version_formulario listar_enlaces_formulario revocar_enlace_formulario "
+     "campo_bloqueado campo_oculto valor_por_defecto_dinamico permisos_campo_por_rol subformulario_de_campo "
+     "diseno_campo renombrar_campo",
      """Autoria de formularios (DynamicFormRenderer). Estos nombres van en INGLES (es otra familia de herramientas).
 
 Orden de trabajo recomendado:
@@ -378,7 +397,11 @@ def example_block(name, schema):
 index_rows = []
 for num, title, slug, names, intro in MODULES:
     fname = "T%s - %s.md" % (num, title)
-    names_l = names.split()
+    # Las que aun no estan en el catalogo vivo (codigo sin desplegar) se omiten hasta el proximo deploy.
+    pending = [n for n in names.split() if n not in by_name]
+    if pending:
+        print("aun no desplegadas (se omiten): %s" % pending)
+    names_l = [n for n in names.split() if n in by_name]
     out = ["---", "tipo: referencia", "servidor: ecorex-tableros", "modulo: " + slug,
            "herramientas: %d" % len(names_l), "fuente: catalogo vivo tools/list (generado)", "---", "",
            "# MCP Tableros - %s" % title, "", "Servidor: `/api/mcp/tableros` - ver [[01 - Conectar los MCP]]. Volver a [[00 - LEEME PRIMERO]].", "",

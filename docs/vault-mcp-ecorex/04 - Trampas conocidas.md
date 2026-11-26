@@ -116,9 +116,10 @@ antes de construir ahorra horas y evita danos en datos.
 43. **Marca/colores con `set_theme(color=#RRGGBB)`**, no con CSS a mano. En `eyebrow` usa el emoji directo.
 44. **`create_share_link` devuelve el token del enlace UNA sola vez**: entregalo al usuario en ese momento.
 
-- **`update_question` NO es parcial:** los atributos que omitas vuelven a su valor por defecto (puedes borrar sin
-  querer opciones, formulas o lookups). Para editar, re-aplica `apply_form_spec` (upsert por `field_code`) o
-  envia TODOS los atributos actuales tomados de `get_form`.
+- **Cambiar el `field_code` de un campo:** `update_question` con otro `field_code` renombra EN CASCADA dentro del
+  formulario (respuestas, calculos, condicionales, reglas propias), pero no te muestra antes que cambia ni que
+  queda fuera (plantillas, avisos de flujo, reportes). Usa `renombrar_campo` del cerebro de formularios: simula
+  primero y devuelve advertencias (`guia_ecorex` con `tema` = `formularios`, nota FO09).
 
 ## Flujos
 

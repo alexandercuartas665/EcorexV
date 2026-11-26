@@ -66,7 +66,8 @@ TEMAS = {
                                      "restaurar_version_formulario", "listar_enlaces_formulario",
                                      "revocar_enlace_formulario"]),
             ("Propiedades de campo", ["campo_bloqueado", "campo_oculto", "valor_por_defecto_dinamico",
-                                      "permisos_campo_por_rol", "subformulario_de_campo"]),
+                                      "permisos_campo_por_rol", "subformulario_de_campo", "diseno_campo",
+                                      "renombrar_campo"]),
         ],
     },
 }

@@ -428,7 +428,7 @@ El agente de IA de un paso con toda su configuracion (autonomia, instrucciones, 
 
 ### `agente_nodo`
 
-Pone (o reemplaza) el AGENTE DE IA que atiende un paso. 'agente' = id o nombre (opciones_agente_nodo). 'autonomia': autonomo = el agente cierra el paso solo; propone (defecto) = deja todo listo y una persona confirma. El agente debe estar ENCENDIDO para actuar.
+Pone (o reemplaza) el AGENTE DE IA que atiende un paso. 'agente' = id o nombre (opciones_agente_nodo). 'autonomia': autonomo = el agente cierra el paso solo; propone (defecto) = deja todo listo y una persona confirma. En una compuerta, primero decision_humana_nodo. El agente debe estar ENCENDIDO para actuar.
 
 | Parametro | Tipo | Obligatorio | Nota |
 |---|---|---|---|

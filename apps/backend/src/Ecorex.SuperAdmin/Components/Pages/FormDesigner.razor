@@ -418,6 +418,7 @@ else
                         <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;gap:6px;">
                             <label class="pl-toggle"><input type="checkbox" @bind="_tSingleUse" /> Un solo uso</label>
                             <label class="pl-toggle"><input type="checkbox" @bind="_tAllowAnonymous" /> Permitir anonimo</label>
+                            <label class="pl-toggle" title="Para captar leads o encuestas publicas: cada persona que abre el enlace llena su propia respuesta y no ve lo que lleno otra. Sin marcar, todas las visitas comparten el borrador de la referencia."><input type="checkbox" @bind="_tResponsePerVisit" /> Respuesta nueva por visita (captacion publica)</label>
                         </div>
                     </div>
                     @if (_modalError is not null)
@@ -444,7 +445,7 @@ else
                         {
                             <div class="fd-token-row">
                                 <span class="fd-token-state @TokenStateClass(t)">@TokenStateLabel(t)</span>
-                                <span style="flex:1;">@(t.Reference ?? "(sin referencia)") - expira @t.ExpiresAt.ToLocalTime().ToString("dd MMM HH:mm")@(t.SingleUse ? " - un solo uso" : "")</span>
+                                <span style="flex:1;">@(t.Reference ?? "(sin referencia)") - expira @t.ExpiresAt.ToLocalTime().ToString("dd MMM HH:mm")@(t.SingleUse ? " - un solo uso" : "")@(t.ResponsePerVisit ? " - respuesta por visita" : "")</span>
                                 @if (t.RevokedAt is null)
                                 {
                                     <button class="btn btn-sm btn-outline-danger" @onclick="@(() => RevokeTokenAsync(t.Id))" disabled="@_busy">Revocar</button>
@@ -869,6 +870,7 @@ else
     private int _tHours = 24;
     private bool _tSingleUse;
     private bool _tAllowAnonymous = true;
+    private bool _tResponsePerVisit;
     private string? _emittedUrl;
     private DateTimeOffset? _emittedExpiresAt;
     private List<FormTokenDto> _tokens = new();
@@ -2234,6 +2236,7 @@ else
         _tHours = 24;
         _tSingleUse = false;
         _tAllowAnonymous = true;
+        _tResponsePerVisit = false;
         _tokens = (await TokensSvc.ListAsync(Id)).ToList();
         _showTokenModal = true;
         StateHasChanged();
@@ -2254,7 +2257,7 @@ else
         {
             var result = await TokensSvc.EmitAsync(Id, new EmitFormTokenRequest(
                 string.IsNullOrWhiteSpace(_tReference) ? null : _tReference.Trim(),
-                _tHours, _tSingleUse, _tAllowAnonymous));
+                _tHours, _tSingleUse, _tAllowAnonymous, _tResponsePerVisit));
             if (!result.IsOk || result.Value is null) { _modalError = result.Error; return; }
             _emittedUrl = $"{Nav.BaseUri}f/{result.Value.Token}";
             _emittedExpiresAt = result.Value.ExpiresAt;

@@ -182,6 +182,46 @@ public abstract class DynamicFormsTestsBase
         Assert.Equal(FormResponseStatus.Draft, autosaved.Value!.Status);
     }
 
+    // ---- (2b) Token de captacion publica: respuesta NUEVA por visita ----
+
+    [Fact]
+    public async Task Token_ResponsePerVisit_CadaVisitaTieneSuBorrador_SinFlagSeReusaPorReferencia()
+    {
+        var seed = await SeedTenantAsync("Forms Token PorVisita");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+        var responses = BuildResponseService(ctx, seed);
+        var tokens = BuildTokenService(ctx, seed);
+        var definition = await BuildDemoDefinitionAsync(definitions);
+
+        var porVisita = await tokens.EmitAsync(definition.Id, new EmitFormTokenRequest(
+            Reference: "Iframe permanente - LEAD", ExpirationHours: 24 * 365, ResponsePerVisit: true));
+        var anclado = await tokens.EmitAsync(definition.Id, new EmitFormTokenRequest(Reference: "T00042"));
+        Assert.True(porVisita.IsOk, porVisita.Error);
+        Assert.True(anclado.IsOk, anclado.Error);
+
+        var vPorVisita = await tokens.ValidateAsync(porVisita.Value!.Token);
+        var vAnclado = await tokens.ValidateAsync(anclado.Value!.Token);
+        Assert.True(vPorVisita.ResponsePerVisit);
+        Assert.Equal("Iframe permanente - LEAD", vPorVisita.Reference); // el rotulo se conserva
+        Assert.False(vAnclado.ResponsePerVisit);                        // default: sin cambios
+        Assert.Contains(await tokens.ListAsync(definition.Id), t => t.Id == porVisita.Value.TokenId && t.ResponsePerVisit);
+
+        // Lo que pasa el visor /f/ al renderer: con el flag, Reference null -> un borrador por visita.
+        static string? RefDelVisor(FormTokenValidation v) => v.ResponsePerVisit ? null : v.Reference;
+        var visita1 = await responses.GetOrCreateDraftAsync(definition.Id, RefDelVisor(vPorVisita));
+        var visita2 = await responses.GetOrCreateDraftAsync(definition.Id, RefDelVisor(vPorVisita));
+        Assert.True(visita1.IsOk, visita1.Error);
+        Assert.NotEqual(visita1.Value!.Id, visita2.Value!.Id);
+        Assert.Null(visita1.Value.Reference);
+
+        // Sin el flag (token anclado a una tarea): misma referencia = mismo borrador (comportamiento de siempre).
+        var a1 = await responses.GetOrCreateDraftAsync(definition.Id, RefDelVisor(vAnclado));
+        var a2 = await responses.GetOrCreateDraftAsync(definition.Id, RefDelVisor(vAnclado));
+        Assert.Equal(a1.Value!.Id, a2.Value!.Id);
+        Assert.Equal("T00042", a1.Value.Reference);
+    }
+
     // ---- (3) Ciclo de vida del token + scoping cross-tenant ----
 
     [Fact]

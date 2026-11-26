@@ -196,7 +196,9 @@ public sealed record FormResponseDto(
 /// <summary>Opciones de emision de un token de publicacion por URL.</summary>
 public sealed record EmitFormTokenRequest(
     string? Reference = null, int ExpirationHours = 24,
-    bool SingleUse = false, bool AllowAnonymous = true);
+    bool SingleUse = false, bool AllowAnonymous = true,
+    // Cada visita del /f/ crea su propia respuesta (captacion publica multi-visitante).
+    bool ResponsePerVisit = false);
 
 /// <summary>El Token viaja EN CLARO una unica vez (solo se persiste el hash SHA-256).</summary>
 public sealed record EmitFormTokenResult(Guid TokenId, string Token, DateTimeOffset ExpiresAt);
@@ -204,7 +206,7 @@ public sealed record EmitFormTokenResult(Guid TokenId, string Token, DateTimeOff
 public sealed record FormTokenDto(
     Guid Id, Guid DefinitionId, string? Reference, DateTimeOffset ExpiresAt,
     bool SingleUse, DateTimeOffset? UsedAt, DateTimeOffset? RevokedAt,
-    bool AllowAnonymous, DateTimeOffset CreatedAt);
+    bool AllowAnonymous, DateTimeOffset CreatedAt, bool ResponsePerVisit = false);
 
 /// <summary>
 /// Resultado de validar un token del visor publico. Cuando IsValid es false NO se expone el
@@ -213,7 +215,8 @@ public sealed record FormTokenDto(
 /// </summary>
 public sealed record FormTokenValidation(
     bool IsValid, Guid? TokenId = null, Guid? TenantId = null, Guid? DefinitionId = null,
-    string? Reference = null, bool SingleUse = false, bool AllowAnonymous = false)
+    string? Reference = null, bool SingleUse = false, bool AllowAnonymous = false,
+    bool ResponsePerVisit = false)
 {
     public static readonly FormTokenValidation Invalid = new(false);
 }

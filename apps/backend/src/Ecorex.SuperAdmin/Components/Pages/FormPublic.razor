@@ -45,8 +45,10 @@
         }
         else
         {
+            @* ResponsePerVisit: sin Reference el borrador es NUEVO por visita (no se comparte entre visitantes).
+               Sin el flag se reusa el borrador de (definicion, Reference), p.ej. un token anclado a una tarea. *@
             <DynamicFormRenderer DefinitionId="@_validation.DefinitionId!.Value"
-                                 Reference="@_validation.Reference"
+                                 Reference="@(_validation.ResponsePerVisit ? null : _validation.Reference)"
                                  Mode="FormRenderMode.Fill"
                                  AmbientTenantId="@_validation.TenantId"
                                  PublicToken="@Token"

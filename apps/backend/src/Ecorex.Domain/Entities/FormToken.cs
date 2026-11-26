@@ -31,4 +31,12 @@ public class FormToken : TenantEntity
 
     /// <summary>Permite responder sin sesion (visor publico /f/{token}).</summary>
     public bool AllowAnonymous { get; set; } = true;
+
+    /// <summary>
+    /// Captacion publica multi-visitante: cada visita del /f/ crea SU PROPIA respuesta (el visor no pasa
+    /// <see cref="Reference"/> al borrador, asi que no se reusa uno compartido). Con false (default) se
+    /// conserva el reuso por (definicion, Reference), correcto cuando el token ancla a algo (p.ej. una tarea).
+    /// En este modo Reference es solo el rotulo humano del enlace, no se estampa en las respuestas.
+    /// </summary>
+    public bool ResponsePerVisit { get; set; }
 }

@@ -164,4 +164,17 @@ public class FormQuestion : TenantEntity
     /// El esquema lo define y valida <c>Ecorex.Application.Forms.Cascade.CascadeConfig</c>.
     /// </summary>
     public string? CascadeConfigJson { get; set; }
+
+    /// <summary>
+    /// No editable PARA TODOS (independiente del rol y tambien en el formulario publico /f/): el control
+    /// se pinta deshabilitado. Su valor solo lo ponen el valor por defecto, el prellenado o las reglas.
+    /// Distinto de <see cref="IsLocked"/> (candado de LAYOUT del constructor).
+    /// </summary>
+    public bool IsReadOnly { get; set; }
+
+    /// <summary>
+    /// Diseno por control (etiqueta, caja, bloque, letra del valor) como JSON saneado. Null = estilo del
+    /// tema. Esquema y saneo en <c>Ecorex.Application.Forms.FormFieldStyle</c>.
+    /// </summary>
+    public string? StyleJson { get; set; }
 }

@@ -4150,7 +4150,12 @@ else
                         <option value="@nameof(FormFieldPresentation.Autocomplete)">Autocompletar</option>
                         <option value="@nameof(FormFieldPresentation.Dropdown)">Lista</option>
                         <option value="@nameof(FormFieldPresentation.Modal)">Buscador</option>
+                        <option value="@nameof(FormFieldPresentation.AutocompleteFreeText)">Autocompletar o texto libre</option>
                     </select>
+                    @if (q.Presentation == FormFieldPresentation.AutocompleteFreeText)
+                    {
+                        <div class="fb-hint">Se puede elegir de la lista o escribir un valor que no exista en ella; si no se elige, se guarda el texto escrito.</div>
+                    }
                 </div>
 
                 <div class="fb-field">

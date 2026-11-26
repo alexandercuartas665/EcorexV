@@ -397,7 +397,7 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
                     valueField = "campo a guardar",
                     filter = "filtro",
                     autofill = "{campoOrigen: idColDestino} autocompletar otras columnas",
-                    presentation = "Autocomplete|Dropdown|Modal",
+                    presentation = "Autocomplete|Dropdown|Modal|AutocompleteFreeText",
                     subLabel = "campo secundario"
                 },
                 resolve = new

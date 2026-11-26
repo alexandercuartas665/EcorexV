@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-25 - CREAR_TAREA con listas (concepto, tipo de actividad, asignado) sin GUIDs - v0.16.399 (rama feat/crear-tarea-params-lista)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario. Encargo ECOREX.formularios_sol (FRM-LEAD SOLDARCO, cambio 3).
+- **Hecho**: en CREAR_TAREA, subcategoriaId / activityTypeId / assigneeUserId pasan a RuleParamType.Select con OptionsSource "actividad-subcategorias" / "actividad-tipos" / "tenant-usuarios", resueltos en RuleParamOptionsProvider (IActividadCatalogoService, IActivityTypeService, ITenantUserService; dependencias opcionales). El valor guardado sigue siendo el Guid (reglas existentes intactas; un Guid fuera de lista se muestra "(actual)").
+- **Gates**: build Release 0 errores, format ok, Application 1836 (+2: proveedor y descriptor).
+- **Higiene (2026-11-25)**: se quitaron 14 worktrees sin trabajo pendiente (C: de 1,7 a 36,8 GB libres); 4 con trabajo sin subir se respaldaron antes en GitHub (feat/conciliacion-dian-compras, worktree-contenedores, claude/vibrant-lamport-ea0516, claude/festive-feistel-8ca65b). El traslado del proyecto a D: se descarto por ahora.
+
 ## 2026-11-25 - MCP olas 1-3 (ADR-0211): flujos por nodo, reglas y opciones de formularios, agente de IA del paso, cerebros por tema - v0.16.398 (rama feat/mcp-terminar-tarea)
 
 Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). CON migracion dual AddBrainTemplateMcpGuideTopic (solo AddColumn nullable en BrainTemplate).

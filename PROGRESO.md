@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Formularios: enlace publico con respuesta nueva por visita (ResponsePerVisit) - v0.16.406 (rama feat/form-token-respuesta-por-visita)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion aditiva AddFormTokenResponsePerVisit (PG + SQL Server). Encargo de ECOREX.formularios_sol (FRM-LEAD SOLDARCO).
+- **Problema**: el /f/ del lead (token permanente con Reference = rotulo) reusaba UN borrador para todos los visitantes: cada lead veia los datos del anterior. Se destapo al quitar Enviar del /f/ (v0.16.396).
+- **Hecho**: FormToken.ResponsePerVisit (columna form_tokens.response_per_visit, default false). Con el flag el visor /f/ pasa Reference=null al renderer, asi que GetOrCreateDraftAsync crea un borrador por visita; Reference queda como rotulo del enlace. Sin el flag no cambia nada (reuso por definicion + Reference, p.ej. token anclado a una tarea). Casilla en el modal de enlaces del FormDesigner y response_per_visit en create_share_link (MCP).
+- **Gates**: build Release 0 errores, format ok, Application 1856, SuperAdmin 334, DynamicFormsTests dual 28/28 (Token_ResponsePerVisit nuevo), aislamiento tenant + migraciones 26/26 en serie.
+- **Siguiente**: formularios_sol activa el flag en el token del lead (form_tokens 1b539c8d) tras el deploy, con OK del usuario. Cada carga del /f/ crea un Draft (tambien bots): candidato a barrido de borradores vacios.
+
 ## 2026-11-26 - Paneles: la tabla se ordena por cualquier columna (OrderBy/OrderDir) - v0.16.405 (rama feat/panel-tabla-orderby)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes.

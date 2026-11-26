@@ -10842,6 +10842,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("reference");
 
+                    b.Property<bool>("ResponsePerVisit")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("response_per_visit");
+
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("revoked_at");

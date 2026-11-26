@@ -2179,6 +2179,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
         {
             b.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
             b.Property(x => x.Reference).HasMaxLength(100);
+            b.Property(x => x.ResponsePerVisit).HasDefaultValue(false);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // Unico por tenant (spec); el hash aleatorio de 256 bits no colisiona entre

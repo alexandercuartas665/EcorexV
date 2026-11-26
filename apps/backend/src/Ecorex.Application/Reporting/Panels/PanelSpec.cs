@@ -312,6 +312,14 @@ public sealed class PanelWidget
 
     /// <summary>table: columnas computadas.</summary>
     public List<PanelColumn> Columns { get; set; } = new();
+
+    /// <summary>table: columna por la que se ordenan las filas (Label o Field de una columna, directa o agregada).
+    /// Compara por tipo (fecha, numero o texto; vacios al final). Se aplica ANTES de TopN. Null = orden de
+    /// siempre (primera columna agregada desc).</summary>
+    public string? OrderBy { get; set; }
+
+    /// <summary>table: direccion de <see cref="OrderBy"/>: asc | desc (desc por defecto).</summary>
+    public string? OrderDir { get; set; }
 }
 
 public sealed class PanelColumn

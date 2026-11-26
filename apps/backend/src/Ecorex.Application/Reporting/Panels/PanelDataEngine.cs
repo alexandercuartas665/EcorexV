@@ -405,9 +405,12 @@ public static class PanelDataEngine
     /// <summary>Filas de una tabla agrupada. Cada columna es un campo directo (primer valor del grupo)
     /// o una agregacion. Ordena por la primera columna agregada (desc) si existe. Devuelve, por fila,
     /// el valor CRUDO de cada columna (decimal para agregadas, string para directas) para que el
-    /// formateo lo aplique la capa de presentacion.</summary>
+    /// formateo lo aplique la capa de presentacion. Con <paramref name="orderBy"/> (Label o Field de una
+    /// columna) ordena por esa columna segun su tipo (fecha / numero / texto, vacios al final) en la direccion
+    /// <paramref name="orderDir"/> (asc | desc, desc por defecto), siempre ANTES de recortar con TopN.</summary>
     public static List<List<object?>> TableRows(
-        IEnumerable<PanelRow> rows, string groupBy, IReadOnlyList<PanelColumn> columns, int? topN)
+        IEnumerable<PanelRow> rows, string groupBy, IReadOnlyList<PanelColumn> columns, int? topN,
+        string? orderBy = null, string? orderDir = null)
     {
         var groups = new Dictionary<string, List<PanelRow>>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in rows)
@@ -451,7 +454,13 @@ public static class PanelDataEngine
             result.Add(cells);
         }
 
-        if (firstAggIdx >= 0)
+        var orderIdx = FindColumnIndex(columns, orderBy);
+        if (orderIdx >= 0)
+        {
+            var desc = !string.Equals((orderDir ?? "").Trim(), "asc", StringComparison.OrdinalIgnoreCase);
+            result = SortByColumn(result, orderIdx, ColumnSortKind(result, orderIdx, columns[orderIdx]), desc);
+        }
+        else if (firstAggIdx >= 0)
         {
             result = result
                 .OrderByDescending(row => row[firstAggIdx] is decimal d ? d : 0m)
@@ -464,6 +473,105 @@ public static class PanelDataEngine
         }
 
         return result;
+    }
+
+    /// <summary>Indice de la columna cuyo Label o Field coincide con <paramref name="name"/> (sin distinguir
+    /// mayusculas; gana el Label). -1 si no hay nombre o no coincide ninguna.</summary>
+    public static int FindColumnIndex(IReadOnlyList<PanelColumn> columns, string? name)
+    {
+        var n = (name ?? "").Trim();
+        if (n.Length == 0)
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < columns.Count; i++)
+        {
+            if (string.Equals((columns[i].Label ?? "").Trim(), n, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        for (var i = 0; i < columns.Count; i++)
+        {
+            if (string.Equals((columns[i].Field ?? "").Trim(), n, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private enum SortKind { Date, Number, Text }
+
+    /// <summary>Tipo de comparacion de una columna: por el Format si lo declara (date/datetime = fecha;
+    /// money/moneyM/percent/int = numero); si no, por los datos: agregada = numero; si todos los valores no
+    /// vacios son numeros = numero; si todos son fechas = fecha; si no, texto. Numero antes que fecha para
+    /// que un "2024" o un "15" no se lean como fecha.</summary>
+    private static SortKind ColumnSortKind(List<List<object?>> rows, int idx, PanelColumn col)
+    {
+        switch ((col.Format ?? "").Trim().ToLowerInvariant())
+        {
+            case "date":
+            case "datetime":
+                return SortKind.Date;
+            case "money":
+            case "moneym":
+            case "percent":
+            case "int":
+                return SortKind.Number;
+        }
+
+        if (!string.IsNullOrWhiteSpace(col.Agg))
+        {
+            return SortKind.Number;
+        }
+
+        var values = rows.Select(r => r[idx]).Where(v => Norm(v).Length > 0).ToList();
+        if (values.Count == 0)
+        {
+            return SortKind.Text;
+        }
+
+        if (values.All(v => AsDecimal(v).HasValue))
+        {
+            return SortKind.Number;
+        }
+
+        return values.All(v => AsDate(v).HasValue) ? SortKind.Date : SortKind.Text;
+    }
+
+    /// <summary>Orden estable por la columna <paramref name="idx"/>; los vacios (o no convertibles al tipo)
+    /// quedan SIEMPRE al final, en asc y en desc.</summary>
+    private static List<List<object?>> SortByColumn(List<List<object?>> rows, int idx, SortKind kind, bool desc)
+    {
+        IOrderedEnumerable<List<object?>> ordered;
+        switch (kind)
+        {
+            case SortKind.Date:
+                ordered = rows.OrderBy(r => AsDate(r[idx]).HasValue ? 0 : 1);
+                ordered = desc
+                    ? ordered.ThenByDescending(r => AsDate(r[idx]) ?? DateTimeOffset.MinValue)
+                    : ordered.ThenBy(r => AsDate(r[idx]) ?? DateTimeOffset.MinValue);
+                break;
+            case SortKind.Number:
+                ordered = rows.OrderBy(r => AsDecimal(r[idx]).HasValue ? 0 : 1);
+                ordered = desc
+                    ? ordered.ThenByDescending(r => AsDecimal(r[idx]) ?? 0m)
+                    : ordered.ThenBy(r => AsDecimal(r[idx]) ?? 0m);
+                break;
+            default:
+                var cmp = StringComparer.Create(CultureInfo.GetCultureInfo("es-CO"), CompareOptions.IgnoreCase);
+                ordered = rows.OrderBy(r => Norm(r[idx]).Length > 0 ? 0 : 1);
+                ordered = desc
+                    ? ordered.ThenByDescending(r => Norm(r[idx]), cmp)
+                    : ordered.ThenBy(r => Norm(r[idx]), cmp);
+                break;
+        }
+
+        return ordered.ToList();
     }
 
     // ---- Formato de valores (dinero / millones / porcentaje / entero) ----

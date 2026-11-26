@@ -110,7 +110,8 @@ public sealed partial class FormDefinitionService
                 q.Required, q.GridCol, q.Numeral, q.ValidationJson, q.Width, q.PlaceholderText, q.DefaultValue,
                 q.IsLocked, q.IsHidden, q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
                 q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, subform,
-                q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson);
+                q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson,
+                q.IsReadOnly, q.StyleJson);
             await AddQuestionAsync(defId, req, cancellationToken);
         }
 
@@ -185,7 +186,8 @@ public sealed partial class FormDefinitionService
                 q.Required, q.GridCol, q.Numeral, q.ValidationJson, q.Width, q.PlaceholderText, q.DefaultValue,
                 q.IsLocked, q.IsHidden, q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
                 q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, subform,
-                q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson);
+                q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson, q.VisibleWhenJson,
+                q.IsReadOnly, q.StyleJson);
             await AddQuestionAsync(definitionId, req, cancellationToken);
         }
 

@@ -185,10 +185,10 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             "Agrega una pregunta/campo. control_type, capacidades (options_json de Select/MultiCheck/GridDetail, lookup " +
             "de campo con source_kind/source_ref/display_field/value_field/autofill_map_json, calc_expression+aggregate, " +
             "format, default_value con tokens de prellenado) en describe_components. field_code unico en el formulario.",
-            """{"type":"object","properties":{"form_id":{"type":"string"},"container_id":{"type":"string","description":"Contenedor destino (opcional; raiz si se omite)"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string","description":"JSON de opciones (Select/Radio/MultiCheck) o de columnas (GridDetail)"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string","description":"Autocomplete|Dropdown|Modal"},"calc_expression":{"type":"string"},"aggregate":{"type":"string","description":"None|Sum|Count|Avg|Min|Max"},"format":{"type":"string"},"validation_json":{"type":"string"},"visible_when_json":{"type":"string","description":"Muestra/oculta el campo segun otra pregunta {\"field\":\"codigo\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}"}},"required":["form_id","field_code","label","control_type"],"additionalProperties":false}"""),
+            """{"type":"object","properties":{"form_id":{"type":"string"},"container_id":{"type":"string","description":"Contenedor destino (opcional; raiz si se omite)"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string","description":"JSON de opciones (Select/Radio/MultiCheck) o de columnas (GridDetail)"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string","description":"Autocomplete|Dropdown|Modal"},"calc_expression":{"type":"string"},"aggregate":{"type":"string","description":"None|Sum|Count|Avg|Min|Max"},"format":{"type":"string"},"validation_json":{"type":"string"},"visible_when_json":{"type":"string","description":"Muestra/oculta el campo segun otra pregunta {\"field\":\"codigo\",\"op\":\"equals|notEquals|includes|empty|notEmpty\",\"value\":\"x\"}"},"is_read_only":{"type":"boolean","description":"No editable para todos (tambien en /f/): solo lo llenan default, prellenado o reglas"},"style_json":{"type":"string","description":"Diseno del control: {labelSize,labelBold,labelItalic,labelColor,hideLabel,boxBg,borderColor,borderWidth,radius,height,align(left|center|right),marginTop,marginBottom,blockBg,valueSize,valueBold,valueColor}; colores #hex, medidas en px"}},"required":["form_id","field_code","label","control_type"],"additionalProperties":false}"""),
         new("update_question",
-            "Actualiza una pregunta por su id. Mismos campos que add_question (los que omitas vuelven a su valor por defecto del request).",
-            """{"type":"object","properties":{"question_id":{"type":"string"},"container_id":{"type":"string"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string"},"calc_expression":{"type":"string"},"aggregate":{"type":"string"},"format":{"type":"string"},"validation_json":{"type":"string"},"visible_when_json":{"type":"string"}},"required":["question_id","field_code","label","control_type"],"additionalProperties":false}"""),
+            "Actualiza una pregunta por su id. Mismos campos que add_question; solo cambia lo que envias (lo demas del campo se conserva). Un field_code distinto RENOMBRA en cascada: mejor usa renombrar_campo, que simula primero y avisa lo que queda por revisar.",
+            """{"type":"object","properties":{"question_id":{"type":"string"},"container_id":{"type":"string"},"field_code":{"type":"string"},"label":{"type":"string"},"control_type":{"type":"string"},"required":{"type":"boolean"},"options_json":{"type":"string"},"help_text":{"type":"string"},"placeholder_text":{"type":"string"},"default_value":{"type":"string"},"width":{"type":"integer"},"source_kind":{"type":"string"},"source_ref":{"type":"string"},"display_field":{"type":"string"},"value_field":{"type":"string"},"filter_json":{"type":"string"},"autofill_map_json":{"type":"string"},"presentation":{"type":"string"},"calc_expression":{"type":"string"},"aggregate":{"type":"string"},"format":{"type":"string"},"validation_json":{"type":"string"},"visible_when_json":{"type":"string"},"is_read_only":{"type":"boolean","description":"No editable para todos (tambien en /f/): solo lo llenan default, prellenado o reglas"},"style_json":{"type":"string","description":"Diseno del control: {labelSize,labelBold,labelItalic,labelColor,hideLabel,boxBg,borderColor,borderWidth,radius,height,align(left|center|right),marginTop,marginBottom,blockBg,valueSize,valueBold,valueColor}; colores #hex, medidas en px"}},"required":["question_id","field_code","label","control_type"],"additionalProperties":false}"""),
         new("move_question",
             "Mueve una pregunta a otro contenedor (o a la raiz con container_id vacio) en la posicion 'index'.",
             """{"type":"object","properties":{"question_id":{"type":"string"},"container_id":{"type":"string"},"index":{"type":"integer"}},"required":["question_id","index"],"additionalProperties":false}"""),
@@ -958,7 +958,20 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             CalcExpression: Has(args, "calc_expression") ? FormExpressionEvaluator.NormalizeReferences(Str(args, "calc_expression")) : cur?.CalcExpression,
             Aggregate: Has(args, "aggregate") ? EnumOr(args, "aggregate", cur?.Aggregate ?? FormAggregate.None) : (cur?.Aggregate ?? FormAggregate.None),
             Format: S("format", cur?.Format),
-            VisibleWhenJson: S("visible_when_json", cur?.VisibleWhenJson));
+            VisibleWhenJson: S("visible_when_json", cur?.VisibleWhenJson),
+            // PATCH: campos que el esquema no edita pero que el request reemplaza; sin esto un update_question
+            // los dejaba en blanco (bloqueado/oculto, subformulario, cascada, permisos por rol, default dinamico).
+            Caption: cur?.Caption,
+            Numeral: cur?.Numeral,
+            GridCol: cur?.GridCol ?? "col-12",
+            IsLocked: Has(args, "is_locked") ? (Bool(args, "is_locked") ?? false) : (cur?.IsLocked ?? false),
+            IsHidden: Has(args, "is_hidden") ? (Bool(args, "is_hidden") ?? false) : (cur?.IsHidden ?? false),
+            SubformDefinitionId: cur?.SubformDefinitionId,
+            DefaultDynamic: cur?.DefaultDynamic ?? FormDefaultDynamic.None,
+            FieldVisibilityJson: cur?.FieldVisibilityJson,
+            CascadeConfigJson: cur?.CascadeConfigJson,
+            IsReadOnly: Has(args, "is_read_only") ? (Bool(args, "is_read_only") ?? false) : (cur?.IsReadOnly ?? false),
+            StyleJson: S("style_json", cur?.StyleJson));
     }
 
     // BLINDAJE de autoria por agente para el options_json. Segun el control:
@@ -1388,13 +1401,22 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
     private async Task<AgentToolResult> SetTransactionalAsync(JsonElement args, CancellationToken ct)
     {
         if (!TryGuid(args, "form_id", out var id)) { return Err("Falta un 'form_id' valido."); }
+        // PATCH sobre la definicion ACTUAL: el servicio asigna TODO el request, asi que lo no enviado conserva su
+        // valor (antes apagaba HideSubmitBar, IsReportable y el codigo automatico).
+        var cur = await _forms.GetAsync(id, ct);
+        if (cur is null) { return Err("No existe un formulario con ese id."); }
         var req = new SetFormTransactionalRequest(
-            IsTransactional: Bool(args, "is_transactional") ?? false,
-            IdentityMode: EnumOr(args, "identity_mode", FormIdentityMode.None),
-            IdentitySourceFieldCode: Str(args, "identity_source_field_code"),
-            CardLayout: EnumOr(args, "card_layout", FormCardLayout.Normal),
-            IdentityPrefix: Str(args, "identity_prefix"),
-            IdentityPadding: Int(args, "identity_padding") ?? 6);
+            IsTransactional: Has(args, "is_transactional") ? (Bool(args, "is_transactional") ?? false) : cur.IsTransactional,
+            IdentityMode: Has(args, "identity_mode") ? EnumOr(args, "identity_mode", cur.IdentityMode) : cur.IdentityMode,
+            IdentitySourceFieldCode: Has(args, "identity_source_field_code") ? Str(args, "identity_source_field_code") : cur.IdentitySourceFieldCode,
+            CardLayout: Has(args, "card_layout") ? EnumOr(args, "card_layout", cur.CardLayout) : cur.CardLayout,
+            IdentityPrefix: Has(args, "identity_prefix") ? Str(args, "identity_prefix") : cur.IdentityPrefix,
+            IdentityPadding: Has(args, "identity_padding") ? (Int(args, "identity_padding") ?? 6) : cur.IdentityPadding,
+            HideSubmitBar: cur.HideSubmitBar,
+            IsReportable: cur.IsReportable,
+            AutoCodeEnabled: cur.AutoCodeEnabled,
+            AutoCodeTargetFieldCode: cur.AutoCodeTargetFieldCode,
+            AutoCodePadWidth: cur.AutoCodePadWidth);
         var r = await _forms.SetTransactionalAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, form = v });
     }
@@ -1465,6 +1487,23 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             if (hideChips) { o["hideChips"] = true; }
             if (cards) { o["cards"] = true; }
             themeJson = o.ToJsonString(JsonOut);
+        }
+
+        // Conserva la bandera de COMPORTAMIENTO keepEditable ("registro editable") del tema actual: set_theme solo
+        // cambia la apariencia y antes la apagaba al reescribir theme_json.
+        var curTheme = (await _forms.GetAsync(id, ct))?.ThemeJson;
+        if (!string.IsNullOrWhiteSpace(curTheme))
+        {
+            try
+            {
+                if (JsonNode.Parse(curTheme) is JsonObject old && old.TryGetPropertyValue("keepEditable", out var ke) && ke is not null)
+                {
+                    var merged = themeJson is null ? new JsonObject { ["tema"] = "clasico" } : (JsonNode.Parse(themeJson) as JsonObject ?? new JsonObject());
+                    merged["keepEditable"] = ke.DeepClone();
+                    themeJson = merged.ToJsonString(JsonOut);
+                }
+            }
+            catch (JsonException) { /* tema actual invalido: se reemplaza como antes */ }
         }
 
         var r = await _forms.SetThemeAsync(id, themeJson, ct);

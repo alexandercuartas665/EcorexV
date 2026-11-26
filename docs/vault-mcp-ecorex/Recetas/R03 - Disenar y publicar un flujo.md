@@ -8,14 +8,18 @@ referencia: "[[T03 - Flujos de proceso (BPMN)]]"
 
 Volver a [[00 - LEEME PRIMERO]]. Referencia: [[T03 - Flujos de proceso (BPMN)]].
 
+> Esta es la receta corta. Para procesos reales (decision humana, enlaces de decision del cliente, formulario
+> obligatorio por salida, plazos, tablero y cierre, avisos) usa el cerebro de flujos:
+> `guia_ecorex` con `tema` = `flujos`.
+
 Ejemplo: proceso de **aprobacion de compra**: Solicitud -> Revision del jefe -> (Aprobado: Compra / Rechazado: fin).
 
 ```mermaid
 graph LR
   I((inicio)) --> R[Revision del jefe]
   R --> G{Decision}
-  G -->|approval == 'Aprobado'| C[Realizar compra]
-  G -->|por defecto| F((fin))
+  G -->|Aprobado| C[Realizar compra]
+  G -->|Rechazado - por defecto| F((fin))
   C --> F
 ```
 
@@ -49,18 +53,22 @@ Cada `agregar_nodo` con `desde_nodo_id` + `hasta_nodo_id` se INSERTA entre ellos
 {"name":"agregar_nodo","arguments":{"flujo":"<definicion_id>","tipo":"tarea","nombre":"Realizar compra",
   "desde_nodo_id":"<id_G>","hasta_nodo_id":"<id_fin>"}}
 ```
-Falta la ruta de rechazo G -> fin (directa):
+Falta la ruta de rechazo G -> fin (directa), con su NOMBRE:
 ```json
-{"name":"conectar_nodos","arguments":{"desde_nodo_id":"<id_G>","hasta_nodo_id":"<id_fin>"}}
+{"name":"conectar_nodos","arguments":{"desde_nodo_id":"<id_G>","hasta_nodo_id":"<id_fin>","nombre":"Rechazado"}}
 ```
 
-## Paso 3 - Condiciones de la compuerta
+## Paso 3 - Nombres y condiciones de la compuerta
 
-`ver_flujo` -> identifica las aristas que salen de G. A la que va a "Realizar compra":
+Quien cierra "Revision del jefe" elige entre los **NOMBRES** de las salidas de G; la condicion lleva cada opcion a
+su destino. `ver_flujo` -> la arista de G a "Realizar compra":
 ```json
+{"name":"nombre_salida","arguments":{"arista_id":"<arista_G_a_Compra>","nombre":"Aprobado"}}
 {"name":"condicion_ruta","arguments":{"arista_id":"<arista_G_a_Compra>","condicion":"approval == 'Aprobado'"}}
 ```
-La arista G -> fin queda sin condicion = **ruta por defecto**. (Formato del motor: `approval == 'Valor'`.)
+La arista G -> fin ("Rechazado") queda sin condicion = **ruta por defecto**. Sin nombres en las salidas, el paso
+anterior no ofrece opciones (ver_flujo lo avisa). Si la decision la toma OTRA persona en su propio paso, usa
+`decision_humana_nodo` en la compuerta (cerebro de flujos, nota F02).
 
 > Regla de oro: una **tarea** que tenga dos salidas las sigue AMBAS en paralelo. Las decisiones van SIEMPRE en una
 > compuerta.

@@ -7,6 +7,27 @@ namespace Ecorex.Application.Integraciones.Cerebro;
 /// <summary>Nota de la guia (titulo + cuerpo + enlaces salientes a otras notas).</summary>
 public sealed record McpGuideNote(string Title, string Body, IReadOnlyList<string> Links);
 
+/// <summary>Guia publicada de un tema (para listar los cerebros MCP disponibles).</summary>
+public sealed record McpGuideTopicDto(string Topic, string Name, int Version);
+
+/// <summary>Temas de las guias MCP (ADR-0211). "general" es la guia de entrada (columna null en la BD).</summary>
+public static class McpGuideTopics
+{
+    public const string General = "general";
+
+    /// <summary>Temas sugeridos en la consola (el servicio acepta cualquier slug valido).</summary>
+    public static readonly string[] Known = { General, "flujos", "formularios" };
+
+    /// <summary>Normaliza: null/vacio -> "general"; minusculas; solo [a-z0-9_] (1..40). Invalido -> null.</summary>
+    public static string? Normalize(string? topic)
+    {
+        var t = (topic ?? string.Empty).Trim().ToLowerInvariant();
+        if (t.Length == 0) { return General; }
+        if (t.Length > 40 || !t.All(c => c is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_')) { return null; }
+        return t;
+    }
+}
+
 /// <summary>Resultado de busqueda en la guia.</summary>
 public sealed record McpGuideHit(string Title, string Snippet);
 
@@ -24,11 +45,14 @@ public sealed record McpGuideIndex(string GuideName, int Version, string Source,
 public interface IMcpGuideService
 {
     /// <summary>Error legible si no hay guia publicada; si no, null.</summary>
-    Task<(McpGuideIndex? Index, string? Error)> IndexAsync(CancellationToken ct = default);
+    Task<(McpGuideIndex? Index, string? Error)> IndexAsync(CancellationToken ct = default, string? topic = null);
 
-    Task<(McpGuideNote? Note, string? Error)> NoteAsync(string title, CancellationToken ct = default);
+    Task<(McpGuideNote? Note, string? Error)> NoteAsync(string title, CancellationToken ct = default, string? topic = null);
 
-    Task<(IReadOnlyList<McpGuideHit> Hits, string? Error)> SearchAsync(string text, int max = McpGuideService.MaxHits, CancellationToken ct = default);
+    Task<(IReadOnlyList<McpGuideHit> Hits, string? Error)> SearchAsync(string text, int max = McpGuideService.MaxHits, CancellationToken ct = default, string? topic = null);
+
+    /// <summary>Guias publicadas por tema (general primero).</summary>
+    Task<IReadOnlyList<McpGuideTopicDto>> ListTopicsAsync(CancellationToken ct = default);
 }
 
 public sealed class McpGuideService : IMcpGuideService
@@ -45,9 +69,9 @@ public sealed class McpGuideService : IMcpGuideService
 
     public McpGuideService(IApplicationDbContext db) => _db = db;
 
-    public async Task<(McpGuideIndex? Index, string? Error)> IndexAsync(CancellationToken ct = default)
+    public async Task<(McpGuideIndex? Index, string? Error)> IndexAsync(CancellationToken ct = default, string? topic = null)
     {
-        var (guide, error) = await LoadAsync(ct);
+        var (guide, error) = await LoadAsync(topic, ct);
         if (guide is null) { return (null, error); }
         var entryKey = MockupBrainLinks.NormalizeTitle(EntryTitle);
         var entry = guide.Notes.FirstOrDefault(n => n.Key == entryKey)
@@ -56,9 +80,9 @@ public sealed class McpGuideService : IMcpGuideService
             guide.Notes.Select(n => n.Title).ToList()), null);
     }
 
-    public async Task<(McpGuideNote? Note, string? Error)> NoteAsync(string title, CancellationToken ct = default)
+    public async Task<(McpGuideNote? Note, string? Error)> NoteAsync(string title, CancellationToken ct = default, string? topic = null)
     {
-        var (guide, error) = await LoadAsync(ct);
+        var (guide, error) = await LoadAsync(topic, ct);
         if (guide is null) { return (null, error); }
         var key = MockupBrainLinks.NormalizeTitle(title);
         var hit = guide.Notes.FirstOrDefault(n => n.Key == key);
@@ -69,13 +93,13 @@ public sealed class McpGuideService : IMcpGuideService
             hit = partial.Count == 1 ? partial[0] : null;
         }
         return hit is null
-            ? (null, $"No hay una nota '{title}' en la guia. Llama guia_ecorex sin argumentos para ver los titulos.")
+            ? (null, $"No hay una nota '{title}' en la guia{TopicSuffix(topic)}. Llama guia_ecorex{(McpGuideTopics.Normalize(topic) is { } k && k != McpGuideTopics.General ? $"(tema=\"{k}\")" : " sin argumentos")} para ver los titulos.")
             : (ToNote(hit), null);
     }
 
-    public async Task<(IReadOnlyList<McpGuideHit> Hits, string? Error)> SearchAsync(string text, int max = MaxHits, CancellationToken ct = default)
+    public async Task<(IReadOnlyList<McpGuideHit> Hits, string? Error)> SearchAsync(string text, int max = MaxHits, CancellationToken ct = default, string? topic = null)
     {
-        var (guide, error) = await LoadAsync(ct);
+        var (guide, error) = await LoadAsync(topic, ct);
         if (guide is null) { return (Array.Empty<McpGuideHit>(), error); }
         var q = (text ?? string.Empty).Trim();
         if (q.Length == 0) { return (Array.Empty<McpGuideHit>(), "Indica el texto a buscar."); }
@@ -97,13 +121,37 @@ public sealed class McpGuideService : IMcpGuideService
 
     private sealed record Guide(string Name, int Version, string Source, IReadOnlyList<GuideNote> Notes);
 
-    private async Task<(Guide? Guide, string? Error)> LoadAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<McpGuideTopicDto>> ListTopicsAsync(CancellationToken ct = default)
     {
-        var template = await _db.BrainTemplates.AsNoTracking()
+        var rows = await _db.BrainTemplates.AsNoTracking()
+            .Where(t => t.IsMcpGuide && !t.IsArchived && t.PublishedVersion > 0)
+            .Select(t => new { t.Name, t.PublishedVersion, t.McpGuideTopic })
+            .ToListAsync(ct);
+        return rows
+            .Select(r => new McpGuideTopicDto(McpGuideTopics.Normalize(r.McpGuideTopic) ?? McpGuideTopics.General, r.Name, r.PublishedVersion))
+            .GroupBy(r => r.Topic).Select(g => g.First())
+            .OrderBy(r => r.Topic == McpGuideTopics.General ? 0 : 1).ThenBy(r => r.Topic, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static string TopicSuffix(string? topic)
+        => McpGuideTopics.Normalize(topic) is { } k && k != McpGuideTopics.General ? $" de {k}" : string.Empty;
+
+    private async Task<(Guide? Guide, string? Error)> LoadAsync(string? topic, CancellationToken ct)
+    {
+        var key = McpGuideTopics.Normalize(topic);
+        if (key is null) { return (null, "Tema no valido: usa minusculas (ej. flujos, formularios)."); }
+        var candidates = await _db.BrainTemplates.AsNoTracking()
             .Where(t => t.IsMcpGuide && !t.IsArchived)
-            .Select(t => new { t.Id, t.Name, t.PublishedVersion })
-            .FirstOrDefaultAsync(ct);
-        if (template is null || template.PublishedVersion <= 0) { return (null, NotPublishedMessage); }
+            .Select(t => new { t.Id, t.Name, t.PublishedVersion, t.McpGuideTopic })
+            .ToListAsync(ct);
+        var template = candidates.FirstOrDefault(t => (McpGuideTopics.Normalize(t.McpGuideTopic) ?? McpGuideTopics.General) == key);
+        if (template is null || template.PublishedVersion <= 0)
+        {
+            if (key == McpGuideTopics.General) { return (null, NotPublishedMessage); }
+            var topics = (await ListTopicsAsync(ct)).Select(t => t.Topic).ToList();
+            return (null, $"No hay guia publicada para el tema '{key}'. Temas disponibles: {(topics.Count > 0 ? string.Join(", ", topics) : "ninguno")}.");
+        }
 
         // 1) Cerebro sembrado en ESTA empresa (filtro global de tenant + borrado logico).
         var brain = await _db.Brains.AsNoTracking()

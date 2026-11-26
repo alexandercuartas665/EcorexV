@@ -40,7 +40,12 @@ public sealed class TerceroReportSource : IReportableSource, ITenantDescribedSou
         new ReportField("Empresa", "Empresa", ReportFieldType.Text),
         new ReportField("CreatedAt", "Creado", ReportFieldType.Date),
         new ReportField("CreadoMes", "Mes de creacion", ReportFieldType.Text),
-        new ReportField("Categoria", "Categoria", ReportFieldType.Text)
+        new ReportField("Categoria", "Categoria", ReportFieldType.Text),
+        // Ultima actualizacion a nivel de CONTACTO (cualquier guardado: lo sella el interceptor de auditoria).
+        // Sin usuario = proceso automatico (importacion, agente, dron, llenado masivo) o historico.
+        new ReportField("UpdatedAt", "Actualizado", ReportFieldType.Date),
+        new ReportField("ActualizadoMes", "Mes de actualizacion", ReportFieldType.Text),
+        new ReportField("UpdatedByName", "Actualizado por", ReportFieldType.Text)
     };
 
     private static readonly ReportSourceDescriptor Descriptor = new(SourceKey, "Directorio", ReportSourceKind.Native, FieldSet);
@@ -93,6 +98,8 @@ public sealed class TerceroReportSource : IReportableSource, ITenantDescribedSou
                 t.Telefono,
                 t.EmpresaId,
                 t.CreatedAt,
+                t.UpdatedAt,
+                t.UpdatedBy,
                 t.FichasJson,
                 Categorias = t.Categorias.Select(c => c.CategoriaKey).ToList()
             })
@@ -113,6 +120,11 @@ public sealed class TerceroReportSource : IReportableSource, ITenantDescribedSou
                 names[e.Id] = e.Nombre;
             }
         }
+
+        // Autor de la ultima actualizacion: id de plataforma o de TenantUser -> nombre (solo usuarios del tenant).
+        var autores = raw.Any(x => x.UpdatedBy is not null)
+            ? await ReportLookups.AuditUsersAsync(db, ct)
+            : new Dictionary<Guid, string>();
 
         // Campos de ficha (definidos + claves presentes en los datos), con el MISMO criterio que DescribeAsync.
         var fichas = await TerceroFichaReportFields.LoadAsync(db, FieldSet, raw.Select(t => t.FichasJson), ct);
@@ -145,7 +157,10 @@ public sealed class TerceroReportSource : IReportableSource, ITenantDescribedSou
             t.EmpresaId is Guid g && names.TryGetValue(g, out var n) ? n : null,
             t.CreatedAt,
             InMemoryReportEngine.MonthKey(t.CreatedAt, ctx.TenantZone),
-            CategoriasTexto(t.Categorias, titulos)
+            CategoriasTexto(t.Categorias, titulos),
+            t.UpdatedAt,
+            InMemoryReportEngine.MonthKey(t.UpdatedAt, ctx.TenantZone),
+            t.UpdatedBy is Guid ub && autores.TryGetValue(ub, out var autor) ? autor : null
         })).ToList();
 
         return InMemoryReportEngine.Run(descriptor, rows, spec);

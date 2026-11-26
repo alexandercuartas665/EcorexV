@@ -629,6 +629,508 @@ public abstract class McpTablerosTestsBase
         Assert.Equal(defV2, (await ctx.ActividadSubcategorias.AsNoTracking().SingleAsync(s => s.Id == concepto.Id)).WorkflowDefinitionId);
     }
 
+    /// <summary>
+    /// ADR-0211 (ola 1): la IA deja un flujo FUNCIONANDO con la configuracion por nodo, una herramienta por propiedad:
+    /// compuerta que decide una persona, reinicio, tablero/columna + concepto de cierre, plazo y arranque, color y nota
+    /// (PATCH: cambiar uno no borra el otro), avisos con enlaces publicos de decision por salida, formulario obligatorio
+    /// por salida / sin crear al llegar / quitar, salto a otro flujo, editar, pausar/reanudar y desenganchar.
+    /// </summary>
+    [Fact]
+    public async Task FlowConfig_NodoCompuertaHumana_Avisos_Formularios_CicloDeVida_ADR0211()
+    {
+        var seed = await SeedTenantAsync("Mcp Config Flujo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx);
+        var me = Actor(seed, owner: true);
+
+        var form = new FormDefinition { TenantId = seed.TenantId, Code = "F-RECH", Title = "Motivo de rechazo", Status = FormStatus.Active };
+        var cat = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-CF", Nombre = "Compras CF" };
+        var board = new TaskBoard
+        {
+            TenantId = seed.TenantId,
+            Name = "Compras CF",
+            Kind = TaskBoardKind.Activities,
+            CloseReasonsJson = "[\"Aprobada\",\"Rechazada\"]"
+        };
+        ctx.FormDefinitions.Add(form);
+        ctx.ActividadCategorias.Add(cat);
+        ctx.TaskBoards.Add(board);
+        await ctx.SaveChangesAsync();
+        ctx.TaskBoardColumns.Add(new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Por hacer", SortOrder = 1 });
+        ctx.TaskBoardColumns.Add(new TaskBoardColumn { TenantId = seed.TenantId, BoardId = board.Id, Name = "Cerrado", SortOrder = 2, IsDone = true });
+        var concepto = new ActividadSubcategoria { TenantId = seed.TenantId, CategoriaId = cat.Id, Codigo = "C-CF", Nombre = "Compra CF" };
+        ctx.ActividadSubcategorias.Add(concepto);
+        await ctx.SaveChangesAsync();
+
+        async Task<JsonElement> Ok(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.False(r.IsError, $"{tool}: {r.Json}");
+            return Payload(r);
+        }
+        async Task<string> Fail(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.True(r.IsError, $"{tool} debia fallar: {r.Json}");
+            return r.Json;
+        }
+        JsonElement NodeIn(JsonElement canvas, Guid id) =>
+            canvas.GetProperty("nodos").EnumerateArray().First(n => n.GetProperty("nodo_id").GetGuid() == id);
+
+        // Grafo: inicio -> Revisar -> Decision (compuerta) -> fin | Rechazado (otro fin).
+        var creado = await Ok("crear_flujo", new { nombre = "Compra con decision", categoria = "Compras" });
+        var defId = creado.GetProperty("definicion_id").GetGuid();
+        var nodos = creado.GetProperty("nodos").EnumerateArray().ToList();
+        var inicio = nodos.First(n => n.GetProperty("tipo").GetString() == "inicio").GetProperty("nodo_id").GetGuid();
+        var fin = nodos.First(n => n.GetProperty("tipo").GetString() == "fin").GetProperty("nodo_id").GetGuid();
+        var rev = (await Ok("agregar_nodo", new { flujo = defId, tipo = "tarea", nombre = "Revisar", desde_nodo_id = inicio, hasta_nodo_id = fin })).GetProperty("nodo_id").GetGuid();
+        await Ok("asignar_encargado_nodo", new { nodo_id = rev, origen = "hereda_inicio" });
+        var gw = (await Ok("agregar_nodo", new { flujo = defId, tipo = "compuerta", nombre = "Decision", desde_nodo_id = rev, hasta_nodo_id = fin })).GetProperty("nodo_id").GetGuid();
+        var rech = (await Ok("agregar_nodo", new { flujo = defId, tipo = "fin", nombre = "Rechazado" })).GetProperty("nodo_id").GetGuid();
+        await Ok("conectar_nodos", new { desde_nodo_id = gw, hasta_nodo_id = rech });
+
+        // Compuerta automatica sin condiciones: aviso. Con decision humana + encargado, el aviso desaparece.
+        var c1 = await Ok("ver_flujo", new { flujo = defId });
+        Assert.Contains(c1.GetProperty("avisos").EnumerateArray(), a => a.GetString()!.Contains("se resuelve SOLA"));
+        Assert.Contains(c1.GetProperty("avisos").EnumerateArray(), a => a.GetString()!.Contains("SIN NOMBRE"));
+        Assert.False(NodeIn(c1, gw).GetProperty("decision_humana").GetBoolean());
+
+        // Nombre de la salida (opcion de la decision): en compuerta automatica sugiere la condicion.
+        var toRech = c1.GetProperty("aristas").EnumerateArray()
+            .First(e => e.GetProperty("desde").GetGuid() == gw && e.GetProperty("hasta").GetGuid() == rech).GetProperty("arista_id").GetGuid();
+        var named = await Ok("nombre_salida", new { arista_id = toRech, nombre = "Rechazada" });
+        Assert.Contains("approval == 'Rechazada'", named.GetProperty("sugerencia").GetString());
+        Assert.Equal("Rechazada", (await ctx.WorkflowEdges.AsNoTracking().SingleAsync(e => e.Id == toRech)).Name);
+        await Ok("decision_humana_nodo", new { nodo_id = gw, activo = true });
+        Assert.Contains("politica", (await Ok("ver_flujo", new { flujo = defId })).GetProperty("avisos").ToString());
+        await Ok("asignar_encargado_nodo", new { nodo_id = gw, origen = "hereda_inicio" });
+        Assert.Contains("inicio no admite", await Fail("decision_humana_nodo", new { nodo_id = inicio, activo = true }));
+
+        // Reinicio (PATCH: conserva la decision humana).
+        await Ok("reinicio_nodo", new { nodo_id = rech, reiniciar_en_nodo_id = rev });
+        Assert.True((await ctx.WorkflowNodes.AsNoTracking().SingleAsync(n => n.Id == gw)).AllowsAssignment);
+
+        // Tablero + columna de cierre + concepto (valida contra los del tablero).
+        var tb = await Ok("tablero_destino_nodo", new { nodo_id = fin, tablero = "compras cf", columna = "Cerrado" });
+        Assert.True(tb.GetProperty("columna_de_cierre").GetBoolean());
+        Assert.Contains("Aprobada", await Fail("concepto_cierre_nodo", new { nodo_id = fin, concepto = "No existe" }));
+        await Ok("concepto_cierre_nodo", new { nodo_id = fin, concepto = "Aprobada" });
+        Assert.Contains("Por hacer", await Fail("tablero_destino_nodo", new { nodo_id = rev, tablero = "Compras CF", columna = "Inexistente" }));
+
+        // Plazo / arranque y color / nota (cambiar el color NO borra la nota).
+        Assert.Contains("habiles", (await Ok("plazo_nodo", new { nodo_id = rev, dias = 2, dias_habiles = true })).GetProperty("valor").GetString());
+        await Ok("tiempo_arranque_nodo", new { nodo_id = rev, horas = 1 });
+        await Ok("nota_nodo", new { nodo_id = rev, nota = "Revisa los soportes" });
+        await Ok("color_nodo", new { nodo_id = rev, color = "green" });
+        var revDb = await ctx.WorkflowNodes.AsNoTracking().SingleAsync(n => n.Id == rev);
+        Assert.Equal("green", revDb.Color);
+        Assert.Equal("Revisa los soportes", revDb.Note);
+
+        // Avisos al llegar: correo al cliente con un enlace de decision por salida de la compuerta.
+        Assert.Contains("compuerta", await Fail("agregar_notificacion_nodo", new
+        {
+            nodo_id = gw,
+            canal = "correo",
+            destino = "contacto_tarea",
+            mensaje = "x",
+            enlaces_decision = new[] { new { variable = "a", salida_nodo_id = rev } }
+        }));
+        Assert.Contains("linea_id", await Fail("agregar_notificacion_nodo", new { nodo_id = gw, canal = "whatsapp" }));
+        var noti = await Ok("agregar_notificacion_nodo", new
+        {
+            nodo_id = gw,
+            canal = "correo",
+            destino = "contacto_tarea",
+            asunto = "Tu compra {tarea.titulo}",
+            mensaje = "Aprueba: {aprobar} o rechaza: {rechazar}",
+            enlaces_decision = new object[]
+            {
+                new { variable = "aprobar", salida_nodo_id = fin, captura = "firma" },
+                new { variable = "rechazar", salida_nodo_id = rech, captura = "observacion", observacion_obligatoria = true }
+            }
+        });
+        Assert.Equal(1, noti.GetProperty("numero").GetInt32());
+        var cfg = NodeNotifyConfig.Parse((await ctx.WorkflowNodes.AsNoTracking().SingleAsync(n => n.Id == gw)).NotifyJson);
+        var regla = Assert.Single(cfg.Reglas!);
+        Assert.Equal(NodeNotifyRecipient.ContactoTarea, regla.Destino);
+        Assert.Equal(2, regla.EnlacesDecision!.Count);
+        Assert.Equal(WorkflowDecisionCapture.Observation, regla.EnlacesDecision.Single(l => l.TargetNodeId == rech).Capture);
+
+        // Formulario de la compuerta: obligatorio SOLO al rechazar y sin crearse al llegar.
+        await Ok("poner_formulario_a_nodo", new { nodo_id = gw, formulario = "F-RECH" });
+        Assert.Contains("no es una salida", await Fail("formulario_obligatorio_por_salida", new { nodo_id = gw, formulario = "F-RECH", salidas = new[] { rev } }));
+        await Ok("formulario_obligatorio_por_salida", new { nodo_id = gw, formulario = "F-RECH", salidas = new[] { rech } });
+        await Ok("formulario_crear_al_llegar", new { nodo_id = gw, formulario = "F-RECH", activo = false });
+
+        // Reglas: una que no existe da error claro con la herramienta para descubrirlas.
+        Assert.True((await Ok("listar_reglas_disponibles", new { })).GetProperty("total").GetInt32() >= 0);
+        Assert.Contains("listar_reglas_disponibles", await Fail("agregar_regla_nodo", new { nodo_id = rev, regla = "No existe" }));
+
+        // Salto a otro flujo y edicion parcial del flujo (conserva el nombre).
+        await Ok("crear_flujo", new { nombre = "Despacho CF" });
+        Assert.Equal("Despacho CF", (await Ok("salto_a_flujo_nodo", new { nodo_id = rev, flujo_destino = "Despacho CF" })).GetProperty("salta_a").GetString());
+        await Ok("editar_flujo", new { flujo = defId, descripcion = "Compra con aprobacion del cliente" });
+
+        // ver_flujo muestra TODO lo configurado.
+        var full = await Ok("ver_flujo", new { flujo = defId });
+        Assert.False(full.TryGetProperty("avisos", out _), full.ToString());
+        Assert.Equal("Compra con decision", full.GetProperty("nombre").GetString());
+        Assert.Equal("Compra con aprobacion del cliente", full.GetProperty("descripcion").GetString());
+        var g = NodeIn(full, gw);
+        Assert.True(g.GetProperty("decision_humana").GetBoolean());
+        Assert.Equal(2, g.GetProperty("avisos_al_llegar")[0].GetProperty("detalle").GetProperty("enlaces_decision").GetArrayLength());
+        var gf = g.GetProperty("formularios")[0];
+        Assert.Equal("Rechazado", gf.GetProperty("obligatorio_en_salidas")[0].GetString());
+        Assert.False(gf.GetProperty("crear_al_llegar").GetBoolean());
+        var f = NodeIn(full, fin);
+        Assert.Equal("Compras CF", f.GetProperty("tablero_destino").GetString());
+        Assert.Equal("Cerrado", f.GetProperty("columna_destino").GetString());
+        Assert.Equal("Aprobada", f.GetProperty("concepto_cierre").GetString());
+        var r = NodeIn(full, rev);
+        Assert.Contains("habiles", r.GetProperty("plazo").GetString());
+        Assert.Equal("Despacho CF", r.GetProperty("salta_a_flujo").GetString());
+        Assert.Equal("Revisar", NodeIn(full, rech).GetProperty("reinicia_en").GetString());
+
+        // Quitar aviso y formulario.
+        Assert.Equal(0, (await Ok("quitar_notificacion_nodo", new { nodo_id = gw, numero = 1 })).GetProperty("quedan").GetInt32());
+        await Fail("quitar_notificacion_nodo", new { nodo_id = gw, numero = 1 });
+        await Ok("quitar_formulario_nodo", new { nodo_id = gw, formulario = "F-RECH" });
+
+        // Publicar, pausar/reanudar, enganchar/desenganchar. Publicado: la decision humana exige borrador.
+        await Ok("publicar_flujo", new { flujo = defId });
+        Assert.Contains("nueva_version_flujo", await Fail("decision_humana_nodo", new { nodo_id = gw, activo = false }));
+        await Ok("pausar_flujo", new { flujo = defId });
+        Assert.True((await ctx.WorkflowDefinitions.AsNoTracking().SingleAsync(d => d.Id == defId)).IsPaused);
+        await Ok("reanudar_flujo", new { flujo = defId });
+        Assert.False((await ctx.WorkflowDefinitions.AsNoTracking().SingleAsync(d => d.Id == defId)).IsPaused);
+        await Ok("enganchar_flujo_a_concepto", new { concepto = "C-CF", flujo = defId });
+        Assert.Equal("Compra con decision", (await Ok("desenganchar_flujo_de_concepto", new { concepto = "C-CF" })).GetProperty("flujo_quitado").GetString());
+        Assert.Null((await ctx.ActividadSubcategorias.AsNoTracking().SingleAsync(s => s.Id == concepto.Id)).WorkflowDefinitionId);
+        await Fail("desenganchar_flujo_de_concepto", new { concepto = "C-CF" });
+    }
+
+    /// <summary>
+    /// ADR-0211 ola 3: agente de IA del paso, una herramienta por propiedad. Asignar (avisa si esta apagado), recursos
+    /// como PATCH (cambiar uno no borra otro), fallo, canales, cadencia con ventana horaria, tope, traspaso por salida
+    /// de compuerta, ver y quitar. ver_flujo muestra el agente de cada paso.
+    /// </summary>
+    [Fact]
+    public async Task FlowAgent_AsignarConfigurarSeguimientoYQuitar_ADR0211()
+    {
+        var seed = await SeedTenantAsync("Mcp Agente Nodo");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx);
+        var me = Actor(seed, owner: true);
+        ctx.AiAgents.Add(new AiAgent { TenantId = seed.TenantId, Name = "Asistente Cobranza", SystemPrompt = "x", Provider = AiProvider.DeepSeek, IsActive = false });
+        await ctx.SaveChangesAsync();
+
+        async Task<JsonElement> Ok(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.False(r.IsError, $"{tool}: {r.Json}");
+            return Payload(r);
+        }
+        async Task<string> Fail(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.True(r.IsError, $"{tool} debia fallar: {r.Json}");
+            return r.Json;
+        }
+
+        var creado = await Ok("crear_flujo", new { nombre = "Cobro con agente" });
+        var defId = creado.GetProperty("definicion_id").GetGuid();
+        var nodos = creado.GetProperty("nodos").EnumerateArray().ToList();
+        var inicio = nodos.First(n => n.GetProperty("tipo").GetString() == "inicio").GetProperty("nodo_id").GetGuid();
+        var fin = nodos.First(n => n.GetProperty("tipo").GetString() == "fin").GetProperty("nodo_id").GetGuid();
+        var cobrar = (await Ok("agregar_nodo", new { flujo = defId, tipo = "tarea", nombre = "Cobrar", desde_nodo_id = inicio, hasta_nodo_id = fin })).GetProperty("nodo_id").GetGuid();
+        var gw = (await Ok("agregar_nodo", new { flujo = defId, tipo = "compuerta", nombre = "Pago?", desde_nodo_id = cobrar, hasta_nodo_id = fin })).GetProperty("nodo_id").GetGuid();
+
+        // Opciones y asignacion (el agente esta apagado: aviso).
+        var opciones = await Ok("opciones_agente_nodo", new { });
+        Assert.Contains(opciones.GetProperty("agentes").EnumerateArray(), a => a.GetProperty("nombre").GetString() == "Asistente Cobranza");
+        Assert.Contains("asignalo primero", await Fail("instrucciones_agente_nodo", new { nodo_id = cobrar, instrucciones = "x" }));
+        Assert.Contains("inicio", await Fail("agente_nodo", new { nodo_id = inicio, agente = "Asistente Cobranza" }));
+        var asignado = await Ok("agente_nodo", new { nodo_id = cobrar, agente = "cobranza", autonomia = "autonomo" });
+        Assert.Contains("APAGADO", asignado.GetProperty("aviso").GetString());
+
+        // Recursos como PATCH: las instrucciones sobreviven a los cambios siguientes.
+        await Ok("instrucciones_agente_nodo", new { nodo_id = cobrar, instrucciones = "Confirma la fecha de pago con el cliente." });
+        await Ok("correo_agente_nodo", new { nodo_id = cobrar, activo = true });
+        await Ok("canales_agente_nodo", new { nodo_id = cobrar, canales = new[] { "whatsapp", "correo" } });
+        Assert.Contains("ruta", await Fail("fallo_agente_nodo", new { nodo_id = cobrar, accion = "tomar_ruta" }));
+        await Ok("fallo_agente_nodo", new { nodo_id = cobrar, accion = "tomar_ruta", ruta = "Sin respuesta" });
+        Assert.Contains("linea de WhatsApp", await Fail("whatsapp_agente_nodo", new { nodo_id = cobrar, linea = "No existe" }));
+        var link = await ctx.WorkflowNodeAgents.AsNoTracking().SingleAsync(a => a.NodeId == cobrar);
+        Assert.Equal(WorkflowAgentAutonomy.Autonomous, link.Autonomy);
+        Assert.Equal("Confirma la fecha de pago con el cliente.", link.ExtraPrompt);
+        Assert.True(link.CanSendEmail);
+        Assert.Equal(WorkflowAgentChannel.WhatsApp | WorkflowAgentChannel.Correo, link.AllowedChannels);
+        Assert.Equal(WorkflowAgentFailureAction.TakeRoute, link.OnFailure);
+        Assert.Equal("Sin respuesta", link.FailureRoute);
+
+        // Cadencia de seguimiento con ventana horaria y tope de preguntas.
+        Assert.Contains("HH:MM", await Fail("seguimiento_agente_nodo", new { nodo_id = cobrar, esperas = new[] { new { dias = 0 } }, ventana = new { inicio = "18:00", fin = "08:00" } }));
+        await Ok("seguimiento_agente_nodo", new
+        {
+            nodo_id = cobrar,
+            esperas = new object[] { new { minutos = 0 }, new { dias = 1 }, new { dias = 2 } },
+            ventana = new { inicio = "08:00", fin = "18:00", dias = new[] { 1, 2, 3, 4, 5 }, festivos = true }
+        });
+        await Ok("tope_preguntas_agente_nodo", new { nodo_id = cobrar, tope = 4 });
+        var node = await ctx.WorkflowNodes.AsNoTracking().SingleAsync(n => n.Id == cobrar);
+        Assert.Equal(3, StepSlaList.ReadRows(node.AgentFollowUpJson).Count);
+        Assert.True(PulseSendWindow.Read(node.AgentFollowUpJson).Enabled);
+        Assert.Equal(4, node.AgentMaxAsks);
+
+        // Traspaso por salida (solo compuertas, y a una salida real). La compuerta debe ser de decision humana.
+        Assert.Contains("decision_humana_nodo", await Fail("agente_nodo", new { nodo_id = gw, agente = "Asistente Cobranza" }));
+        await Ok("decision_humana_nodo", new { nodo_id = gw, activo = true });
+        await Ok("agente_nodo", new { nodo_id = gw, agente = "Asistente Cobranza" });
+        Assert.Contains("compuertas", await Fail("traspaso_salida_agente_nodo", new { nodo_id = cobrar, salida_nodo_id = fin, nota = "x" }));
+        await Fail("traspaso_salida_agente_nodo", new { nodo_id = gw, salida_nodo_id = cobrar, nota = "x" });
+        await Ok("traspaso_salida_agente_nodo", new { nodo_id = gw, salida_nodo_id = fin, nota = "El cliente ya pago: agradece y cierra." });
+
+        // Ver: todo junto; ver_flujo muestra el agente del paso.
+        var ver = await Ok("ver_agente_nodo", new { nodo_id = cobrar });
+        Assert.Equal("autonomo", ver.GetProperty("autonomia").GetString());
+        Assert.Equal(3, ver.GetProperty("seguimiento").GetProperty("esperas").GetArrayLength());
+        Assert.Equal("tomar_ruta", ver.GetProperty("si_falla").GetString());
+        var verGw = await Ok("ver_agente_nodo", new { nodo_id = gw });
+        Assert.Equal(1, verGw.GetProperty("traspasos").GetArrayLength());
+        var flujo = await Ok("ver_flujo", new { flujo = defId });
+        Assert.Contains(flujo.GetProperty("nodos").EnumerateArray(),
+            n => n.GetProperty("nodo_id").GetGuid() == cobrar && n.GetProperty("agente_ia").GetString()!.Contains("Asistente Cobranza"));
+
+        // Quitar: el paso vuelve a ser humano.
+        await Ok("quitar_agente_nodo", new { nodo_id = cobrar });
+        Assert.False(await ctx.WorkflowNodeAgents.AsNoTracking().AnyAsync(a => a.NodeId == cobrar));
+        Assert.Contains("solo gente", (await Ok("ver_agente_nodo", new { nodo_id = cobrar })).GetProperty("nota").GetString());
+    }
+
+    /// <summary>ADR-0211 ola 2: las 33 herramientas de reglas/opciones de formularios se exponen solo con sus servicios,
+    /// sus esquemas son validos, lectura/destructivas son subconjunto de lo expuesto y todas despachan.</summary>
+    [Fact]
+    public async Task McpCatalog_ConFormConfig_EsConsistente_YDespacha()
+    {
+        var seed = await SeedTenantAsync("Mcp Catalogo FormConfig");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, sin) = Build(ctx, tenantCtx);
+        var (_, _, con) = Build(ctx, tenantCtx, withFormConfig: true);
+        var owner = Actor(seed, owner: true);
+
+        var nuevas = con.GetSpecs().Select(s => s.Name).Except(sin.GetSpecs().Select(s => s.Name)).ToList();
+        Assert.Equal(33, nuevas.Count);
+        Assert.Contains("diseno_campo", nuevas);
+        Assert.Contains("renombrar_campo", nuevas);
+        Assert.Contains("crear_regla", nuevas);
+        Assert.Contains("regla_al_enviar", nuevas);
+        Assert.Contains("campo_bloqueado", nuevas);
+        Assert.All(con.ReadOnlyTools, n => Assert.Contains(n, con.GetSpecs().Select(s => s.Name)));
+        Assert.All(con.DestructiveTools, n => Assert.Contains(n, con.GetSpecs().Select(s => s.Name)));
+        Assert.Empty(con.ReadOnlyTools.Intersect(con.DestructiveTools));
+        foreach (var s in con.GetSpecs().Where(s => nuevas.Contains(s.Name)))
+        {
+            using var schema = JsonDocument.Parse(s.ParametersJsonSchema);
+            var props = schema.RootElement.GetProperty("properties");
+            if (schema.RootElement.TryGetProperty("required", out var req))
+            {
+                foreach (var r in req.EnumerateArray()) { Assert.True(props.TryGetProperty(r.GetString()!, out _), $"{s.Name}: {r}"); }
+            }
+            var res = await con.ExecuteAsync(s.Name, "{}", owner);
+            Assert.DoesNotContain("Herramienta desconocida", res.Json);
+        }
+    }
+
+    /// <summary>
+    /// ADR-0211 ola 2: reglas y opciones de formularios por MCP, una herramienta por propiedad. Catalogo de verbos con
+    /// parametros, crear regla (valida verbo/parametros/campos), estado, regla AL ENVIAR (idempotente por verbo), regla
+    /// en un campo + parametros del vinculo, condicion entre campos, opciones del formulario (PATCH: ninguna apaga otra),
+    /// versiones y propiedades de campo (bloqueado/oculto/default dinamico/permisos por rol).
+    /// </summary>
+    [Fact]
+    public async Task FormConfig_Reglas_Opciones_Versiones_Campos_ADR0211()
+    {
+        var seed = await SeedTenantAsync("Mcp Config Form");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var tenantCtx = new TestTenantContext(seed.TenantId, seed.OwnerPlatformId);
+        var (_, _, toolset) = Build(ctx, tenantCtx, withFormConfig: true);
+        var me = Actor(seed, owner: true);
+        var forms = new Ecorex.Application.Forms.FormDefinitionService(ctx, tenantCtx, new MenuConfigService(ctx, tenantCtx), new SequenceService(ctx, tenantCtx));
+        var def = (await forms.CreateAsync(new Ecorex.Application.Forms.CreateFormDefinitionRequest("F-CFG", "Solicitud CFG"))).Value!;
+        foreach (var (code, label, type) in new[] { ("tipo", "Tipo", FormControlType.Text), ("motivo", "Motivo", FormControlType.Text),
+                     ("total", "Total", FormControlType.Number), ("firma", "Firma", FormControlType.Text), ("codigo", "Codigo", FormControlType.Text) })
+        {
+            Assert.True((await forms.AddQuestionAsync(def.Id, new Ecorex.Application.Forms.SaveFormQuestionRequest(null, code, label, type))).IsOk);
+        }
+
+        async Task<JsonElement> Ok(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.False(r.IsError, $"{tool}: {r.Json}");
+            return Payload(r);
+        }
+        async Task<string> Fail(string tool, object args)
+        {
+            var r = await toolset.ExecuteAsync(tool, Args(args), me);
+            Assert.True(r.IsError, $"{tool} debia fallar: {r.Json}");
+            return r.Json;
+        }
+
+        // Catalogo de verbos (con detalle de parametros).
+        var verbos = await Ok("listar_verbos_regla", new { });
+        Assert.Equal(4, verbos.GetProperty("total").GetInt32());
+        var notificar = await Ok("listar_verbos_regla", new { verbo = "notificar" });
+        Assert.Contains(notificar.GetProperty("parametros").EnumerateArray(), p => p.GetProperty("nombre").GetString() == "message" && p.GetProperty("obligatorio").GetBoolean());
+        Assert.Contains("PASAR_CAMPOS", await Fail("listar_verbos_regla", new { verbo = "NO_EXISTE" }));
+
+        // Crear regla: valida verbo, nombre de parametro y tipo.
+        Assert.Contains("listar_verbos_regla", await Fail("crear_regla", new { nombre = "x", verbo = "NO_EXISTE" }));
+        Assert.Contains("no tiene el parametro", await Fail("crear_regla", new { nombre = "x", verbo = "NOTIFICAR", parametros = new { mensaje = "hola" } }));
+        Assert.Contains("true o false", await Fail("crear_regla", new { nombre = "x", verbo = "NOTIFICAR", parametros = new { message = "hola", autoComplete = "quizas" } }));
+        Assert.Contains("message", await Fail("crear_regla", new { nombre = "x", verbo = "NOTIFICAR", parametros = new { recipient = "a@b.c" } }));
+        var regla = await Ok("crear_regla", new { nombre = "Avisar cambio de tipo", verbo = "NOTIFICAR", formulario = "F-CFG", parametros = new { message = "Cambio el tipo" } });
+        Assert.Equal("activa", regla.GetProperty("estado").GetString());
+        var reglaId = regla.GetProperty("regla_id").GetGuid();
+        var doc = await ctx.RuleDocuments.AsNoTracking().SingleAsync(d => d.DocumentCode == "FRMRULES-F-CFG");
+        Assert.Equal(doc.Id, (await ctx.Rules.AsNoTracking().SingleAsync(x => x.Id == reglaId)).DocumentId);
+        Assert.Equal("FRMRULES-F-CFG", doc.DocumentCode);
+        Assert.Equal(RuleStatus.Active, doc.Status);
+
+        // Parametros, estado y nombre (una herramienta por propiedad).
+        await Ok("parametros_regla", new { regla = reglaId, parametros = new { message = "El tipo cambio", recipient = "ops@ejemplo.test" } });
+        await Ok("estado_regla", new { regla = reglaId, estado = "desarrollo" });
+        await Ok("renombrar_regla", new { regla = reglaId, nombre = "Avisar tipo" });
+        var r1 = await ctx.Rules.AsNoTracking().SingleAsync(x => x.Id == reglaId);
+        Assert.Equal(RuleStatus.Development, r1.Status);
+        Assert.Equal("Avisar tipo", r1.Name);
+        Assert.Contains("El tipo cambio", r1.ParamsJson);
+
+        // Regla en un campo (avisa que no esta activa) + parametros propios del vinculo.
+        var link = await Ok("regla_en_campo", new { formulario = "F-CFG", campo = "tipo", regla = "Avisar tipo" });
+        Assert.Contains("ACTIVA", link.GetProperty("aviso").GetString());
+        await Fail("regla_en_campo", new { formulario = "F-CFG", campo = "tipo", regla = "Avisar tipo" }); // ya la tiene
+        await Ok("parametros_regla_en_campo", new { formulario = "F-CFG", campo = "tipo", regla = "Avisar tipo", parametros = new { message = "Solo en este formulario" } });
+
+        // Regla al enviar: idempotente por verbo (repetir actualiza, no duplica).
+        Assert.Contains("message", await Fail("regla_al_enviar", new { formulario = "F-CFG", verbo = "NOTIFICAR", nombre = "Aviso envio" }));
+        await Ok("regla_al_enviar", new { formulario = "F-CFG", verbo = "NOTIFICAR", nombre = "Aviso envio", parametros = new { message = "Llego una solicitud" } });
+        await Ok("regla_al_enviar", new { formulario = "F-CFG", verbo = "NOTIFICAR", nombre = "Aviso envio v2", parametros = new { message = "Llego una solicitud nueva" } });
+
+        // Condicion entre campos.
+        await Ok("condicion_entre_campos", new { formulario = "F-CFG", si_campo = "tipo", operador = "igual", valor = "Rechazo", efecto = "requerir", campo = "motivo" });
+        Assert.Contains("valor", await Fail("condicion_entre_campos", new { formulario = "F-CFG", si_campo = "tipo", operador = "igual", efecto = "requerir", campo = "motivo" }));
+
+        // Vista consolidada de las reglas del formulario.
+        var todas = await Ok("reglas_de_formulario", new { formulario = "Solicitud CFG" });
+        var alEnviar = Assert.Single(todas.GetProperty("al_enviar").EnumerateArray());
+        Assert.Equal("Aviso envio v2", alEnviar.GetProperty("regla").GetString());
+        var enCampos = todas.GetProperty("en_campos").EnumerateArray().ToList();
+        Assert.Equal(2, enCampos.Count(c => c.GetProperty("campo").GetString() == "tipo"));
+        Assert.Contains(enCampos, c => c.GetProperty("parametros_del_vinculo").ValueKind == JsonValueKind.Object);
+
+        // Quitar de un campo y del envio.
+        await Ok("quitar_regla_de_campo", new { formulario = "F-CFG", campo = "tipo", regla = "Avisar tipo" });
+        await Ok("quitar_regla_al_enviar", new { formulario = "F-CFG", regla = "NOTIFICAR" });
+        Assert.Empty(await ctx.FormSubmitRules.AsNoTracking().Where(x => x.DefinitionId == def.Id).ToListAsync());
+
+        // Referencias por id: el concepto se da por CODIGO y se guarda su Guid; uno inexistente se rechaza.
+        var cat = new ActividadCategoria { TenantId = seed.TenantId, Codigo = "CAT-REF", Nombre = "Ref" };
+        ctx.ActividadCategorias.Add(cat);
+        await ctx.SaveChangesAsync();
+        var sub = new ActividadSubcategoria { TenantId = seed.TenantId, CategoriaId = cat.Id, Codigo = "C-LEAD", Nombre = "Lead web" };
+        ctx.ActividadSubcategorias.Add(sub);
+        await ctx.SaveChangesAsync();
+        Assert.Contains((await Ok("listar_conceptos", new { texto = "C-LEAD" })).GetProperty("conceptos").EnumerateArray(),
+            c => c.GetProperty("concepto_id").GetGuid() == sub.Id);
+        var refRule = await Ok("crear_regla", new { nombre = "Crear lead", verbo = "REFS_TEST", parametros = new { subcategoriaId = "c-lead" } });
+        Assert.Contains(sub.Id.ToString(), (await ctx.Rules.AsNoTracking().SingleAsync(x => x.Id == refRule.GetProperty("regla_id").GetGuid())).ParamsJson);
+        Assert.Contains("concepto", await Fail("crear_regla", new { nombre = "x", verbo = "REFS_TEST", parametros = new { subcategoriaId = "NO-EXISTE" } }));
+        Assert.Contains("usuario", await Fail("crear_regla", new { nombre = "x", verbo = "REFS_TEST", parametros = new { subcategoriaId = "C-LEAD", assigneeUserId = "nadie@ejemplo.test" } }));
+
+        // Ver y eliminar la regla (sin historial).
+        var ver = await Ok("ver_regla", new { regla = reglaId });
+        Assert.Equal("NOTIFICAR", ver.GetProperty("verbo").GetString());
+        Assert.Equal(0, (await Ok("historial_regla", new { regla = reglaId })).GetProperty("total").GetInt32());
+        await Ok("eliminar_regla", new { regla = reglaId });
+        Assert.False(await ctx.Rules.AsNoTracking().AnyAsync(x => x.Id == reglaId));
+
+        // Opciones del formulario: cada una cambia SOLO lo suyo.
+        await Ok("ocultar_barra_envio", new { formulario = "F-CFG", activo = true });
+        await Ok("formulario_reportable", new { formulario = "F-CFG", activo = true });
+        await Ok("codigo_automatico_formulario", new { formulario = "F-CFG", activo = true, campo = "codigo", ancho = 5 });
+        await Ok("registro_editable", new { formulario = "F-CFG", activo = true });
+        await Ok("cierre_automatico_formulario", new { formulario = "F-CFG", campo = "firma" });
+        var f1 = await ctx.FormDefinitions.AsNoTracking().SingleAsync(f => f.Id == def.Id);
+        Assert.True(f1.HideSubmitBar);
+        Assert.True(f1.IsReportable);
+        Assert.True(f1.AutoCodeEnabled);
+        Assert.Equal("codigo", f1.AutoCodeTargetFieldCode);
+        Assert.Equal(5, f1.AutoCodePadWidth);
+        Assert.Contains("keepEditable", f1.ThemeJson);
+        Assert.Contains("notEmpty", f1.CloseRuleJson);
+        await Ok("ocultar_barra_envio", new { formulario = "F-CFG", activo = false });
+        var f2 = await ctx.FormDefinitions.AsNoTracking().SingleAsync(f => f.Id == def.Id);
+        Assert.False(f2.HideSubmitBar);
+        Assert.True(f2.IsReportable && f2.AutoCodeEnabled); // no se apagaron
+
+        // Propiedades de campo (PATCH: una no borra otra).
+        await Ok("campo_bloqueado", new { formulario = "F-CFG", campo = "total", activo = true });
+        await Ok("valor_por_defecto_dinamico", new { formulario = "F-CFG", campo = "total", valor = "hoy" });
+        await Ok("permisos_campo_por_rol", new { formulario = "F-CFG", campo = "total", ocultar_a = new[] { "Advisor" }, solo_lectura_a = new[] { "Supervisor" } });
+        Assert.Contains("Rol", await Fail("permisos_campo_por_rol", new { formulario = "F-CFG", campo = "total", ocultar_a = new[] { "Jefe" } }));
+        Assert.Contains("Subform", await Fail("subformulario_de_campo", new { formulario = "F-CFG", campo = "total", subformulario = "F-CFG" }));
+        var qTotal = await ctx.FormQuestions.AsNoTracking().SingleAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total");
+        Assert.True(qTotal.IsReadOnly); // no editable para todos (ADR-0212), no el candado de layout
+        Assert.False(qTotal.IsLocked);
+        Assert.Equal(FormDefaultDynamic.Today, qTotal.DefaultDynamic);
+        Assert.Contains("Advisor", qTotal.FieldVisibilityJson);
+
+        // Versiones: guardar, cambiar, restaurar.
+        var ver1 = await Ok("guardar_version_formulario", new { formulario = "F-CFG", nombre = "Antes de cambios" });
+        var vid = ver1.GetProperty("version_id").GetGuid();
+        Assert.Contains((await Ok("listar_versiones_formulario", new { formulario = "F-CFG" })).GetProperty("versiones").EnumerateArray(),
+            v => v.GetProperty("version_id").GetGuid() == vid);
+        await Ok("campo_oculto", new { formulario = "F-CFG", campo = "motivo", activo = true });
+        await Ok("restaurar_version_formulario", new { formulario = "F-CFG", version = vid });
+        var motivos = await ctx.FormQuestions.AsNoTracking().Where(q => q.DefinitionId == def.Id && q.FieldCode == "motivo").ToListAsync();
+        Assert.NotEmpty(motivos);
+        Assert.All(motivos, q => Assert.False(q.IsHidden));
+
+        // Enlaces: sin emitir, lista vacia; revocar uno ajeno falla.
+        Assert.Equal(0, (await Ok("listar_enlaces_formulario", new { formulario = "F-CFG" })).GetProperty("total").GetInt32());
+        await Fail("revocar_enlace_formulario", new { formulario = "F-CFG", enlace = Guid.NewGuid() });
+
+        // Diseno del control (ADR-0212): mezcla claves, descarta lo invalido, quita y limpia.
+        await Ok("campo_bloqueado", new { formulario = "F-CFG", campo = "total", activo = true });
+        await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", estilo = new { labelBold = true, labelColor = "#FF0000", radius = 99 } });
+        var st1 = await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", estilo = new { boxBg = "rojo", valueSize = 14 } });
+        var estilo = st1.GetProperty("estilo");
+        Assert.True(estilo.GetProperty("labelBold").GetBoolean());
+        Assert.Equal("#ff0000", estilo.GetProperty("labelColor").GetString());
+        Assert.Equal(40, estilo.GetProperty("radius").GetInt32()); // acotado
+        Assert.Equal(14, estilo.GetProperty("valueSize").GetInt32());
+        Assert.False(estilo.TryGetProperty("boxBg", out _)); // color invalido descartado
+        Assert.Contains("no valida", await Fail("diseno_campo", new { formulario = "F-CFG", campo = "total", estilo = new { fuente = "Arial" } }));
+        var st2 = await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", quitar = new[] { "radius" } });
+        Assert.False(st2.GetProperty("estilo").TryGetProperty("radius", out _));
+        var qStyled = await ctx.FormQuestions.AsNoTracking().SingleAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total");
+        Assert.True(qStyled.IsReadOnly); // el diseno no borra otras propiedades
+        await Ok("diseno_campo", new { formulario = "F-CFG", campo = "total", limpiar = true });
+        Assert.Null((await ctx.FormQuestions.AsNoTracking().SingleAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total")).StyleJson);
+
+        // Renombrar el nombre interno: simulacion primero (no guarda), luego aplicar.
+        var sim = await Ok("renombrar_campo", new { formulario = "F-CFG", campo = "total", nuevo_codigo = "total_general" });
+        Assert.False(sim.GetProperty("aplicado").GetBoolean());
+        Assert.True(await ctx.FormQuestions.AsNoTracking().AnyAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total"));
+        var ren = await Ok("renombrar_campo", new { formulario = "F-CFG", campo = "total", nuevo_codigo = "total_general", aplicar = true });
+        Assert.True(ren.GetProperty("aplicado").GetBoolean());
+        Assert.True(await ctx.FormQuestions.AsNoTracking().AnyAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total_general"));
+        Assert.False(await ctx.FormQuestions.AsNoTracking().AnyAsync(q => q.DefinitionId == def.Id && q.FieldCode == "total"));
+    }
+
     /// <summary>La IA respeta los permisos del usuario al CREAR flujos y formularios: un lector solo ve; sin
     /// permiso de edicion no crea ni cambia. El puente de formularios reenvia al toolset existente COMO el usuario
     /// y mapea sus errores estructurados (ok:false) a error del MCP.</summary>
@@ -730,7 +1232,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3, specs.Count); // nucleo + guia_ecorex + directorio + flujos + formularios permitidos del doble
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 14 + 3, specs.Count); // nucleo + guia_ecorex + directorio + flujos + formularios permitidos del doble
 
         foreach (var s in specs)
         {
@@ -1450,7 +1952,8 @@ public abstract class McpTablerosTestsBase
     private (ActivityBoardService Boards, WorkflowEngine Engine, TableroMcpToolset Toolset) Build(
         EcorexDbContext ctx, ITenantContext tenantCtx, IFormAuthoringToolset? forms = null, IScrapeFlowService? scrape = null,
         bool withContainers = false, bool withAgents = false, IContenedorClasificacionService? clasificador = null,
-        bool withReports = false, Ecorex.Application.DataContainers.IImportClassificationService? importClassify = null)
+        bool withReports = false, Ecorex.Application.DataContainers.IImportClassificationService? importClassify = null,
+        bool withFormConfig = false)
     {
         var engine = new WorkflowEngine(ctx, tenantCtx, new NoOpWorkflowRuleHook(), new NoOpTaskBroadcaster());
         var tasks = new TaskItemService(ctx, tenantCtx, new SequenceService(ctx, tenantCtx), engine, new NoOpEmailSender(), new NodeAssigneeResolver(ctx));
@@ -1475,13 +1978,32 @@ public abstract class McpTablerosTestsBase
         }
         IAiAgentService? agents = withAgents ? new AiAgentService(ctx, tenant, new AuditWriter(ctx)) : null;
         var rep = withReports ? ReportServices(ctx, tenant) : default;
+        var fc = withFormConfig ? FormConfigServices(ctx, tenant) : default;
         var toolset = new TableroMcpToolset(ctx, boards, tasks, inbox, terceros, new DirectorioToolset(terceros, ctx),
             new TerceroVinculoService(ctx, ctx, tenant), new TerceroFieldService(ctx, tenant), new RolService(ctx, tenant, new AuditWriter(ctx)),
             forms, flowDesign, engine, new WorkflowNodePolicyService(ctx, tenant), scrape, dataModel, dataImport, dataModule, menu, agents,
             clasificador,
             reportCatalog: rep.Catalog, reportData: rep.Data, reportDefs: rep.Defs, analisis: rep.Analisis, widgetRunner: rep.Runner,
-            importClassify: importClassify);
+            importClassify: importClassify,
+            rulesEngine: fc.Engine, ruleDocs: fc.Docs, formDefs: fc.Forms, formSnapshots: fc.Snapshots, formTokens: fc.Tokens);
         return (boards, engine, toolset);
+    }
+
+    /// <summary>ADR-0211 ola 2: motor de reglas (verbos PASAR_CAMPOS, BLOQUEAR_CAMPO_XCONDICION, NOTIFICAR) + servicios
+    /// reales de reglas, formularios, versiones y enlaces.</summary>
+    private static (Ecorex.Application.Rules.IRulesEngine? Engine, Ecorex.Application.Rules.IRuleDocumentService? Docs,
+        Ecorex.Application.Forms.IFormDefinitionService? Forms, Ecorex.Application.Forms.Builder.IFormSnapshotService? Snapshots,
+        Ecorex.Application.Forms.IFormTokenService? Tokens) FormConfigServices(EcorexDbContext ctx, ITenantContext tenant)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Ecorex.Application.Rules.IRuleVerb>(services, new Ecorex.Application.Rules.Verbs.PasarCamposVerb());
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Ecorex.Application.Rules.IRuleVerb>(services, new Ecorex.Application.Rules.Verbs.BloquearCampoPorCondicionVerb());
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Ecorex.Application.Rules.IRuleVerb>(services, new Ecorex.Application.Rules.Verbs.NotificarVerb(ctx));
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Ecorex.Application.Rules.IRuleVerb>(services, new RefsTestVerb());
+        var rules = new Ecorex.Application.Rules.RulesEngine(ctx, tenant, Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services));
+        var forms = new Ecorex.Application.Forms.FormDefinitionService(ctx, tenant, new MenuConfigService(ctx, tenant), new SequenceService(ctx, tenant));
+        return (rules, new Ecorex.Application.Rules.RuleDocumentService(ctx, tenant, rules), forms,
+            new Ecorex.Application.Forms.Builder.FormSnapshotService(ctx, forms), new Ecorex.Application.Forms.FormTokenService(ctx, tenant));
     }
 
     /// <summary>Motor de reportes + libros de indicadores reales (sin fuentes nativas: bastan contenedores).</summary>
@@ -1540,7 +2062,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17, specs.Count); // nucleo + directorio + flujos + formularios + EXTRACCION
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 14 + 3 + 17, specs.Count); // nucleo + directorio + flujos + formularios + EXTRACCION
 
         // Las 17 de extraccion estan expuestas, 6 de lectura y 4 destructivas, sin solape.
         foreach (var n in new[] { "listar_drones", "ver_dron", "crear_dron", "agregar_paso", "guardar_programacion", "eliminar_dron" })
@@ -1660,7 +2182,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 26, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 14 + 3 + 17 + 26, specs.Count); // nucleo + directorio + flujos + formularios + extraccion + CONTENEDORES
 
         // Las 26 de contenedores estan expuestas (ADR-0206: + agregar_filas, ver_filas); 8 de lectura y 7 destructivas, sin solape.
         foreach (var n in new[] { "listar_contenedores_datos", "crear_contenedor_datos", "agregar_tabla",
@@ -1886,7 +2408,7 @@ public abstract class McpTablerosTestsBase
         var specs = toolset.GetSpecs();
         var names = specs.Select(s => s.Name).ToList();
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(16 + 1 + 12 + 16 + 3 + 17 + 26 + 17, specs.Count); // ... + AGENTES
+        Assert.Equal(16 + 1 + 12 + 16 + 23 + 14 + 3 + 17 + 26 + 17, specs.Count); // ... + AGENTES
 
         // Las 17 de agentes estan expuestas; 3 de lectura y 3 destructivas, sin solape.
         foreach (var n in new[] { "listar_agentes", "ver_agente", "crear_agente", "editar_agente",
@@ -2100,4 +2622,21 @@ public sealed class McpTablerosTests_Postgres : McpTablerosTestsBase, IClassFixt
 public sealed class McpTablerosTests_SqlServer : McpTablerosTestsBase, IClassFixture<SqlServerTenantIsolationFixture>
 {
     public McpTablerosTests_SqlServer(SqlServerTenantIsolationFixture fixture) : base(fixture) { }
+}
+
+/// <summary>Verbo de prueba (ADR-0211): parametros por referencia (concepto/usuario) para probar su traduccion a Guid.</summary>
+internal sealed class RefsTestVerb : Ecorex.Application.Rules.IRuleVerb
+{
+    public string Name => "REFS_TEST";
+
+    public Ecorex.Application.Rules.RuleVerbDescriptor Descriptor { get; } = new("REFS_TEST", "Prueba de referencias",
+        "Verbo de prueba con parametros que guardan ids.",
+        new[]
+        {
+            new Ecorex.Application.Rules.RuleVerbParamDescriptor("subcategoriaId", "Concepto", Ecorex.Application.Rules.RuleParamType.Text, true),
+            new Ecorex.Application.Rules.RuleVerbParamDescriptor("assigneeUserId", "Asignado", Ecorex.Application.Rules.RuleParamType.Text, false)
+        });
+
+    public Task<Ecorex.Application.Rules.RuleVerbResult> ExecuteAsync(Ecorex.Application.Rules.RuleContext context, CancellationToken cancellationToken)
+        => Task.FromResult(Ecorex.Application.Rules.RuleVerbResult.Ok());
 }

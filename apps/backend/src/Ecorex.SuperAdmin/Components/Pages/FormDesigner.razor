@@ -1607,7 +1607,9 @@ else
         // Origen de datos / lookup (ola F1): se arrastran para que un patch no los borre.
         q.SourceKind, q.SourceRef, q.DisplayField, q.ValueField, q.FilterJson,
         q.AutofillMapJson, q.Presentation, q.CalcExpression, q.Aggregate, q.SubformDefinitionId,
-        q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson);
+        q.DefaultDynamic, q.Format, q.FieldVisibilityJson, q.CascadeConfigJson,
+        // Antes faltaba VisibleWhenJson: cualquier cambio del campo borraba su "Mostrar solo si".
+        q.VisibleWhenJson, q.IsReadOnly, q.StyleJson);
 
     private SaveFormContainerRequest ToRequest(FormContainerDto c) => new(
         c.Name, c.ContainerType, c.ParentId, c.Style, c.TabsJson, c.Width, c.IsLocked, c.IsHidden,
@@ -2957,6 +2959,10 @@ else
                 </div>
             </div>
         }
+        @if (node.IsQuestion && (!node.IsDoc || node.Q!.ControlType == FormControlType.Heading))
+        {
+            @RenderEstiloControl(node.Q!)
+        }
         @if (node is { IsDoc: true, Q.ControlType: FormControlType.Paragraph })
         {
             <div class="fb-field">
@@ -3060,7 +3066,7 @@ else
                     <div class="fb-field" style="margin-top:8px;">
                         <label>Mostrar la seccion solo si (condicional)</label>
                         <div class="fb-gcp-row">
-                            <select class="fb-select" @onchange="@(e => SetVisibleWhenContainerAsync(node.C!, e.Value?.ToString(), cvw.op, cvw.value))">
+                            <select class="fb-select" @key="@($"cvw-{node.C!.Id}-{cvw.field}")" @onchange="@(e => SetVisibleWhenContainerAsync(node.C!, e.Value?.ToString(), cvw.op, cvw.value))">
                                 <option value="" selected="@(string.IsNullOrEmpty(cvw.field))">(siempre visible)</option>
                                 @foreach (var oq in _def!.Questions.OrderBy(x => x.SortOrder))
                                 {
@@ -3090,15 +3096,246 @@ else
         }
     };
 
+    // ===== Renombrar el nombre interno (FieldCode) con cascada: Revisar (simulacion) -> Aplicar =====
+    private Guid? _renameQid;
+    private string _renameValue = string.Empty;
+    private RenameFieldCodeReport? _renameReport;
+    private string? _renameError;
+    private string? _renameDone;
+    private bool _renameBusy;
+
+    private void StartRename(FormQuestionDto q)
+    {
+        _renameQid = q.Id; _renameValue = q.FieldCode; _renameReport = null; _renameError = null; _renameDone = null;
+    }
+
+    private void CancelRename()
+    {
+        _renameQid = null; _renameReport = null; _renameError = null;
+    }
+
+    private async Task RenameAsync(FormQuestionDto q, bool apply)
+    {
+        _renameBusy = true; _renameError = null;
+        try
+        {
+            var result = await FormsSvc.RenameFieldCodeAsync(q.Id, _renameValue, apply);
+            if (!result.IsOk) { _renameError = result.Error; _renameReport = null; return; }
+            if (apply)
+            {
+                var r = result.Value!;
+                _renameDone = $"Renombrado '{r.OldCode}' -> '{r.NewCode}'."
+                    + (r.Warnings.Count > 0 ? $" Revisa {r.Warnings.Count} referencia(s) externa(s) listadas abajo." : string.Empty);
+                _renameReport = r.Warnings.Count > 0 ? r : null;
+                _renameQid = r.Warnings.Count > 0 ? q.Id : null;
+                await ReloadAsync();
+            }
+            else
+            {
+                _renameReport = result.Value;
+            }
+        }
+        catch (Exception ex)
+        {
+            _renameError = "No se pudo renombrar: " + ex.Message;
+        }
+        finally
+        {
+            _renameBusy = false;
+        }
+    }
+
+    private RenderFragment RenderRenombrarCampo(FormQuestionDto q) => __builder =>
+    {
+        var editing = _renameQid == q.Id;
+        <div class="fb-field">
+            <label>Nombre interno (FORX_DATA)</label>
+            @if (!editing || _renameReport is { Applied: true })
+            {
+                <div style="display:flex;gap:6px;">
+                    <input class="fb-input ro" readonly value="@q.FieldCode" />
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="@(() => StartRename(q))">Renombrar</button>
+                </div>
+            }
+            else
+            {
+                <div style="display:flex;gap:6px;">
+                    <input class="fb-input" value="@_renameValue" disabled="@_renameBusy"
+                           @onchange="@(e => { _renameValue = e.Value?.ToString() ?? string.Empty; _renameReport = null; _renameError = null; })" />
+                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_renameBusy" @onclick="@(() => RenameAsync(q, apply: false))">Revisar</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_renameBusy" @onclick="CancelRename">Cancelar</button>
+                </div>
+            }
+            @if (_renameDone is not null && (editing || _renameQid is null))
+            {
+                <div class="fb-hint" style="color:var(--t-green,#15803d);font-weight:600;">@_renameDone</div>
+            }
+            @if (editing && _renameError is not null)
+            {
+                <div class="fb-hint" style="color:var(--danger,#E11D48);">@_renameError</div>
+            }
+            @if (editing && _renameReport is { } rep)
+            {
+                <div style="border:1px solid var(--line,#d1d5db);border-radius:8px;padding:8px 10px;margin-top:6px;font-size:12px;">
+                    @if (!rep.Applied)
+                    {
+                        <div style="font-weight:700;margin-bottom:4px;">Se actualizara '@rep.OldCode' -> '@rep.NewCode' en:</div>
+                        <ul style="margin:0 0 6px 16px;padding:0;">
+                            @foreach (var ch in rep.Changes)
+                            {
+                                <li>@ch.Place: @ch.Count</li>
+                            }
+                        </ul>
+                    }
+                    @if (rep.Warnings.Count > 0)
+                    {
+                        <div style="font-weight:700;color:#b45309;margin:4px 0;">Fuera de este formulario (NO se cambian solas, revisalas):</div>
+                        <ul style="margin:0 0 6px 16px;padding:0;color:#92400e;">
+                            @foreach (var w in rep.Warnings)
+                            {
+                                <li>@w</li>
+                            }
+                        </ul>
+                    }
+                    @if (!rep.Applied)
+                    {
+                        <button type="button" class="btn btn-sm btn-primary" disabled="@_renameBusy" @onclick="@(() => RenameAsync(q, apply: true))">
+                            @(_renameBusy ? "Aplicando..." : "Aplicar renombrado")
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelRename">Entendido</button>
+                    }
+                </div>
+            }
+            <div class="fb-hint">Es la llave con que se guardan las respuestas. Al renombrar se actualizan en una sola operacion las respuestas guardadas, calculos, condicionales, grillas, autollenado, reglas propias y propiedades del formulario.</div>
+        </div>
+    };
+
+    // ===== Diseno POR CONTROL (StyleJson -> FormFieldStyle, saneado en el servicio) =====
+    private Task PatchStyleAsync(FormQuestionDto q, Func<FormFieldStyle, FormFieldStyle> change)
+    {
+        var json = FormFieldStyle.ToJson(change(FormFieldStyle.Parse(q.StyleJson)));
+        return PatchQuestionAsync(q, r => r with { StyleJson = json });
+    }
+
+    private static int? StyleInt(object? v) => int.TryParse(v?.ToString(), out var n) ? n : null;
+
+    private static string? StyleColor(object? v) => string.IsNullOrWhiteSpace(v?.ToString()) ? null : v!.ToString();
+
+    // Selector de color con "quitar": <input type=color> no admite vacio, asi que el boton x vuelve al tema.
+    private RenderFragment StyleColorInput(string label, string? value, Func<string?, Task> set) => __builder =>
+    {
+        <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;min-width:92px;">@label</span>
+            <input type="color" value="@(value ?? "#ffffff")" style="width:34px;height:26px;padding:0;border:1px solid var(--line,#d1d5db);border-radius:6px;background:none;"
+                   @onchange="@(e => set(StyleColor(e.Value)))" />
+            @if (value is not null)
+            {
+                <span style="font-size:11px;opacity:.7;">@value</span>
+                <button type="button" class="fb-mini-btn" title="Quitar (usar el del tema)" @onclick="@(() => set(null))">&times;</button>
+            }
+            else
+            {
+                <span style="font-size:11px;opacity:.6;">tema</span>
+            }
+        </div>
+    };
+
+    private RenderFragment StyleNumberInput(string label, int? value, int min, int max, Func<int?, Task> set) => __builder =>
+    {
+        <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;min-width:92px;">@label</span>
+            <input type="number" class="fb-input" min="@min" max="@max" placeholder="auto" value="@value" style="width:80px;"
+                   @onchange="@(e => set(StyleInt(e.Value)))" />
+            <span style="font-size:11px;opacity:.6;">px</span>
+        </div>
+    };
+
+    private RenderFragment RenderEstiloControl(FormQuestionDto q) => __builder =>
+    {
+        var st = FormFieldStyle.Parse(q.StyleJson);
+        var isHeading = q.ControlType == FormControlType.Heading;
+        <div class="fb-field">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+                <label style="margin:0;">Diseno del control</label>
+                @if (!st.IsEmpty)
+                {
+                    <button type="button" class="btn btn-sm btn-outline-secondary" style="font-size:11px;padding:1px 8px;"
+                            @onclick="@(() => PatchStyleAsync(q, _ => FormFieldStyle.Empty))">Restablecer</button>
+                }
+            </div>
+            <div class="fb-hint">Solo cambia este control; lo que dejes en "auto"/"tema" sigue el tema del formulario. Se ve en la vista previa y al llenar.</div>
+
+            <div style="font-size:11px;font-weight:700;opacity:.75;margin:10px 0 4px;">@(isHeading ? "TEXTO DEL TITULO" : "ETIQUETA")</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                @StyleNumberInput("Tamano", st.LabelSize, 8, 48, v => PatchStyleAsync(q, s => s with { LabelSize = v }))
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <label class="pl-toggle"><input type="checkbox" checked="@st.LabelBold" @onchange="@(e => PatchStyleAsync(q, s => s with { LabelBold = (bool)e.Value! }))" /> Negrita</label>
+                    <label class="pl-toggle"><input type="checkbox" checked="@st.LabelItalic" @onchange="@(e => PatchStyleAsync(q, s => s with { LabelItalic = (bool)e.Value! }))" /> Cursiva</label>
+                    @if (!isHeading)
+                    {
+                        <label class="pl-toggle"><input type="checkbox" checked="@st.HideLabel" @onchange="@(e => PatchStyleAsync(q, s => s with { HideLabel = (bool)e.Value! }))" /> Ocultar etiqueta</label>
+                    }
+                </div>
+                @StyleColorInput("Color", st.LabelColor, v => PatchStyleAsync(q, s => s with { LabelColor = v }))
+            </div>
+
+            @if (!isHeading)
+            {
+                <div style="font-size:11px;font-weight:700;opacity:.75;margin:12px 0 4px;">CAJA DEL CONTROL</div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    @StyleColorInput("Fondo", st.BoxBg, v => PatchStyleAsync(q, s => s with { BoxBg = v }))
+                    @StyleColorInput("Color borde", st.BorderColor, v => PatchStyleAsync(q, s => s with { BorderColor = v }))
+                    @StyleNumberInput("Grosor borde", st.BorderWidth, 0, 8, v => PatchStyleAsync(q, s => s with { BorderWidth = v }))
+                    @StyleNumberInput("Redondeo", st.Radius, 0, 40, v => PatchStyleAsync(q, s => s with { Radius = v }))
+                    @StyleNumberInput("Alto", st.Height, 20, 400, v => PatchStyleAsync(q, s => s with { Height = v }))
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:12px;min-width:92px;">Alineacion</span>
+                        <select class="fb-select" style="width:auto;" value="@(st.Align ?? "")"
+                                @onchange="@(e => PatchStyleAsync(q, s => s with { Align = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString() }))">
+                            <option value="">Auto</option>
+                            <option value="left">Izquierda</option>
+                            <option value="center">Centro</option>
+                            <option value="right">Derecha</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="font-size:11px;font-weight:700;opacity:.75;margin:12px 0 4px;">LETRA DEL VALOR</div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    @StyleNumberInput("Tamano", st.ValueSize, 8, 64, v => PatchStyleAsync(q, s => s with { ValueSize = v }))
+                    <label class="pl-toggle"><input type="checkbox" checked="@st.ValueBold" @onchange="@(e => PatchStyleAsync(q, s => s with { ValueBold = (bool)e.Value! }))" /> Negrita</label>
+                    @StyleColorInput("Color", st.ValueColor, v => PatchStyleAsync(q, s => s with { ValueColor = v }))
+                </div>
+            }
+
+            <div style="font-size:11px;font-weight:700;opacity:.75;margin:12px 0 4px;">BLOQUE</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                @StyleNumberInput("Margen arriba", st.MarginTop, 0, 120, v => PatchStyleAsync(q, s => s with { MarginTop = v }))
+                @StyleNumberInput("Margen abajo", st.MarginBottom, 0, 120, v => PatchStyleAsync(q, s => s with { MarginBottom = v }))
+                @StyleColorInput("Fondo resaltado", st.BlockBg, v => PatchStyleAsync(q, s => s with { BlockBg = v }))
+            </div>
+        </div>
+    };
+
     private RenderFragment RenderDatosTab(Node node) => __builder =>
     {
         var slug = node.IsQuestion
             ? node.Q!.FieldCode
             : new string(node.Label.ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '_').ToArray()).Trim('_');
-        <div class="fb-field">
-            <label>Nombre interno (FORX_DATA)</label>
-            <input class="fb-input ro" readonly value="@slug" />
-        </div>
+        @if (node.IsQuestion)
+        {
+            @RenderRenombrarCampo(node.Q!)
+        }
+        else
+        {
+            <div class="fb-field">
+                <label>Nombre interno (FORX_DATA)</label>
+                <input class="fb-input ro" readonly value="@slug" />
+            </div>
+        }
         <div class="fb-field">
             <label>Tipo de respuesta</label>
             <input class="fb-input ro" readonly value="@node.Reg.Tipo" />
@@ -4039,6 +4276,11 @@ else
                 </div>
             }
             <div class="fb-field">
+                <label class="pl-toggle"><input type="checkbox" checked="@node.Q!.IsReadOnly"
+                    @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { IsReadOnly = (bool)e.Value! }))" /> No editable (solo lectura para todos)</label>
+                <div class="fb-hint">Se ve pero nadie lo puede cambiar, tampoco en el formulario publico (/f/). El valor lo ponen el valor por defecto, el prellenado o las reglas. Si es obligatorio, asegurate de que siempre llegue con valor.</div>
+            </div>
+            <div class="fb-field">
                 <label>Ocultar para roles</label>
                 <div class="fb-chkgrid">
                     @foreach (var role in TenantRoles)
@@ -4064,7 +4306,9 @@ else
             <div class="fb-field">
                 <label>Mostrar solo si (condicional)</label>
                 <div class="fb-gcp-row">
-                    <select class="fb-select" @onchange="@(e => SetVisibleWhenAsync(node.Q!, e.Value?.ToString(), vw.op, vw.value))">
+                    @* @key con el campo referenciado: si ese campo se renombra, el select se recrea (si no, el
+                       navegador conserva la seleccion vieja aunque la opcion nueva venga marcada). *@
+                    <select class="fb-select" @key="@($"vw-{node.Q!.Id}-{vw.field}")" @onchange="@(e => SetVisibleWhenAsync(node.Q!, e.Value?.ToString(), vw.op, vw.value))">
                         <option value="" selected="@(string.IsNullOrEmpty(vw.field))">(siempre visible)</option>
                         @foreach (var oq in _def!.Questions.Where(x => x.FieldCode != node.Q!.FieldCode).OrderBy(x => x.SortOrder))
                         {
@@ -4152,6 +4396,18 @@ else
                         <option value="@nameof(FormFieldPresentation.Modal)">Buscador</option>
                     </select>
                 </div>
+
+                @if (q.Presentation != FormFieldPresentation.Dropdown)
+                {
+                    <div class="fb-field">
+                        <label class="fb-check">
+                            <input type="checkbox" checked="@FormLookupFreeText.IsEnabled(q.OptionsJson)"
+                                   @onchange="@(e => PatchQuestionAsync(q, r => r with { OptionsJson = FormLookupFreeText.Set(q.OptionsJson, e.Value is true) }))" />
+                            Permitir texto libre
+                        </label>
+                        <div class="fb-hint">Si la persona escribe y no elige una sugerencia, se guarda lo escrito (p.ej. el nombre de un cliente nuevo). Elegir una sugerencia sigue llenando el resto de campos.</div>
+                    </div>
+                }
 
                 <div class="fb-field">
                     <label>Mostrar (etiqueta)</label>

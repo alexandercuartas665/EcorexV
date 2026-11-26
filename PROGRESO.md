@@ -2,6 +2,129 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Directorio: ultimas actualizaciones (quien y cuando) en native:tercero - v0.16.403 (rama feat/directorio-actualizado-por)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes ("Directorio - ultimas actualizaciones").
+- **Hecho (tarea 1)**: native:tercero expone UpdatedAt "Actualizado" (Date), ActualizadoMes "Mes de actualizacion" (zona del tenant) y UpdatedByName "Actualizado por". Nuevo ReportLookups.AuditUsersAsync: resuelve el autor por id de PLATAFORMA (lo que sella el AuditableTenantInterceptor) o de TenantUser, solo usuarios del tenant; sin usuario queda en blanco.
+- **Diagnostico (tarea 2, sin cambio de codigo)**: el interceptor YA pone UpdatedBy en cada guardado con el usuario de la cookie (UI) o el actor del MCP (Begin(tenant, PlatformUserId)); verificado en local (8/8 ediciones de UI con usuario). Los updated_by vacios vienen de procesos de FONDO que fijan solo el tenant (AmbientTenantContext.Begin(tenantId) sin usuario: importaciones, agentes, dron, webhooks, llenados masivos como la clasificacion de sector AGRO del 2026-11-20) y del historico (1205 filas AGRO "actualizadas" en jul-2026 por un proceso masivo). OJO: updated_by guarda el id de PLATAFORMA, no el de TenantUser (por eso el lookup nuevo).
+- **Gates**: build Release 0 errores, format ok, Application 1846, SuperAdmin 334, integracion dual AnalisisSources/Libros 52/52 (incl. Tercero_UltimaActualizacion nuevo).
+- **Siguiente**: la sesion de reportes arma el reporte como DATO tras el deploy.
+
+## 2026-11-26 - MCP de formularios sobre ADR-0212 (campo_bloqueado -> IsReadOnly, diseno_campo, renombrar_campo) - v0.16.402 (rama feat/mcp-terminar-tarea)
+
+Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). SIN migracion. Catalogo MCP tableros 232 -> 234.
+- **Hecho**: ver la entrada de ECOREX.mcp abajo.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de 06658fb1 sobre v0.16.401; conflicto solo en PROGRESO (se conservan ambas entradas).
+
+## 2026-11-26 - MCP: campo no editable, diseno por control y renombrar en cascada sobre ADR-0212 (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion (usa las columnas de v0.16.400). Aviso de ECOREX.desarrollo.
+- **Fix**: `campo_bloqueado` fijaba IsLocked (candado de layout del constructor, no impide editar); ahora fija IsReadOnly (no editable para todos, tambien en /f/).
+- **Nuevas**: `diseno_campo` (estilo por control, mezcla claves, quitar/limpiar, saneado) y `renombrar_campo` (simulacion por defecto con cambios + advertencias; aplicar=true renombra en cascada). Descripcion de update_question corregida (es PATCH). Catalogo 232 -> 234. ADR-0211 addendum.
+- **Cerebros**: formularios: FO12 nueva (diseno visual), FO01/FO08/FO09/FO10/LEEME actualizadas, FO11 regenerada (33); general: 04 Trampas corregida y T09 regenerada del catalogo vivo v0.16.400 (is_read_only, style_json). Vaults PROBLEMAS: 0.
+- **Gates**: build 0 errores; integracion dual McpTablerosTests + FormAuthoring 58/58; Application Mcp/Form 512/512; dotnet format ok.
+- **Siguiente**: integrar + deploy (OK del usuario); luego regenerar T09 (entran diseno_campo y renombrar_campo) y republicar cerebro de formularios y guia general.
+
+## 2026-11-26 - Conciliador: Direccionar compra devuelve aprobado, usuario y fecha-hora del clic - v0.16.401 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes/compras (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: DIRECCIONAR_CONCILIADOR acepta origenes "del clic" (sys:aprobado, sys:usuario, sys:fecha_hora en zona del tenant) y el destino nativo "aprobada" (toggle APROBADA, queda manual); opciones en el modal de la regla del FormDesigner y en "Configuracion de salida" del conciliador (catalogo compartido DireccionarFuentes). Detalle en la entrada de la rama (abajo).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de 50e2c4ab sobre v0.16.400; sin conflictos.
+
+## 2026-11-26 - Formularios: campo no editable, diseno por control y renombrado del nombre interno en cascada - v0.16.400 (rama feat/form-control-noeditable-estilo, ADR-0212)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion dual aditiva AddFormQuestionReadOnlyStyle (is_read_only bool default false + style_json json nullable). Desplegada con OK del usuario.
+- **Hecho**: (1) FormQuestion.IsReadOnly "No editable (solo lectura para todos)", aplica sin rol y en /f/ (bloqueo en UI; reglas/prellenado/default siguen escribiendo). (2) StyleJson + FormFieldStyle: diseno por control (etiqueta, caja, letra del valor, bloque), saneado (#hex, numeros acotados), renderer con clases fs-* y variables --fs-*. (3) RenameFieldCodeAsync con simulacion y aplicacion en un solo SaveChanges: respuestas, calculos, condicionales, grillas, autollenado, reglas propias (la regla base solo si no es compartida), propiedades, FormRecordLink, firmas, columnas form:{defId}:x de tableros; lo externo (plantillas, {form.x}, reportes, configs) va como advertencia. UpdateQuestionAsync/MCP update_question usan el mismo nucleo. MCP add/update_question aceptan is_read_only y style_json.
+- **Fix**: el ToRequest del disenador no arrastraba VisibleWhenJson (cualquier cambio de un campo borraba su "Mostrar solo si"); @key en los selects del condicional.
+- **Gates**: build Release 0 errores, format ok, Application 1846 (+10), SuperAdmin 334, Integration dual 128 (formularios, reglas, MCP, autocodigo, copia) incl. RenameFieldCode nuevo. Validado en preview AGRO local (formulario borrador de prueba FRM-81422 en la copia local).
+
+## 2026-11-25 - CREAR_TAREA con listas (concepto, tipo de actividad, asignado) sin GUIDs - v0.16.399 (rama feat/crear-tarea-params-lista)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario. Encargo ECOREX.formularios_sol (FRM-LEAD SOLDARCO, cambio 3).
+- **Hecho**: en CREAR_TAREA, subcategoriaId / activityTypeId / assigneeUserId pasan a RuleParamType.Select con OptionsSource "actividad-subcategorias" / "actividad-tipos" / "tenant-usuarios", resueltos en RuleParamOptionsProvider (IActividadCatalogoService, IActivityTypeService, ITenantUserService; dependencias opcionales). El valor guardado sigue siendo el Guid (reglas existentes intactas; un Guid fuera de lista se muestra "(actual)").
+- **Gates**: build Release 0 errores, format ok, Application 1836 (+2: proveedor y descriptor).
+- **Higiene (2026-11-25)**: se quitaron 14 worktrees sin trabajo pendiente (C: de 1,7 a 36,8 GB libres); 4 con trabajo sin subir se respaldaron antes en GitHub (feat/conciliacion-dian-compras, worktree-contenedores, claude/vibrant-lamport-ea0516, claude/festive-feistel-8ca65b). El traslado del proyecto a D: se descarto por ahora.
+
+## 2026-11-25 - MCP olas 1-3 (ADR-0211): flujos por nodo, reglas y opciones de formularios, agente de IA del paso, cerebros por tema - v0.16.398 (rama feat/mcp-terminar-tarea)
+
+Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). CON migracion dual AddBrainTemplateMcpGuideTopic (solo AddColumn nullable en BrainTemplate).
+- **Hecho**: ver las 3 entradas de ECOREX.mcp abajo (olas 1, 2 y 3). Catalogo MCP tableros 164 -> 232; fix de FormAuthoringToolset (update_question/set_transactional/set_theme ya no borran configuracion).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/mcp-terminar-tarea (aeb3ca0b) como v0.16.398; conflicto solo en PROGRESO (se conservan ambas entradas).
+- **Siguiente (tras deploy)**: ECOREX.mcp importa y publica los cerebros de flujos y formularios (tema) en /cerebros-plantilla y republica la guia general.
+
+## 2026-11-25 - Direccionar compra: el modal del FormDesigner guarda en la salida del formulario - v0.16.397 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: AutorizacionComprasConfigService.SetDireccionarAsync guarda el mapeo en la SALIDA del formulario (conciliacion-dian.salidas) en vez de la clave legacy; el modal "Configurar regla Direccionar compra" del FormDesigner no guardaba.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (fd8cf431) como v0.16.397. Gates: build Release 0 errores, unitarias verdes.
+
+## 2026-11-25 - Cargador: filtros como los del Directorio + "es uno de"; Directorio con titulos de campos fijos; lookup con texto libre; /f/ honra ocultar Enviar - v0.16.396
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario (incluye v0.16.395).
+- **Cargador de contactos (000740, pedido usuario AGRO)**: el constructor de filtros ofrece los campos fijos del Directorio con los titulos del tenant (Nombre, Naturaleza, Perfiles, Identificacion, Vendedor, Estado, Ciudad, Sector/"Macro Sector", Cargo, Correo, Telefono, Empresa) + todos los campos de ficha ("f:{FieldKey}", TerceroFichaValues). Operadores: =, !=, contiene, no contiene, es uno de (IN), no es ninguno de (NOT IN), vacio, tiene contenido, >, < (numero o fecha). Sugerencias desde los datos y chips para IN (<=60 valores). ContactFilterEvaluator evalua igual la lista, el conteo del filtro y el motor de acciones (vendedor = asesor o texto). Verificado local AGRO: IN sobre direccion = 43 en tarjeta y lista.
+- **Directorio**: la grilla usa los titulos propios de los campos fijos (FixedLabels; AGRO "Macro Sector") y separa Sector (empresa) de Cargo (persona).
+- **Formularios (encargo ECOREX.formularios_sol, FRM-LEAD SOLDARCO)**: lookup con texto libre opt-in por campo (OptionsJson {"allowFreeText": true}, FormLookupFreeText; casilla en el disenador); FormPublic pasa HonorHideSubmitBar (hide_submit_bar aplica en /f/).
+- **Higiene**: se normalizaron a LF 30 archivos que commits previos (v0.16.393 y estas ramas) habian guardado con CRLF (git add con core.autocrlf=false); causaban diffs de archivo completo y un conflicto en DynamicFormRenderer con v0.16.395. Resuelto tomando el renderer del tronco y reaplicando el texto libre.
+- **Gates**: build Release 0 errores, format ok; unitarias Application y SuperAdmin verdes.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/cargador-filtros-campos-ficha (ffe622e9) y feat/lookup-texto-libre-y-f-hide-submit (dd14853c) como v0.16.396.
+- **Siguiente**: formularios_sol aplica allowFreeText en `nombre` de FRM-LEAD y prueba "Crear tarea" en /f/ con la barra oculta.
+
+## 2026-11-25 - Autorizacion compras DIAN: OC como lista de ORDENES_COMPRA filtrada por proveedor - v0.16.395 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: DIRECCIONAR_CONCILIADOR envia el texto visible (DisplayField) de un campo lista (Contenedor/Tercero/Item), no el id de la fila. Cascada de listas: un campo padre de TEXTO filtra por su valor tal cual (DynamicFormRenderer.ResolveEqFiltersAsync). La tarea de factura (IConciliacionTareaService) prellena `nit_proveedor` con el NIT del proveedor.
+- **Config prod (ya aplicada por la rama)**: AUT-COMPRA-001-2, campo `rut` = lista ORDENES_COMPRA con cascada PROVEEDOR <- nit_proveedor, campo oculto `nit_proveedor`.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (3409e12b) como v0.16.395. Gates: build Release 0 errores, unitarias Application/SuperAdmin verdes.
+- **Smoke prod (SOLDARCO)**: crear tarea desde /autorizacion-compras-dian (proveedor con OC); "Orden de Compra" lista solo las OC del NIT; con "rut -> oc" mapeado, al aprobar el conciliador recibe el texto de la OC (ej. OMP0011528).
+## 2026-11-25 - Cerebros MCP por tema PUBLICADOS en prod (v0.16.398, ADR-0211)
+
+Agente: ECOREX.mcp (Claude Code), con OK del usuario. Sin codigo.
+- **Verificado en prod**: MCP de tableros = 232 herramientas (olas 1-3 presentes).
+- **Publicado en /cerebros-plantilla** (Plataforma, bloqueados, todas las empresas): "Cerebro de flujos de ECOREX por IA" (tema flujos) v1 - 13 notas, 12 empresas sembradas, 0 errores; "Cerebro de formularios de ECOREX por IA" (tema formularios) v1 - 12 notas, 12 sembradas, 0 errores; "Guia de uso de ECOREX por IA" (general) v5 - referencia regenerada del catalogo vivo (232 tools, indice 285), 12 sincronizadas, 0 errores.
+- **Validado por MCP**: guia_ecorex sin args -> v5, temas general/flujos/formularios; tema=flujos -> v1 13 notas; tema=formularios -> v1 12 notas; nota y buscar por tema OK.
+- **Siguiente**: al cambiar herramientas, regenerar con docs/mcp/vault-tools (gen_referencia.py + gen_referencia_codigo.py), validar, empaquetar por --vault y republicar cada plantilla.
+
+## 2026-11-25 - MCP ola 3 (ADR-0211): agente de IA del paso de un flujo (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion.
+- **Hecho**: +14 herramientas (`TableroMcpToolset.FlujosAgente.cs`, permiso flujos), una por propiedad: opciones_agente_nodo, ver_agente_nodo, agente_nodo (autonomo|propone; avisa si el agente esta apagado), quitar_agente_nodo, instrucciones_agente_nodo, correo_agente_nodo, web_agente_nodo (Colmena), whatsapp_agente_nodo (linea + plantilla de frio + variables + encabezado + minutos de frio), voz_agente_nodo (agente/linea de voz, reintentos, ventana), canales_agente_nodo, fallo_agente_nodo, seguimiento_agente_nodo (cadencia + ventana horaria), tope_preguntas_agente_nodo, traspaso_salida_agente_nodo. Recursos como PATCH (SetNodeAgentResourcesAsync guarda todo). `ver_flujo` muestra `agente_ia` por paso. Catalogo 218 -> 232.
+- **Regla del motor reflejada**: una compuerta solo admite agente si es de decision humana (error claro que pide decision_humana_nodo).
+- **Cerebro de flujos**: receta F12 (agente de IA en un paso); F11 regenerada (53 herramientas); entrada y F01 actualizadas.
+- **Gates**: build 0 errores; integracion dual: FlowAgent_* + todos los McpCatalog_* verdes; ola 2 completa (McpTablerosTests + BrainTemplates + RulesEngine + FormBuilder) 80/80; unitarias 1764/1764; dotnet format verificado en los archivos tocados; vaults PROBLEMAS: 0.
+- **Siguiente**: integrar + deploy de las olas 1-3 (con OK del usuario). Tras el deploy: publicar cerebros de flujos y formularios y republicar la guia general (regenerar su referencia desde el catalogo vivo).
+
+## 2026-11-25 - MCP ola 2 (ADR-0211): reglas y opciones de formularios + cerebro de formularios (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). SIN migracion nueva (la de la ola 1 sigue pendiente de desplegar).
+- **Hecho**: +31 herramientas (`TableroMcpToolset.FormulariosConfig.cs`), una por propiedad. Reglas: listar_verbos_regla (catalogo de verbos con parametros y opciones), listar_reglas, ver_regla, historial_regla, crear_regla (cualquier verbo; valida parametros), parametros_regla, estado_regla, renombrar_regla, eliminar_regla; en formularios: reglas_de_formulario, regla_al_enviar (cualquier verbo, idempotente por verbo), quitar_regla_al_enviar, regla_en_campo (campo o boton), quitar_regla_de_campo, parametros_regla_en_campo, condicion_entre_campos. Opciones: ocultar_barra_envio, formulario_reportable, codigo_automatico_formulario, registro_editable, cierre_automatico_formulario. Versiones/enlaces: guardar/listar/restaurar_version_formulario, listar/revocar_enlace_formulario. Campo: campo_bloqueado, campo_oculto, valor_por_defecto_dinamico, permisos_campo_por_rol, subformulario_de_campo. Catalogo 187 -> 218.
+- **Referencias por id**: subcategoriaId/activityTypeId/assigneeUserId aceptan codigo/nombre/correo y se traducen a Guid; `listar_conceptos` devuelve `concepto_id` (antes CREAR_TAREA era inusable por IA: no habia como obtener el id del concepto).
+- **Hallazgos documentados**: NOTIFICAR solo registra (no envia); el boton de reglas es `Button` (ActionButton es otro control sin reglas).
+- **Cerebro de formularios**: `docs/vault-mcp-formularios/` (12 notas; FO11 generada del codigo). Generador generico `gen_referencia_codigo.py --tema` (reemplaza gen_referencia_flujos.py). Guia general: R04 corregida (update_question ya es parcial) y apunta al tema formularios; cerebro de flujos apunta a crear_regla.
+- **Gates**: build 0 errores; integracion dual de los tests nuevos (FormConfig_*, McpCatalog_ConFormConfig_*) verde; vaults validados (PROBLEMAS: 0 en los 3).
+- **Siguiente**: integrar + deploy (con OK del usuario). Tras el deploy: publicar cerebros de flujos y formularios (tema) y republicar la guia general. Ola 3: agente de IA del nodo.
+- **Decisiones**: ADR-0211 (seccion ola 2).
+
+## 2026-11-25 - MCP: configuracion completa de flujos (ola 1, ADR-0211), cerebros de guia por tema y 2 errores de autoria de formularios (rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Code). CON migracion (AddBrainTemplateMcpGuideTopic, PG + SQL Server: 1 columna nullable).
+- **Pedido del usuario**: ampliar el MCP para formularios y flujos, con un cerebro propio por tema. Decidio: por OLAS y UNA HERRAMIENTA POR PROPIEDAD.
+- **Hecho (ola 1)**: +23 herramientas de flujos (`TableroMcpToolset.FlujosConfig.cs`): nombre_salida, decision_humana_nodo, reinicio_nodo, tablero_destino_nodo, concepto_cierre_nodo, color_nodo, nota_nodo, salto_a_flujo_nodo, plazo_nodo, tiempo_arranque_nodo, agregar/quitar_notificacion_nodo (con enlaces publicos de decision), quitar_formulario_nodo, formulario_obligatorio_por_salida, formulario_crear_al_llegar, listar_reglas_disponibles, agregar/quitar_regla_nodo, regla_autonoma_nodo, editar/pausar/reanudar_flujo, desenganchar_flujo_de_concepto. `conectar_nodos` acepta `nombre`; `ver_flujo` muestra toda la config del nodo y el nombre de cada arista; 2 avisos nuevos de revision (compuerta automatica sin condiciones / con salidas SIN NOMBRE). Nuevo `IWorkflowDesignService.SetEdgeNameAsync`. Catalogo 164 -> 187.
+- **Hallazgo clave**: en una compuerta AUTOMATICA las opciones son los NOMBRES de sus aristas y el MCP no podia ponerlos: toda compuerta creada por IA iba siempre por la ruta por defecto (la receta R03 de la guia lo tenia mal; corregida).
+- **Cerebros por tema**: `BrainTemplate.McpGuideTopic` (una guia por tema), `guia_ecorex` gana `tema` y lista `temas`; selector de tema en /cerebros-plantilla. Cerebro de flujos en `docs/vault-mcp-flujos/` (12 notas; F11 generada del codigo con `gen_referencia_flujos.py`); scripts del vault con `--vault`. ZIPs en `docs/mcp/vault-tools/salida.local/` (local).
+- **Errores corregidos (formularios)**: update_question/apply_form_spec ya no borran bloqueado/oculto, subformulario, cascada, permisos por rol, default dinamico, caption/numeral/gridcol; set_transactional es PATCH; set_theme conserva keepEditable.
+- **Gates**: build de la solucion 0 errores; integracion dual (PG + SQL Server) de los tests tocados 24/24 (FlowConfig, GuiaMcp por tema, FlowAuthoring, catalogos, permisos); unitarias FormAuthoringGuard 9/9; `dotnet format whitespace` verificado en los archivos tocados; vaults validados (PROBLEMAS: 0 en ambos).
+- **Siguiente**: dev principal integra + deploy (con OK del usuario por version). Tras el deploy: crear la plantilla "Cerebro de flujos de ECOREX por IA" (tema flujos), importar `vault-mcp-flujos.zip` y publicar; regenerar la referencia de la guia general desde el catalogo vivo y republicarla. Ola 2: reglas genericas y opciones de formularios + cerebro de formularios. Ola 3: agente de IA del nodo.
+- **Decisiones**: ADR-0211.
+
+## 2026-11-24 - Autorizacion compras DIAN: la tarjeta opera la actividad (misma tarea del conciliador) - v0.16.394 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes (desarrollo de la rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho** (/autorizacion-compras-dian): la tarjeta muestra la actividad; vista Modal/Columna (redimensionable, preferencia por usuario). Factura sin tarea: solo "Asignar a" (default el usuario actual) + boton "Crear tarea", que crea la MISMA tarea del conciliador DIAN via el nuevo `IConciliacionTareaService` (compartido con "+ Tarea"). Factura con tarea: solo el formulario de la tarea, autoguardado (AutosaveWhenHidden, 3 s) y sus botones operan el flujo. La factura sale del modulo cuando su tarea esta Done/Closed.
+- **Fixes**: el circuito ya no se cae por choque del DbContext entre autosave y lecturas (CircuitFormGate); `TaskReference`: respuestas "T000xx-n" resuelven su tarea en los verbos.
+- **Gates**: build Release 0 errores; unitarias Application y SuperAdmin verdes.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de feat/autorizacion-tarjeta-actividad (8f00b4c3) como v0.16.394.
+- **Smoke en prod (SOLDARCO, factura de prueba)**: Crear tarea (T000xx en tarjeta, form prellenado, PDFs en Documentos, numero en /conciliacion-dian); "+ Tarea" del conciliador igual; "Aprobar Compra" devuelve al conciliador y la factura sale si la tarea termina; cambio rapido entre facturas sin errores. No desplegar lun-sab 06-09 ni dom 01-13 (DRON DIAN).
+
 ## 2026-11-24 - Verbo CREAR_TAREA + /f/{token} embebible (ADR-0209) y When por widget + lastDays en paneles (ADR-0210) - v0.16.393
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Desplegada con OK del usuario.

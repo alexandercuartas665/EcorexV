@@ -339,6 +339,8 @@ public abstract class DirectorioSharedBase : ComponentBase, IDisposable
         _cfgAllFields = (await FieldSvc.ListFieldsAsync()).ToList();
         // Titulos de las fichas: secciones del menu de columnas de la grilla (ADR-0207).
         _fichas = (await FichaSvc.ListAsync()).ToList();
+        // Titulos propios de los campos FIJOS (p.ej. sector -> "Macro Sector"): la grilla los usa en columnas/filtro.
+        _cfgLabels = new Dictionary<string, string>((await LayoutSvc.GetAsync()).Labels, StringComparer.Ordinal);
         await ReloadAsync();
         _loading = false;
     }

@@ -178,9 +178,9 @@ public abstract class BrainTemplatesTestsBase
             otraId = (await svc.SaveAsync(null, Input("Otra plantilla", BrainTemplateTargets.All, Array.Empty<Guid>()), platformUser)).Value;
             Assert.True((await svc.SetMcpGuideAsync(guiaId, true, platformUser)).IsOk);
             Assert.True((await svc.SetMcpGuideAsync(otraId, true, platformUser)).IsOk);
-            Assert.Equal(new[] { otraId }, (await svc.ListAsync()).Where(t => t.IsMcpGuide).Select(t => t.Id).ToArray());
+            Assert.Equal(new[] { otraId }, (await svc.ListAsync()).Where(t => t.IsMcpGuide && t.McpGuideTopic == McpGuideTopics.General).Select(t => t.Id).ToArray());
             Assert.True((await svc.SetMcpGuideAsync(guiaId, true, platformUser)).IsOk);
-            Assert.Equal(new[] { guiaId }, (await svc.ListAsync()).Where(t => t.IsMcpGuide).Select(t => t.Id).ToArray());
+            Assert.Equal(new[] { guiaId }, (await svc.ListAsync()).Where(t => t.IsMcpGuide && t.McpGuideTopic == McpGuideTopics.General).Select(t => t.Id).ToArray());
             Assert.Equal(TaskCoreStatus.NotFound, (await svc.SetMcpGuideAsync(Guid.CreateVersion7(), true, platformUser)).Status);
         }
 
@@ -251,6 +251,70 @@ public abstract class BrainTemplatesTestsBase
         await using (var ctx = _fixture.CreateContext(nueva))
         {
             Assert.Equal(McpGuideService.NotPublishedMessage, (await new McpGuideService(ctx).IndexAsync()).Error);
+        }
+    }
+
+    /// <summary>ADR-0211: una guia MCP POR TEMA. Marcar la de "flujos" no desmarca la general; marcar otra de
+    /// "flujos" si desmarca la anterior de ese tema. guia_ecorex lee cada cerebro por su tema y lista los temas.</summary>
+    [Fact]
+    public async Task GuiaMcp_PorTema_GeneralYFlujos_Independientes()
+    {
+        var tenant = await SeedTenantAsync("Guia MCP por tema");
+        var platformUser = Guid.CreateVersion7();
+        Guid generalId, flujosId, flujos2Id;
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            var svc = new BrainTemplateService(ctx, new AuditWriter(ctx));
+            generalId = (await svc.SaveAsync(null, Input("Guia general T", BrainTemplateTargets.All, Array.Empty<Guid>()), platformUser)).Value;
+            Assert.True((await svc.SaveNoteAsync(generalId, null, "00 - LEEME PRIMERO", "Guia general. Para flujos usa tema=flujos.", platformUser)).IsOk);
+            flujosId = (await svc.SaveAsync(null, Input("Cerebro de flujos T", BrainTemplateTargets.All, Array.Empty<Guid>()), platformUser)).Value;
+            Assert.True((await svc.SaveNoteAsync(flujosId, null, "00 - LEEME PRIMERO", "Cerebro de flujos.", platformUser)).IsOk);
+            Assert.True((await svc.SaveNoteAsync(flujosId, null, "F03 - Compuerta que decide una persona", "Usa decision_humana_nodo antes de publicar.", platformUser)).IsOk);
+            flujos2Id = (await svc.SaveAsync(null, Input("Cerebro de flujos T2", BrainTemplateTargets.All, Array.Empty<Guid>()), platformUser)).Value;
+
+            Assert.True((await svc.SetMcpGuideAsync(generalId, true, platformUser)).IsOk);
+            Assert.True((await svc.SetMcpGuideAsync(flujosId, true, "Flujos", platformUser)).IsOk);
+            Assert.Equal(TaskCoreStatus.Invalid, (await svc.SetMcpGuideAsync(flujosId, true, "flu jos", platformUser)).Status);
+            var marked = (await svc.ListAsync()).Where(t => t.IsMcpGuide).ToList();
+            Assert.Contains(marked, t => t.Id == generalId && t.McpGuideTopic == McpGuideTopics.General);
+            Assert.Contains(marked, t => t.Id == flujosId && t.McpGuideTopic == "flujos");
+
+            Assert.True((await svc.PreparePublishAsync(generalId, platformUser)).IsOk);
+            Assert.True((await svc.PreparePublishAsync(flujosId, platformUser)).IsOk);
+        }
+
+        await using (var ctx = _fixture.CreateContext(tenant))
+        {
+            var guide = new McpGuideService(ctx);
+            Assert.Equal("Guia general T", (await guide.IndexAsync()).Index!.GuideName);
+            var (fl, flErr) = await guide.IndexAsync(topic: "flujos");
+            Assert.Null(flErr);
+            Assert.Equal("Cerebro de flujos T", fl!.GuideName);
+            Assert.Contains("F03 - Compuerta que decide una persona", fl.Titles);
+            Assert.NotNull((await guide.NoteAsync("F03", topic: "flujos")).Note);
+            Assert.Null((await guide.NoteAsync("F03")).Note); // la general no la tiene
+            Assert.Single((await guide.SearchAsync("decision_humana_nodo", topic: "flujos")).Hits);
+            var topics = await guide.ListTopicsAsync();
+            Assert.Equal(McpGuideTopics.General, topics[0].Topic);
+            Assert.Contains(topics, t => t.Topic == "flujos");
+            var (none, noneErr) = await guide.IndexAsync(topic: "formularios");
+            Assert.Null(none);
+            Assert.Contains("flujos", noneErr);
+        }
+
+        await using (var ctx = _fixture.CreateContext(tenantId: null))
+        {
+            var svc = new BrainTemplateService(ctx, new AuditWriter(ctx));
+            // Otra de "flujos" desmarca la anterior de ESE tema; la general sigue.
+            Assert.True((await svc.SetMcpGuideAsync(flujos2Id, true, "flujos", platformUser)).IsOk);
+            var marked = (await svc.ListAsync()).Where(t => t.IsMcpGuide).Select(t => t.Id).ToList();
+            Assert.Contains(generalId, marked);
+            Assert.Contains(flujos2Id, marked);
+            Assert.DoesNotContain(flujosId, marked);
+            foreach (var id in new[] { generalId, flujosId, flujos2Id })
+            {
+                Assert.True((await svc.ArchiveAsync(id, platformUser)).IsOk);
+            }
         }
     }
 

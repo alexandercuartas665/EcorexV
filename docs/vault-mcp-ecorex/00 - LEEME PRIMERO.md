@@ -25,6 +25,16 @@ de otra nota: abrela pasando ese titulo en `nota`. Ante un error, busca su texto
 {"name": "guia_ecorex", "arguments": {"buscar": "Tiempo de espera agotado"}}
 ```
 
+**Cerebros por tema.** Hay cerebros especializados y mas profundos: `flujos` (procesos con aprobaciones,
+compuertas, avisos, enlaces de decision del cliente, plazos) y `formularios` (reglas al enviar / en campos / en
+botones, campos condicionales, registros que se cierran solos, permisos por rol, versiones). Abrelos con `tema`; sin
+argumentos, `guia_ecorex` lista en `temas` los que esten publicados.
+
+```json
+{"name": "guia_ecorex", "arguments": {"tema": "flujos"}}
+{"name": "guia_ecorex", "arguments": {"tema": "formularios"}}
+```
+
 Lee solo lo que necesites para la tarea: las notas de **Referencia** son largas (una por modulo); para una sola
 herramienta, `buscar` con su nombre suele bastar. La misma guia esta en el modulo **Cerebros** de ECOREX
 ("Guia de uso de ECOREX por IA", solo lectura) y puede abrirse como vault de Obsidian.
@@ -39,7 +49,7 @@ permisos**.
 
 | Servidor | Ruta | Para que | Token |
 |---|---|---|---|
-| **Tableros** (el principal, 164 herramientas) | `/api/mcp/tableros` | Todo el sistema: tareas, flujos, formularios, contactos, contenedores, drones, agentes, IA, reportes | Token personal de `/conectar-ia` |
+| **Tableros** (el principal, 232 herramientas) | `/api/mcp/tableros` | Todo el sistema: tareas, flujos, formularios, contactos, contenedores, drones, agentes, IA, reportes | Token personal de `/conectar-ia` |
 | **Maquetas** (17) | `/api/mcp/maquetas` | Ajustar maquetas HTML desde solicitudes anotadas y leer/escribir cerebros | Token de maquetas |
 | **WhatsApp por linea** (36) | `/api/mcp/whatsapp/{lineId}` | Leer y escribir por una linea de WhatsApp | Token de `/lineas` |
 
@@ -51,8 +61,8 @@ Como conectarlos: [[01 - Conectar los MCP]].
 |---|---|---|
 | Ver mis pendientes, crear/mover/cerrar tareas, avanzar pasos de flujo | [[R01 - Operar tareas y tableros]] | `mis_pasos_pendientes`, `crear_tarea`, `completar_paso` |
 | Buscar, crear o editar clientes/proveedores | [[R02 - Directorio de contactos]] | `buscar_contacto`, `crear_contacto` |
-| Disenar un proceso (aprobaciones, pasos, decisiones) | [[R03 - Disenar y publicar un flujo]] | `crear_flujo`, `agregar_nodo`, `publicar_flujo` |
-| Crear un formulario (encuesta, solicitud, cotizador...) | [[R04 - Crear un formulario completo]] | `describe_components`, `apply_form_spec`, `activate` |
+| Disenar un proceso (aprobaciones, pasos, decisiones) | [[R03 - Disenar y publicar un flujo]] y el cerebro `tema: flujos` | `crear_flujo`, `agregar_nodo`, `publicar_flujo` |
+| Crear un formulario (encuesta, solicitud, cotizador...) | [[R04 - Crear un formulario completo]] y el cerebro `tema: formularios` (reglas y comportamiento) | `describe_components`, `apply_form_spec`, `activate` |
 | Crear una base de datos propia (tablas, columnas) | [[R05 - Crear un contenedor de datos]] | `crear_contenedor_datos`, `agregar_tabla` |
 | Traer datos de una API o ERP automaticamente | [[R06 - Conector API e importacion programada]] | `guardar_conector`, `guardar_programacion_importacion` |
 | Hacer reportes, graficas, KPIs, tableros de indicadores | [[R07 - Crear reportes e indicadores]] | `crear_reporte`, `agregar_indicador` |
@@ -93,7 +103,7 @@ Como conectarlos: [[01 - Conectar los MCP]].
 - [[T04 - Drones de extraccion web]] - [[T05 - Contenedores de datos]] - [[T06 - Agentes de IA]]
 - [[T07 - Clasificacion y datos masivos con IA]] - [[T08 - Reportes e indicadores]] - [[T09 - Formularios dinamicos]]
 - [[M01 - MCP Maquetas]] - [[W01 - MCP WhatsApp por linea]]
-- [[Indice de herramientas (A-Z)]] - las 217 herramientas con su modulo.
+- [[Indice de herramientas (A-Z)]] - las 285 herramientas con su modulo.
 
 **Para el cliente (opcional)**: [[Plantilla CLAUDE.md para el cliente]] - bloque para el CLAUDE.md de la IA del
 cliente que refuerza el habito de consultar esta guia.

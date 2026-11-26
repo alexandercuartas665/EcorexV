@@ -62,6 +62,40 @@ public class FormAuthoringGuardTests
         Assert.Equal("concepto_honorarios", req.FieldCode);  // field_code intacto
     }
 
+    // REGRESION ADR-0211: el PATCH de update_question tambien conserva lo que el esquema no edita (bloqueado/oculto,
+    // subformulario, cascada, permisos por rol, default dinamico, caption/numeral/gridcol). Antes quedaban en blanco.
+    [Fact]
+    public void Update_parcial_conserva_bloqueo_subform_cascada_permisos_y_default_dinamico()
+    {
+        var sub = Guid.NewGuid();
+        var cur = new FormQuestionDto(
+            Id: Guid.NewGuid(), ContainerId: Guid.NewGuid(), FieldCode: "total", Label: "Total",
+            Caption: "Cap", HelpText: null, ControlType: FormControlType.Number, OptionsJson: null,
+            Required: true, SortOrder: 0, GridCol: "col-md-4", Numeral: "1.2", ValidationJson: null, Width: 4,
+            IsLocked: true, IsHidden: true, SubformDefinitionId: sub, DefaultDynamic: FormDefaultDynamic.Today,
+            FieldVisibilityJson: "{\"r\":1}", CascadeConfigJson: "{\"c\":1}");
+        var args = JsonDocument.Parse("{\"question_id\":\"" + cur.Id + "\",\"label\":\"Total a pagar\"}").RootElement;
+
+        var req = FormAuthoringToolset.BuildQuestionRequest(args, cur);
+
+        Assert.Equal("Total a pagar", req.Label);
+        Assert.True(req.IsLocked);
+        Assert.True(req.IsHidden);
+        Assert.Equal(sub, req.SubformDefinitionId);
+        Assert.Equal(FormDefaultDynamic.Today, req.DefaultDynamic);
+        Assert.Equal("{\"r\":1}", req.FieldVisibilityJson);
+        Assert.Equal("{\"c\":1}", req.CascadeConfigJson);
+        Assert.Equal("Cap", req.Caption);
+        Assert.Equal("1.2", req.Numeral);
+        Assert.Equal("col-md-4", req.GridCol);
+
+        // is_locked / is_hidden explicitos SI se aplican.
+        var unlock = JsonDocument.Parse("{\"is_locked\":false,\"is_hidden\":false}").RootElement;
+        var req2 = FormAuthoringToolset.BuildQuestionRequest(unlock, cur);
+        Assert.False(req2.IsLocked);
+        Assert.False(req2.IsHidden);
+    }
+
     // REGRESION (seguridad): update_container es PATCH. Renombrar una seccion debe CONSERVAR tipo, padre, ancho
     // y sobre todo allowed_cargos_json (acceso por cargo) y visible_when_json. Antes los reseteaba: la seccion
     // restringida quedaba Segment, en la raiz, a 12 y ABIERTA a todos.

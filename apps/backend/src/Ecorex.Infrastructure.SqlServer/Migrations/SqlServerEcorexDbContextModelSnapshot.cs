@@ -3361,6 +3361,11 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_mcp_guide");
 
+                    b.Property<string>("McpGuideTopic")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("mcp_guide_topic");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -10209,6 +10214,12 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasColumnType("bit")
                         .HasColumnName("is_locked");
 
+                    b.Property<bool>("IsReadOnly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_read_only");
+
                     b.Property<string>("Label")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -10257,6 +10268,10 @@ namespace Ecorex.Infrastructure.SqlServer.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)")
                         .HasColumnName("source_ref");
+
+                    b.Property<string>("StyleJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("style_json");
 
                     b.Property<Guid?>("SubformDefinitionId")
                         .HasColumnType("uniqueidentifier")

@@ -92,6 +92,54 @@ public abstract class DynamicFormsTestsBase
 
     // ---- (2) Validacion servidor en el submit ----
 
+    // ---- Renombrar el nombre interno con cascada (simulacion sin efecto + aplicar) ----
+
+    [Fact]
+    public async Task RenameFieldCode_SimulatesThenRewritesResponsesAndReferences()
+    {
+        var seed = await SeedTenantAsync("Forms Rename");
+        await using var ctx = _fixture.CreateContext(seed.TenantId);
+        var definitions = BuildDefinitionService(ctx, seed);
+        var responses = BuildResponseService(ctx, seed);
+
+        var definition = await BuildDemoDefinitionAsync(definitions);
+        var doble = await definitions.AddQuestionAsync(definition.Id, new SaveFormQuestionRequest(
+            null, "doble", "Doble", FormControlType.Number, CalcExpression: "{cantidad} * 2",
+            VisibleWhenJson: """{"field":"cantidad","op":"notEmpty"}""",
+            IsReadOnly: true, StyleJson: """{"valueBold":true,"boxBg":"#FFEEDD","labelColor":"x;y"}"""));
+        Assert.True(doble.IsOk, doble.Error);
+        Assert.True(doble.Value!.IsReadOnly);
+        Assert.Equal("""{"boxBg":"#ffeedd","valueBold":true}""", doble.Value.StyleJson);
+
+        var draft = await responses.GetOrCreateDraftAsync(definition.Id, "REF-REN");
+        Assert.True(draft.IsOk, draft.Error);
+        Assert.True((await responses.SaveAsync(draft.Value!.Id, ValidDocument(), submit: false, seed.TenantUserId)).IsOk);
+        var cantidadId = definition.Questions.Single(q => q.FieldCode == "cantidad").Id;
+
+        // Nombre ya usado: invalido.
+        Assert.Equal(FormServiceStatus.Invalid, (await definitions.RenameFieldCodeAsync(cantidadId, "nombre", apply: false)).Status);
+
+        // Simulacion: reporta y NO cambia nada.
+        var sim = await definitions.RenameFieldCodeAsync(cantidadId, "unidades", apply: false);
+        Assert.True(sim.IsOk, sim.Error);
+        Assert.False(sim.Value!.Applied);
+        Assert.Contains(sim.Value.Changes, c => c.Place == "Respuestas guardadas" && c.Count == 1);
+        Assert.Contains(sim.Value.Changes, c => c.Place == "Calculos de otros campos");
+        Assert.Equal("cantidad", (await definitions.GetQuestionAsync(cantidadId))!.FieldCode);
+
+        // Aplicar: campo, calculo, condicional y la clave de la respuesta guardada.
+        var applied = await definitions.RenameFieldCodeAsync(cantidadId, "unidades", apply: true);
+        Assert.True(applied.IsOk, applied.Error);
+        ctx.ChangeTracker.Clear();
+        Assert.Equal("unidades", (await definitions.GetQuestionAsync(cantidadId))!.FieldCode);
+        var dobleAfter = (await definitions.GetQuestionAsync(doble.Value.Id))!;
+        Assert.Equal("{unidades} * 2", dobleAfter.CalcExpression);
+        Assert.Contains("\"unidades\"", dobleAfter.VisibleWhenJson);
+        var read = await responses.GetAsync(draft.Value.Id);
+        Assert.True(read!.Data.ContainsKey("unidades"));
+        Assert.False(read.Data.ContainsKey("cantidad"));
+    }
+
     [Fact]
     public async Task Submit_WithInvalidData_ReturnsValidationErrorsPerField()
     {

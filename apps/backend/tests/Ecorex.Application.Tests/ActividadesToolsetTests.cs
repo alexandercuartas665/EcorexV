@@ -217,6 +217,7 @@ public class ActividadesToolsetTests
         public Task<FormResult<bool>> MoveContainerToAsync(Guid containerId, Guid? parentId, int index, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormQuestionDto>> AddQuestionAsync(Guid definitionId, SaveFormQuestionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<FormQuestionDto>> UpdateQuestionAsync(Guid questionId, SaveFormQuestionRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<FormResult<RenameFieldCodeReport>> RenameFieldCodeAsync(Guid questionId, string newCode, bool apply, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormQuestionDto?> GetQuestionAsync(Guid questionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormContainerDto?> GetContainerAsync(Guid containerId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<FormResult<bool>> DeleteQuestionAsync(Guid questionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

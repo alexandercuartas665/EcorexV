@@ -2,7 +2,7 @@
 tipo: referencia
 servidor: ecorex-tableros
 modulo: formularios
-herramientas: 40
+herramientas: 71
 fuente: catalogo vivo tools/list (generado)
 ---
 
@@ -24,11 +24,11 @@ Orden de trabajo recomendado:
 
 Recetas: [[R04 - Crear un formulario completo]]
 
-## Herramientas (40)
+## Herramientas (71)
 
-- **Lectura:** `describe_components`, `list_forms`, `get_form`, `verify_form`, `list_templates`, `list_data_containers`, `describe_data_container`, `list_tercero_fields`, `list_org_units`, `list_activity_types`, `export_form`, `get_render_urls`
-- **Escritura:** `apply_form_spec`, `create_form`, `import_form`, `update_form_header`, `add_container`, `update_container`, `move_container`, `add_question`, `update_question`, `move_question`, `set_transactional`, `set_sequence_next`, `set_custom_css`, `set_theme`, `set_status_ladder`, `wire_submit_task_rule`, `activate`, `deactivate`, `create_template`, `update_template`, `set_default_template`, `wire_print_button`, `wire_convert_button`, `create_share_link`, `create_record`
-- **Destructivas:** `delete_container`, `delete_question`, `archive`
+- **Lectura:** `describe_components`, `list_forms`, `get_form`, `verify_form`, `list_templates`, `list_data_containers`, `describe_data_container`, `list_tercero_fields`, `list_org_units`, `list_activity_types`, `export_form`, `get_render_urls`, `listar_verbos_regla`, `listar_reglas`, `ver_regla`, `historial_regla`, `reglas_de_formulario`, `listar_versiones_formulario`, `listar_enlaces_formulario`
+- **Escritura:** `apply_form_spec`, `create_form`, `import_form`, `update_form_header`, `add_container`, `update_container`, `move_container`, `add_question`, `update_question`, `move_question`, `set_transactional`, `set_sequence_next`, `set_custom_css`, `set_theme`, `set_status_ladder`, `wire_submit_task_rule`, `activate`, `deactivate`, `create_template`, `update_template`, `set_default_template`, `wire_print_button`, `wire_convert_button`, `create_share_link`, `create_record`, `crear_regla`, `parametros_regla`, `estado_regla`, `renombrar_regla`, `regla_al_enviar`, `regla_en_campo`, `parametros_regla_en_campo`, `condicion_entre_campos`, `ocultar_barra_envio`, `formulario_reportable`, `codigo_automatico_formulario`, `registro_editable`, `cierre_automatico_formulario`, `guardar_version_formulario`, `campo_bloqueado`, `campo_oculto`, `valor_por_defecto_dinamico`, `permisos_campo_por_rol`, `subformulario_de_campo`
+- **Destructivas:** `delete_container`, `delete_question`, `archive`, `eliminar_regla`, `quitar_regla_al_enviar`, `quitar_regla_de_campo`, `restaurar_version_formulario`, `revocar_enlace_formulario`
 
 ### `describe_components`
 
@@ -542,6 +542,8 @@ Llamada minima (solo obligatorios):
 | `format` | string |  |  |
 | `validation_json` | string |  |  |
 | `visible_when_json` | string |  | Muestra/oculta el campo segun otra pregunta {"field":"codigo","op":"equals/notEquals/includes/empty/notEmpty","value":"x"} |
+| `is_read_only` | boolean |  | No editable para todos (tambien en /f/): solo lo llenan default, prellenado o reglas |
+| `style_json` | string |  | Diseno del control: {labelSize,labelBold,labelItalic,labelColor,hideLabel,boxBg,borderColor,borderWidth,radius,height,align(left/center/right),marginTop,marginBottom,blockBg,valueSize,valueBold,valueColor}; colores #hex, medidas en px |
 
 Llamada minima (solo obligatorios):
 
@@ -588,6 +590,8 @@ Llamada minima (solo obligatorios):
 | `format` | string |  |  |
 | `validation_json` | string |  |  |
 | `visible_when_json` | string |  |  |
+| `is_read_only` | boolean |  | No editable para todos (tambien en /f/): solo lo llenan default, prellenado o reglas |
+| `style_json` | string |  | Diseno del control: {labelSize,labelBold,labelItalic,labelColor,hideLabel,boxBg,borderColor,borderWidth,radius,height,align(left/center/right),marginTop,marginBottom,blockBg,valueSize,valueBold,valueColor}; colores #hex, medidas en px |
 
 Llamada minima (solo obligatorios):
 
@@ -1062,6 +1066,734 @@ Llamada minima (solo obligatorios):
   "name": "get_render_urls",
   "arguments": {
     "response_id": "<response_id>"
+  }
+}
+```
+
+### `listar_verbos_regla`
+
+**Tipo:** Lectura
+
+> Catalogo de VERBOS del motor de reglas (lo que una regla puede hacer: crear tarea, pasar campos, notificar, completar paso del flujo, imprimir, convertir a otro formulario...) con sus PARAMETROS (nombre, tipo, obligatorio, opciones). Leelo antes de crear_regla o regla_al_enviar.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `buscar` | string |  |  |
+| `verbo` | string |  | Un verbo concreto (detalle completo) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "listar_verbos_regla",
+  "arguments": {}
+}
+```
+
+### `listar_reglas`
+
+**Tipo:** Lectura
+
+> Reglas del tenant (nombre, verbo, estado, documento). 'buscar' filtra por nombre, verbo o documento.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `buscar` | string |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "listar_reglas",
+  "arguments": {}
+}
+```
+
+### `ver_regla`
+
+**Tipo:** Lectura
+
+> Una regla completa: verbo, parametros, estado, donde esta vinculada (campos de formularios y nodos de flujo).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "ver_regla",
+  "arguments": {
+    "regla": "<regla>"
+  }
+}
+```
+
+### `historial_regla`
+
+**Tipo:** Lectura
+
+> Ultimas ejecuciones de una regla (estado, registros afectados, error). Sirve para verificar que corrio.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+| `limite` | integer >=1 <=100 |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "historial_regla",
+  "arguments": {
+    "regla": "<regla>"
+  }
+}
+```
+
+### `crear_regla`
+
+**Tipo:** Escritura
+
+> Crea una regla con un VERBO y sus parametros (valida que el verbo exista y los obligatorios). Con 'formulario' queda en el documento de reglas de ese formulario; si no, en 'documento' o en 'Reglas creadas por IA'. Nace ACTIVA salvo estado=desarrollo. Para que actue, vinculala: regla_en_campo (campo o boton) o agregar_regla_nodo. Para el ENVIO del formulario usa mejor regla_al_enviar.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `nombre` | string | SI |  |
+| `verbo` | string | SI |  |
+| `parametros` | object |  | Parametros del verbo (nombres de listar_verbos_regla) |
+| `formulario` | string |  | Id, codigo o titulo (ver list_forms) |
+| `documento` | string |  | Codigo o nombre de un documento de reglas existente |
+| `descripcion` | string |  |  |
+| `estado` | string (activa / desarrollo) |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "crear_regla",
+  "arguments": {
+    "nombre": "<nombre>",
+    "verbo": "<verbo>"
+  }
+}
+```
+
+### `parametros_regla`
+
+**Tipo:** Escritura
+
+> REEMPLAZA los parametros de una regla (envia el objeto completo; valida contra el verbo).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+| `parametros` | object | SI | Parametros del verbo (nombres de listar_verbos_regla) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "parametros_regla",
+  "arguments": {
+    "regla": "<regla>",
+    "parametros": {}
+  }
+}
+```
+
+### `estado_regla`
+
+**Tipo:** Escritura
+
+> activa = corre; desarrollo = solo en prueba manual; inactiva = nunca corre.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+| `estado` | string (activa / desarrollo / inactiva) | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "estado_regla",
+  "arguments": {
+    "regla": "<regla>",
+    "estado": "activa"
+  }
+}
+```
+
+### `renombrar_regla`
+
+**Tipo:** Escritura
+
+> Cambia el nombre de una regla (max 100).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+| `nombre` | string | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "renombrar_regla",
+  "arguments": {
+    "regla": "<regla>",
+    "nombre": "<nombre>"
+  }
+}
+```
+
+### `eliminar_regla`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Borra una regla y sus vinculos. Solo si nunca se ha ejecutado (si tiene historial, usa estado_regla inactiva). Confirma con el usuario.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "eliminar_regla",
+  "arguments": {
+    "regla": "<regla>"
+  }
+}
+```
+
+### `reglas_de_formulario`
+
+**Tipo:** Lectura
+
+> Todas las reglas de un formulario: las que corren AL ENVIAR y las de cada campo/boton (con sus parametros propios del vinculo, si los tiene).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "reglas_de_formulario",
+  "arguments": {
+    "formulario": "<formulario>"
+  }
+}
+```
+
+### `regla_al_enviar`
+
+**Tipo:** Escritura
+
+> Al ENVIAR el formulario se ejecuta este verbo (ej. CREAR_TAREA, NOTIFICAR, GENERAR_TAREAS_DESDE_TABLA, COMPLETAR_PASO_FLUJO). Una regla por verbo y formulario: si ya existe, actualiza nombre y parametros. Corre tambien en los enlaces publicos /f/.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `verbo` | string | SI |  |
+| `nombre` | string | SI |  |
+| `parametros` | object |  | Parametros del verbo (nombres de listar_verbos_regla) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "regla_al_enviar",
+  "arguments": {
+    "formulario": "<formulario>",
+    "verbo": "<verbo>",
+    "nombre": "<nombre>"
+  }
+}
+```
+
+### `quitar_regla_al_enviar`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Quita una regla del envio (y la borra si nunca corrio). 'regla' = nombre, id o verbo. Confirma con el usuario.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "quitar_regla_al_enviar",
+  "arguments": {
+    "formulario": "<formulario>",
+    "regla": "<regla>"
+  }
+}
+```
+
+### `regla_en_campo`
+
+**Tipo:** Escritura
+
+> Vincula una regla existente a un CAMPO (corre al cambiar su valor) o a un BOTON (corre al pulsarlo; un boton es un campo de tipo Button; agregalo con apply_form_spec). Crea la regla antes con crear_regla.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "regla_en_campo",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>",
+    "regla": "<regla>"
+  }
+}
+```
+
+### `quitar_regla_de_campo`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Desvincula una regla de un campo o boton (la regla sigue existiendo). Confirma con el usuario.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "quitar_regla_de_campo",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>",
+    "regla": "<regla>"
+  }
+}
+```
+
+### `parametros_regla_en_campo`
+
+**Tipo:** Escritura
+
+> Parametros PROPIOS de este vinculo (sobrescriben los de la regla solo en este campo/formulario; util para reusar una regla en varios formularios). Sin 'parametros' los quita.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `regla` | string | SI | Id o nombre (ver listar_reglas) |
+| `parametros` | object |  | Parametros del verbo (nombres de listar_verbos_regla) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "parametros_regla_en_campo",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>",
+    "regla": "<regla>"
+  }
+}
+```
+
+### `condicion_entre_campos`
+
+**Tipo:** Escritura
+
+> Regla de UI: si 'si_campo' cumple 'operador' ('valor'), entonces 'efecto' sobre 'campo' (ocultar, mostrar, requerir u opcional). Se evalua mientras se llena. Para solo ocultar/mostrar tambien sirve visible_when_json.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `si_campo` | string | SI |  |
+| `operador` | string (igual / distinto / vacio / no_vacio) | SI |  |
+| `valor` | string |  |  |
+| `efecto` | string (ocultar / mostrar / requerir / opcional) | SI |  |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "condicion_entre_campos",
+  "arguments": {
+    "formulario": "<formulario>",
+    "si_campo": "<si_campo>",
+    "operador": "igual",
+    "efecto": "ocultar",
+    "campo": "<campo>"
+  }
+}
+```
+
+### `ocultar_barra_envio`
+
+**Tipo:** Escritura
+
+> activo=true oculta Enviar/Imprimir/autoguardado cuando el formulario se llena dentro de la creacion de una tarea.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `activo` | boolean | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "ocultar_barra_envio",
+  "arguments": {
+    "formulario": "<formulario>",
+    "activo": true
+  }
+}
+```
+
+### `formulario_reportable`
+
+**Tipo:** Escritura
+
+> activo=true lo vuelve fuente de reportes (form:{codigo}) sin hacerlo modulo del menu.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `activo` | boolean | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "formulario_reportable",
+  "arguments": {
+    "formulario": "<formulario>",
+    "activo": true
+  }
+}
+```
+
+### `codigo_automatico_formulario`
+
+**Tipo:** Escritura
+
+> Al crear un registro llena 'campo' con iniciales del asignado + consecutivo (ancho de 1 a 12). activo=false lo quita.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `activo` | boolean | SI |  |
+| `campo` | string |  | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `ancho` | integer >=1 <=12 |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "codigo_automatico_formulario",
+  "arguments": {
+    "formulario": "<formulario>",
+    "activo": true
+  }
+}
+```
+
+### `registro_editable`
+
+**Tipo:** Escritura
+
+> activo=true: el registro queda siempre editable (autoguardado, nunca se cierra por envio).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `activo` | boolean | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "registro_editable",
+  "arguments": {
+    "formulario": "<formulario>",
+    "activo": true
+  }
+}
+```
+
+### `cierre_automatico_formulario`
+
+**Tipo:** Escritura
+
+> Al guardar, si 'campo' cumple 'operador' ('valor'), el registro se ENVIA y cierra solo (ej. al firmar). Sin 'campo' quita el cierre automatico.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string |  | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `operador` | string (no_vacio / vacio / igual / distinto / contiene) |  |  |
+| `valor` | string |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "cierre_automatico_formulario",
+  "arguments": {
+    "formulario": "<formulario>"
+  }
+}
+```
+
+### `guardar_version_formulario`
+
+**Tipo:** Escritura
+
+> Guarda una VERSION del formulario (estructura completa) para poder volver a ella. Hazlo antes de cambios grandes.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `nombre` | string |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "guardar_version_formulario",
+  "arguments": {
+    "formulario": "<formulario>"
+  }
+}
+```
+
+### `listar_versiones_formulario`
+
+**Tipo:** Lectura
+
+> Versiones guardadas del formulario (id, nombre, fecha).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "listar_versiones_formulario",
+  "arguments": {
+    "formulario": "<formulario>"
+  }
+}
+```
+
+### `restaurar_version_formulario`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Vuelve el formulario a una version guardada ('version' = id de listar_versiones_formulario). Reemplaza la estructura actual: guarda una version antes y confirma con el usuario.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `version` | string | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "restaurar_version_formulario",
+  "arguments": {
+    "formulario": "<formulario>",
+    "version": "<version>"
+  }
+}
+```
+
+### `listar_enlaces_formulario`
+
+**Tipo:** Lectura
+
+> Enlaces publicos emitidos del formulario (create_share_link): vigencia, uso unico, usado, revocado.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "listar_enlaces_formulario",
+  "arguments": {
+    "formulario": "<formulario>"
+  }
+}
+```
+
+### `revocar_enlace_formulario`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Revoca un enlace publico ('enlace' = id de listar_enlaces_formulario): deja de abrir. Confirma con el usuario.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `enlace` | string | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "revocar_enlace_formulario",
+  "arguments": {
+    "formulario": "<formulario>",
+    "enlace": "<enlace>"
+  }
+}
+```
+
+### `campo_bloqueado`
+
+**Tipo:** Escritura
+
+> activo=true: el campo se ve pero NO se puede editar (solo lectura para todos).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `activo` | boolean | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "campo_bloqueado",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>",
+    "activo": true
+  }
+}
+```
+
+### `campo_oculto`
+
+**Tipo:** Escritura
+
+> activo=true: el campo existe y guarda valor pero no se muestra (util para calculos o datos que pone una regla).
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `activo` | boolean | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "campo_oculto",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>",
+    "activo": true
+  }
+}
+```
+
+### `valor_por_defecto_dinamico`
+
+**Tipo:** Escritura
+
+> Valor inicial que se calcula al abrir: hoy, usuario_actual, entidad_actual, usuario_asignado; ninguno lo quita.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `valor` | string (ninguno / hoy / usuario_actual / entidad_actual / usuario_asignado) | SI |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "valor_por_defecto_dinamico",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>",
+    "valor": "ninguno"
+  }
+}
+```
+
+### `permisos_campo_por_rol`
+
+**Tipo:** Escritura
+
+> Por ROL del usuario: 'ocultar_a' = roles que no lo ven; 'solo_lectura_a' = roles que lo ven sin editar. Roles: Owner, Admin, Supervisor, Advisor. Listas vacias = sin restriccion. Reemplaza lo anterior.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `ocultar_a` | array de string |  |  |
+| `solo_lectura_a` | array de string |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "permisos_campo_por_rol",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>"
+  }
+}
+```
+
+### `subformulario_de_campo`
+
+**Tipo:** Escritura
+
+> En un campo de tipo Subform: el formulario HIJO (maestro-detalle) que se llena dentro. Sin 'subformulario' lo quita.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `subformulario` | string |  | Formulario hijo (id, codigo o titulo) |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "subformulario_de_campo",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>"
   }
 }
 ```

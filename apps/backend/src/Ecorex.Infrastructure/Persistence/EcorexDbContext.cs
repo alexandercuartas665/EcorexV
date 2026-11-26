@@ -1905,6 +1905,9 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.VisibleWhenJson).HasColumnType(jsonColumnType);
             // Configurador en cascada (config-driven): aditiva, nullable, tipo dual (jsonb / nvarchar(max)).
             b.Property(x => x.CascadeConfigJson).HasColumnType(jsonColumnType);
+            // No editable para todos + diseno por control. Aditivas (bool con default false, JSON nullable).
+            b.Property(x => x.IsReadOnly).HasDefaultValue(false);
+            b.Property(x => x.StyleJson).HasColumnType(jsonColumnType);
             b.HasOne(x => x.Definition).WithMany()
                 .HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
             // NO ACTION hacia el contenedor: evita la doble ruta de cascada en SQL Server
@@ -4153,6 +4156,7 @@ public class EcorexDbContext : DbContext, IApplicationDbContext, IScopedDbContex
             b.Property(x => x.CategoryColor).HasMaxLength(9);
             b.Property(x => x.TargetMode).HasMaxLength(10).IsRequired();
             b.Property(x => x.IsMcpGuide).HasDefaultValue(false);
+            b.Property(x => x.McpGuideTopic).HasMaxLength(40);
         });
         modelBuilder.Entity<BrainTemplateNote>(b =>
         {

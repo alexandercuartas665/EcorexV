@@ -153,18 +153,18 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
             case DireccionarFuentes.Aprobado:
                 return "true";
             case DireccionarFuentes.Usuario:
-            {
-                if (context.ExecutedByTenantUserId is not Guid uid) { return null; }
-                if (string.Equals(target, "asignado", StringComparison.OrdinalIgnoreCase)) { return uid.ToString(); }
-                var u = (await _users.ListAsync(ct)).FirstOrDefault(x => x.Id == uid);
-                if (u is null) { return null; }
-                return string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName!.Trim();
-            }
+                {
+                    if (context.ExecutedByTenantUserId is not Guid uid) { return null; }
+                    if (string.Equals(target, "asignado", StringComparison.OrdinalIgnoreCase)) { return uid.ToString(); }
+                    var u = (await _users.ListAsync(ct)).FirstOrDefault(x => x.Id == uid);
+                    if (u is null) { return null; }
+                    return string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName!.Trim();
+                }
             case DireccionarFuentes.FechaHora:
-            {
-                var tz = await _zona.ObtenerAsync(ct);
-                return TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, tz).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-            }
+                {
+                    var tz = await _zona.ObtenerAsync(ct);
+                    return TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, tz).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+                }
             default:
                 return null;   // origen desconocido (version futura): no se escribe
         }

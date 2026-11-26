@@ -659,3 +659,24 @@
 }
 .dfr-aicompose-label { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3, #6b7280); margin-bottom: 3px; }
 .dfr-aicompose-val { font-size: .86rem; color: var(--ink, #1b1b1e); white-space: pre-wrap; }
+
+/* ===== Diseno POR CONTROL (FormQuestion.StyleJson -> FormFieldStyle) =====
+   El bloque del campo recibe clases bandera (fs-*) + variables CSS (--fs-*) ya saneadas; cada regla
+   solo aplica lo configurado y el resto queda con el estilo del tema. ::deep porque .form-control y los
+   controles de lookup/hijos no llevan el atributo de alcance de este componente. */
+.dfr-fs.fs-lsize ::deep .dfr-label, .dfr-fs.fs-lsize ::deep .dfr-heading { font-size: var(--fs-l-size); }
+.dfr-fs.fs-lbold ::deep .dfr-label, .dfr-fs.fs-lbold ::deep .dfr-heading { font-weight: 800; }
+.dfr-fs.fs-litalic ::deep .dfr-label, .dfr-fs.fs-litalic ::deep .dfr-heading { font-style: italic; }
+.dfr-fs.fs-lcolor ::deep .dfr-label, .dfr-fs.fs-lcolor ::deep .dfr-heading { color: var(--fs-l-color); }
+.dfr-fs.fs-nolabel ::deep .dfr-label { display: none; }
+.dfr-fs.fs-bg ::deep .form-control { background-color: var(--fs-bg); }
+.dfr-fs.fs-bd ::deep .form-control { border-style: solid; border-color: var(--fs-bd-color, #D9D9DE); border-width: var(--fs-bd-w, 1px); }
+.dfr-fs.fs-rad ::deep .form-control { border-radius: var(--fs-rad); }
+.dfr-fs.fs-h ::deep .form-control { height: var(--fs-h); min-height: var(--fs-h); }
+.dfr-fs.fs-align ::deep .form-control { text-align: var(--fs-align); }
+.dfr-fs.fs-block { background: var(--fs-block-bg); border-radius: 8px; padding-top: 8px; padding-bottom: 8px; }
+.dfr-fs.fs-vsize ::deep .form-control { font-size: var(--fs-v-size); }
+.dfr-fs.fs-vbold ::deep .form-control { font-weight: 700; }
+.dfr-fs.fs-vcolor ::deep .form-control { color: var(--fs-v-color); }
+.dfr-fs.fs-vsize ::deep input[type=checkbox], .dfr-fs.fs-vsize ::deep input[type=radio] { width: var(--fs-v-size); height: var(--fs-v-size); }
+.dfr-fs.fs-vcolor ::deep input[type=checkbox], .dfr-fs.fs-vcolor ::deep input[type=radio] { accent-color: var(--fs-v-color); }

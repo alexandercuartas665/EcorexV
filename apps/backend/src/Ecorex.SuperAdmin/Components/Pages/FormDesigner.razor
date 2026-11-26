@@ -3003,6 +3003,12 @@ else
             <div style="margin-top:2px;">
                 @RenderToggleRow("Fijo en el layout", "No se puede reordenar", node.Locked, () => ToggleLockAsync(node))
                 @RenderToggleRow("Oculto", "No visible en el formulario", node.Hidden, () => ToggleHideAsync(node))
+                @* No editable (ADR-0212): va junto a Fijo/Oculto en Diseno, donde se busca; antes estaba escondido en Datos. *@
+                @if (node.IsQuestion)
+                {
+                    @RenderToggleRow("No editable", "Se ve pero nadie lo puede cambiar (tampoco en /f/); el valor llega por defecto, prellenado o reglas",
+                        node.Q!.IsReadOnly, () => PatchQuestionAsync(node.Q!, r => r with { IsReadOnly = !node.Q!.IsReadOnly }))
+                }
                 @* Etiquetas en linea: solo aplica a grupos Row/Col (label al frente del valor). *@
                 @if (node.IsContainer && node.C!.ContainerType is FormContainerType.Row or FormContainerType.Col)
                 {
@@ -4275,11 +4281,6 @@ else
                     <div class="fb-hint">En campos de texto, la mascara reformatea al perder el foco.</div>
                 </div>
             }
-            <div class="fb-field">
-                <label class="pl-toggle"><input type="checkbox" checked="@node.Q!.IsReadOnly"
-                    @onchange="@(e => PatchQuestionAsync(node.Q!, r => r with { IsReadOnly = (bool)e.Value! }))" /> No editable (solo lectura para todos)</label>
-                <div class="fb-hint">Se ve pero nadie lo puede cambiar, tampoco en el formulario publico (/f/). El valor lo ponen el valor por defecto, el prellenado o las reglas. Si es obligatorio, asegurate de que siempre llegue con valor.</div>
-            </div>
             <div class="fb-field">
                 <label>Ocultar para roles</label>
                 <div class="fb-chkgrid">

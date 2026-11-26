@@ -5,6 +5,7 @@ using Ecorex.Application.Reporting.Sources;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
 using Ecorex.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ecorex.Integration.Tests;
 
@@ -44,6 +45,61 @@ public abstract class AnalisisSourcesTestsBase
         Assert.Single(nit.Rows);
         Assert.Equal("ACME Industrial", nit.Rows[0][0]);
         Assert.Equal("Cliente, Proveedor", nit.Rows[0][2]);
+    }
+
+    /// <summary>
+    /// Ultima actualizacion del contacto: "Actualizado" (UpdatedAt), "Mes de actualizacion" en la zona del tenant y
+    /// "Actualizado por" resuelto al NOMBRE tanto si UpdatedBy trae el id de PLATAFORMA (lo que sella el interceptor
+    /// de auditoria) como el del TenantUser. Un id ajeno al tenant o un guardado sin usuario quedan en blanco.
+    /// </summary>
+    [Fact]
+    public async Task Tercero_UltimaActualizacion_ResuelveAutorPorIdDePlataformaOTenantUser()
+    {
+        var s = await SeedAsync("Analisis Actualizado");
+        await using (var ctx = _fixture.CreateContext(s.TenantId))
+        {
+            var tu = ctx.TenantUsers.Single();
+            ctx.PlatformUsers.Single(p => p.Id == tu.PlatformUserId).DisplayName = "Ana Comercial";
+            ctx.Terceros.Add(new Tercero { TenantId = s.TenantId, Nombre = "Ajeno", Tipo = TerceroTipo.Persona });
+            ctx.Terceros.Add(new Tercero { TenantId = s.TenantId, Nombre = "Sin tocar", Tipo = TerceroTipo.Persona });
+            await ctx.SaveChangesAsync();
+            // ExecuteUpdate (sin interceptor) para fijar fecha y autor exactos.
+            var nov = new DateTimeOffset(2026, 11, 20, 15, 0, 0, TimeSpan.Zero);
+            var oct = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+            await ctx.Terceros.Where(t => t.Nombre == "ACME Industrial")
+                .ExecuteUpdateAsync(x => x.SetProperty(t => t.UpdatedAt, nov).SetProperty(t => t.UpdatedBy, tu.PlatformUserId));
+            await ctx.Terceros.Where(t => t.Nombre == "ACME Industrial contacto")
+                .ExecuteUpdateAsync(x => x.SetProperty(t => t.UpdatedAt, oct).SetProperty(t => t.UpdatedBy, tu.Id));
+            await ctx.Terceros.Where(t => t.Nombre == "Ajeno")
+                .ExecuteUpdateAsync(x => x.SetProperty(t => t.UpdatedAt, oct).SetProperty(t => t.UpdatedBy, Guid.NewGuid()));
+            await ctx.Terceros.Where(t => t.Nombre == "Sin tocar")
+                .ExecuteUpdateAsync(x => x.SetProperty(t => t.UpdatedAt, (DateTimeOffset?)null).SetProperty(t => t.UpdatedBy, (Guid?)null));
+        }
+
+        var ds = await QueryAsync(s.TenantId, new ReportQuerySpec
+        {
+            SourceKey = TerceroReportSource.SourceKey,
+            Fields = new[] { "Nombre", "UpdatedByName", "ActualizadoMes", "UpdatedAt" }
+        });
+        var byName = ds.Rows.ToDictionary(r => (string)r[0]!, r => r);
+        Assert.Equal("Ana Comercial", byName["ACME Industrial"][1]);
+        Assert.Equal("2026-11", byName["ACME Industrial"][2]);
+        Assert.Equal("Ana Comercial", byName["ACME Industrial contacto"][1]);
+        Assert.Equal("2026-10", byName["ACME Industrial contacto"][2]);
+        Assert.Null(byName["Ajeno"][1]);
+        Assert.Null(byName["Sin tocar"][1]);
+        Assert.Null(byName["Sin tocar"][2]);
+        Assert.Null(byName["Sin tocar"][3]);
+
+        // Agrupacion por autor (widget "Actualizaciones por usuario").
+        var porAutor = await QueryAsync(s.TenantId, new ReportQuerySpec
+        {
+            SourceKey = TerceroReportSource.SourceKey,
+            GroupBy = new[] { "UpdatedByName" },
+            Filters = new[] { ReportFilter.Eq("UpdatedByName", "Ana Comercial") },
+            Aggregates = new[] { new ReportAggregate(string.Empty, ReportAggregateFunction.Count) }
+        });
+        Assert.Equal(2L, Convert.ToInt64(Assert.Single(porAutor.Rows)[1]));
     }
 
     /// <summary>

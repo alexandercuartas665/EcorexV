@@ -198,3 +198,17 @@ filtro puede RE-CONSULTAR el dataset con esos parametros al cambiarlos.
   daterange sobre una fuente externa NO produce errores; un queryParam sobre una fuente NO externa se
   reporta; falta de `param`/`field` se reporta; fuente/campo de opciones inexistente se reporta; round-trip
   preserva los campos nuevos (queryParam/multi/param/paramTo/options).
+
+## Adenda 2026-11-26 (v0.16.405): orden de la tabla por columna (OrderBy / OrderDir)
+
+- El widget `table` acepta `OrderBy` (Label o Field de una de sus columnas, directa o agregada; gana el
+  Label, sin distinguir mayusculas) y `OrderDir` (asc | desc, desc por defecto).
+- Compara por tipo: Format date/datetime = fecha; money/moneyM/percent/int = numero; sin Format se infiere
+  de los datos (agregada o todo numerico = numero; todo fecha = fecha; si no, texto con cultura es-CO sin
+  mayusculas). Los vacios quedan siempre al final.
+- El orden se aplica ANTES de TopN (TopN 300 + OrderBy fecha desc = las 300 mas recientes).
+- Compatible: sin OrderBy (o con uno que no coincide) se conserva el orden de siempre (primera agregada desc).
+  El validador reporta un OrderBy que no es columna del widget y un OrderDir distinto de asc/desc.
+- Caso que lo motivo: reporte "Directorio - ultimas actualizaciones" (native:tercero, columna Actualizado).
+- Pruebas: `PanelTableOrderByTests` (fecha desc/asc, numero, texto, agregada, antes de TopN, inexistente,
+  validador).

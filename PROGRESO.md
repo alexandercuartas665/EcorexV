@@ -2,6 +2,34 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Paneles: la tabla se ordena por cualquier columna (OrderBy/OrderDir) - v0.16.405 (rama feat/panel-tabla-orderby)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes.
+- **Hecho**: PanelWidget gana OrderBy (Label o Field de una columna, directa o agregada) y OrderDir (asc|desc, desc por defecto). PanelDataEngine.TableRows ordena por tipo (Format date/datetime = fecha, money/moneyM/percent/int = numero; sin Format se infiere de los datos), vacios al final, ANTES de TopN. Sin OrderBy no cambia nada (primera agregada desc). PanelSpecValidator reporta OrderBy que no es columna y OrderDir invalido. SpecPanelRenderer pasa los dos valores. Adenda en ADR-0066.
+- **Gates**: build Release 0 errores, format ok, Application (incl. PanelTableOrderByTests nuevos), SuperAdmin.
+- **Siguiente**: la sesion de reportes pone OrderBy "Actualizado" desc + TopN 300 en la tabla de "Directorio - ultimas actualizaciones" (AGRO) tras el deploy.
+
+## 2026-11-26 - Formularios: interruptor "No editable" visible en la pestana Diseno - v0.16.404 (rama feat/form-noeditable-en-diseno)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Solo UI del FormDesigner.
+- **Hecho**: el usuario no encontraba "No editable" (ADR-0212): estaba a mitad de la pestana Datos. Se movio a Diseno como fila de interruptor junto a "Fijo en el layout" y "Oculto". Validado en local (AGRO, 5236): se ve, alterna y persiste al recargar.
+- **Descartado**: 832ccef5 (feat/autorizacion-tarjeta-actividad, presentacion "Autocompletar o texto libre") NO se integro por decision del usuario: duplica la casilla "Permitir texto libre" (FormLookupFreeText) que esta en prod desde v0.16.396 y chocaba en DynamicFormRenderer. Avisado ECOREX.compras.
+- **Gates**: build Release 0 errores, format ok, SuperAdmin.Tests.
+
+## 2026-11-26 - Directorio: ultimas actualizaciones (quien y cuando) en native:tercero - v0.16.403 (rama feat/directorio-actualizado-por)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Encargo de la sesion de reportes ("Directorio - ultimas actualizaciones").
+- **Hecho (tarea 1)**: native:tercero expone UpdatedAt "Actualizado" (Date), ActualizadoMes "Mes de actualizacion" (zona del tenant) y UpdatedByName "Actualizado por". Nuevo ReportLookups.AuditUsersAsync: resuelve el autor por id de PLATAFORMA (lo que sella el AuditableTenantInterceptor) o de TenantUser, solo usuarios del tenant; sin usuario queda en blanco.
+- **Diagnostico (tarea 2, sin cambio de codigo)**: el interceptor YA pone UpdatedBy en cada guardado con el usuario de la cookie (UI) o el actor del MCP (Begin(tenant, PlatformUserId)); verificado en local (8/8 ediciones de UI con usuario). Los updated_by vacios vienen de procesos de FONDO que fijan solo el tenant (AmbientTenantContext.Begin(tenantId) sin usuario: importaciones, agentes, dron, webhooks, llenados masivos como la clasificacion de sector AGRO del 2026-11-20) y del historico (1205 filas AGRO "actualizadas" en jul-2026 por un proceso masivo). OJO: updated_by guarda el id de PLATAFORMA, no el de TenantUser (por eso el lookup nuevo).
+- **Gates**: build Release 0 errores, format ok, Application 1846, SuperAdmin 334, integracion dual AnalisisSources/Libros 52/52 (incl. Tercero_UltimaActualizacion nuevo).
+- **Siguiente**: la sesion de reportes arma el reporte como DATO tras el deploy.
+
+## 2026-11-26 - MCP de formularios sobre ADR-0212 (campo_bloqueado -> IsReadOnly, diseno_campo, renombrar_campo) - v0.16.402 (rama feat/mcp-terminar-tarea)
+
+Agente: ECOREX.mcp (rama) + ECOREX.desarrollo (integracion). SIN migracion. Catalogo MCP tableros 232 -> 234.
+- **Hecho**: ver la entrada de ECOREX.mcp abajo.
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de 06658fb1 sobre v0.16.401; conflicto solo en PROGRESO (se conservan ambas entradas).
+
 ## 2026-11-26 - MCP: campo no editable, diseno por control y renombrar en cascada sobre ADR-0212 (rama feat/mcp-terminar-tarea, SIN desplegar)
 
 Agente: ECOREX.mcp (Claude Code). SIN migracion (usa las columnas de v0.16.400). Aviso de ECOREX.desarrollo.
@@ -10,6 +38,12 @@ Agente: ECOREX.mcp (Claude Code). SIN migracion (usa las columnas de v0.16.400).
 - **Cerebros**: formularios: FO12 nueva (diseno visual), FO01/FO08/FO09/FO10/LEEME actualizadas, FO11 regenerada (33); general: 04 Trampas corregida y T09 regenerada del catalogo vivo v0.16.400 (is_read_only, style_json). Vaults PROBLEMAS: 0.
 - **Gates**: build 0 errores; integracion dual McpTablerosTests + FormAuthoring 58/58; Application Mcp/Form 512/512; dotnet format ok.
 - **Siguiente**: integrar + deploy (OK del usuario); luego regenerar T09 (entran diseno_campo y renombrar_campo) y republicar cerebro de formularios y guia general.
+
+## 2026-11-26 - Conciliador: Direccionar compra devuelve aprobado, usuario y fecha-hora del clic - v0.16.401 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes/compras (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: DIRECCIONAR_CONCILIADOR acepta origenes "del clic" (sys:aprobado, sys:usuario, sys:fecha_hora en zona del tenant) y el destino nativo "aprobada" (toggle APROBADA, queda manual); opciones en el modal de la regla del FormDesigner y en "Configuracion de salida" del conciliador (catalogo compartido DireccionarFuentes). Detalle en la entrada de la rama (abajo).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de 50e2c4ab sobre v0.16.400; sin conflictos.
 
 ## 2026-11-26 - Formularios: campo no editable, diseno por control y renombrado del nombre interno en cascada - v0.16.400 (rama feat/form-control-noeditable-estilo, ADR-0212)
 
@@ -166,6 +200,7 @@ Agente: ECOREX.agentes (Claude Opus 5.5), pedido del usuario. SIN migracion, SIN
 - FIX circuito caido ("A second operation was started on this context"): el autosave de 3 s del formulario chocaba con las lecturas de la pagina (SelectAsync/GetSolicitadaAsync) sobre el DbContext scoped; muerto el circuito, "Crear tarea" no hacia nada y la tarea no llegaba al conciliador. Toda operacion de BD de la pagina pasa ahora por el MISMO turno de los renderers (CircuitFormGate, helper EnTurnoAsync). Validado: 10 cambios rapidos de factura con formulario montado, 0 errores en el log.
 - OC como lista: (1) DIRECCIONAR_CONCILIADOR envia el TEXTO visible de un campo lista (Contenedor/Tercero/Item, su DisplayField) y no el id de la fila; (2) filtro en cascada desde un campo de TEXTO (el renderer usa su valor tal cual) + la creacion de la tarea prellena `nit_proveedor` con el NIT de la factura -> la OC se filtra por PROVEEDOR. CONFIG en PROD (OK del usuario, 2026-11-25): form AUT-COMPRA-001-2 campo `rut` "Orden de Compra" = lista DIAN_CONCILIADOR.ORDENES_COMPRA (DOCUMENTO, Autocomplete, cascada PROVEEDOR<-nit_proveedor) + campo oculto `nit_proveedor`; respaldo en scratchpad. Local: contenedor copiado de prod + mismo form + mapeo rut->oc (solo local). Validado: busqueda OMP00115 y filtro por NIT 890110294 (14 de sus 57 OC).
 - FIX modal "Configurar regla Direccionar compra" (FormDesigner) no guardaba: leia el mapeo de la SALIDA del formulario pero `SetDireccionarAsync` escribia la clave legacy compartida. Ahora, si el form pertenece a una salida, actualiza DireEnabled/DireMaps de esa salida (+ cableado boton/regla). Validado local: quitar y reagregar rut->oc persiste y se ve al reabrir.
+- Direccionar compra devuelve datos "del clic" (DireccionarFuentes): origenes `sys:aprobado` (true), `sys:usuario` (nombre de quien pulso; su id si el destino es "asignado") y `sys:fecha_hora` (zona del tenant, yyyy-MM-dd HH:mm) + destino nativo `aprobada` (toggle APROBADA, queda manual). En el modal de la regla y en "Configuracion de salida" del conciliador. Sin migracion. Validado local con clic real (T00070): APROBADA=si, columna Bool true, APROBADO POR=nombre, FECHA APROBACION=hora Bogota. Columnas sugeridas: "Solo lectura".
 - **Siguiente**: dev principal une con version libre y despliega con OK.
 
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)

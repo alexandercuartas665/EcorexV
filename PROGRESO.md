@@ -2,6 +2,12 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Conciliador: Direccionar compra devuelve aprobado, usuario y fecha-hora del clic - v0.16.401 (rama feat/autorizacion-tarjeta-actividad)
+
+Agente: ECOREX.agentes/compras (rama) + ECOREX.desarrollo (integracion). SIN migracion.
+- **Hecho**: DIRECCIONAR_CONCILIADOR acepta origenes "del clic" (sys:aprobado, sys:usuario, sys:fecha_hora en zona del tenant) y el destino nativo "aprobada" (toggle APROBADA, queda manual); opciones en el modal de la regla del FormDesigner y en "Configuracion de salida" del conciliador (catalogo compartido DireccionarFuentes). Detalle en la entrada de la rama (abajo).
+- **Integracion (ECOREX.desarrollo)**: merge --no-ff de 50e2c4ab sobre v0.16.400; sin conflictos.
+
 ## 2026-11-26 - Formularios: campo no editable, diseno por control y renombrado del nombre interno en cascada - v0.16.400 (rama feat/form-control-noeditable-estilo, ADR-0212)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion dual aditiva AddFormQuestionReadOnlyStyle (is_read_only bool default false + style_json json nullable). Desplegada con OK del usuario.
@@ -150,6 +156,7 @@ Agente: ECOREX.agentes (Claude Opus 5.5), pedido del usuario. SIN migracion, SIN
 - FIX circuito caido ("A second operation was started on this context"): el autosave de 3 s del formulario chocaba con las lecturas de la pagina (SelectAsync/GetSolicitadaAsync) sobre el DbContext scoped; muerto el circuito, "Crear tarea" no hacia nada y la tarea no llegaba al conciliador. Toda operacion de BD de la pagina pasa ahora por el MISMO turno de los renderers (CircuitFormGate, helper EnTurnoAsync). Validado: 10 cambios rapidos de factura con formulario montado, 0 errores en el log.
 - OC como lista: (1) DIRECCIONAR_CONCILIADOR envia el TEXTO visible de un campo lista (Contenedor/Tercero/Item, su DisplayField) y no el id de la fila; (2) filtro en cascada desde un campo de TEXTO (el renderer usa su valor tal cual) + la creacion de la tarea prellena `nit_proveedor` con el NIT de la factura -> la OC se filtra por PROVEEDOR. CONFIG en PROD (OK del usuario, 2026-11-25): form AUT-COMPRA-001-2 campo `rut` "Orden de Compra" = lista DIAN_CONCILIADOR.ORDENES_COMPRA (DOCUMENTO, Autocomplete, cascada PROVEEDOR<-nit_proveedor) + campo oculto `nit_proveedor`; respaldo en scratchpad. Local: contenedor copiado de prod + mismo form + mapeo rut->oc (solo local). Validado: busqueda OMP00115 y filtro por NIT 890110294 (14 de sus 57 OC).
 - FIX modal "Configurar regla Direccionar compra" (FormDesigner) no guardaba: leia el mapeo de la SALIDA del formulario pero `SetDireccionarAsync` escribia la clave legacy compartida. Ahora, si el form pertenece a una salida, actualiza DireEnabled/DireMaps de esa salida (+ cableado boton/regla). Validado local: quitar y reagregar rut->oc persiste y se ve al reabrir.
+- Direccionar compra devuelve datos "del clic" (DireccionarFuentes): origenes `sys:aprobado` (true), `sys:usuario` (nombre de quien pulso; su id si el destino es "asignado") y `sys:fecha_hora` (zona del tenant, yyyy-MM-dd HH:mm) + destino nativo `aprobada` (toggle APROBADA, queda manual). En el modal de la regla y en "Configuracion de salida" del conciliador. Sin migracion. Validado local con clic real (T00070): APROBADA=si, columna Bool true, APROBADO POR=nombre, FECHA APROBACION=hora Bogota. Columnas sugeridas: "Solo lectura".
 - **Siguiente**: dev principal une con version libre y despliega con OK.
 
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)

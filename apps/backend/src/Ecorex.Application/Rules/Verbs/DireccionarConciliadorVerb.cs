@@ -1,6 +1,9 @@
+using System.Globalization;
+using Ecorex.Application.Analisis;
 using Ecorex.Application.Automatizaciones.ConciliacionDian;
 using Ecorex.Application.Forms;
 using Ecorex.Application.Forms.Lookups;
+using Ecorex.Application.Tenancy;
 using Ecorex.Domain.Enums;
 
 namespace Ecorex.Application.Rules.Verbs;
@@ -11,7 +14,9 @@ namespace Ecorex.Application.Rules.Verbs;
 /// columna del conciliador: "oc" | "numsol" | "asignado" | "dyn:{fieldKey}") toma el valor ACTUAL del campo del
 /// formulario y lo ESCRIBE en el renglon del conciliador del que nacio la tarea. El destino "asignado" guarda el
 /// usuario (id de TenantUser, p. ej. de un campo origen SystemUser como "Redireccionamiento") como responsable del
-/// renglon, lo mismo que el selector "responsable" del panel. Los mapeos viven en la config compartida
+/// renglon, lo mismo que el selector "responsable" del panel. Ademas del campo del formulario, el ORIGEN puede ser
+/// un dato "del clic" (DireccionarFuentes: aprobado, usuario que pulso, fecha-hora) y el destino puede ser el
+/// toggle nativo APROBADA ("aprobada"). Los mapeos viven en la config compartida
 /// (IAutorizacionComprasConfigService), asi que cambiarlos no toca la regla. No tiene params.
 /// </summary>
 public sealed class DireccionarConciliadorVerb : IRuleVerb
@@ -26,12 +31,16 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
     private readonly IConciliacionFieldService _fields;
     private readonly IFormDefinitionService _defs;
     private readonly IFormLookupService _lookups;
+    private readonly ITenantUserService _users;
+    private readonly IAnalisisZonaHoraria _zona;
 
     public DireccionarConciliadorVerb(IFormResponseService forms, IAutorizacionComprasConfigService cfg,
         IConciliacionDianService conc, IConciliacionFieldService fields,
-        IFormDefinitionService defs, IFormLookupService lookups)
+        IFormDefinitionService defs, IFormLookupService lookups,
+        ITenantUserService users, IAnalisisZonaHoraria zona)
     {
         _forms = forms; _cfg = cfg; _conc = conc; _fields = fields; _defs = defs; _lookups = lookups;
+        _users = users; _zona = zona;
     }
 
     public RuleVerbDescriptor Descriptor { get; } = new(
@@ -76,12 +85,24 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
         var applied = 0;
         foreach (var m in cfg.Mappings)
         {
-            var value = context.FormData.TryGetValue(m.FormField, out var v) ? (v ?? string.Empty) : string.Empty;
             var target = m.Target;
+            string value;
+            if (DireccionarFuentes.EsOrigenDelClic(m.FormField))
+            {
+                // Dato "del clic" (no es un campo del formulario): aprobado / usuario que pulso / fecha-hora.
+                var dv = await ValorDelClicAsync(m.FormField, target, context, cancellationToken);
+                if (dv is null) { continue; }   // p. ej. sin usuario identificado: no se escribe nada
+                value = dv;
+            }
+            else
+            {
+                value = context.FormData.TryGetValue(m.FormField, out var v) ? (v ?? string.Empty) : string.Empty;
+            }
             // Un campo LISTA de Contenedor/Tercero/Item guarda el id de la fila elegida; al conciliador va el TEXTO
             // que el usuario ve (su campo a mostrar, p. ej. DOCUMENTO de ORDENES_COMPRA = "OMP0011528"). El destino
             // "asignado" se excluye: espera el id del usuario.
-            if (!string.Equals(target, "asignado", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(value, out _))
+            if (!DireccionarFuentes.EsOrigenDelClic(m.FormField)
+                && !string.Equals(target, "asignado", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(value, out _))
             {
                 def0 ??= await _defs.GetAsync(resp!.DefinitionId, cancellationToken);
                 var q = def0?.Questions.FirstOrDefault(x => string.Equals(x.FieldCode, m.FormField, StringComparison.Ordinal));
@@ -94,6 +115,11 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
             else if (string.Equals(target, "numsol", StringComparison.OrdinalIgnoreCase))
             {
                 await _conc.UpdateNumFacturaSoldarcoAsync(rid, value, cancellationToken); applied++;
+            }
+            else if (string.Equals(target, DireccionarFuentes.TargetAprobada, StringComparison.OrdinalIgnoreCase))
+            {
+                // Toggle nativo APROBADA: queda como decision MANUAL (el cruce automatico ya no la pisa).
+                await _conc.ToggleAprobadaAsync(rid, ConciliacionRuleEngine.IsTrue(value), cancellationToken); applied++;
             }
             else if (string.Equals(target, "asignado", StringComparison.OrdinalIgnoreCase))
             {
@@ -116,6 +142,32 @@ public sealed class DireccionarConciliadorVerb : IRuleVerb
         return applied == 0
             ? RuleVerbResult.Fail("Ningun mapeo aplico (revisa los campos del formulario y las columnas configuradas).")
             : RuleVerbResult.Ok($"Direccionado {applied} dato(s) al conciliador.", recordsAffected: applied);
+    }
+
+    /// <summary>Valor de un origen "del clic". Aprobado -> "true"; Usuario -> nombre de quien pulso (o su id si el
+    /// destino es "asignado"); FechaHora -> ahora en la zona del tenant ("yyyy-MM-dd HH:mm"). Null = no escribir.</summary>
+    private async Task<string?> ValorDelClicAsync(string origen, string target, RuleContext context, CancellationToken ct)
+    {
+        switch (origen)
+        {
+            case DireccionarFuentes.Aprobado:
+                return "true";
+            case DireccionarFuentes.Usuario:
+                {
+                    if (context.ExecutedByTenantUserId is not Guid uid) { return null; }
+                    if (string.Equals(target, "asignado", StringComparison.OrdinalIgnoreCase)) { return uid.ToString(); }
+                    var u = (await _users.ListAsync(ct)).FirstOrDefault(x => x.Id == uid);
+                    if (u is null) { return null; }
+                    return string.IsNullOrWhiteSpace(u.DisplayName) ? u.Email : u.DisplayName!.Trim();
+                }
+            case DireccionarFuentes.FechaHora:
+                {
+                    var tz = await _zona.ObtenerAsync(ct);
+                    return TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, tz).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+                }
+            default:
+                return null;   // origen desconocido (version futura): no se escribe
+        }
     }
 
     /// <summary>Texto visible de un valor de LISTA (Contenedor/Tercero/Item): su campo a mostrar o, si no hay, la

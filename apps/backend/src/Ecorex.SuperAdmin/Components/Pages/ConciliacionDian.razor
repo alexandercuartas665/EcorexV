@@ -1082,10 +1082,18 @@ else
                                             <div class="cd-rule-row">
                                                 <select class="cd-in" @onchange="e => row.FormField = e.Value?.ToString() ?? string.Empty">
                                                     <option value="">&mdash; Campo del formulario &mdash;</option>
-                                                    @foreach (var f in s.FormFields)
-                                                    {
-                                                        <option value="@f.Code" selected="@(row.FormField == f.Code)">@f.Label (@f.Code)</option>
-                                                    }
+                                                    <optgroup label="Datos del clic">
+                                                        @foreach (var o in DireccionarFuentes.Origenes)
+                                                        {
+                                                            <option value="@o.Value" selected="@(row.FormField == o.Value)">@o.Label</option>
+                                                        }
+                                                    </optgroup>
+                                                    <optgroup label="Campos del formulario">
+                                                        @foreach (var f in s.FormFields)
+                                                        {
+                                                            <option value="@f.Code" selected="@(row.FormField == f.Code)">@f.Label (@f.Code)</option>
+                                                        }
+                                                    </optgroup>
                                                 </select>
                                                 <span class="cd-rule-eq">&rarr;</span>
                                                 <select class="cd-in" @onchange="e => row.Target = e.Value?.ToString() ?? string.Empty">
@@ -1093,6 +1101,7 @@ else
                                                     <option value="oc" selected="@(row.Target == "oc")">Orden de compra</option>
                                                     <option value="numsol" selected="@(row.Target == "numsol")">Num Factura SISTEMA</option>
                                                     <option value="asignado" selected="@(row.Target == "asignado")">Usuario asignado (responsable)</option>
+                                                    <option value="@DireccionarFuentes.TargetAprobada" selected="@(row.Target == DireccionarFuentes.TargetAprobada)">Factura aprobada (toggle APROBADA)</option>
                                                     @foreach (var d in _dynDefs)
                                                     {
                                                         var dk = "dyn:" + d.FieldKey;

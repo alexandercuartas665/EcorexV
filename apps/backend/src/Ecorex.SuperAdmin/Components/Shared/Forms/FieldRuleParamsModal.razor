@@ -64,11 +64,20 @@
                             <div class="frp-map-row" style="grid-template-columns:1fr 14px 1fr auto;">
                                 <select class="fb-select" value="@row.FormField" @onchange="@(e => row.FormField = e.Value?.ToString() ?? string.Empty)">
                                     <option value="">(campo del formulario)</option>
-                                    @foreach (var op in (FieldOptions ?? Array.Empty<RuleParamOption>()))
-                                    {
-                                        <option value="@op.Value" selected="@(op.Value == row.FormField)">@op.Label</option>
-                                    }
-                                    @if (!string.IsNullOrEmpty(row.FormField) && (FieldOptions?.All(o => o.Value != row.FormField) ?? true))
+                                    <optgroup label="Datos del clic">
+                                        @foreach (var o in DireccionarFuentes.Origenes)
+                                        {
+                                            <option value="@o.Value" selected="@(o.Value == row.FormField)">@o.Label</option>
+                                        }
+                                    </optgroup>
+                                    <optgroup label="Campos del formulario">
+                                        @foreach (var op in (FieldOptions ?? Array.Empty<RuleParamOption>()))
+                                        {
+                                            <option value="@op.Value" selected="@(op.Value == row.FormField)">@op.Label</option>
+                                        }
+                                    </optgroup>
+                                    @if (!string.IsNullOrEmpty(row.FormField) && !DireccionarFuentes.EsOrigenDelClic(row.FormField)
+                                         && (FieldOptions?.All(o => o.Value != row.FormField) ?? true))
                                     {
                                         <option value="@row.FormField" selected="true">@row.FormField (actual)</option>
                                     }
@@ -390,6 +399,7 @@
         _direTargets.Add(("oc", "Orden de compra"));
         _direTargets.Add(("numsol", "Num Factura SISTEMA"));
         _direTargets.Add(("asignado", "Usuario asignado (responsable)"));
+        _direTargets.Add((DireccionarFuentes.TargetAprobada, "Factura aprobada (toggle APROBADA)"));
         try
         {
             var defs = await ConcFields.ListDefsAsync();

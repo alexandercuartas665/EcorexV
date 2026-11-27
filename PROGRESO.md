@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Conciliador: Rechazar libera el responsable y reasignar tras Rechazar se guarda - v0.16.409 (rama feat/autorizacion-tarjeta-actividad 210addf9)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Pedido de la sesion de compras.
+- **Trae**: 054f6698 (AutorizacionComprasConfigService lee los mapas JSON de TenantConfiguration FRESCOS con AsNoTracking antes de modificarlos; Rechazar ya libera el responsable) y 122ed5b7 (DbContextRecargaExtensions.RecargarAsync: el renglon se recarga desde BD antes de editarlo en ConciliacionDianService; reasignar el mismo usuario tras Rechazar ya se guarda). 832ccef5 + revert 65466a37 se anulan (sin efecto).
+- **Nota**: al recargar antes de editar, en esas ediciones de un campo gana el ultimo cambio (sin aviso de conflicto).
+- **Gates (nueva regla local: integracion solo PG, SQL Server en CI)**: ver commit.
+
 ## 2026-11-26 - Integracion feat/mcp-terminar-tarea (8873860c) - v0.16.408 - SIN DESPLEGAR
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Pedido de ECOREX.mcp.
@@ -239,6 +246,7 @@ Agente: ECOREX.agentes (Claude Opus 5.5), pedido del usuario. SIN migracion, SIN
 - OC como lista: (1) DIRECCIONAR_CONCILIADOR envia el TEXTO visible de un campo lista (Contenedor/Tercero/Item, su DisplayField) y no el id de la fila; (2) filtro en cascada desde un campo de TEXTO (el renderer usa su valor tal cual) + la creacion de la tarea prellena `nit_proveedor` con el NIT de la factura -> la OC se filtra por PROVEEDOR. CONFIG en PROD (OK del usuario, 2026-11-25): form AUT-COMPRA-001-2 campo `rut` "Orden de Compra" = lista DIAN_CONCILIADOR.ORDENES_COMPRA (DOCUMENTO, Autocomplete, cascada PROVEEDOR<-nit_proveedor) + campo oculto `nit_proveedor`; respaldo en scratchpad. Local: contenedor copiado de prod + mismo form + mapeo rut->oc (solo local). Validado: busqueda OMP00115 y filtro por NIT 890110294 (14 de sus 57 OC).
 - FIX modal "Configurar regla Direccionar compra" (FormDesigner) no guardaba: leia el mapeo de la SALIDA del formulario pero `SetDireccionarAsync` escribia la clave legacy compartida. Ahora, si el form pertenece a una salida, actualiza DireEnabled/DireMaps de esa salida (+ cableado boton/regla). Validado local: quitar y reagregar rut->oc persiste y se ve al reabrir.
 - Direccionar compra devuelve datos "del clic" (DireccionarFuentes): origenes `sys:aprobado` (true), `sys:usuario` (nombre de quien pulso; su id si el destino es "asignado") y `sys:fecha_hora` (zona del tenant, yyyy-MM-dd HH:mm) + destino nativo `aprobada` (toggle APROBADA, queda manual). En el modal de la regla y en "Configuracion de salida" del conciliador. Sin migracion. Validado local con clic real (T00070): APROBADA=si, columna Bool true, APROBADO POR=nombre, FECHA APROBACION=hora Bogota. Columnas sugeridas: "Solo lectura".
+- Fix "Rechazar" (DEVOLVER_CONCILIADOR) no liberaba el responsable en el conciliador: ClearSolicitadaAsync leia la fila de config RASTREADA (vieja) del DbContext del circuito, no veia el renglon recien ligado y salia sin guardar. AutorizacionComprasConfigService ahora lee los mapas JSON frescos (AsNoTracking) y fuerza el UPDATE (asignaciones, solicitadas, enviados-contable, salidas).
 - **Siguiente**: dev principal une con version libre y despliega con OK.
 
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)

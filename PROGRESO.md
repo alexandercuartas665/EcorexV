@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Menu: lo que el tenant quita ya no reaparece tras cada despliegue - v0.16.407 (rama fix/menu-quitar-no-reaparece) - INTEGRADA, SIN DESPLEGAR
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion aditiva AddMenuNodeSoftDelete (PG + SQL Server: is_deleted, deleted_at, deleted_by_tenant_user_id en menu_nodes).
+- **Problema (SOLDARCO)**: quitar "Compras" de la vista "Soldarco General" era un borrado FISICO; en cada arranque los backfills del DatabaseSeeder (EnsureRequerimientosCompraMenuAsync y demas Ensure*Menu*, que crean secciones/items "si no existen" en TODAS las vistas) lo volvian a crear.
+- **Hecho**: MenuNode implementa ISoftDeletable (el filtro global lo oculta). DeleteNodeAsync marca el nodo y su rama (lapida) en vez de borrar; los backfills (IgnoreQueryFilters) ven la lapida y no reponen. CloneViewAsync copia las lapidas (planas) a la copia; DeleteViewAsync borra tambien las lapidas. "Cargar menu estandar" (accion explicita) si repone lo faltante.
+- **Gates**: build Release 0 errores, integracion dual MenuConfig/MenuBackfill/Roles 82/82 (test nuevo DeleteNode_DejaLapida_YElBackfillDeArranqueNoLoRepone_NiEnLaCopia).
+- **Siguiente**: desplegar con OK del usuario (respaldo previo por migracion). Tras el deploy SOLDARCO debe quitar Compras UNA vez mas (lo borrado antes no dejo lapida).
+- **Ademas (prod, OK del usuario)**: form_tokens 1b539c8d (Iframe permanente - REGISTRO LEAD, SOLDARCO) con response_per_visit = true (v0.16.406).
+
 ## 2026-11-26 - Formularios: enlace publico con respuesta nueva por visita (ResponsePerVisit) - v0.16.406 (rama feat/form-token-respuesta-por-visita)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion aditiva AddFormTokenResponsePerVisit (PG + SQL Server). Encargo de ECOREX.formularios_sol (FRM-LEAD SOLDARCO).

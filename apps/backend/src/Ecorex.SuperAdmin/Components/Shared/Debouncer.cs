@@ -23,33 +23,43 @@ public sealed class Debouncer : IDisposable
 {
     private CancellationTokenSource? _cts;
 
+    // El TOKEN se captura al crear el CTS y es lo unico que se lee despues del await. Antes se leia
+    // cts.Token tras el Delay: si otra tecla (o el Dispose del componente) desechaba ese CTS justo cuando
+    // el Delay ya habia terminado, cts.Token lanzaba ObjectDisposedException y, sin capturar, tumbaba el
+    // circuito (visto en prod en TerceroPicker del asistente de tareas). CancellationToken.IsCancellationRequested
+    // y Task.Delay(ms, token) no lanzan aunque el CTS ya este desechado.
     public async Task RunAsync(int ms, Func<Task> action)
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
-        var cts = _cts = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        var previous = Interlocked.Exchange(ref _cts, cts);
+        CancelAndDispose(previous);
         try
         {
-            await Task.Delay(ms, cts.Token);
+            await Task.Delay(ms, token);
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             return;   // llego otra tecla (o Cancel()) antes del plazo: este disparo se descarta
         }
-        if (cts.Token.IsCancellationRequested) { return; }
+        if (token.IsCancellationRequested) { return; }
         await action();
     }
 
     /// <summary>Cancela el disparo pendiente (al elegir del dropdown, al blur, al limpiar).</summary>
     public void Cancel()
     {
-        _cts?.Cancel();
+        try { Volatile.Read(ref _cts)?.Cancel(); }
+        catch (ObjectDisposedException) { /* ya desechado por otra tecla o por Dispose: nada que cancelar */ }
     }
 
-    public void Dispose()
+    public void Dispose() => CancelAndDispose(Interlocked.Exchange(ref _cts, null));
+
+    private static void CancelAndDispose(CancellationTokenSource? cts)
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _cts = null;
+        if (cts is null) { return; }
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException) { }
+        cts.Dispose();
     }
 }

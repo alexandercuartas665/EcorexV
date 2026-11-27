@@ -2,6 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-27 - Requisicion REQMAT (AGRO): solicitante y origen por item en las necesidades - rama feat/reqmat-solicitante-origen, SIN desplegar
+
+Agente: ECOREX.compras (Claude Opus 5.5). SIN migracion (FormSourceKind se persiste como string).
+- **Problema**: las necesidades que crea GENERAR_REQUERIMIENTOS_DESDE_TABLA desde REQMAT quedaban sin solicitante (el form se guarda en borrador, sin submitter) y sin origen (origenId era fijo para toda la regla).
+- **Hecho**: FormSourceKind.RequerimientoOrigen + RequerimientoOrigenLookupSource (origenes activos del tenant: id/nombre/area) en campo y columna de grilla (FormDesigner "Origenes de compra"). Verbo: mapeo "origen" acepta id o NOMBRE (fallback area) por fila y el area de la necesidad sale del origen si nadie la dio; mapeo "solicitante" (id, correo o nombre visible del campo Usuarios del sistema; texto libre = snapshot de nombre); si no hay mapeo ni submitter, solicitante = creador de la actividad origen. SystemUserLookupSource.UserLabel publico (misma regla de nombre).
+- **Config local (AGRO)**: columna "origen" en la grilla items de REQMAT + mapeo origen/solicitante en REQMAT-REQ (scratchpad rq/origen_solicitante.sql, idempotente con guardas). E2E local T00103: Richard crea, Diego aprueba -> 2 necesidades con origen (Insumos de Oficina/Planta produccion), area (OFICINA/PLANTA) y solicitante.
+- **Gates**: build 0 errores, Application.Tests 1870 (+10 GenerarRequerimientosMatchTests).
+- **Siguiente**: integrar + desplegar con OK del usuario; luego correr origen_solicitante.sql en prod (respaldo + dry-run).
+
 ## 2026-11-27 - Integracion feat/mcp-terminar-tarea (e2bfbc12): "Tope de segundos" en pasos no-IA del dron - v0.16.411
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion, sin backend.

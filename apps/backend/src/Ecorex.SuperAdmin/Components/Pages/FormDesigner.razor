@@ -3946,6 +3946,7 @@ else
                                                     <option value="Tercero" selected="@(lk.SourceKind == FormSourceKind.Tercero)">Directorio (terceros)</option>
                                                     <option value="DataContainer" selected="@(lk.SourceKind == FormSourceKind.DataContainer)">Contenedor de datos</option>
                                                     <option value="Activity" selected="@(lk.SourceKind == FormSourceKind.Activity)">Actividades</option>
+                                                    <option value="RequerimientoOrigen" selected="@(lk.SourceKind == FormSourceKind.RequerimientoOrigen)">Origenes de compra</option>
                                                 </select>
                                             </div>
                                             <div class="fb-gcp-field">
@@ -4372,6 +4373,7 @@ else
                     <option value="@nameof(FormSourceKind.ExternalDataset)">Dataset externo (SQL)</option>
                     <option value="@nameof(FormSourceKind.SystemUser)">Usuarios del sistema</option>
                     <option value="@nameof(FormSourceKind.Activity)">Actividades</option>
+                    <option value="@nameof(FormSourceKind.RequerimientoOrigen)">Origenes de compra</option>
                 </select>
             </div>
             @if (q.SourceKind != FormSourceKind.Options)

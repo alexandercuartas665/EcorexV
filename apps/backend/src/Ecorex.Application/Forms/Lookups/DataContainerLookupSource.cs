@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Ecorex.Application.Common;
 using Ecorex.Application.DataContainers;
 using Ecorex.Domain.Enums;
@@ -39,12 +40,17 @@ public sealed class DataContainerLookupSource : IFormLookupSource
         var nameToCol = await GetColumnMapAsync(containerId, cancellationToken);
         if (nameToCol is null) { return new FormLookupPage(Array.Empty<FormLookupItem>(), 0, false); }
 
-        var rows = await _containers.ListRowsAsync(containerId, request.Query, parentRowId: null, take: FetchCap, ct: cancellationToken);
-
         // Filtros de igualdad ya resueltos (fijos + cascada resuelta por el renderer). Se aplican
         // ANTES de paginar para que el total refleje lo filtrado. Una columna desconocida no matchea
-        // nada (lista vacia), nunca se ignora en silencio.
-        var eq = ResolveEqColumns(request.EqFilters, nameToCol);
+        // nada (lista vacia), nunca se ignora en silencio. Sin EqFilters (columna de GRILLA) se toma el
+        // filtro plano del FilterJson, cuyos tokens {columna} ya sustituyo el renderer con la fila.
+        var eqFilters = request.EqFilters ?? GridFilters(request.FilterJson);
+        var eq = ResolveEqColumns(eqFilters, nameToCol);
+
+        // Con filtro se trae mas para no perder filas que caigan despues del tope (p.ej. articulos de
+        // una familia en un catalogo grande); la pagina sigue acotada abajo.
+        var rows = await _containers.ListRowsAsync(containerId, request.Query, parentRowId: null,
+            take: eq is { Count: > 0 } ? FetchCap * 10 : FetchCap, ct: cancellationToken);
         if (eq is not null)
         {
             if (eq.Count == 0) { return new FormLookupPage(Array.Empty<FormLookupItem>(), 0, false); }
@@ -123,6 +129,30 @@ public sealed class DataContainerLookupSource : IFormLookupSource
             }
         }
         return null;
+    }
+
+    /// <summary>Filtro de una columna de grilla: forma plana {"col":"valor"} u objeto "fixed". Un valor vacio
+    /// (token {columna} de una celda aun sin llenar, p.ej. sin familia) NO filtra: se ofrece todo el
+    /// catalogo. Null si no hay filtro util. JSON invalido = sin filtro.</summary>
+    internal static IReadOnlyDictionary<string, string>? GridFilters(string? filterJson)
+    {
+        if (string.IsNullOrWhiteSpace(filterJson)) { return null; }
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var doc = JsonDocument.Parse(filterJson);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return null; }
+            var src = root.TryGetProperty("fixed", out var fx) && fx.ValueKind == JsonValueKind.Object ? fx : root;
+            foreach (var p in src.EnumerateObject())
+            {
+                if (p.Value.ValueKind != JsonValueKind.String) { continue; }
+                var v = p.Value.GetString()?.Trim();
+                if (!string.IsNullOrEmpty(v)) { map[p.Name] = v; }
+            }
+        }
+        catch (JsonException) { return null; }
+        return map.Count == 0 ? null : map;
     }
 
     // Traduce los filtros de igualdad (nombre de columna -> valor esperado) a ids de columna. Devuelve

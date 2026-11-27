@@ -28,6 +28,39 @@ public class ScrapeFlowRuntimeTests
     private static readonly IReadOnlyDictionary<string, string> NoVars = new Dictionary<string, string>();
 
     [Fact]
+    public void TimeBudget_flujo_completo_da_holgura_por_paso_y_no_solo_60s()
+    {
+        // Login + navegar + esperar por selector + extraer en UNA orden (corrida completa). Antes: 60 s fijos.
+        var steps = new[]
+        {
+            new ScrapeStep { Kind = ScrapeStepKind.Navigate, Name = "login", Url = "https://x" },
+            new ScrapeStep { Kind = ScrapeStepKind.InjectScript, Name = "credenciales", Script = "x" },
+            new ScrapeStep { Kind = ScrapeStepKind.Navigate, Name = "movimientos", Url = "https://x/m", WaitMs = 3000 },
+            new ScrapeStep { Kind = ScrapeStepKind.Wait, Name = "grilla", Selector = ".grid" },
+            new ScrapeStep { Kind = ScrapeStepKind.Click, Name = "consultar", Selector = "#ok" },
+            new ScrapeStep { Kind = ScrapeStepKind.Extract, Name = "sacar", Script = "rows" },
+        };
+        // 60 base + 30 + 20 + (30+3) + 5 (selector sin ms) + 5 + 20 = 173 s.
+        Assert.Equal(TimeSpan.FromSeconds(173), ScrapeFlowCompiler.TimeBudget(steps));
+    }
+
+    [Fact]
+    public void TimeBudget_respeta_tope_segundos_del_paso_y_el_techo()
+    {
+        var lento = new ScrapeStep { Kind = ScrapeStepKind.Extract, Name = "sacar", Script = "rows", MaxSeconds = 300 };
+        Assert.Equal(TimeSpan.FromSeconds(360), ScrapeFlowCompiler.TimeBudget(new[] { lento }));
+
+        // Un tope menor que la holgura calculada no la recorta.
+        var corto = new ScrapeStep { Kind = ScrapeStepKind.Navigate, Name = "ir", Url = "https://x", MaxSeconds = 1 };
+        Assert.Equal(TimeSpan.FromSeconds(90), ScrapeFlowCompiler.TimeBudget(new[] { corto }));
+
+        // Espera fija: cuenta su tiempo. Techo de 60 min aunque pidan mas.
+        Assert.Equal(TimeSpan.FromSeconds(70), ScrapeFlowCompiler.TimeBudget(new[] { new ScrapeStep { Kind = ScrapeStepKind.Wait, Name = "w", WaitMs = 10000 } }));
+        var eterno = new ScrapeStep { Kind = ScrapeStepKind.Extract, Name = "x", Script = "rows", MaxSeconds = 999_999 };
+        Assert.Equal(ScrapeFlowCompiler.TimeBudgetCap, ScrapeFlowCompiler.TimeBudget(new[] { eterno }));
+    }
+
+    [Fact]
     public void Compile_Navigate_substitutes_variables_in_url()
     {
         var flow = FlowWith(new ScrapeStep { Kind = ScrapeStepKind.Navigate, Name = "ir", Url = "https://x/p?n={{PAGINA}}" });

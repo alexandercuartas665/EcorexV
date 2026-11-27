@@ -2,6 +2,27 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Integracion feat/mcp-terminar-tarea (8873860c) - v0.16.408 - SIN DESPLEGAR
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Pedido de ECOREX.mcp.
+- **Trae**: tope de tiempo POR PASO en la corrida completa del dron (ScrapeFlowCompiler.TimeBudget, usado en 3 puntos de BrowserRunService; antes 60 s fijos + esperas), tope_segundos documentado y expuesto en ver_dron, 2 pruebas nuevas en ScrapeFlowRuntimeTests, y documentacion del cerebro MCP (docs/vault-mcp-ecorex). Detalle en la entrada de abajo.
+- **Gates**: build Release 0 errores, format ok, Domain 35, Application 1856, SuperAdmin 336 (2 nuevas de TimeBudget), matriz dual completa de integracion 872/872 (1h16m, MaxParallelThreads=2).
+
+## 2026-11-26 - Drones: tope de tiempo por paso en la corrida completa (fix timeout, rama feat/mcp-terminar-tarea, SIN desplegar)
+
+Agente: ECOREX.mcp (Claude Opus 5.5). SIN migracion. Reporte del usuario: dron "Siesa movimientos contables" del tenant CCM
+no entregaba filas; el agente colmena cerraba el navegador antes de tiempo; error reportado = tiempo maximo.
+- **Causa**: la corrida completa despacha TODO el flujo (login, navegar, extraer) en UNA orden con tope fijo
+  60 s + esperas fijas (BrowserRunService). Al vencer, BrowserActionChannel empuja Cancel y el agente cierra el
+  navegador sin ingerir. Paso a paso funcionaba porque cada paso tenia sus propios 60 s.
+- **Hecho**: ScrapeFlowCompiler.TimeBudget(steps): 60 s base + holgura por paso (navegar 30, extraer/inyectar 20,
+  esperar = espera_ms o 5 s por selector, resto 5, + espera tras el paso); si el paso trae MaxSeconds
+  (MCP tope_segundos) manda el mayor; techo 60 min. Usado en los 3 despachos (paso a paso, bucle, corrida completa).
+  MCP: tope_segundos descrito para cualquier paso y visible en ver_dron. Guia general: trampas 23 (timeout) y
+  24 (script de extraer asincrono devuelve {} y 0 filas), R08 y 05 actualizadas.
+- **Tests**: SuperAdmin Scrape 73/73 (2 nuevos de TimeBudget); integracion McpCatalog 10/10; build 0 errores; format ok.
+- **Siguiente**: integrar + desplegar (OK del usuario); luego, en CCM, ver_dron/listar_corridas y poner
+  tope_segundos al paso lento si aun no alcanza; republicar la guia general (trampas 23-24) tras el deploy.
 ## 2026-11-26 - Menu: lo que el tenant quita ya no reaparece tras cada despliegue - v0.16.407 (rama fix/menu-quitar-no-reaparece) - INTEGRADA, SIN DESPLEGAR
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion aditiva AddMenuNodeSoftDelete (PG + SQL Server: is_deleted, deleted_at, deleted_by_tenant_user_id en menu_nodes).

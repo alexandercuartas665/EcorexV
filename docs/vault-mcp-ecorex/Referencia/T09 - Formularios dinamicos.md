@@ -2,7 +2,7 @@
 tipo: referencia
 servidor: ecorex-tableros
 modulo: formularios
-herramientas: 71
+herramientas: 73
 fuente: catalogo vivo tools/list (generado)
 ---
 
@@ -24,11 +24,11 @@ Orden de trabajo recomendado:
 
 Recetas: [[R04 - Crear un formulario completo]]
 
-## Herramientas (71)
+## Herramientas (73)
 
 - **Lectura:** `describe_components`, `list_forms`, `get_form`, `verify_form`, `list_templates`, `list_data_containers`, `describe_data_container`, `list_tercero_fields`, `list_org_units`, `list_activity_types`, `export_form`, `get_render_urls`, `listar_verbos_regla`, `listar_reglas`, `ver_regla`, `historial_regla`, `reglas_de_formulario`, `listar_versiones_formulario`, `listar_enlaces_formulario`
-- **Escritura:** `apply_form_spec`, `create_form`, `import_form`, `update_form_header`, `add_container`, `update_container`, `move_container`, `add_question`, `update_question`, `move_question`, `set_transactional`, `set_sequence_next`, `set_custom_css`, `set_theme`, `set_status_ladder`, `wire_submit_task_rule`, `activate`, `deactivate`, `create_template`, `update_template`, `set_default_template`, `wire_print_button`, `wire_convert_button`, `create_share_link`, `create_record`, `crear_regla`, `parametros_regla`, `estado_regla`, `renombrar_regla`, `regla_al_enviar`, `regla_en_campo`, `parametros_regla_en_campo`, `condicion_entre_campos`, `ocultar_barra_envio`, `formulario_reportable`, `codigo_automatico_formulario`, `registro_editable`, `cierre_automatico_formulario`, `guardar_version_formulario`, `campo_bloqueado`, `campo_oculto`, `valor_por_defecto_dinamico`, `permisos_campo_por_rol`, `subformulario_de_campo`
-- **Destructivas:** `delete_container`, `delete_question`, `archive`, `eliminar_regla`, `quitar_regla_al_enviar`, `quitar_regla_de_campo`, `restaurar_version_formulario`, `revocar_enlace_formulario`
+- **Escritura:** `apply_form_spec`, `create_form`, `import_form`, `update_form_header`, `add_container`, `update_container`, `move_container`, `add_question`, `update_question`, `move_question`, `set_transactional`, `set_sequence_next`, `set_custom_css`, `set_theme`, `set_status_ladder`, `wire_submit_task_rule`, `activate`, `deactivate`, `create_template`, `update_template`, `set_default_template`, `wire_print_button`, `wire_convert_button`, `create_share_link`, `create_record`, `crear_regla`, `parametros_regla`, `estado_regla`, `renombrar_regla`, `regla_al_enviar`, `regla_en_campo`, `parametros_regla_en_campo`, `condicion_entre_campos`, `ocultar_barra_envio`, `formulario_reportable`, `codigo_automatico_formulario`, `registro_editable`, `cierre_automatico_formulario`, `guardar_version_formulario`, `campo_bloqueado`, `campo_oculto`, `valor_por_defecto_dinamico`, `permisos_campo_por_rol`, `subformulario_de_campo`, `diseno_campo`
+- **Destructivas:** `delete_container`, `delete_question`, `archive`, `eliminar_regla`, `quitar_regla_al_enviar`, `quitar_regla_de_campo`, `restaurar_version_formulario`, `revocar_enlace_formulario`, `renombrar_campo`
 
 ### `describe_components`
 
@@ -563,7 +563,7 @@ Llamada minima (solo obligatorios):
 
 **Tipo:** Escritura
 
-> Actualiza una pregunta por su id. Mismos campos que add_question (los que omitas vuelven a su valor por defecto del request).
+> Actualiza una pregunta por su id. Mismos campos que add_question; solo cambia lo que envias (lo demas del campo se conserva). Un field_code distinto RENOMBRA en cascada: mejor usa renombrar_campo, que simula primero y avisa lo que queda por revisar.
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
@@ -1678,7 +1678,7 @@ Llamada minima (solo obligatorios):
 
 **Tipo:** Escritura
 
-> activo=true: el campo se ve pero NO se puede editar (solo lectura para todos).
+> activo=true: el campo se ve pero NADIE lo edita (sin importar el rol, tambien en el enlace publico /f/); su valor solo lo ponen el valor por defecto, el prellenado o las reglas. Solo para algunos roles usa permisos_campo_por_rol.
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
@@ -1794,6 +1794,75 @@ Llamada minima (solo obligatorios):
   "arguments": {
     "formulario": "<formulario>",
     "campo": "<campo>"
+  }
+}
+```
+
+### `diseno_campo`
+
+**Tipo:** Escritura
+
+> Diseno visual de UN control: etiqueta (tamano, negrita, cursiva, color, ocultar), caja (fondo, borde, grosor, redondeo, alto, alineacion), valor (tamano, negrita, color) y bloque (margenes, fondo). Solo cambia las claves que envias en 'estilo'; 'quitar' devuelve claves al tema y limpiar=true vuelve al estilo del tema. Colores #hex, medidas en px; lo invalido se descarta.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `estilo` | object |  |  |
+| `estilo.labelSize` | integer |  | 8-48 px |
+| `estilo.labelBold` | boolean |  |  |
+| `estilo.labelItalic` | boolean |  |  |
+| `estilo.labelColor` | string |  | #hex |
+| `estilo.hideLabel` | boolean |  |  |
+| `estilo.boxBg` | string |  | #hex |
+| `estilo.borderColor` | string |  | #hex |
+| `estilo.borderWidth` | integer |  | 0-8 px |
+| `estilo.radius` | integer |  | 0-40 px |
+| `estilo.height` | integer |  | 20-400 px |
+| `estilo.align` | string (left / center / right) |  |  |
+| `estilo.marginTop` | integer |  | 0-120 px |
+| `estilo.marginBottom` | integer |  | 0-120 px |
+| `estilo.blockBg` | string |  | #hex |
+| `estilo.valueSize` | integer |  | 8-64 px |
+| `estilo.valueBold` | boolean |  |  |
+| `estilo.valueColor` | string |  | #hex |
+| `quitar` | array de string |  | Claves que vuelven al tema |
+| `limpiar` | boolean |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "diseno_campo",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>"
+  }
+}
+```
+
+### `renombrar_campo`
+
+**Tipo:** DESTRUCTIVA (confirma con el usuario)
+
+> Cambia el NOMBRE INTERNO (field_code) de un campo EN CASCADA dentro del formulario: respuestas guardadas, calculos, condicionales, grillas, autollenado, reglas propias y propiedades. aplicar=false (por defecto) solo SIMULA y lista lo que cambiaria y las ADVERTENCIAS (plantillas, avisos de flujo, reportes y reglas compartidas que hay que revisar a mano). Muestra la simulacion al usuario y repite con aplicar=true. La etiqueta visible se cambia con update_question.
+
+| Parametro | Tipo | Oblig. | Detalle |
+|---|---|---|---|
+| `formulario` | string | SI | Id, codigo o titulo (ver list_forms) |
+| `campo` | string | SI | Codigo del campo (field_code), id o etiqueta (ver get_form) |
+| `nuevo_codigo` | string | SI | minusculas, numeros y _ |
+| `aplicar` | boolean |  |  |
+
+Llamada minima (solo obligatorios):
+
+```json
+{
+  "name": "renombrar_campo",
+  "arguments": {
+    "formulario": "<formulario>",
+    "campo": "<campo>",
+    "nuevo_codigo": "<nuevo_codigo>"
   }
 }
 ```

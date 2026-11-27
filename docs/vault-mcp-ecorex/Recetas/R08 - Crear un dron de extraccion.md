@@ -48,6 +48,7 @@ Ver los tipos con su configuracion en [[T04 - Drones de extraccion web]] (`agreg
 | `inyectar_script` | `script` | Ejecutar JS (rellenar un buscador, expandir secciones) |
 | `extraer` | `script` (JS que RETORNA filas), `contenedor_destino`, `mapeo_json`, `ingesta_llave` | Sacar datos a la tabla |
 | `ia` | `instruccion`, `tope_pasos`, `tope_segundos` | Un agente maneja el navegador segun instrucciones |
+| (cualquiera) | `tope_segundos` | Mas tiempo para un paso lento antes de que el servidor cancele la corrida |
 | `procesar_archivos` / `cerrar_navegador` / `notificar` / `crear_actividad` | segun tipo | Post-proceso |
 
 Ejemplo minimo (abrir, esperar, extraer):
@@ -85,6 +86,18 @@ return rows;
   columna nueva y usa esa como llave. Si la tabla YA tenia filas, primero rellenalas con la misma plantilla
   (`rellenar_columna` `{numero}|{url}`) y DESPUES activa la llave ([[04 - Trampas conocidas]] #17).
 - Guarda tu script en un archivo: por MCP no se puede volver a leer, y `editar_paso` con `script` lo reemplaza entero.
+- El script es **sincrono**: nada de `async`/`await`/`fetch`/`.then` (el paso devolveria `{}` y 0 filas sin error).
+  Lee el DOM ya pintado; para un API del portal usa `XMLHttpRequest` sincrono ([[04 - Trampas conocidas]] #24).
+
+### Portales lentos (login, ERP, consultas pesadas)
+
+La corrida completa va en UNA orden al agente con un tiempo total calculado por paso (navegar 30 s, extraer 20 s,
+esperar = su `espera_ms`, el resto 5 s). Si se acaba, el servidor cancela y el agente cierra el navegador sin
+guardar filas. Al paso lento ponle `tope_segundos`:
+```json
+{"name":"editar_paso","arguments":{"paso_id":"<id del paso extraer o navegar lento>","tope_segundos":180}}
+```
+Usa `espera_ms` solo para pausas que SIEMPRE hacen falta; `tope_segundos` es un limite, no una pausa.
 
 ## Paso 4 - Variables (opcional)
 

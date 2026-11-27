@@ -779,7 +779,7 @@ public sealed class BrowserRunService(
             }
 
             var ingest = scope.ServiceProvider.GetRequiredService<IRowIngestService>();
-            var timeout = TimeSpan.FromSeconds(60 + actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
+            var timeout = ScrapeFlowCompiler.TimeBudget(new[] { prepared });
             var started = DateTimeOffset.UtcNow;
             int ins = 0, upd = 0, del = 0;
             try
@@ -2090,7 +2090,7 @@ public sealed class BrowserRunService(
                 if (compiled.Actions.Count == 0) { return true; }
 
                 var actions = compiled.Actions.Append(new BrowserAction(BrowserActionKind.Screenshot, Screenshot: true)).ToList();
-                var timeout = TimeSpan.FromSeconds(60 + actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
+                var timeout = ScrapeFlowCompiler.TimeBudget(new[] { prepared });
                 BrowserResultMsg result;
                 try
                 {
@@ -2455,7 +2455,7 @@ public sealed class BrowserRunService(
                             var compiled = ScrapeFlowCompiler.CompileSteps(segment.Steps, flow.ContainerId, vars, segCorr, secret);
                             if (compiled.Actions.Count == 0) { continue; }
 
-                            var timeout = TimeSpan.FromSeconds(60 + compiled.Actions.Sum(a => (a.WaitMs ?? 0) / 1000.0));
+                            var timeout = ScrapeFlowCompiler.TimeBudget(segment.Steps);
                             var req = new BrowserRequestMsg(segCorr, tenantId.ToString(), compiled.Actions, DownloadFolder: DownloadFolderFrom(vars));
                             var started = DateTimeOffset.UtcNow;
                             var result = await channel.ExecuteAsync(clientId, req, timeout, CancellationToken.None);

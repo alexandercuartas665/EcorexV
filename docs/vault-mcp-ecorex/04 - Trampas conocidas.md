@@ -70,51 +70,62 @@ antes de construir ahorra horas y evita danos en datos.
 22. **reCAPTCHA = no uses dron.** Busca la API o los datos abiertos y usa un conector. Pero los retos JS tipo
     anti-bot (Radware y similares) normalmente SI los pasa el navegador real: prueba antes de descartar.
 
+23. **"El Navegador no respondio la orden ... en N s" = se acabo el tiempo y el agente CIERRA el navegador.**
+    La corrida completa manda todos los pasos en una sola orden; el servidor le da a cada paso una holgura
+    (navegar 30 s, extraer o inyectar 20 s, esperar = su `espera_ms`, el resto 5 s) y al vencer la cancela sin
+    guardar filas. Paso a paso puede funcionar y la corrida completa no. En portales lentos (login de un ERP,
+    consultas pesadas como Siesa) ponle `tope_segundos` al paso lento (ej. 180): manda el mayor de los dos.
+    No infles `espera_ms` para esto: esa espera se cumple SIEMPRE, aunque la pagina ya este lista.
+24. **El script de `extraer` es SINCRONO.** El navegador no espera promesas: con `async`, `await`, `fetch` o
+    `.then` el paso devuelve `{}` y la corrida termina "ok" con 0 filas. Lee el DOM ya pintado (antes un
+    `esperar` con `selector`) o, si necesitas un API del portal, usa `XMLHttpRequest` sincrono
+    (`xhr.open('GET', url, false)`).
+
 ## Clasificacion con IA
 
-23. **El agente debe estar ENCENDIDO** (`encender_agente`) o `clasificar_lote` falla.
-24. **El prompt debe forzar salida SOLO JSON** con la columna clave y las salidas exactas:
+25. **El agente debe estar ENCENDIDO** (`encender_agente`) o `clasificar_lote` falla.
+26. **El prompt debe forzar salida SOLO JSON** con la columna clave y las salidas exactas:
     `[{"id_pedido":"...","categoria":"..."}]`. Texto libre = filas `sin_respuesta`.
-25. **Clasifica por el OBJETO** (nombre + descripcion), no por quien lo pide. Dilo en el prompt.
-26. **`sin_respuesta` en filas con nombres genericos o solo codigos** es limite de la data, no del agente.
-27. **`ejecutar_clasificacion_ahora` es asincrona.** El motor la toma en < 1 min, pero cada lote es una llamada de
+27. **Clasifica por el OBJETO** (nombre + descripcion), no por quien lo pide. Dilo en el prompt.
+28. **`sin_respuesta` en filas con nombres genericos o solo codigos** es limite de la data, no del agente.
+29. **`ejecutar_clasificacion_ahora` es asincrona.** El motor la toma en < 1 min, pero cada lote es una llamada de
     IA: 200 lotes pueden tardar horas. El resultado sale en `listar_corridas_importacion` (detalle).
-28. **El paso automatico solo corre si la importacion termina OK.** Si la corrida falla (timeout), no clasifica y
+30. **El paso automatico solo corre si la importacion termina OK.** Si la corrida falla (timeout), no clasifica y
     el pendiente se congela. Drena con `ejecutar_clasificacion_ahora` y arregla la importacion.
-29. **`max_lotes` por defecto 20** (1.000 filas por corrida con lotes de 50); tope 200. Para drenar un backlog
+31. **`max_lotes` por defecto 20** (1.000 filas por corrida con lotes de 50); tope 200. Para drenar un backlog
     subelo temporalmente y luego bajalo (con OK del usuario: tokens).
-30. **Para cambiar la taxonomia** no borres columnas: `limpiar_marca` y reclasifica (confirma: tokens).
-31. **Monitorea con un reporte** agrupado por la columna de salida: el grupo `null` son los pendientes.
+32. **Para cambiar la taxonomia** no borres columnas: `limpiar_marca` y reclasifica (confirma: tokens).
+33. **Monitorea con un reporte** agrupado por la columna de salida: el grupo `null` son los pendientes.
     `ver_reporte` re-ejecuta y da el numero fresco.
-32. **Bucles locales mueren si el PC se reinicia.** Para volumenes grandes prefiere lo que corre en el servidor
+34. **Bucles locales mueren si el PC se reinicia.** Para volumenes grandes prefiere lo que corre en el servidor
     (paso de clasificacion + `max_lotes`) sobre un script en el PC.
 
 ## Reportes e indicadores
 
-33. **Ordenar por una agregacion** usa el nombre de la agregacion: `orden=[{"campo":"suma","desc":true}]`
+35. **Ordenar por una agregacion** usa el nombre de la agregacion: `orden=[{"campo":"suma","desc":true}]`
     (`conteo`, `suma`, `promedio`, `minimo`, `maximo`), no el nombre de la columna.
-34. **Los filtros quedan fijos** en el reporte (no son interactivos). Para "solo activos" crea un reporte aparte
+36. **Los filtros quedan fijos** en el reporte (no son interactivos). Para "solo activos" crea un reporte aparte
     con el filtro (`operador:"en"`, `valores:["Abierto","Publicado"]`).
-35. **Un contenedor admite un solo `agrupar_por`.** Para "por mes/semana/anio" NO inventes una columna de texto:
+37. **Un contenedor admite un solo `agrupar_por`.** Para "por mes/semana/anio" NO inventes una columna de texto:
     agrupa por la columna FECHA con `consulta.periodo` (dia | semana | mes | trimestre | anio). Por eso guarda las
     fechas en columnas de tipo `fecha`, no `texto` ([[R05 - Crear un contenedor de datos]]).
-36. **Una tabla pre-filtrada sesga los porcentajes** (si solo entra lo de tecnologia, "todo es tecnologia"). Los %
+38. **Una tabla pre-filtrada sesga los porcentajes** (si solo entra lo de tecnologia, "todo es tecnologia"). Los %
     reales salen de la tabla universo.
-37. **El libro de indicadores nace privado del usuario** que lo crea (con la "Hoja 1"); los reportes de galeria
+39. **El libro de indicadores nace privado del usuario** que lo crea (con la "Hoja 1"); los reportes de galeria
     aparecen en la pestana de su `categoria`.
 
 ## Formularios
 
-38. **Llama `describe_components` primero**: es la documentacion viva (tipos de control, formatos de grilla, calculo).
-39. **`options_json` de listas = `[{"id":"BOG","label":"Bogota"}]`**: `id` es OBLIGATORIO (`value` y `desc` opcionales).
-40. **Calculos:** referencias SIEMPRE `{codigo}`; no existe `vlookup()` (es una columna `resolve` de una grilla);
+40. **Llama `describe_components` primero**: es la documentacion viva (tipos de control, formatos de grilla, calculo).
+41. **`options_json` de listas = `[{"id":"BOG","label":"Bogota"}]`**: `id` es OBLIGATORIO (`value` y `desc` opcionales).
+42. **Calculos:** referencias SIEMPRE `{codigo}`; no existe `vlookup()` (es una columna `resolve` de una grilla);
     formato `percent` guarda 5 = 5 (divide entre 100); sumar una columna de grilla NO es formula: columna con
     `agg=Sum` + `rollup=<campo destino>`, y el destino sin `calc_expression`.
-41. **`apply_form_spec`**: contenedores en orden (padres antes que hijos); re-aplicar la misma spec ACTUALIZA, no
+43. **`apply_form_spec`**: contenedores en orden (padres antes que hijos); re-aplicar la misma spec ACTUALIZA, no
     duplica; si algo falla se revierte todo.
-42. **`verify_form` hasta `errors=0`** antes de `activate`.
-43. **Marca/colores con `set_theme(color=#RRGGBB)`**, no con CSS a mano. En `eyebrow` usa el emoji directo.
-44. **`create_share_link` devuelve el token del enlace UNA sola vez**: entregalo al usuario en ese momento.
+44. **`verify_form` hasta `errors=0`** antes de `activate`.
+45. **Marca/colores con `set_theme(color=#RRGGBB)`**, no con CSS a mano. En `eyebrow` usa el emoji directo.
+46. **`create_share_link` devuelve el token del enlace UNA sola vez**: entregalo al usuario en ese momento.
 
 - **Cambiar el `field_code` de un campo:** `update_question` con otro `field_code` renombra EN CASCADA dentro del
   formulario (respuestas, calculos, condicionales, reglas propias), pero no te muestra antes que cambia ni que
@@ -123,34 +134,34 @@ antes de construir ahorra horas y evita danos en datos.
 
 ## Flujos
 
-45. **Un nodo que no es compuerta sigue TODAS sus salidas en paralelo.** Dos flechas saliendo de una tarea =
+47. **Un nodo que no es compuerta sigue TODAS sus salidas en paralelo.** Dos flechas saliendo de una tarea =
     ramas paralelas (casi nunca es lo que se quiere). Para decidir usa una **compuerta**.
-46. **Condicion de ruta** en formato del motor: `approval == 'Aprobado'`; vacia = ruta por defecto.
-47. **`agregar_nodo` sin `desde_nodo_id`/`hasta_nodo_id` queda suelto**: conectalo con `conectar_nodos`.
-48. **`publicar_flujo` no publica si hay avisos**: muestralos; `forzar=true` solo con OK del usuario.
-49. **Un flujo publicado no se edita:** `nueva_version_flujo` devuelve ids NUEVOS de nodos y aristas; vuelve a leer
+48. **Condicion de ruta** en formato del motor: `approval == 'Aprobado'`; vacia = ruta por defecto.
+49. **`agregar_nodo` sin `desde_nodo_id`/`hasta_nodo_id` queda suelto**: conectalo con `conectar_nodos`.
+50. **`publicar_flujo` no publica si hay avisos**: muestralos; `forzar=true` solo con OK del usuario.
+51. **Un flujo publicado no se edita:** `nueva_version_flujo` devuelve ids NUEVOS de nodos y aristas; vuelve a leer
     con `ver_flujo` antes de seguir editando.
-50. **Sin `enganchar_flujo_a_concepto`** las tareas nuevas no arrancan el flujo.
+52. **Sin `enganchar_flujo_a_concepto`** las tareas nuevas no arrancan el flujo.
 
 ## Tareas
 
-51. **Tarea con flujo en curso:** no `mover_tarea` ni `terminar_tarea`; `completar_paso` con la `opcion` EXACTA que
+53. **Tarea con flujo en curso:** no `mover_tarea` ni `terminar_tarea`; `completar_paso` con la `opcion` EXACTA que
     muestra `ver_tarea`.
-52. **Columnas de cierre** pueden exigir `motivo_cierre`.
-53. **`ver_tablero` puede forzar `alcance=mias`** si el tablero restringe la vista del usuario.
+54. **Columnas de cierre** pueden exigir `motivo_cierre`.
+55. **`ver_tablero` puede forzar `alcance=mias`** si el tablero restringe la vista del usuario.
 
 ## Agentes de IA
 
-54. **Nace apagado.** Valida (prueba con un lote chico o una conversacion) y luego enciendelo.
-55. **Omitir `herramientas_deshabilitadas` = TODAS habilitadas** (incluida la de escribir en contenedores).
+56. **Nace apagado.** Valida (prueba con un lote chico o una conversacion) y luego enciendelo.
+57. **Omitir `herramientas_deshabilitadas` = TODAS habilitadas** (incluida la de escribir en contenedores).
     Para un agente de solo lectura, deshabilita lo que no deba usar.
-56. **El proveedor debe estar activo en el gateway de IA del plan** de la empresa; si no, el agente falla al responder.
-57. **Al enviar una lista en `editar_agente`** (herramientas, tableros, round-robin) reemplazas la lista completa.
+58. **El proveedor debe estar activo en el gateway de IA del plan** de la empresa; si no, el agente falla al responder.
+59. **Al enviar una lista en `editar_agente`** (herramientas, tableros, round-robin) reemplazas la lista completa.
 
 ## Generales
 
-58. **Scripts: cuerpo en UTF-8** y la respuesta util esta en `result.content[0].text` (quita el prefijo `data:`).
-59. **Casi todo acepta nombre o id**, pero si hay dos cosas con el mismo nombre usa el id.
-60. **Lee los avisos** de cada respuesta: suelen decir exactamente que falta o que se hizo a medias.
+60. **Scripts: cuerpo en UTF-8** y la respuesta util esta en `result.content[0].text` (quita el prefijo `data:`).
+61. **Casi todo acepta nombre o id**, pero si hay dos cosas con el mismo nombre usa el id.
+62. **Lee los avisos** de cada respuesta: suelen decir exactamente que falta o que se hizo a medias.
 
 Siguiente: [[05 - Solucion de problemas]].

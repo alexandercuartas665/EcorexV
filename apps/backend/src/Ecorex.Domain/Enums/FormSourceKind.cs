@@ -27,5 +27,10 @@ public enum FormSourceKind
     /// <summary>Usuarios del tenant (modulo 1.2, via ITenantUserService). El valor guardado es el Id del
     /// TenantUser; no requiere SourceRef (fuente unica). Se empareja con FormDefaultDynamic.AssignedUser
     /// para que un campo "Redireccionar a" venga por defecto con el usuario asignado a la tarea.</summary>
-    SystemUser
+    SystemUser,
+
+    /// <summary>Actividades (TaskItem) del tenant, via ActivityLookupSource. Busca por titulo o referencia y
+    /// filtra por cliente/tablero; en una grilla el filtro admite tokens {columna} de la fila (cascada).
+    /// No requiere SourceRef (fuente unica).</summary>
+    Activity
 }

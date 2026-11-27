@@ -3945,6 +3945,7 @@ else
                                                     <option value="Item" selected="@(lk.SourceKind == FormSourceKind.Item)">Inventario (items)</option>
                                                     <option value="Tercero" selected="@(lk.SourceKind == FormSourceKind.Tercero)">Directorio (terceros)</option>
                                                     <option value="DataContainer" selected="@(lk.SourceKind == FormSourceKind.DataContainer)">Contenedor de datos</option>
+                                                    <option value="Activity" selected="@(lk.SourceKind == FormSourceKind.Activity)">Actividades</option>
                                                 </select>
                                             </div>
                                             <div class="fb-gcp-field">
@@ -4007,6 +4008,12 @@ else
                                                 }
                                             </select>
                                             <div class="fb-hint">Se muestra atenuada junto al nombre (ej. el SKU) para distinguir items parecidos.</div>
+                                        </div>
+                                        <div class="fb-gcp-field">
+                                            <label>Filtro (opcional)</label>
+                                            <input class="fb-input" value="@(lk.FilterJson ?? "")" placeholder='{"cliente":"{proyecto_cliente}"}'
+                                                   @onchange="@(e => SetGridLookupFilterAsync(node.Q!, idx, e.Value?.ToString()))" />
+                                            <div class="fb-hint">Campo = valor. Usa <code>{columna}</code> para tomar el valor de otra columna de la MISMA fila (cascada). Actividades acepta cliente, cliente_id, tablero y archivadas.</div>
                                         </div>
                                         <div class="fb-gcp-field">
                                             <label>Autollenar en la fila (campo de la fuente &rarr; columna)</label>
@@ -4364,6 +4371,7 @@ else
                     <option value="@nameof(FormSourceKind.Item)">Inventario (items)</option>
                     <option value="@nameof(FormSourceKind.ExternalDataset)">Dataset externo (SQL)</option>
                     <option value="@nameof(FormSourceKind.SystemUser)">Usuarios del sistema</option>
+                    <option value="@nameof(FormSourceKind.Activity)">Actividades</option>
                 </select>
             </div>
             @if (q.SourceKind != FormSourceKind.Options)
@@ -5352,6 +5360,21 @@ else
         });
 
     /// <summary>Fija una propiedad simple del lookup (source/sourceRef/valueField/displayField/presentation); vacio la quita.</summary>
+    /// <summary>Filtro del lookup de una columna (objeto JSON; admite tokens {columna} de la fila). Vacio lo
+    /// quita; un texto que no es un objeto JSON se ignora (no se pisa el filtro vigente).</summary>
+    private Task SetGridLookupFilterAsync(FormQuestionDto q, int index, string? text)
+        => PatchGridColumnJsonAsync(q, index, obj =>
+        {
+            if (obj["lookup"] is not JsonObject lk) { return; }
+            var t = text?.Trim();
+            if (string.IsNullOrEmpty(t)) { lk.Remove("filter"); return; }
+            try
+            {
+                if (JsonNode.Parse(t) is JsonObject f) { lk["filter"] = f; }
+            }
+            catch (System.Text.Json.JsonException) { /* no es JSON valido: se conserva el filtro anterior */ }
+        });
+
     private Task PatchLookupFieldAsync(FormQuestionDto q, int index, string key, string? value)
         => PatchGridColumnJsonAsync(q, index, obj =>
         {

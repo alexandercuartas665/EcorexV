@@ -2,6 +2,13 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-27 - Lookup "Actividades" + cascada {columna} en grillas + fix Debouncer (circuito caido en el buscador) - v0.16.410 (rama feat/lookup-actividades-y-debouncer)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion (FormSourceKind se persiste como string).
+- **Hecho (lookup)**: FormSourceKind.Activity + ActivityLookupSource (TaskItems del tenant por titulo/referencia; campos id, referencia, titulo, cliente, cliente_id, estado; filtro cliente id o nombre, cliente_id, tablero, archivadas; cliente vacio = sin resultados). Registrado en DI. GridLookupSearchAsync sustituye tokens {columna} del filtro con la fila (FormGridFilterTokens). Designer: opcion Actividades (campo y columna) + campo Filtro de la columna. Ej.: "lookup":{"source":"Activity","filter":{"cliente":"{proyecto_cliente}"},"valueField":"referencia","displayField":"titulo"}.
+- **Hecho (fix)**: Debouncer leia cts.Token tras el await; si otra tecla o el Dispose desechaba el CTS lanzaba ObjectDisposedException y tumbaba el circuito (prod: 4 en 12 h, TerceroPicker del asistente de tareas, campo Solicitante). Ahora captura el token antes y Cancel/Dispose son seguros. Afecta tambien DmCiudadAutocomplete, DmRelacionesPanel, DataLookupField y DirectoryLookupField.
+- **Gates (local solo PG)**: build Release 0 errores, format ok, Domain 35, Application 1860 (+4 FormGridFilterTokens), SuperAdmin 339 (+3 Debouncer), integracion PG completa (ver commit), ActivityLookupSourceTests nuevos.
+
 ## 2026-11-26 - Conciliador: Rechazar libera el responsable y reasignar tras Rechazar se guarda - v0.16.409 (rama feat/autorizacion-tarjeta-actividad 210addf9)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Pedido de la sesion de compras.

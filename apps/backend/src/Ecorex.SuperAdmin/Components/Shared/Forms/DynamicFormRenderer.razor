@@ -2554,6 +2554,7 @@ else
         FormSourceKind.Tercero => "/directorio-general",
         FormSourceKind.Item => "/inventario-items",
         FormSourceKind.DataContainer => "/contenedor-datos",
+        FormSourceKind.Activity => "/actividades",
         _ => "#",
     };
 
@@ -3650,8 +3651,14 @@ else
         try
         {
             using var ambient = BeginAmbient();
+            // Cascada en la grilla: los tokens {columna} del filtro toman el valor de ESTA fila
+            // (p.ej. la columna OT lista solo las actividades del cliente elegido en la fila).
+            var rows = GridRowsOf(q);
+            var filterJson = rowIndex >= 0 && rowIndex < rows.Count
+                ? FormGridFilterTokens.Resolve(cfg.FilterJson, rows[rowIndex])
+                : cfg.FilterJson;
             var page = await LookupSvc.SearchAsync(new FormLookupRequest(
-                cfg.SourceKind, cfg.SourceRef, text, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
+                cfg.SourceKind, cfg.SourceRef, text, filterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
             _gridLookupResults[key] = page.Items;
         }
         catch (Exception ex)

@@ -255,8 +255,8 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
 
         // ---------- Enlaces compartidos ----------
         new("create_share_link",
-            "Emite un enlace publico /f/{token} para llenar el formulario. Devuelve el token EN CLARO una sola vez (en BD va solo el hash). expiration_hours, single_use, allow_anonymous, reference opcionales.",
-            """{"type":"object","properties":{"form_id":{"type":"string"},"expiration_hours":{"type":"integer"},"single_use":{"type":"boolean"},"allow_anonymous":{"type":"boolean"},"reference":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
+            "Emite un enlace publico /f/{token} para llenar el formulario. Devuelve el token EN CLARO una sola vez (en BD va solo el hash). expiration_hours, single_use, allow_anonymous, reference opcionales. response_per_visit=true: cada visita crea su propia respuesta (captacion publica de leads; reference queda como rotulo del enlace).",
+            """{"type":"object","properties":{"form_id":{"type":"string"},"expiration_hours":{"type":"integer"},"single_use":{"type":"boolean"},"allow_anonymous":{"type":"boolean"},"response_per_visit":{"type":"boolean"},"reference":{"type":"string"}},"required":["form_id"],"additionalProperties":false}"""),
 
         // ---------- Registros (prueba de punta a punta) ----------
         new("create_record",
@@ -1759,7 +1759,8 @@ public sealed class FormAuthoringToolset : IFormAuthoringToolset
             Reference: Str(args, "reference"),
             ExpirationHours: Int(args, "expiration_hours") ?? 24,
             SingleUse: Bool(args, "single_use") ?? false,
-            AllowAnonymous: Bool(args, "allow_anonymous") ?? true);
+            AllowAnonymous: Bool(args, "allow_anonymous") ?? true,
+            ResponsePerVisit: Bool(args, "response_per_visit") ?? false);
         var r = await _tokens.EmitAsync(id, req, ct);
         return FormResp(r, v => new { ok = true, token = v.Token, url = $"/f/{v.Token}", token_id = v.TokenId, expires_at = v.ExpiresAt });
     }

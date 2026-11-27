@@ -2,6 +2,19 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-26 - Conciliador: Rechazar libera el responsable y reasignar tras Rechazar se guarda - v0.16.409 (rama feat/autorizacion-tarjeta-actividad 210addf9)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Pedido de la sesion de compras.
+- **Trae**: 054f6698 (AutorizacionComprasConfigService lee los mapas JSON de TenantConfiguration FRESCOS con AsNoTracking antes de modificarlos; Rechazar ya libera el responsable) y 122ed5b7 (DbContextRecargaExtensions.RecargarAsync: el renglon se recarga desde BD antes de editarlo en ConciliacionDianService; reasignar el mismo usuario tras Rechazar ya se guarda). 832ccef5 + revert 65466a37 se anulan (sin efecto).
+- **Nota**: al recargar antes de editar, en esas ediciones de un campo gana el ultimo cambio (sin aviso de conflicto).
+- **Gates (nueva regla local: integracion solo PG, SQL Server en CI)**: ver commit.
+
+## 2026-11-26 - Integracion feat/mcp-terminar-tarea (8873860c) - v0.16.408 - SIN DESPLEGAR
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Pedido de ECOREX.mcp.
+- **Trae**: tope de tiempo POR PASO en la corrida completa del dron (ScrapeFlowCompiler.TimeBudget, usado en 3 puntos de BrowserRunService; antes 60 s fijos + esperas), tope_segundos documentado y expuesto en ver_dron, 2 pruebas nuevas en ScrapeFlowRuntimeTests, y documentacion del cerebro MCP (docs/vault-mcp-ecorex). Detalle en la entrada de abajo.
+- **Gates**: build Release 0 errores, format ok, Domain 35, Application 1856, SuperAdmin 336 (2 nuevas de TimeBudget), matriz dual completa de integracion 872/872 (1h16m, MaxParallelThreads=2).
+
 ## 2026-11-26 - Drones: tope de tiempo por paso en la corrida completa (fix timeout, rama feat/mcp-terminar-tarea, SIN desplegar)
 
 Agente: ECOREX.mcp (Claude Opus 5.5). SIN migracion. Reporte del usuario: dron "Siesa movimientos contables" del tenant CCM
@@ -17,6 +30,22 @@ no entregaba filas; el agente colmena cerraba el navegador antes de tiempo; erro
 - **Tests**: SuperAdmin Scrape 73/73 (2 nuevos de TimeBudget); integracion McpCatalog 10/10; build 0 errores; format ok.
 - **Siguiente**: integrar + desplegar (OK del usuario); luego, en CCM, ver_dron/listar_corridas y poner
   tope_segundos al paso lento si aun no alcanza; republicar la guia general (trampas 23-24) tras el deploy.
+## 2026-11-26 - Menu: lo que el tenant quita ya no reaparece tras cada despliegue - v0.16.407 (rama fix/menu-quitar-no-reaparece) - INTEGRADA, SIN DESPLEGAR
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion aditiva AddMenuNodeSoftDelete (PG + SQL Server: is_deleted, deleted_at, deleted_by_tenant_user_id en menu_nodes).
+- **Problema (SOLDARCO)**: quitar "Compras" de la vista "Soldarco General" era un borrado FISICO; en cada arranque los backfills del DatabaseSeeder (EnsureRequerimientosCompraMenuAsync y demas Ensure*Menu*, que crean secciones/items "si no existen" en TODAS las vistas) lo volvian a crear.
+- **Hecho**: MenuNode implementa ISoftDeletable (el filtro global lo oculta). DeleteNodeAsync marca el nodo y su rama (lapida) en vez de borrar; los backfills (IgnoreQueryFilters) ven la lapida y no reponen. CloneViewAsync copia las lapidas (planas) a la copia; DeleteViewAsync borra tambien las lapidas. "Cargar menu estandar" (accion explicita) si repone lo faltante.
+- **Gates**: build Release 0 errores, integracion dual MenuConfig/MenuBackfill/Roles 82/82 (test nuevo DeleteNode_DejaLapida_YElBackfillDeArranqueNoLoRepone_NiEnLaCopia).
+- **Siguiente**: desplegar con OK del usuario (respaldo previo por migracion). Tras el deploy SOLDARCO debe quitar Compras UNA vez mas (lo borrado antes no dejo lapida).
+- **Ademas (prod, OK del usuario)**: form_tokens 1b539c8d (Iframe permanente - REGISTRO LEAD, SOLDARCO) con response_per_visit = true (v0.16.406).
+
+## 2026-11-26 - Formularios: enlace publico con respuesta nueva por visita (ResponsePerVisit) - v0.16.406 (rama feat/form-token-respuesta-por-visita)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). CON migracion aditiva AddFormTokenResponsePerVisit (PG + SQL Server). Encargo de ECOREX.formularios_sol (FRM-LEAD SOLDARCO).
+- **Problema**: el /f/ del lead (token permanente con Reference = rotulo) reusaba UN borrador para todos los visitantes: cada lead veia los datos del anterior. Se destapo al quitar Enviar del /f/ (v0.16.396).
+- **Hecho**: FormToken.ResponsePerVisit (columna form_tokens.response_per_visit, default false). Con el flag el visor /f/ pasa Reference=null al renderer, asi que GetOrCreateDraftAsync crea un borrador por visita; Reference queda como rotulo del enlace. Sin el flag no cambia nada (reuso por definicion + Reference, p.ej. token anclado a una tarea). Casilla en el modal de enlaces del FormDesigner y response_per_visit en create_share_link (MCP).
+- **Gates**: build Release 0 errores, format ok, Application 1856, SuperAdmin 334, DynamicFormsTests dual 28/28 (Token_ResponsePerVisit nuevo), aislamiento tenant + migraciones 26/26 en serie.
+- **Siguiente**: formularios_sol activa el flag en el token del lead (form_tokens 1b539c8d) tras el deploy, con OK del usuario. Cada carga del /f/ crea un Draft (tambien bots): candidato a barrido de borradores vacios.
 
 ## 2026-11-26 - Paneles: la tabla se ordena por cualquier columna (OrderBy/OrderDir) - v0.16.405 (rama feat/panel-tabla-orderby)
 
@@ -217,6 +246,7 @@ Agente: ECOREX.agentes (Claude Opus 5.5), pedido del usuario. SIN migracion, SIN
 - OC como lista: (1) DIRECCIONAR_CONCILIADOR envia el TEXTO visible de un campo lista (Contenedor/Tercero/Item, su DisplayField) y no el id de la fila; (2) filtro en cascada desde un campo de TEXTO (el renderer usa su valor tal cual) + la creacion de la tarea prellena `nit_proveedor` con el NIT de la factura -> la OC se filtra por PROVEEDOR. CONFIG en PROD (OK del usuario, 2026-11-25): form AUT-COMPRA-001-2 campo `rut` "Orden de Compra" = lista DIAN_CONCILIADOR.ORDENES_COMPRA (DOCUMENTO, Autocomplete, cascada PROVEEDOR<-nit_proveedor) + campo oculto `nit_proveedor`; respaldo en scratchpad. Local: contenedor copiado de prod + mismo form + mapeo rut->oc (solo local). Validado: busqueda OMP00115 y filtro por NIT 890110294 (14 de sus 57 OC).
 - FIX modal "Configurar regla Direccionar compra" (FormDesigner) no guardaba: leia el mapeo de la SALIDA del formulario pero `SetDireccionarAsync` escribia la clave legacy compartida. Ahora, si el form pertenece a una salida, actualiza DireEnabled/DireMaps de esa salida (+ cableado boton/regla). Validado local: quitar y reagregar rut->oc persiste y se ve al reabrir.
 - Direccionar compra devuelve datos "del clic" (DireccionarFuentes): origenes `sys:aprobado` (true), `sys:usuario` (nombre de quien pulso; su id si el destino es "asignado") y `sys:fecha_hora` (zona del tenant, yyyy-MM-dd HH:mm) + destino nativo `aprobada` (toggle APROBADA, queda manual). En el modal de la regla y en "Configuracion de salida" del conciliador. Sin migracion. Validado local con clic real (T00070): APROBADA=si, columna Bool true, APROBADO POR=nombre, FECHA APROBACION=hora Bogota. Columnas sugeridas: "Solo lectura".
+- Fix "Rechazar" (DEVOLVER_CONCILIADOR) no liberaba el responsable en el conciliador: ClearSolicitadaAsync leia la fila de config RASTREADA (vieja) del DbContext del circuito, no veia el renglon recien ligado y salia sin guardar. AutorizacionComprasConfigService ahora lee los mapas JSON frescos (AsNoTracking) y fuerza el UPDATE (asignaciones, solicitadas, enviados-contable, salidas).
 - **Siguiente**: dev principal une con version libre y despliega con OK.
 
 ## 2026-11-24 - Indicadores agrupados por periodo en orden cronologico (ADR-0206, hallazgo de ECOREX.mcp) - v0.16.388 (rama fix/indicador-periodo-orden)

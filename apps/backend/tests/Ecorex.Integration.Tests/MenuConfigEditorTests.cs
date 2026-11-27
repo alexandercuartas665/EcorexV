@@ -2,7 +2,10 @@ using Ecorex.Application.Common;
 using Ecorex.Application.MenuConfig;
 using Ecorex.Domain.Entities;
 using Ecorex.Domain.Enums;
+using Ecorex.Infrastructure.Auth;
+using Ecorex.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Ecorex.Integration.Tests;
 
@@ -127,6 +130,60 @@ public abstract class MenuConfigEditorTestsBase
 
         await using var ctx = _fixture.CreateContext(tenantId);
         Assert.Equal(0, await ctx.MenuNodes.CountAsync(n => n.MenuViewId == viewId));
+    }
+
+    [Fact]
+    public async Task DeleteNode_DejaLapida_YElBackfillDeArranqueNoLoRepone_NiEnLaCopia()
+    {
+        // Caso SOLDARCO: el tenant quita "Compras" de su menu personalizado y en cada despliegue el backfill
+        // de arranque (EnsureRequerimientosCompraMenuAsync) se lo volvia a crear porque el borrado era fisico.
+        var tenantId = await NewTenantAsync("Editor Lapida");
+        var viewId = await NewViewAsync(tenantId, "Soldarco General", isDefault: true);
+
+        async Task Arranque()
+        {
+            await using var ctx = _fixture.CreateContext(tenantId: null);
+            var seeder = new DatabaseSeeder(ctx, new Pbkdf2PasswordHasher(), NullLogger<DatabaseSeeder>.Instance);
+            await seeder.EnsureRequerimientosCompraMenuAsync(tenantId);
+        }
+
+        await Arranque();
+        var tree = await RunAsync(tenantId, s => s.GetViewTreeAsync(viewId));
+        var compras = Assert.Single(tree.Value!.Roots, r => r.Route == "compras");
+
+        var del = await RunAsync(tenantId, s => s.DeleteNodeAsync(compras.Id));
+        Assert.True(del.IsOk, del.Error);
+
+        // La copia hecha DESPUES de quitarlo hereda la lapida.
+        var copia = await RunAsync(tenantId, s => s.CloneViewAsync(viewId, "Soldarco General (copia)"));
+        Assert.True(copia.IsOk, copia.Error);
+
+        // Dos arranques (dos despliegues): no reaparece ni en la vista ni en la copia.
+        await Arranque();
+        await Arranque();
+        foreach (var v in new[] { viewId, copia.Value!.Id })
+        {
+            var t = await RunAsync(tenantId, s => s.GetViewTreeAsync(v));
+            Assert.DoesNotContain(t.Value!.Roots, r => r.Route == "compras");
+        }
+
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            // Oculto para las consultas normales; como lapida (IsDeleted) para IgnoreQueryFilters.
+            Assert.Equal(0, await ctx.MenuNodes.CountAsync(n => n.MenuViewId == viewId));
+            var lapidas = await ctx.MenuNodes.IgnoreQueryFilters()
+                .Where(n => n.MenuViewId == viewId).ToListAsync();
+            Assert.NotEmpty(lapidas);
+            Assert.All(lapidas, n => Assert.True(n.IsDeleted && n.DeletedAt is not null));
+        }
+
+        // Borrar la copia elimina tambien sus lapidas.
+        var delCopia = await RunAsync(tenantId, s => s.DeleteViewAsync(copia.Value.Id));
+        Assert.True(delCopia.IsOk, delCopia.Error);
+        await using (var ctx = _fixture.CreateContext(tenantId))
+        {
+            Assert.Equal(0, await ctx.MenuNodes.IgnoreQueryFilters().CountAsync(n => n.MenuViewId == copia.Value.Id));
+        }
     }
 
     [Fact]

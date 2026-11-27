@@ -9,8 +9,11 @@ namespace Ecorex.Domain.Entities;
 /// sidebar del workspace. Guarda una CLAVE de icono (IconKey), no el SVG: la presentacion
 /// mapea la clave al SVG. TENANT-SCOPED (filtro global por TenantId). FK a la vista en cascada;
 /// self-ref NO ACTION (evita multiples rutas de cascada en SQL Server).
+/// SOFT-DELETE: quitar un nodo en el editor lo MARCA (IsDeleted) en vez de borrar la fila. La marca queda
+/// como "lapida": los backfills de arranque (DatabaseSeeder.Ensure*Menu*, con IgnoreQueryFilters) la ven
+/// y NO vuelven a crear lo que el tenant quito de su menu en cada despliegue.
 /// </summary>
-public class MenuNode : TenantEntity
+public class MenuNode : TenantEntity, ISoftDeletable
 {
     /// <summary>Vista a la que pertenece el nodo (cascade: borrar la vista borra sus nodos).</summary>
     public Guid MenuViewId { get; set; }
@@ -49,4 +52,8 @@ public class MenuNode : TenantEntity
     /// es la Ola 4 del Modulo de Tareas.
     /// </summary>
     public bool IsProcessGroup { get; set; }
+
+    public bool IsDeleted { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+    public Guid? DeletedByTenantUserId { get; set; }
 }

@@ -164,6 +164,12 @@ public sealed class MenuConfigService : IMenuConfigService
         var sourceNodes = await _db.MenuNodes.AsNoTracking()
             .Where(n => n.MenuViewId == sourceViewId)
             .ToListAsync(cancellationToken);
+        // Lapidas (nodos quitados) de la vista origen: la copia las hereda para que los backfills de
+        // arranque tampoco le vuelvan a meter lo que se quito. La vista origen ya se valido en este tenant
+        // (filtro global), asi que filtrar por su id es seguro; IgnoreQueryFilters solo para ver IsDeleted.
+        var sourceTombstones = await _db.MenuNodes.IgnoreQueryFilters().AsNoTracking()
+            .Where(n => n.MenuViewId == sourceViewId && n.IsDeleted)
+            .ToListAsync(cancellationToken);
 
         var clone = new MenuView
         {
@@ -194,6 +200,21 @@ public sealed class MenuConfigService : IMenuConfigService
             SortOrder = n.SortOrder,
             IsProcessGroup = n.IsProcessGroup
         }).ToList();
+        cloneNodes.AddRange(sourceTombstones.Select(n => new MenuNode
+        {
+            TenantId = tenantId,
+            MenuViewId = clone.Id,
+            ParentId = null, // lapida plana: solo importa (Kind, Route) para que el backfill la encuentre.
+            Kind = n.Kind,
+            Name = n.Name,
+            Route = n.Route,
+            LegacyCode = n.LegacyCode,
+            IsVisible = false,
+            SortOrder = n.SortOrder,
+            IsDeleted = true,
+            DeletedAt = n.DeletedAt,
+            DeletedByTenantUserId = n.DeletedByTenantUserId
+        }));
 
         var joinTx = _db.HasActiveTransaction;
         var tx = joinTx ? null : await _db.BeginTransactionAsync(cancellationToken);
@@ -388,7 +409,10 @@ public sealed class MenuConfigService : IMenuConfigService
             return MenuConfigResult<bool>.Invalid("No se puede eliminar la vista predeterminada. Marca otra como predeterminada primero.");
         }
 
-        var nodes = await _db.MenuNodes.Where(n => n.MenuViewId == viewId).ToListAsync(cancellationToken);
+        // Incluye las lapidas (IsDeleted): la vista se borra entera. La vista ya se valido en este tenant.
+        var nodes = await _db.MenuNodes.IgnoreQueryFilters()
+            .Where(n => n.MenuViewId == viewId)
+            .ToListAsync(cancellationToken);
 
         var joinTx = _db.HasActiveTransaction;
         var tx = joinTx ? null : await _db.BeginTransactionAsync(cancellationToken);
@@ -757,11 +781,19 @@ public sealed class MenuConfigService : IMenuConfigService
             }
         }
 
+        // SOFT-DELETE (lapida): el nodo y su rama se MARCAN, no se borran. Asi los backfills de arranque
+        // (que crean secciones/items "si no existen") ven que el tenant los quito y no los reponen en cada
+        // despliegue. El filtro global ya los oculta del menu, del editor y de las copias normales.
+        var now = DateTimeOffset.UtcNow;
         var joinTx = _db.HasActiveTransaction;
         var tx = joinTx ? null : await _db.BeginTransactionAsync(cancellationToken);
         try
         {
-            _db.MenuNodes.RemoveRange(toDelete);
+            foreach (var n in toDelete)
+            {
+                n.IsDeleted = true;
+                n.DeletedAt = now;
+            }
             await _db.SaveChangesAsync(cancellationToken);
             if (tx is not null) { await tx.CommitAsync(cancellationToken); }
         }

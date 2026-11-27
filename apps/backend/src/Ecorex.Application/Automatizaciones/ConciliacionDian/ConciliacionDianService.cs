@@ -379,6 +379,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task UpdateOrdenCompraAsync(Guid renglonId, string ordenCompra, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        await _db.RecargarAsync(r, ct);
         if (r is null) { return; }
         r.OrdenCompraSoldarco = (ordenCompra ?? string.Empty).Trim();
         await _db.SaveChangesAsync(ct);
@@ -387,6 +388,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task UpdateNumFacturaSoldarcoAsync(Guid renglonId, string numFactura, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        await _db.RecargarAsync(r, ct);
         if (r is null) { return; }
         r.NumFacturaSoldarco = (numFactura ?? string.Empty).Trim();
         await _db.SaveChangesAsync(ct);
@@ -413,6 +415,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task SetMarkerColorAsync(Guid renglonId, string? color, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        await _db.RecargarAsync(r, ct);
         if (r is null) { return; }
         var c = color?.Trim().ToLowerInvariant();
         r.MarkerColor = !string.IsNullOrEmpty(c) && _marcadores.Contains(c) ? c : null; // "" o invalido => limpia
@@ -422,6 +425,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task SetMarkerNoteAsync(Guid renglonId, string? note, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        await _db.RecargarAsync(r, ct);
         if (r is null) { return; }
         var n = note?.Trim();
         // "" o solo espacios => limpia la observacion. Tope defensivo de 500 chars (es una nota corta de fila).
@@ -432,6 +436,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task SetAssigneeAsync(Guid renglonId, Guid? tenantUserId, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        await _db.RecargarAsync(r, ct);
         if (r is null) { return; }
         var prev = r.AssignedTenantUserId;
         r.AssignedTenantUserId = tenantUserId;
@@ -448,6 +453,7 @@ public sealed class ConciliacionDianService : IConciliacionDianService
     public async Task ToggleAprobadaAsync(Guid renglonId, bool aprobada, CancellationToken ct = default)
     {
         var r = await _db.ConciliacionDianRenglones.FirstOrDefaultAsync(x => x.Id == renglonId, ct);
+        await _db.RecargarAsync(r, ct);
         if (r is null) { return; }
         r.FacturaAprobada = aprobada;
         r.AprobadaManual = true; // decision del usuario: el cruce ya no la pisa.

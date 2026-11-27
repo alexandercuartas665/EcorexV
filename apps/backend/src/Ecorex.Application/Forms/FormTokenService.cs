@@ -58,7 +58,8 @@ public sealed class FormTokenService : IFormTokenService
             Reference = string.IsNullOrWhiteSpace(options.Reference) ? null : options.Reference.Trim(),
             ExpiresAt = DateTimeOffset.UtcNow.AddHours(options.ExpirationHours),
             SingleUse = options.SingleUse,
-            AllowAnonymous = options.AllowAnonymous
+            AllowAnonymous = options.AllowAnonymous,
+            ResponsePerVisit = options.ResponsePerVisit
         };
         _db.FormTokens.Add(entity);
         await _db.SaveChangesAsync(cancellationToken);
@@ -93,7 +94,7 @@ public sealed class FormTokenService : IFormTokenService
 
         return new FormTokenValidation(
             true, entity.Id, entity.TenantId, entity.DefinitionId,
-            entity.Reference, entity.SingleUse, entity.AllowAnonymous);
+            entity.Reference, entity.SingleUse, entity.AllowAnonymous, entity.ResponsePerVisit);
     }
 
     public async Task<FormResult<bool>> RevokeAsync(Guid tokenId, CancellationToken cancellationToken = default)
@@ -129,7 +130,7 @@ public sealed class FormTokenService : IFormTokenService
             .OrderByDescending(t => t.CreatedAt)
             .Select(t => new FormTokenDto(
                 t.Id, t.DefinitionId, t.Reference, t.ExpiresAt, t.SingleUse,
-                t.UsedAt, t.RevokedAt, t.AllowAnonymous, t.CreatedAt))
+                t.UsedAt, t.RevokedAt, t.AllowAnonymous, t.CreatedAt, t.ResponsePerVisit))
             .ToListAsync(cancellationToken);
 
     // ---- Helpers ----

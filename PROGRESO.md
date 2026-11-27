@@ -2,6 +2,22 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-27 - Integracion feat/mcp-terminar-tarea (e2bfbc12): "Tope de segundos" en pasos no-IA del dron - v0.16.411
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion, sin backend.
+- **Trae**: ExtraccionDatos.razor expone "Tope de segundos (opcional)" en todos los pasos no-IA (navegar, extraer, inyectar, esperar, clic...); el guardado (MaxSeconds) ya era comun. Docs MCP T04/T09 al catalogo v0.16.409.
+- **Puerta**: build Release, dotnet format (archivos tocados), Domain/Application/SuperAdmin tests, Integration.Tests PG (SQL Server en CI).
+- **Siguiente**: desplegar solo con OK del usuario; avisar a ECOREX.mcp (republicar guia v6 + nota R08).
+
+## 2026-11-27 - Drones: campo "Tope de segundos" en el editor de pasos (UI) - rama feat/mcp-terminar-tarea, SIN desplegar
+
+Agente: ECOREX.mcp (Claude Opus 4.8). SIN migracion. Pedido del usuario tras validar en prod el dron "Siesa movimientos contables" (CCM).
+- **Contexto**: el fix de v0.16.408/409 reparte tiempo por paso en la corrida completa y el motor ya honra MaxSeconds (tope_segundos) en todo tipo de paso, pero el editor de pasos de /extraccion-datos solo exponia "Tope de segundos" en el paso de IA. El dron de CCM tiene dos pasos "Tanda" (EXTRAER) que tardan 2-3 min; sin poder subir el tope desde la UI, la corrida completa se cortaba a los 62 s (confirmado en el historial del dron).
+- **Trae**: ExtraccionDatos.razor - campo "Tope de segundos (opcional)" agregado al bloque comun de pasos no-IA (navegar, extraer, inyectar, esperar, clic, etc.). La carga (LoadStepIntoEditor) y el guardado (SaveScrapeStepRequest.MaxSeconds) ya eran comunes; solo faltaba el input. Sin cambios de backend.
+- **Gate local**: build Debug del proyecto SuperAdmin 0 errores.
+- **Siguiente**: integrar + desplegar (ECOREX.desarrollo, solo con OK del usuario por version). Luego el usuario monta un agente colmena propio con token nuevo y corre el dron de CCM subiendo tope_segundos ~300 a las dos tandas. Tras el deploy: republicar guia general (v6 ya empaquetada) y nota en receta R08 de que el tope ya se pone desde la UI.
+- **Bloqueo de la prueba en vivo**: el agente colmena de CCM (CCM_LAPTOP_CRISTIAN) estaba apagado.
+
 ## 2026-11-27 - Lookup "Actividades" + cascada {columna} en grillas + fix Debouncer (circuito caido en el buscador) - v0.16.410 (rama feat/lookup-actividades-y-debouncer)
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion (FormSourceKind se persiste como string).

@@ -252,7 +252,7 @@ Llamada minima (solo obligatorios):
 | `ia_proveedor_id` | string |  |  |
 | `ia_modelo` | string |  |  |
 | `tope_pasos` | integer |  |  |
-| `tope_segundos` | integer |  |  |
+| `tope_segundos` | integer |  | Segundos que el servidor espera a este paso antes de cancelar la corrida (navegar 30, extraer 20, esperar = su espera; manda el mayor). Subelo en portales lentos (login o consulta pesada). En el paso de IA es su tope total. |
 | `aviso_etiqueta` | string |  |  |
 | `aviso_accion` | string (ninguna / notificar / detener) |  |  |
 | `tool_allowlist_json` | string |  |  |
@@ -318,7 +318,7 @@ Ejemplo real (valores genericos):
 | `ia_proveedor_id` | string |  |  |
 | `ia_modelo` | string |  |  |
 | `tope_pasos` | integer |  |  |
-| `tope_segundos` | integer |  |  |
+| `tope_segundos` | integer |  | Segundos que el servidor espera a este paso antes de cancelar la corrida (navegar 30, extraer 20, esperar = su espera; manda el mayor). Subelo en portales lentos (login o consulta pesada). En el paso de IA es su tope total. |
 | `aviso_etiqueta` | string |  |  |
 | `aviso_accion` | string (ninguna / notificar / detener) |  |  |
 | `tool_allowlist_json` | string |  |  |

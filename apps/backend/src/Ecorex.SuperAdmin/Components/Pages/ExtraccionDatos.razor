@@ -687,6 +687,14 @@
 
                                 @if (_sKind != ScrapeStepKind.Ai && _sKind != ScrapeStepKind.LeerCorreoOtp && _sKind != ScrapeStepKind.IngestaNewton && _sKind != ScrapeStepKind.CerrarNavegador && _sKind != ScrapeStepKind.CrearActividad && _sKind != ScrapeStepKind.Notificar)
                                 {
+                                    <div class="xd-prop">
+                                        <label>Tope de segundos (opcional)</label>
+                                        <input class="xd-input" type="number" min="0" placeholder="(auto)" @bind="_sMaxSeconds" />
+                                        <div class="xd-help">Segundos que el servidor espera a ESTE paso antes de cancelar la corrida. Por defecto reparte
+                                            tiempo por paso (navegar 30, extraer/inyectar 20, esperar = su espera, el resto 5). Subelo en pasos lentos
+                                            (login de un ERP o consulta pesada, p.ej. 300): la corrida completa va en una sola orden y sin esto un paso
+                                            largo la corta. No uses "Espera (ms)" para esto: esa pausa se cumple siempre; el tope es un limite.</div>
+                                    </div>
                                     <div class="xd-two">
                                         <div class="xd-prop"><label>Advertencia: etiqueta a vigilar (opcional)</label>
                                             <input class="xd-input" placeholder="captcha" @bind="_sWarnLabel" /></div>

@@ -1002,7 +1002,7 @@ Llamada minima (solo obligatorios):
 
 **Tipo:** Escritura
 
-> Emite un enlace publico /f/{token} para llenar el formulario. Devuelve el token EN CLARO una sola vez (en BD va solo el hash). expiration_hours, single_use, allow_anonymous, reference opcionales.
+> Emite un enlace publico /f/{token} para llenar el formulario. Devuelve el token EN CLARO una sola vez (en BD va solo el hash). expiration_hours, single_use, allow_anonymous, reference opcionales. response_per_visit=true: cada visita crea su propia respuesta (captacion publica de leads; reference queda como rotulo del enlace).
 
 | Parametro | Tipo | Oblig. | Detalle |
 |---|---|---|---|
@@ -1010,6 +1010,7 @@ Llamada minima (solo obligatorios):
 | `expiration_hours` | integer |  |  |
 | `single_use` | boolean |  |  |
 | `allow_anonymous` | boolean |  |  |
+| `response_per_visit` | boolean |  |  |
 | `reference` | string |  |  |
 
 Llamada minima (solo obligatorios):

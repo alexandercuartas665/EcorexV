@@ -98,6 +98,8 @@ guardar filas. Al paso lento ponle `tope_segundos`:
 {"name":"editar_paso","arguments":{"paso_id":"<id del paso extraer o navegar lento>","tope_segundos":180}}
 ```
 Usa `espera_ms` solo para pausas que SIEMPRE hacen falta; `tope_segundos` es un limite, no una pausa.
+Desde v0.16.411 tambien se pone a mano: en el editor de /extraccion-datos abre el paso y usa el campo
+"Tope de segundos (opcional)" (antes solo lo tenia el paso de IA).
 
 ## Paso 4 - Variables (opcional)
 

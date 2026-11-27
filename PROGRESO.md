@@ -2,14 +2,15 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
-## 2026-11-27 - Drones: campo "Tope de segundos" en el editor de pasos (UI) - rama feat/mcp-terminar-tarea, SIN desplegar
+## 2026-11-27 - Drones: campo "Tope de segundos" en el editor de pasos (UI) - rama feat/mcp-terminar-tarea, DESPLEGADO v0.16.411
 
 Agente: ECOREX.mcp (Claude Opus 4.8). SIN migracion. Pedido del usuario tras validar en prod el dron "Siesa movimientos contables" (CCM).
 - **Contexto**: el fix de v0.16.408/409 reparte tiempo por paso en la corrida completa y el motor ya honra MaxSeconds (tope_segundos) en todo tipo de paso, pero el editor de pasos de /extraccion-datos solo exponia "Tope de segundos" en el paso de IA. El dron de CCM tiene dos pasos "Tanda" (EXTRAER) que tardan 2-3 min; sin poder subir el tope desde la UI, la corrida completa se cortaba a los 62 s (confirmado en el historial del dron).
 - **Trae**: ExtraccionDatos.razor - campo "Tope de segundos (opcional)" agregado al bloque comun de pasos no-IA (navegar, extraer, inyectar, esperar, clic, etc.). La carga (LoadStepIntoEditor) y el guardado (SaveScrapeStepRequest.MaxSeconds) ya eran comunes; solo faltaba el input. Sin cambios de backend.
 - **Gate local**: build Debug del proyecto SuperAdmin 0 errores.
-- **Siguiente**: integrar + desplegar (ECOREX.desarrollo, solo con OK del usuario por version). Luego el usuario monta un agente colmena propio con token nuevo y corre el dron de CCM subiendo tope_segundos ~300 a las dos tandas. Tras el deploy: republicar guia general (v6 ya empaquetada) y nota en receta R08 de que el tope ya se pone desde la UI.
-- **Bloqueo de la prueba en vivo**: el agente colmena de CCM (CCM_LAPTOP_CRISTIAN) estaba apagado.
+- **Deploy**: integrado (merge 05378919 en fase-0/clon-backbone y main) y DESPLEGADO por ECOREX.desarrollo como v0.16.411 (gates: build Release OK, unitarias 35/1860/339, Integration PG 463/463). Commit e2bfbc12.
+- **Siguiente**: el usuario monta un agente colmena propio con token nuevo y corre el dron de CCM subiendo tope_segundos ~300 a las dos tandas desde el campo nuevo. Nota en receta R08 agregada (el tope se pone desde la UI); republicar guia general (v6 ya empaquetada) solo con OK del usuario.
+- **Bloqueo de la prueba en vivo**: el agente colmena de CCM (CCM_LAPTOP_CRISTIAN) estaba apagado; por eso el usuario usa un agente propio.
 
 ## 2026-11-26 - Conciliador: Rechazar libera el responsable y reasignar tras Rechazar se guarda - v0.16.409 (rama feat/autorizacion-tarjeta-actividad 210addf9)
 

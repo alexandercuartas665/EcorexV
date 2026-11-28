@@ -34,6 +34,7 @@ internal static class ReportExcelCharts
 {
     private const long EmuPerPx = 9525;
     private const int DataLabelsMaxPoints = 15;
+    private const int MarkersMaxPoints = 20;
 
     private static readonly string[] Palette =
         { "4F46E5", "0EA5E9", "10B981", "F59E0B", "EF4444", "8B5CF6", "EC4899", "14B8A6" };
@@ -132,31 +133,31 @@ internal static class ReportExcelCharts
                 showLegend = true;
                 break;
             case ReportExcelChartKind.Line:
-                plotArea.Append(LineChart(ch, sheetName, 0, ch.SeriesColumns, 1u, 2u, smooth: true));
+                plotArea.Append(LineChart(ch, sheetName, 0, ch.SeriesColumns, 1u, 2u, smooth: ch.SeriesColumns == 1));
                 plotArea.Append(CategoryAxis(1u, 2u, C.AxisPositionValues.Bottom, reversed: false, deleted: false));
-                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Left, gridlines: true, crossesMax: false, max100: false));
+                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Left, gridlines: true, crossesMax: false, max100: false, minZero: NonNegative(ch)));
                 showLegend = ch.SeriesColumns > 1;
                 break;
             case ReportExcelChartKind.Pareto:
                 plotArea.Append(BarChart(ch, sheetName, 0, 1, horizontal: false, 1u, 2u));
                 plotArea.Append(LineChart(ch, sheetName, 1, 1, 3u, 4u, smooth: false));
                 plotArea.Append(CategoryAxis(1u, 2u, C.AxisPositionValues.Bottom, reversed: false, deleted: false));
-                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Left, gridlines: true, crossesMax: false, max100: false));
+                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Left, gridlines: true, crossesMax: false, max100: false, minZero: NonNegative(ch)));
                 plotArea.Append(CategoryAxis(3u, 4u, C.AxisPositionValues.Bottom, reversed: false, deleted: true));
-                plotArea.Append(ValueAxis(4u, 3u, C.AxisPositionValues.Right, gridlines: false, crossesMax: true, max100: true));
+                plotArea.Append(ValueAxis(4u, 3u, C.AxisPositionValues.Right, gridlines: false, crossesMax: true, max100: true, minZero: false));
                 showLegend = true;
                 break;
             case ReportExcelChartKind.Bar:
                 plotArea.Append(BarChart(ch, sheetName, 0, ch.SeriesColumns, horizontal: true, 1u, 2u));
                 // Categorias de arriba hacia abajo (como en el tablero): eje invertido y valores abajo.
                 plotArea.Append(CategoryAxis(1u, 2u, C.AxisPositionValues.Left, reversed: true, deleted: false));
-                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Bottom, gridlines: true, crossesMax: true, max100: false));
+                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Bottom, gridlines: true, crossesMax: true, max100: false, minZero: NonNegative(ch)));
                 showLegend = ch.SeriesColumns > 1;
                 break;
             default:
                 plotArea.Append(BarChart(ch, sheetName, 0, ch.SeriesColumns, horizontal: false, 1u, 2u));
                 plotArea.Append(CategoryAxis(1u, 2u, C.AxisPositionValues.Bottom, reversed: false, deleted: false));
-                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Left, gridlines: true, crossesMax: false, max100: false));
+                plotArea.Append(ValueAxis(2u, 1u, C.AxisPositionValues.Left, gridlines: true, crossesMax: false, max100: false, minZero: NonNegative(ch)));
                 showLegend = ch.SeriesColumns > 1;
                 break;
         }
@@ -238,10 +239,12 @@ internal static class ReportExcelCharts
                     Width = 28575,
                     CapType = A.LineCapValues.Round,
                 }),
-                new C.Marker(
-                    new C.Symbol { Val = C.MarkerStyleValues.Circle },
-                    new C.Size { Val = 5 },
-                    Fill(color)),
+                ch.Categories.Count > MarkersMaxPoints
+                    ? new C.Marker(new C.Symbol { Val = C.MarkerStyleValues.None })
+                    : new C.Marker(
+                        new C.Symbol { Val = C.MarkerStyleValues.Circle },
+                        new C.Size { Val = 5 },
+                        Fill(color)),
                 CategoryData(ch, sheet),
                 ValuesData(ch, sheet, s),
                 new C.Smooth { Val = smooth });
@@ -301,13 +304,17 @@ internal static class ReportExcelCharts
             new C.NoMultiLevelLabels { Val = false });
     }
 
-    private static C.ValueAxis ValueAxis(uint id, uint cross, C.AxisPositionValues pos, bool gridlines, bool crossesMax, bool max100)
+    private static C.ValueAxis ValueAxis(uint id, uint cross, C.AxisPositionValues pos, bool gridlines, bool crossesMax, bool max100, bool minZero)
     {
         var scaling = new C.Scaling(new C.Orientation { Val = C.OrientationValues.MinMax });
         if (max100)
         {
             scaling.Append(new C.MaxAxisValue { Val = 100 });
             scaling.Append(new C.MinAxisValue { Val = 0 });
+        }
+        else if (minZero)
+        {
+            scaling.Append(new C.MinAxisValue { Val = 0 });   // conteos/montos: el eje no baja de 0
         }
 
         var ax = new C.ValueAxis(
@@ -331,6 +338,10 @@ internal static class ReportExcelCharts
         ax.Append(new C.CrossBetween { Val = C.CrossBetweenValues.Between });
         return ax;
     }
+
+    /// <summary>Todas las series sin negativos (el eje de valores arranca en 0).</summary>
+    private static bool NonNegative(ReportExcelChartPlacement ch)
+        => ch.Values.All(serie => serie.All(v => v is null or >= 0));
 
     private static C.DataLabels DataLabels(bool showVal, bool showPercent)
     {

@@ -43,7 +43,9 @@ public static class ReportExcelExport
     private const int ChartWidthPx = 620;
     private const int ChartHeightPx = 300;
     private const int RowHeightPx = 20;      // alto por defecto de fila en Excel (15 pt)
-    private const int MaxColWidth = 60;
+    private const int MaxColWidth = 45;
+    private const int WideChartPoints = 20;   // series largas (ej. por dia): grafico mas ancho
+    private const int WideChartWidthPx = 900;
     private const int MinColWidth = 10;
 
     private static readonly XLColor TitleColor = XLColor.FromHtml("#1F1F2E");
@@ -153,7 +155,9 @@ public static class ReportExcelExport
             {
                 for (var c = 0; c < r.Count; c++)
                 {
-                    SetCell(ws.Cell(row, c + 1), r[c]);
+                    var cell = ws.Cell(row, c + 1);
+                    SetCell(cell, r[c]);
+                    if (r[c] is string text && text.Length > MaxColWidth) { cell.Style.Alignment.WrapText = true; }
                     Track(widths, c + 1, r[c]);
                 }
                 row++;
@@ -178,7 +182,7 @@ public static class ReportExcelExport
                     sheet.Name ?? "",
                     AnchorColumn: dataCols + 1,               // 0-based: deja una columna libre a la derecha
                     AnchorRow: sectionStart - 1,              // 0-based: alineado con el titulo de la seccion
-                    WidthPx: ChartWidthPx,
+                    WidthPx: sheet.Rows.Count > WideChartPoints ? WideChartWidthPx : ChartWidthPx,
                     HeightPx: ChartHeightPx,
                     HeaderRow: headerRow,
                     FirstRow: firstData,

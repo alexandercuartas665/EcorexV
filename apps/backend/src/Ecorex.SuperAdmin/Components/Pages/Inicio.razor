@@ -5,6 +5,7 @@
 @using Ecorex.Application.Common
 @using Ecorex.Application.Tenancy
 @using Ecorex.SuperAdmin.Components.Shared.Tasks
+@using Ecorex.SuperAdmin.Components.Shared.Reporting
 @using Microsoft.EntityFrameworkCore
 @inject IServiceScopeFactory ScopeFactory
 @using Microsoft.Extensions.DependencyInjection
@@ -87,6 +88,107 @@
             <div class="dash-kpi-label">Alertas</div>
         </div>
     </div>
+
+    @* Indicadores con graficas: alcance "Mis tareas" (asignadas a mi) o "Equipo" (todo el tenant). *@
+    @if (_stats is not null && Scope is { } sc)
+    {
+        <div class="dash-stats">
+            <div class="dash-stats-head">
+                <div>
+                    <h2>@(_scopeMine ? "Mi actividad" : "Actividad del equipo")</h2>
+                    <span>@(_scopeMine ? "Tus tareas por tablero, tus cierres por mes y tus ultimos 7 dias" : "Todo el equipo: tareas por tablero, cierres por mes y ultimos 7 dias")</span>
+                </div>
+                @if (_stats.Mio is not null)
+                {
+                    <div class="dash-seg" role="tablist">
+                        <button class="@(_scopeMine ? "on" : "")" @onclick="() => SetScope(true)">Mis tareas</button>
+                        <button class="@(_scopeMine ? "" : "on")" @onclick="() => SetScope(false)">Equipo</button>
+                    </div>
+                }
+            </div>
+
+            <div class="dash-mini">
+                <div class="dash-mini-card">
+                    <div class="dash-mini-ico tv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 12h8M12 8v8"/></svg></div>
+                    <div>
+                        <div class="dash-mini-value">@sc.Activas</div>
+                        <div class="dash-mini-label">@(_scopeMine ? "Tengo activas" : "Activas del equipo")</div>
+                    </div>
+                </div>
+                <div class="dash-mini-card">
+                    <div class="dash-mini-ico tr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+                    <div>
+                        <div class="dash-mini-value">@sc.Vencidas</div>
+                        <div class="dash-mini-label">Vencidas</div>
+                    </div>
+                </div>
+                <div class="dash-mini-card">
+                    <div class="dash-mini-ico tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+                    <div>
+                        <div class="dash-mini-value">@sc.CerradasMes
+                            @if (Trend(sc) is { } tr)
+                            {
+                                <span class="dash-mini-trend @(tr.Up ? "up" : "down")" title="Frente al mes anterior (@sc.CerradasMesAnterior)">@tr.Text</span>
+                            }
+                        </div>
+                        <div class="dash-mini-label">Cerradas este mes</div>
+                    </div>
+                </div>
+                <div class="dash-mini-card">
+                    <div class="dash-mini-ico tb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
+                    <div>
+                        <div class="dash-mini-value">@sc.Cerradas7Dias</div>
+                        <div class="dash-mini-label">Cerradas ultimos 7 dias</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dash-charts">
+                <div class="dash-card">
+                    <div class="dash-card-head">
+                        <div class="dash-card-title">@(_scopeMine ? "Tengo en tareas por tablero" : "Tareas activas por tablero")</div>
+                        <span class="dash-card-note">activas hoy</span>
+                    </div>
+                    @if (sc.ActivasPorTablero.Count == 0)
+                    {
+                        <div class="dash-empty">@(_scopeMine ? "No tienes tareas activas asignadas." : "No hay tareas activas.")</div>
+                    }
+                    else
+                    {
+                        <div class="dash-chart"><EChart Option="@BoardBar(sc.ActivasPorTablero, ColorActivas)" Height="@BoardHeight(sc.ActivasPorTablero)" /></div>
+                    }
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-head">
+                        <div class="dash-card-title">@(_scopeMine ? "He cerrado en los tableros" : "Cerradas por tablero")</div>
+                        <span class="dash-card-note">ultimos 6 meses</span>
+                    </div>
+                    @if (sc.CerradasPorTablero.Count == 0)
+                    {
+                        <div class="dash-empty">Sin cierres en los ultimos 6 meses.</div>
+                    }
+                    else
+                    {
+                        <div class="dash-chart"><EChart Option="@BoardBar(sc.CerradasPorTablero, ColorCerradas)" Height="@BoardHeight(sc.CerradasPorTablero)" /></div>
+                    }
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-head">
+                        <div class="dash-card-title">Detalle mensual</div>
+                        <span class="dash-card-note">nuevas vs cerradas</span>
+                    </div>
+                    <div class="dash-chart"><EChart Option="@SerieChart(sc.Mensual, line: false)" Height="260px" /></div>
+                </div>
+                <div class="dash-card">
+                    <div class="dash-card-head">
+                        <div class="dash-card-title">Ultimos 7 dias</div>
+                        <span class="dash-card-note">nuevas vs cerradas</span>
+                    </div>
+                    <div class="dash-chart"><EChart Option="@SerieChart(sc.UltimosDias, line: true)" Height="260px" /></div>
+                </div>
+            </div>
+        </div>
+    }
 
     @* ADR-0158 D9: widgets del modulo de Analisis fijados por un Admin (vacio = no pinta nada). *@
     <Ecorex.SuperAdmin.Components.Shared.Analisis.AnalisisInicioFijados />
@@ -301,6 +403,18 @@
     private List<TaskItemSummaryDto> _myToday = [];
     private List<TaskItemSummaryDto> _overdue = [];
 
+    // Indicadores con graficas (IInicioStatsService). Por defecto "Mis tareas" si hay usuario de tenant.
+    private InicioStatsDto? _stats;
+    private bool _scopeMine = true;
+    private InicioScopeStatsDto? Scope => _stats is null ? null : (_scopeMine && _stats.Mio is not null ? _stats.Mio : _stats.Equipo);
+
+    // Colores medios (legibles en claro y oscuro): violeta = activas/nuevas, verde = cerradas.
+    private const string ColorActivas = "#7C3AED";
+    private const string ColorCerradas = "#16A34A";
+    private const string AxisColor = "#8A8A94";
+    private const string GridLine = "rgba(128,128,140,0.18)";
+    private const string ChartFont = "'Plus Jakarta Sans', system-ui, sans-serif";
+
     // Ahora en la zona horaria del tenant (no la del servidor, que corre en UTC dentro del contenedor).
     // Se fija en OnInitializedAsync tras resolver Tenant.TimeZoneId; default sensato mientras tanto.
     private DateTime _localNow = DateTime.UtcNow;
@@ -325,6 +439,7 @@
             _firstName = state.User.Identity?.Name?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
             if (Guid.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var uid)) { platformUserId = uid; }
             if (Guid.TryParse(state.User.FindFirst("tenant_id")?.Value, out var tid)) { tenantId = tid; }
+            _tenantRole = state.User.FindFirst("tenant_role")?.Value;
         }
 
         // Scope propio para NO compartir el DbContext del request con NavMenu/MainLayout
@@ -384,17 +499,125 @@
 
         // Mis tareas de hoy: asignadas a mi (TenantUser del PlatformUser actual) con
         // vencimiento hoy o ya vencidas; max 5 ordenadas por fecha de entrega.
+        Guid? myTenantUserId = null;
         if (platformUserId is Guid pid)
         {
             var me = (await tenantUsersSvc.ListAsync()).FirstOrDefault(u => u.PlatformUserId == pid);
             if (me is not null)
             {
+                myTenantUserId = me.Id;
                 var endOfToday = new DateTimeOffset(DateTime.Today.AddDays(1).AddTicks(-1)).ToUniversalTime();
                 var mine = await tasksSvc.ListAsync(new TaskItemListFilter(
                     Statuses: ActiveStatuses, AssigneeTenantUserId: me.Id, DueTo: endOfToday, PageSize: 50));
                 _myToday = mine.Items.OrderBy(t => t.DueDate).Take(5).ToList();
             }
         }
+
+        // Indicadores con graficas: mis tareas + equipo, en la zona horaria del tenant. Owner/Admin ven el
+        // nombre de tableros restringidos; al resto se le agrupan como "Otros tableros" en el alcance equipo.
+        var statsSvc = scope.ServiceProvider.GetRequiredService<IInicioStatsService>();
+        _stats = await statsSvc.GetAsync(myTenantUserId, _tenantRole is "Owner" or "Admin", tz, now);
+        if (_stats.Mio is null) { _scopeMine = false; }
+    }
+
+    private string? _tenantRole;
+
+    private void SetScope(bool mine) => _scopeMine = mine && _stats?.Mio is not null;
+
+    /// <summary>Variacion de cierres frente al mes anterior ("+25%"); null si no hay base para comparar.</summary>
+    private static (bool Up, string Text)? Trend(InicioScopeStatsDto s)
+    {
+        if (s.CerradasMesAnterior == 0) { return null; }
+        var pct = (int)Math.Round((s.CerradasMes - s.CerradasMesAnterior) * 100.0 / s.CerradasMesAnterior);
+        return (pct >= 0, (pct >= 0 ? "+" : "") + pct + "%");
+    }
+
+    private static string BoardHeight(IReadOnlyList<InicioBoardCountDto> items) => Math.Max(170, 34 * items.Count + 40) + "px";
+
+    private static Dictionary<string, object?> Axis(object? data, bool category, bool showLine) => new()
+    {
+        ["type"] = category ? "category" : "value",
+        ["data"] = data,
+        ["minInterval"] = category ? null : 1,
+        ["axisLabel"] = new Dictionary<string, object?> { ["color"] = AxisColor, ["fontFamily"] = ChartFont, ["fontSize"] = 11 },
+        ["axisLine"] = new Dictionary<string, object?> { ["show"] = showLine, ["lineStyle"] = new Dictionary<string, object?> { ["color"] = GridLine } },
+        ["axisTick"] = new Dictionary<string, object?> { ["show"] = false },
+        ["splitLine"] = new Dictionary<string, object?> { ["show"] = !category, ["lineStyle"] = new Dictionary<string, object?> { ["color"] = GridLine } },
+    };
+
+    /// <summary>Barras horizontales por tablero (el mayor arriba), con el valor al final de cada barra.</summary>
+    private static object BoardBar(IReadOnlyList<InicioBoardCountDto> items, string color)
+    {
+        var ordered = items.Reverse().ToList(); // ECharts pinta la categoria 0 abajo
+        var yAxis = Axis(ordered.Select(i => i.Board).ToList(), category: true, showLine: false);
+        ((Dictionary<string, object?>)yAxis["axisLabel"]!)["width"] = 140;
+        ((Dictionary<string, object?>)yAxis["axisLabel"]!)["overflow"] = "truncate";
+        return Clean(new Dictionary<string, object?>
+        {
+            ["textStyle"] = new Dictionary<string, object?> { ["fontFamily"] = ChartFont },
+            ["grid"] = new Dictionary<string, object?> { ["left"] = 8, ["right"] = 36, ["top"] = 8, ["bottom"] = 8, ["containLabel"] = true },
+            ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis", ["axisPointer"] = new Dictionary<string, object?> { ["type"] = "shadow" } },
+            ["xAxis"] = Axis(null, category: false, showLine: false),
+            ["yAxis"] = yAxis,
+            ["series"] = new object[]
+            {
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "bar", ["name"] = "Tareas", ["barMaxWidth"] = 18,
+                    ["data"] = ordered.Select(i => i.Count).ToList(),
+                    ["itemStyle"] = new Dictionary<string, object?> { ["color"] = color, ["borderRadius"] = new[] { 0, 6, 6, 0 } },
+                    ["label"] = new Dictionary<string, object?> { ["show"] = true, ["position"] = "right", ["color"] = AxisColor, ["fontWeight"] = 600 },
+                }
+            }
+        });
+    }
+
+    /// <summary>Nuevas vs cerradas por periodo: columnas (mensual) o lineas suaves con area (7 dias).</summary>
+    private static object SerieChart(InicioSerieDto s, bool line)
+    {
+        Dictionary<string, object?> Serie(string name, IReadOnlyList<int> data, string color) => new()
+        {
+            ["type"] = line ? "line" : "bar",
+            ["name"] = name,
+            ["data"] = data,
+            ["smooth"] = line ? true : null,
+            ["symbolSize"] = line ? 7 : null,
+            ["barMaxWidth"] = line ? null : 22,
+            ["barGap"] = line ? null : "20%",
+            ["itemStyle"] = new Dictionary<string, object?> { ["color"] = color, ["borderRadius"] = line ? null : new[] { 6, 6, 0, 0 } },
+            ["lineStyle"] = line ? new Dictionary<string, object?> { ["width"] = 2.5 } : null,
+            ["areaStyle"] = line ? new Dictionary<string, object?> { ["opacity"] = 0.08 } : null,
+        };
+        return Clean(new Dictionary<string, object?>
+        {
+            ["textStyle"] = new Dictionary<string, object?> { ["fontFamily"] = ChartFont },
+            ["grid"] = new Dictionary<string, object?> { ["left"] = 8, ["right"] = 12, ["top"] = 34, ["bottom"] = 4, ["containLabel"] = true },
+            ["legend"] = new Dictionary<string, object?>
+            {
+                ["top"] = 0, ["right"] = 4, ["icon"] = "roundRect", ["itemWidth"] = 10, ["itemHeight"] = 10,
+                ["textStyle"] = new Dictionary<string, object?> { ["color"] = AxisColor, ["fontSize"] = 12 },
+            },
+            ["tooltip"] = new Dictionary<string, object?> { ["trigger"] = "axis" },
+            ["xAxis"] = Axis(s.Labels, category: true, showLine: true),
+            ["yAxis"] = Axis(null, category: false, showLine: false),
+            ["series"] = new object[] { Serie("Nuevas", s.Nuevas, ColorActivas), Serie("Cerradas", s.Cerradas, ColorCerradas) }
+        });
+    }
+
+    /// <summary>Quita las claves nulas (recursivo): ECharts toma un null como valor y pisa sus defaults.</summary>
+    private static object Clean(object node)
+    {
+        switch (node)
+        {
+            case Dictionary<string, object?> d:
+                foreach (var k in d.Where(kv => kv.Value is null).Select(kv => kv.Key).ToList()) { d.Remove(k); }
+                foreach (var v in d.Values) { Clean(v!); }
+                break;
+            case object[] arr:
+                foreach (var v in arr) { if (v is not null) { Clean(v); } }
+                break;
+        }
+        return node;
     }
 
     private async Task OpenWizardAsync()

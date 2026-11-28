@@ -2337,6 +2337,44 @@ html.dark {
 .dash-alert-title { font-size: 13.5px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-alert-meta { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
 
+/* ===== Indicadores con graficas (Mis tareas / Equipo): mismo lenguaje de cards del
+   dashboard (r20, sh-sm, tiles de color); mini KPIs 26/800 y graficas ECharts. ===== */
+.dash-stats { margin-bottom: 30px; }
+.dash-stats-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 14px; }
+.dash-stats-head h2 { font-weight: 800; font-size: 20px; letter-spacing: -.02em; margin: 0; }
+.dash-stats-head span { font-size: 13px; color: var(--ink-3); }
+.dash-seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 12px; background: var(--surface-3); border: 1px solid var(--line); }
+.dash-seg button {
+  border: none; background: none; font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--ink-2); padding: 7px 14px; border-radius: 9px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.dash-seg button:hover { color: var(--ink); }
+.dash-seg button.on { background: var(--surface); color: var(--ink); box-shadow: var(--sh-sm); }
+.dash-mini { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .dash-mini { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .dash-mini { grid-template-columns: 1fr; } }
+.dash-mini-card {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--rad); padding: 16px 18px; box-shadow: var(--sh-sm);
+}
+.dash-mini-ico { width: 40px; height: 40px; flex: none; border-radius: 12px; display: grid; place-items: center; }
+.dash-mini-ico svg { width: 19px; height: 19px; }
+.dash-mini-ico.tv { background: var(--t-violet-bg); color: var(--t-violet); }
+.dash-mini-ico.tg { background: var(--t-green-bg); color: var(--t-green); }
+.dash-mini-ico.tb { background: var(--t-blue-bg); color: var(--t-blue); }
+.dash-mini-ico.tr { background: var(--t-rose-bg); color: var(--t-rose); }
+.dash-mini-value { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 26px; letter-spacing: -.03em; line-height: 1; }
+.dash-mini-label { font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+.dash-mini-trend { font-size: 11px; font-weight: 700; letter-spacing: 0; padding: 2px 7px; border-radius: 7px; }
+.dash-mini-trend.up { background: var(--t-green-bg); color: var(--t-green); }
+.dash-mini-trend.down { background: var(--t-rose-bg); color: var(--t-rose); }
+.dash-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1100px) { .dash-charts { grid-template-columns: minmax(0, 1fr); } }
+.dash-card-note { font-size: 12px; color: var(--ink-3); }
+.dash-chart { padding: 12px 16px 10px; }
+
 /* ===== Seccion "Modulos" del dashboard (fuente: h2 20/800, headers de categoria
    con punto 8x8 r3 y cards 280px r16 p18 con tile 40 r12, pie "Ir al modulo") ===== */
 .dash-mods-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }

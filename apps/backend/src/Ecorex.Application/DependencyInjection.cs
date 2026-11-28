@@ -124,6 +124,8 @@ public static class DependencyInjection
         services.AddScoped<Notifications.INotificationService, Notifications.NotificationService>();
         // Tableros de actividades unificados (ADR-0020): tarjetas = TaskItem.
         services.AddScoped<Tenancy.IActivityBoardService, Tenancy.ActivityBoardService>();
+        // Indicadores personales y del equipo del dashboard /inicio.
+        services.AddScoped<Tenancy.IInicioStatsService, Tenancy.InicioStatsService>();
         // Auto-archivado de tareas cerradas por tablero (ADR-0123): lo dispara TaskAutoArchiveWorker.
         services.AddScoped<Tenancy.ITaskAutoArchiveService, Tenancy.TaskAutoArchiveService>();
         // Limpieza puntual del backlog de flujos zombi (ADR-0150): endpoint PlatformOperator one-shot.

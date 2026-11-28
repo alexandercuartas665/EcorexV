@@ -2555,6 +2555,7 @@ else
         FormSourceKind.Item => "/inventario-items",
         FormSourceKind.DataContainer => "/contenedor-datos",
         FormSourceKind.Activity => "/actividades",
+        FormSourceKind.RequerimientoOrigen => "/requerimientos-config",
         _ => "#",
     };
 
@@ -3728,9 +3729,14 @@ else
         {
             using var ambient = BeginAmbient();
             // Se resuelve por BUSQUEDA y no por ResolveAsync porque lo tecleado es la clave de
-            // negocio (SKU/documento), no el id de la entidad que espera ResolveAsync.
+            // negocio (SKU/documento), no el id de la entidad que espera ResolveAsync. Los tokens
+            // {columna} del filtro toman el valor de ESTA fila, igual que al buscar.
+            var gridRows = GridRowsOf(q);
+            var commitFilter = rowIndex >= 0 && rowIndex < gridRows.Count
+                ? FormGridFilterTokens.Resolve(cfg.FilterJson, gridRows[rowIndex])
+                : cfg.FilterJson;
             var page = await LookupSvc.SearchAsync(new FormLookupRequest(
-                cfg.SourceKind, cfg.SourceRef, text, cfg.FilterJson, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
+                cfg.SourceKind, cfg.SourceRef, text, commitFilter, cfg.DisplayField, cfg.Fields(), Skip: 0, Take: 20));
             // Match exacto por la clave (SKU/documento); si no, por el TEXTO MOSTRADO (DisplayField), para
             // que teclear el nombre resuelva aunque el autor no haya configurado valueField.
             match = page.Items.FirstOrDefault(i => string.Equals(cfg.KeyOf(i), text, StringComparison.OrdinalIgnoreCase))

@@ -2,6 +2,23 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-27 - Integracion feat/reqmat-solicitante-origen (aba1c831, 16fe28a5): origen/solicitante por item en REQMAT + cascada {columna} en Contenedores - v0.16.412
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion (FormSourceKind como string). Merge limpio.
+- **Trae**: fuente de lookup "Origenes de compra" (RequerimientoOrigen); GENERAR_REQUERIMIENTOS_DESDE_TABLA con mapeo origen por id o nombre y mapeo solicitante (fallback creador de la actividad); DataContainerLookupSource aplica el filtro plano de grilla con tokens {columna} resueltos; GridLookupCommitAsync resuelve los tokens de la fila.
+- **Puerta**: build Release, dotnet format (archivos tocados; el del sln completo tiene deuda previa), Domain/Application/SuperAdmin tests, Integration.Tests PG (SQL Server en CI).
+- **Siguiente**: desplegar solo con OK del usuario; luego la sesion de compras corre en prod el script de configuracion de AGRO (respaldo + dry-run).
+
+## 2026-11-27 - Requisicion REQMAT (AGRO): solicitante y origen por item en las necesidades - rama feat/reqmat-solicitante-origen, SIN desplegar
+
+Agente: ECOREX.compras (Claude Opus 5.5). SIN migracion (FormSourceKind se persiste como string).
+- **Problema**: las necesidades que crea GENERAR_REQUERIMIENTOS_DESDE_TABLA desde REQMAT quedaban sin solicitante (el form se guarda en borrador, sin submitter) y sin origen (origenId era fijo para toda la regla).
+- **Hecho**: FormSourceKind.RequerimientoOrigen + RequerimientoOrigenLookupSource (origenes activos del tenant: id/nombre/area) en campo y columna de grilla (FormDesigner "Origenes de compra"). Verbo: mapeo "origen" acepta id o NOMBRE (fallback area) por fila y el area de la necesidad sale del origen si nadie la dio; mapeo "solicitante" (id, correo o nombre visible del campo Usuarios del sistema; texto libre = snapshot de nombre); si no hay mapeo ni submitter, solicitante = creador de la actividad origen. SystemUserLookupSource.UserLabel publico (misma regla de nombre).
+- **Config local (AGRO)**: columna "origen" en la grilla items de REQMAT + mapeo origen/solicitante en REQMAT-REQ (scratchpad rq/origen_solicitante.sql, idempotente con guardas). E2E local T00103: Richard crea, Diego aprueba -> 2 necesidades con origen (Insumos de Oficina/Planta produccion), area (OFICINA/PLANTA) y solicitante.
+- **Gates**: build 0 errores, Application.Tests 1870 (+10 GenerarRequerimientosMatchTests).
+- **Ajuste (mismo dia, a pedido del usuario)**: el origen va en la CABECERA (campo 'origen' con la fuente Origenes de compra, mapeo field:origen), no por item. Por item se agrega FAMILIA antes de la descripcion: contenedor 'Articulos de compra' (tablas Familias y Articulos) y la descripcion autocompleta solo los articulos de la familia de la fila (filter {"Familia":"{familia}"}) y autollena la unidad. Codigo: DataContainerLookupSource toma el filtro plano del FilterJson cuando no llegan EqFilters (columnas de grilla; valor vacio = sin filtro, catalogo completo) y el renderer resuelve los tokens {columna} tambien al confirmar texto tecleado. Campo propio 'familia' en la necesidad (mapeo dyn:familia). Script: scratchpad rq/gen_familias.py <out> <local|prod> (prod sin filas de ejemplo). E2E local T00104 OK (origen Planta produccion, familias Tornilleria/Papeleria, unidad autollenada, solicitante). Application.Tests 1874 (+4 DataContainerGridFiltersTests).
+- **Siguiente**: integrar + desplegar con OK del usuario; luego correr familias_prod.sql en prod (respaldo + dry-run) y cargar el catalogo real de familias/articulos.
+
 ## 2026-11-27 - Integracion feat/mcp-terminar-tarea (e2bfbc12): "Tope de segundos" en pasos no-IA del dron - v0.16.411
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion, sin backend.

@@ -32,5 +32,10 @@ public enum FormSourceKind
     /// <summary>Actividades (TaskItem) del tenant, via ActivityLookupSource. Busca por titulo o referencia y
     /// filtra por cliente/tablero; en una grilla el filtro admite tokens {columna} de la fila (cascada).
     /// No requiere SourceRef (fuente unica).</summary>
-    Activity
+    Activity,
+
+    /// <summary>Origenes de Requerimientos de Compra (RequerimientoOrigen) del tenant, via
+    /// RequerimientoOrigenLookupSource. Para que cada item de una requisicion diga de donde llega la
+    /// necesidad. No requiere SourceRef (fuente unica).</summary>
+    RequerimientoOrigen
 }

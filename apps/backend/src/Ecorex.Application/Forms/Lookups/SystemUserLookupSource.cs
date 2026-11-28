@@ -100,14 +100,19 @@ public sealed class SystemUserLookupSource : IFormLookupSource
     /// <summary>Nombre legible: DisplayName si existe; si no, la parte local del email con cada palabra
     /// capitalizada ("ana.garcia@x.com" -> "Ana Garcia"). Misma regla que TaskUi.UserLabel, replicada aqui
     /// porque aquel vive en la capa de UI y esta fuente es de Application.</summary>
-    private static string Label(TenantUserDto u)
+    private static string Label(TenantUserDto u) => UserLabel(u.DisplayName, u.Email);
+
+    /// <summary>Nombre legible a partir de DisplayName y correo (misma regla de arriba). Lo reusa el verbo
+    /// GENERAR_REQUERIMIENTOS_DESDE_TABLA para reconocer al solicitante por el nombre que muestra el campo.</summary>
+    public static string UserLabel(string? displayName, string email)
     {
-        if (!string.IsNullOrWhiteSpace(u.DisplayName)) { return u.DisplayName!.Trim(); }
-        var local = u.Email;
+        if (!string.IsNullOrWhiteSpace(displayName)) { return displayName!.Trim(); }
+        email ??= "";
+        var local = email;
         var at = local.IndexOf('@');
         if (at > 0) { local = local[..at]; }
         var parts = local.Split(['.', '-', '_', '+'], StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) { return u.Email; }
+        if (parts.Length == 0) { return email; }
         return string.Join(" ", parts.Select(p =>
             p.Length == 1 ? p.ToUpperInvariant() : char.ToUpperInvariant(p[0]) + p[1..].ToLowerInvariant()));
     }

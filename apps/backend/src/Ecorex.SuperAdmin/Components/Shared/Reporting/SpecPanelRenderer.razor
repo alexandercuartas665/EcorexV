@@ -824,6 +824,7 @@
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 320;
                     rw.Option = EChartBuilders.Line(slices.Select(s => s.Key).ToList(), slices.Select(s => s.Value).ToList());
+                    rw.ExportChart = ReportExcelChartKind.Line;
                     CaptureSlices(rw, w.Dim, MeasureLabel(w, scale), slices);
                     break;
                 }
@@ -834,12 +835,14 @@
                     rw.Height = w.Height ?? 320;
                     if (string.Equals(w.Orientation, "horizontal", StringComparison.OrdinalIgnoreCase))
                     {
+                        rw.ExportChart = ReportExcelChartKind.Bar;
                         rw.Option = EChartBuilders.HorizontalBar(
                             slices.Select(s => Trunc(s.Key, 18)).ToList(), slices.Select(s => s.Value).ToList(),
                             color: EChartBuilders.Palette[2], integer: isInteger);
                     }
                     else
                     {
+                        rw.ExportChart = ReportExcelChartKind.Column;
                         rw.Option = EChartBuilders.VerticalBar(
                             slices.Select(s => s.Key).ToList(), slices.Select(s => s.Value).ToList(),
                             rotate: 24, label: true, rawValues: isInteger, gridBottom: 70, gridLeft: 44);
@@ -854,6 +857,7 @@
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 320;
                     rw.Option = EChartBuilders.Donut(slices.Select(s => (s.Key, s.Value)).ToList(), integerValues: isInteger);
+                    rw.ExportChart = ReportExcelChartKind.Doughnut;
                     CaptureSlices(rw, w.Dim, MeasureLabel(w, scale), slices);
                     break;
                 }
@@ -863,6 +867,7 @@
                     rw.Kind = WKind.Chart;
                     rw.Height = w.Height ?? 360;
                     var barName = MeasureLabel(w, scale);
+                    rw.ExportChart = ReportExcelChartKind.Pareto;
                     rw.Option = EChartBuilders.Pareto(cats.Select(c => Trunc(c, 22)).ToList(), bars, cum,
                         barName: barName, cumName: "Acumulado %", leftAxisName: scale == 1_000_000d ? "M" : "");
                     rw.ExportHeaders.Add(string.IsNullOrWhiteSpace(w.Dim) ? "Categoria" : w.Dim!);
@@ -966,11 +971,12 @@
     }
 
     /// <summary>
-    /// Arma el .xlsx del reporte con los datos YA calculados (respetando los filtros del tablero): una hoja
-    /// "Indicadores" con los KPIs y una hoja por cada tabla/serie/matriz. Devuelve null si no hay nada que
-    /// exportar (el panel aun no cargo o quedo vacio). Lo invoca la galeria desde el boton "Generar Excel".
+    /// Arma el .xlsx del reporte con los datos YA calculados (respetando los filtros del tablero): UNA hoja
+    /// "Reporte" con los KPIs arriba y cada tabla/serie/matriz como seccion, y junto a cada serie su grafico
+    /// nativo de Excel (mismo tipo que en el tablero). Devuelve null si no hay nada que exportar (el panel
+    /// aun no cargo o quedo vacio). Lo invoca la galeria desde el boton "Generar Excel".
     /// </summary>
-    public byte[]? BuildExcelBytes()
+    public byte[]? BuildExcelBytes(string? title = null)
     {
         var kpis = _kpis.Select(k => (k.Label, k.Value)).ToList();
         var sheets = new List<ReportExcelSheet>();
@@ -979,11 +985,12 @@
         {
             if (w.ExportHeaders.Count == 0 && w.ExportRows.Count == 0) { continue; }
             var name = string.IsNullOrWhiteSpace(w.Title) ? $"Datos {i}" : w.Title;
-            sheets.Add(new ReportExcelSheet(name, w.ExportHeaders, w.ExportRows.Cast<IReadOnlyList<object?>>().ToList()));
+            sheets.Add(new ReportExcelSheet(name, w.ExportHeaders, w.ExportRows.Cast<IReadOnlyList<object?>>().ToList(),
+                w.Kind == WKind.Chart ? w.ExportChart : null));
             i++;
         }
         if (kpis.Count == 0 && sheets.Count == 0) { return null; }
-        return ReportExcelExport.Build(kpis, sheets);
+        return ReportExcelExport.Build(kpis, sheets, string.IsNullOrWhiteSpace(title) ? "Reporte" : title);
     }
 
     private static string MeasureLabel(PanelWidget w, double scale)
@@ -1079,5 +1086,8 @@
         // matriz -> su grilla). Se llena al construir el widget, respetando los filtros aplicados.
         public List<string> ExportHeaders { get; } = new();
         public List<List<object?>> ExportRows { get; } = new();
+
+        /// <summary>Grafico nativo de Excel que acompana la serie exportada (null = solo datos).</summary>
+        public ReportExcelChartKind? ExportChart { get; set; }
     }
 }

@@ -1,12 +1,16 @@
 using ClosedXML.Excel;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Validation;
 using Ecorex.Application.Reporting;
 using Xunit;
+using C = DocumentFormat.OpenXml.Drawing.Charts;
 
 namespace Ecorex.Application.Tests;
 
 /// <summary>
-/// Export a Excel de un reporte (galeria de reportes): una hoja "Indicadores" con los KPIs y una hoja por
-/// cada tabla/serie. Se valida armando el xlsx y volviendolo a leer con ClosedXML.
+/// Export a Excel de un reporte (galeria de reportes): UNA hoja con los KPIs y cada tabla/serie como
+/// seccion, con graficos nativos de Excel. Se valida releyendo con ClosedXML y con el validador OpenXML.
 /// </summary>
 public class ReportExcelExportTests
 {
@@ -16,54 +20,111 @@ public class ReportExcelExportTests
         return new XLWorkbook(ms);
     }
 
+    private static IReadOnlyList<object?>[] Serie(params (string Cat, double Val)[] pts)
+        => pts.Select(p => (IReadOnlyList<object?>)new object?[] { p.Cat, p.Val }).ToArray();
+
+    /// <summary>Errores de esquema OpenXML (si hay, Excel ofrece "reparar" el archivo).</summary>
+    private static List<string> SchemaErrors(byte[] bytes)
+    {
+        using var ms = new MemoryStream(bytes);
+        using var doc = SpreadsheetDocument.Open(ms, false);
+        return new OpenXmlValidator(FileFormatVersions.Office2016).Validate(doc)
+            .Select(e => $"{e.Part?.Uri} {e.Path?.XPath}: {e.Description}").ToList();
+    }
+
+    private static List<ChartPart> Charts(byte[] bytes, out SpreadsheetDocument doc)
+    {
+        doc = SpreadsheetDocument.Open(new MemoryStream(bytes), false);
+        return doc.WorkbookPart!.WorksheetParts.SelectMany(w => w.DrawingsPart?.ChartParts ?? Enumerable.Empty<ChartPart>()).ToList();
+    }
+
     [Fact]
-    public void Build_arma_hoja_de_indicadores_y_una_por_serie()
+    public void Build_pone_indicadores_y_secciones_en_una_sola_hoja()
     {
         var kpis = new (string, string)[] { ("Total", "42"), ("Abiertas", "7") };
         var sheets = new[]
         {
-            new ReportExcelSheet("Ventas por mes",
-                new[] { "Mes", "Monto" },
-                new IReadOnlyList<object?>[]
-                {
-                    new object?[] { "Enero", 1500d },
-                    new object?[] { "Febrero", 2300d },
-                }),
+            new ReportExcelSheet("Ventas por mes", new[] { "Mes", "Monto" }, Serie(("Enero", 1500d), ("Febrero", 2300d))),
+            new ReportExcelSheet("Detalle", new[] { "Cliente", "Total" }, Serie(("ACME", 10d))),
         };
 
-        var bytes = ReportExcelExport.Build(kpis, sheets);
+        var bytes = ReportExcelExport.Build(kpis, sheets, "Mi reporte");
         using var wb = Roundtrip(bytes);
 
-        var ind = wb.Worksheet("Indicadores");
-        Assert.Equal("Indicador", ind.Cell(1, 1).GetString());
-        Assert.Equal("Total", ind.Cell(2, 1).GetString());
-        Assert.Equal("42", ind.Cell(2, 2).GetString());
-        Assert.Equal("Abiertas", ind.Cell(3, 1).GetString());
+        var ws = Assert.Single(wb.Worksheets);
+        Assert.Equal(ReportExcelExport.ReportSheetName, ws.Name);
+        Assert.Equal("Mi reporte", ws.Cell(1, 1).GetString());
+        Assert.Equal("Indicadores", ws.Cell(3, 1).GetString());
+        Assert.Equal("Indicador", ws.Cell(4, 1).GetString());
+        Assert.Equal("Total", ws.Cell(5, 1).GetString());
+        Assert.Equal("42", ws.Cell(5, 2).GetString());
+        Assert.Equal("Abiertas", ws.Cell(6, 1).GetString());
 
-        var s = wb.Worksheet("Ventas por mes");
-        Assert.Equal("Mes", s.Cell(1, 1).GetString());
-        Assert.Equal("Monto", s.Cell(1, 2).GetString());
-        Assert.Equal("Enero", s.Cell(2, 1).GetString());
-        Assert.Equal(1500d, s.Cell(2, 2).GetDouble());
-        Assert.Equal("Febrero", s.Cell(3, 1).GetString());
+        // Secciones apiladas debajo, cada una con su titulo y encabezados.
+        Assert.Equal("Ventas por mes", ws.Cell(8, 1).GetString());
+        Assert.Equal("Mes", ws.Cell(9, 1).GetString());
+        Assert.Equal("Enero", ws.Cell(10, 1).GetString());
+        Assert.Equal(1500d, ws.Cell(10, 2).GetDouble());
+        Assert.Equal("Detalle", ws.Cell(13, 1).GetString());
+        Assert.Equal("ACME", ws.Cell(15, 1).GetString());
+        Assert.Empty(SchemaErrors(bytes));
     }
 
     [Fact]
-    public void Build_nombres_de_hoja_duplicados_o_largos_se_hacen_unicos_y_validos()
+    public void Build_dibuja_un_grafico_nativo_por_serie_ligado_a_sus_celdas()
     {
-        var largo = new string('X', 50);   // > 31 chars
         var sheets = new[]
         {
-            new ReportExcelSheet(largo, new[] { "A" }, System.Array.Empty<IReadOnlyList<object?>>()),
-            new ReportExcelSheet(largo, new[] { "A" }, System.Array.Empty<IReadOnlyList<object?>>()),
+            new ReportExcelSheet("Por mes", new[] { "Mes", "Monto" }, Serie(("Ene", 1d), ("Feb", 2d), ("Mar", 3d)), ReportExcelChartKind.Line),
+            new ReportExcelSheet("Por asesor", new[] { "Asesor", "Monto" }, Serie(("Ana", 5d), ("Luis", 4d)), ReportExcelChartKind.Bar),
+            new ReportExcelSheet("Por estado", new[] { "Estado", "Cantidad" }, Serie(("Abierta", 5d), ("Cerrada", 9d)), ReportExcelChartKind.Column),
+            new ReportExcelSheet("Participacion", new[] { "Linea", "Monto" }, Serie(("A", 60d), ("B", 40d)), ReportExcelChartKind.Doughnut),
+            new ReportExcelSheet("Pareto", new[] { "Causa", "Casos", "Acumulado %" },
+                new IReadOnlyList<object?>[] { new object?[] { "X", 8d, 80d }, new object?[] { "Y", 2d, 100d } },
+                ReportExcelChartKind.Pareto),
+            new ReportExcelSheet("Tabla", new[] { "Cliente", "Total" }, Serie(("ACME", 10d))),   // sin grafico
+            new ReportExcelSheet("Vacio", new[] { "Mes", "Monto" }, System.Array.Empty<IReadOnlyList<object?>>(), ReportExcelChartKind.Line),
         };
+
+        var bytes = ReportExcelExport.Build(new (string, string)[] { ("Total", "1") }, sheets, "Reporte ventas");
+
+        Assert.Empty(SchemaErrors(bytes));
+        var charts = Charts(bytes, out var doc);
+        using (doc)
+        {
+            Assert.Equal(5, charts.Count);   // la tabla y la serie vacia no llevan grafico
+            var plots = charts.Select(c => c.ChartSpace!.Descendants<C.PlotArea>().Single()).ToList();
+            Assert.Single(plots[0].Elements<C.LineChart>());
+            Assert.Equal(C.BarDirectionValues.Bar, plots[1].Descendants<C.BarDirection>().Single().Val!.Value);
+            Assert.Equal(C.BarDirectionValues.Column, plots[2].Descendants<C.BarDirection>().Single().Val!.Value);
+            Assert.Single(plots[3].Elements<C.DoughnutChart>());
+            Assert.Single(plots[4].Elements<C.BarChart>());
+            Assert.Single(plots[4].Elements<C.LineChart>());
+            Assert.Equal(2, plots[4].Elements<C.ValueAxis>().Count());
+
+            // La serie apunta al rango de la hoja (categorias en A, valores en B).
+            using var wb = Roundtrip(bytes);
+            var ws = wb.Worksheet(ReportExcelExport.ReportSheetName);
+            var formulas = plots[0].Descendants<C.Formula>().Select(f => f.Text).ToList();
+            var row = ws.Column(1).CellsUsed().First(c => c.GetString() == "Ene").Address.RowNumber;
+            Assert.Contains($"'Reporte'!$A${row}:$A${row + 2}", formulas);
+            Assert.Contains($"'Reporte'!$B${row}:$B${row + 2}", formulas);
+        }
+    }
+
+    [Fact]
+    public void Build_una_sola_tabla_sin_indicadores_sale_como_hoja_plana()
+    {
+        var sheets = new[] { new ReportExcelSheet("Registros", new[] { "Mes", "Monto" }, Serie(("Enero", 1500d))) };
 
         var bytes = ReportExcelExport.Build(System.Array.Empty<(string, string)>(), sheets);
         using var wb = Roundtrip(bytes);
 
-        Assert.Equal(2, wb.Worksheets.Count);
-        Assert.All(wb.Worksheets, ws => Assert.True(ws.Name.Length <= 31));
-        Assert.Equal(wb.Worksheets.Count, wb.Worksheets.Select(w => w.Name).Distinct().Count());
+        var s = Assert.Single(wb.Worksheets);
+        Assert.Equal("Registros", s.Name);
+        Assert.Equal("Mes", s.Cell(1, 1).GetString());
+        Assert.Equal("Enero", s.Cell(2, 1).GetString());
+        Assert.Equal(1500d, s.Cell(2, 2).GetDouble());
     }
 
     [Fact]

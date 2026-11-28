@@ -2,6 +2,14 @@
 
 > Bitacora de avance por sesion. Formato: fecha, agentes, hecho, siguiente, bloqueos, decisiones.
 
+## 2026-11-28 - Inicio: indicadores con graficas "Mi actividad" / "Actividad del equipo" - v0.16.413 (rama feat/inicio-mis-indicadores 73c682d0)
+
+Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion. Pedido del usuario: los KPIs del inicio estaban sueltos; mostrar tambien lo propio, por tablero, mensual y ultimos 7 dias con graficas.
+- **Hecho**: seccion nueva en /inicio con selector Mis tareas / Equipo: 4 mini KPIs (activas, vencidas, cerradas este mes con tendencia vs mes anterior, cerradas 7 dias) + 4 graficas ECharts (activas por tablero, cerradas por tablero 6 meses, detalle mensual nuevas vs cerradas, ultimos 7 dias).
+- **Backend**: IInicioStatsService (una proyeccion liviana, filtro global de tenant) + InicioStatsCalculator puro en zona horaria del tenant. Cerrada = columna IsDone o Done/Closed; fecha = ClosedAt o ColumnEnteredAt. Mio = asignada a quien consulta (no hay registro de quien cerro). Tablero restringido no visible = "Otros tableros" en equipo (Owner/Admin ven nombre).
+- **Puerta**: build Release 0 errores; format OK; Domain 35, Application 1880 (+6), SuperAdmin 339; Integration PG 465/465 (+2; SQL Server en CI). Validado en local 5275 (BITCODE): Equipo 31 activas = KPI global; tema oscuro legible.
+- **Siguiente**: desplegar solo con OK del usuario.
+
 ## 2026-11-27 - Integracion feat/reqmat-solicitante-origen (aba1c831, 16fe28a5): origen/solicitante por item en REQMAT + cascada {columna} en Contenedores - v0.16.412
 
 Agente: ECOREX.desarrollo (Claude Opus 5.5). SIN migracion (FormSourceKind como string). Merge limpio.
